@@ -1,12 +1,18 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join, relative, extname } from 'node:path';
-import type { SecurityPattern, TechStackInfo } from './types.js';
+import { readFile } from 'node:fs/promises';
+import { relative } from 'node:path';
+import { DEFAULT_EXCLUDE_PATTERNS, gatherFiles } from './file-gathering.js';
+import type {
+  SecurityFindingCategory,
+  SecurityPattern,
+  SecurityPatternConfidence,
+  TechStackInfo,
+} from './types.js';
 import type { GeneratedSkill } from './skill-generator.js';
 
 export interface Finding {
   id: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
-  category: 'secrets' | 'injection' | 'config' | 'dependency' | 'filesystem';
+  category: SecurityFindingCategory;
   title: string;
   description: string;
   file: string;
@@ -14,7 +20,7 @@ export interface Finding {
   snippet?: string | undefined;
   remediation: string;
   patternId: string;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: SecurityPatternConfidence;
 }
 
 export interface ScanResult {
@@ -42,6 +48,7 @@ export interface ScanOptions {
   excludePaths: string[];
   fileExtensions: string[];
   depth: 'quick' | 'standard' | 'deep';
+  fileConcurrency: number;
 }
 
 const DEFAULT_SCAN_OPTIONS: ScanOptions = {
@@ -49,9 +56,10 @@ const DEFAULT_SCAN_OPTIONS: ScanOptions = {
   includeInjection: true,
   includeConfig: true,
   includeDependencies: true,
-  excludePaths: ['node_modules', 'dist', '.git', 'coverage', 'build', 'target'],
+  excludePaths: [...DEFAULT_EXCLUDE_PATTERNS],
   fileExtensions: [],
   depth: 'standard',
+  fileConcurrency: 10,
 };
 
 export class SecurityScanner {
@@ -61,24 +69,43 @@ export class SecurityScanner {
     this.options = { ...DEFAULT_SCAN_OPTIONS, ...options };
   }
 
-  async scan(projectRoot: string, skill: GeneratedSkill, techStack: TechStackInfo): Promise<ScanResult> {
+  async scan(
+    projectRoot: string,
+    skill: GeneratedSkill,
+    techStack: TechStackInfo,
+  ): Promise<ScanResult> {
     const startTime = Date.now();
     const findings: Finding[] = [];
     const errors: string[] = [];
     let scannedFiles = 0;
 
     const targetExtensions = this.getTargetExtensions(skill, techStack);
-    const files = await this.gatherFiles(projectRoot, targetExtensions);
+    const maxDepth = this.options.depth === 'quick' ? 2 : this.options.depth === 'deep' ? 20 : 5;
+    const files = await gatherFiles({
+      root: projectRoot,
+      extensions: targetExtensions,
+      maxDepth,
+      excludePatterns: this.options.excludePaths,
+    });
 
-    for (const file of files) {
-      try {
-        const content = await readFile(file, 'utf-8');
-        const fileFindings = this.scanFile(content, file, skill.patterns);
-        findings.push(...fileFindings);
-        scannedFiles++;
-      } catch (err) {
-        errors.push(`Failed to read ${file}: ${err}`);
-      }
+    const concurrency = Math.max(1, Math.floor(this.options.fileConcurrency));
+    for (let index = 0; index < files.length; index += concurrency) {
+      const batch = files.slice(index, index + concurrency);
+      const results = await Promise.allSettled(
+        batch.map(async (file) => {
+          const content = await readFile(file, 'utf-8');
+          const relativePath = relative(projectRoot, file).replace(/\\/g, '/');
+          return this.scanFile(content, relativePath, skill.patterns, skill.metadata.confidence);
+        }),
+      );
+      results.forEach((result, batchIndex) => {
+        if (result.status === 'fulfilled') {
+          findings.push(...result.value);
+          scannedFiles++;
+        } else {
+          errors.push(`Failed to read ${batch[batchIndex] ?? 'unknown file'}: ${result.reason}`);
+        }
+      });
     }
 
     // Sort findings by severity
@@ -100,49 +127,6 @@ export class SecurityScanner {
     };
   }
 
-  private async gatherFiles(root: string, extensions: string[]): Promise<string[]> {
-    const files: string[] = [];
-    const maxDepth = this.options.depth === 'quick' ? 2 : this.options.depth === 'deep' ? 20 : 5;
-
-    await this.gatherFilesRecursive(root, files, extensions, 0, maxDepth);
-    return files;
-  }
-
-  private async gatherFilesRecursive(
-    dir: string,
-    files: string[],
-    extensions: string[],
-    currentDepth: number,
-    maxDepth: number
-  ): Promise<void> {
-    if (currentDepth > maxDepth) return;
-
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          if (this.shouldExclude(entry.name)) continue;
-          await this.gatherFilesRecursive(fullPath, files, extensions, currentDepth + 1, maxDepth);
-        } else if (entry.isFile()) {
-          if (extensions.length === 0 || extensions.includes(extname(entry.name))) {
-            files.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
-  }
-
-  private shouldExclude(name: string): boolean {
-    return this.options.excludePaths.some(
-      (exclude) => name === exclude || name.startsWith(exclude + '/') || name.startsWith(exclude + '\\')
-    );
-  }
-
   private getTargetExtensions(skill: GeneratedSkill, _techStack: TechStackInfo): string[] {
     if (this.options.fileExtensions.length > 0) {
       return this.options.fileExtensions;
@@ -160,7 +144,12 @@ export class SecurityScanner {
     return [...extensions];
   }
 
-  private scanFile(content: string, filePath: string, patterns: SecurityPattern[]): Finding[] {
+  private scanFile(
+    content: string,
+    relativePath: string,
+    patterns: SecurityPattern[],
+    skillConfidence: number,
+  ): Finding[] {
     const findings: Finding[] = [];
     const lines = content.split('\n');
 
@@ -187,17 +176,17 @@ export class SecurityScanner {
             }
 
             findings.push({
-              id: `${pattern.id}-${filePath}-${lineNum}`,
+              id: `${pattern.id}-${relativePath}-${lineNum + 1}`,
               severity: pattern.severity as Finding['severity'],
               category: this.getCategoryFromPattern(pattern),
               title: pattern.name,
               description: pattern.description,
-              file: relative(process.cwd(), filePath),
+              file: relativePath,
               line: lineNum + 1,
               snippet: line.trim(),
               remediation: pattern.remediation,
               patternId: pattern.id,
-              confidence: 'high',
+              confidence: this.getConfidence(pattern, skillConfidence, relativePath, line),
             });
           }
         }
@@ -208,29 +197,54 @@ export class SecurityScanner {
   }
 
   private matchesCategory(pattern: SecurityPattern): boolean {
-    if (pattern.id.includes('secret') || pattern.id.includes('npmrc') || pattern.id.includes('env')) {
-      return this.options.includeSecrets;
+    switch (this.getCategoryFromPattern(pattern)) {
+      case 'secrets':
+        return this.options.includeSecrets;
+      case 'injection':
+        return this.options.includeInjection;
+      case 'config':
+        return this.options.includeConfig;
+      case 'dependency':
+        return this.options.includeDependencies;
+      default:
+        return true;
     }
+  }
+
+  private getCategoryFromPattern(pattern: SecurityPattern): Finding['category'] {
+    if (pattern.category) return pattern.category;
+    if (pattern.id.includes('secret') || pattern.id.includes('npmrc') || pattern.id.includes('env'))
+      return 'secrets';
     if (
       pattern.id.includes('injection') ||
       pattern.id.includes('sql') ||
       pattern.id.includes('command') ||
       pattern.id.includes('eval')
-    ) {
-      return this.options.includeInjection;
-    }
-    if (pattern.id.includes('config') || pattern.id.includes('tls') || pattern.id.includes('debug')) {
-      return this.options.includeConfig;
-    }
-    return true;
-  }
-
-  private getCategoryFromPattern(pattern: SecurityPattern): Finding['category'] {
-    if (pattern.id.includes('secret')) return 'secrets';
-    if (pattern.id.includes('injection') || pattern.id.includes('sql') || pattern.id.includes('command')) return 'injection';
-    if (pattern.id.includes('config') || pattern.id.includes('tls') || pattern.id.includes('debug')) return 'config';
+    )
+      return 'injection';
+    if (pattern.id.includes('config') || pattern.id.includes('tls') || pattern.id.includes('debug'))
+      return 'config';
     if (pattern.id.includes('dependency')) return 'dependency';
     return 'filesystem';
+  }
+
+  private getConfidence(
+    pattern: SecurityPattern,
+    skillConfidence: number,
+    relativePath: string,
+    line: string,
+  ): Finding['confidence'] {
+    const levels: Finding['confidence'][] = ['low', 'medium', 'high'];
+    const skillDefault =
+      skillConfidence >= 0.85 ? 'high' : skillConfidence >= 0.65 ? 'medium' : 'low';
+    let index = levels.indexOf(pattern.confidence ?? skillDefault);
+    const normalizedPath = relativePath.toLowerCase();
+    const isTestContext =
+      /(^|\/)(?:__tests__|tests?|fixtures?|mocks?)(\/|$)/.test(normalizedPath) ||
+      /\.(?:test|spec)\.[^.]+$/.test(normalizedPath) ||
+      /\b(?:example|placeholder|dummy|mock)\b/i.test(line);
+    if (isTestContext) index = Math.max(0, index - 1);
+    return levels[index] ?? 'medium';
   }
 
   private isFalsePositive(line: string, markers: string[]): boolean {

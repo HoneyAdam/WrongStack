@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
-import { expectDefined } from '../utils/expect-defined.js';
+import { DefaultSecretScrubber } from '../security/secret-scrubber.js';
 import type { ContentBlock } from '../types/blocks.js';
+import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type {
   DefaultSessionReaderOptions,
   SessionExportOptions,
@@ -11,8 +12,14 @@ import type {
   SessionSummaryLite,
 } from '../types/session-reader.js';
 import { compileUserRegex } from '../utils/regex-guard.js';
+import { expectDefined } from '../utils/expect-defined.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 import type { SessionData, SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
+import {
+  scrubPersistedSessionData,
+  scrubPersistedSessionEvent,
+  scrubPersistedSessionSummary,
+} from './session-read-scrubber.js';
 
 /**
  * L2-A: read-only view over a `SessionStore` with query, replay, search,
@@ -21,12 +28,14 @@ import type { SessionData, SessionEvent, SessionMetadata, SessionStore } from '.
  */
 export class DefaultSessionReader implements SessionReader {
   private readonly store: SessionStore;
+  private readonly secretScrubber: SecretScrubber;
   private readonly eventCache = new Map<string, SessionData>();
   private readonly eventCacheMtimes = new Map<string, number>();
   private static readonly EVENT_CACHE_MAX_ENTRIES = 32;
 
   constructor(opts: DefaultSessionReaderOptions) {
     this.store = opts.store;
+    this.secretScrubber = opts.secretScrubber ?? new DefaultSecretScrubber();
   }
 
   private async loadCachedSessionData(sessionId: string): Promise<SessionData> {
@@ -36,7 +45,7 @@ export class DefaultSessionReader implements SessionReader {
     };
     const rootDir = storeWithPath.dir;
     if (!rootDir) {
-      return await this.store.load(sessionId);
+      return scrubPersistedSessionData(await this.store.load(sessionId), this.secretScrubber);
     }
     const sessionPath = sessionScopedPath(rootDir, sessionId, '.jsonl');
     let mtimeMs: number | null = null;
@@ -46,7 +55,7 @@ export class DefaultSessionReader implements SessionReader {
     } catch {
       this.eventCache.delete(sessionId);
       this.eventCacheMtimes.delete(sessionId);
-      return await this.store.load(sessionId);
+      return scrubPersistedSessionData(await this.store.load(sessionId), this.secretScrubber);
     }
 
     const cachedMtime = this.eventCacheMtimes.get(sessionId);
@@ -59,7 +68,10 @@ export class DefaultSessionReader implements SessionReader {
       return cachedData;
     }
 
-    const data = await this.store.load(sessionId);
+    const data = scrubPersistedSessionData(
+      await this.store.load(sessionId),
+      this.secretScrubber,
+    );
     this.eventCache.delete(sessionId);
     this.eventCacheMtimes.delete(sessionId);
     this.eventCache.set(sessionId, data);
@@ -116,14 +128,17 @@ export class DefaultSessionReader implements SessionReader {
         return true;
       });
     }
-    const out: SessionSummaryLite[] = raw.map((s) => ({
-      id: s.id,
-      title: s.title,
-      startedAt: s.startedAt,
-      provider: s.provider,
-      model: s.model,
-      tokenTotal: s.tokenTotal,
-    }));
+    const out: SessionSummaryLite[] = raw.map((rawSummary) => {
+      const s = scrubPersistedSessionSummary(rawSummary, this.secretScrubber);
+      return {
+        id: s.id,
+        title: s.title,
+        startedAt: s.startedAt,
+        provider: s.provider,
+        model: s.model,
+        tokenTotal: s.tokenTotal,
+      };
+    });
     return q.limit ? out.slice(0, q.limit) : out;
   }
 
@@ -193,9 +208,21 @@ export class DefaultSessionReader implements SessionReader {
     const streaming = this.store.searchEvents?.bind(this.store);
     if (streaming) {
       for (const id of ids) {
+        // Scrub once per event and reuse the scrubbed form for both
+        // matching and the returned hit. Keyed by eventIndex so a store
+        // that returns a different object reference than the one passed to
+        // the predicate still gets the reader-owned scrubbed event.
+        const scrubbedByIndex = new Map<number, SessionEvent>();
         const matched = await streaming(
           id,
-          (ev) => {
+          (rawEvent, eventIndex) => {
+            // Scrub the event for matching against the search query. This
+            // is redundant when the store scrubs before invoking the
+            // predicate (DefaultSessionStore does), but the reader works
+            // with any SessionStore impl — a custom store that returns raw
+            // plaintext must not leak secrets into the matcher's text path.
+            const ev = scrubPersistedSessionEvent(rawEvent, this.secretScrubber);
+            scrubbedByIndex.set(eventIndex, ev);
             if (allowedTypes && !allowedTypes.has(ev.type)) return false;
             const text = eventText(ev);
             if (text === null) return false;
@@ -204,13 +231,19 @@ export class DefaultSessionReader implements SessionReader {
           { limit: limit - hits.length },
         );
         for (const m of matched) {
-          const text = expectDefined(eventText(m.event));
+          // Reuse the already-scrubbed event captured during matching
+          // (falls back to scrubbing m.event for stores that synthesize a
+          // different object reference than the predicate received).
+          const event =
+            scrubbedByIndex.get(m.eventIndex) ??
+            scrubPersistedSessionEvent(m.event, this.secretScrubber);
+          const text = expectDefined(eventText(event));
           const hit = expectDefined(matcher(text));
           hits.push({
             sessionId: id,
             eventIndex: m.eventIndex,
             ts: m.ts,
-            type: m.event.type,
+            type: event.type,
             snippet: snippetOf(text, hit.start, hit.end),
           });
           if (hits.length >= limit) return hits;

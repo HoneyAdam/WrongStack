@@ -444,15 +444,6 @@ export function resolveAcpAgentCommand(
   return null;
 }
 
-// runOneAcpTask lives in run-one-acp-task.ts so the `client` entry (which
-// only re-exports makeACPSubagentRunner from this module) doesn't bundle the
-// SubagentBudget machinery. Re-exported for API compatibility.
-export {
-  runOneAcpTask,
-  type RunOneAcpTaskOptions,
-  type RunOneAcpTaskResult,
-} from './run-one-acp-task.js';
-
 export interface AcpProbeResult {
   id: string;
   ok: boolean;

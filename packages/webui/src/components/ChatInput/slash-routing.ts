@@ -2,7 +2,7 @@ import { streamCoalescer } from '@/lib/stream-coalescer';
 import { navigateToView, openMainView, showPanel } from '@/lib/view-navigation';
 import { useSessionStore, useUIStore } from '@/stores';
 import type { WSClientMessage } from '@/types';
-import { downloadChatAsMarkdown } from '../CommandPalette';
+import { downloadChatAsMarkdown } from '../CommandPalette/export-utils.js';
 import { SLASH_COMMANDS } from './slash-commands.js';
 
 interface ChatAssistantMessage {

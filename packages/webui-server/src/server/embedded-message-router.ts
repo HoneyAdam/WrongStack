@@ -1,0 +1,345 @@
+import type { Agent, Logger, MemoryStore } from '@wrongstack/core';
+import type { TrustBoundary } from '@wrongstack/core/security';
+import type { MCPRegistry } from '@wrongstack/mcp';
+import { makeProviderFromConfig } from '@wrongstack/providers';
+import type { WebSocket } from 'ws';
+import { createAutonomyRouteHandlers } from './autonomy-routes.js';
+import {
+  handleBrainAsk,
+  handleBrainConfigGet,
+  handleBrainConfigSet,
+  handleBrainRisk,
+  handleBrainStatus,
+  type BrainHandlerContext,
+} from './brain-handlers.js';
+import type { BrainRouteHandlers } from './brain-routes.js';
+import type { ClientTransportRouteHandlers } from './client-transport-routes.js';
+import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
+import type { CompletionRouteHandlers } from './completion-routes.js';
+import type { DesignContext } from './design-handlers.js';
+import {
+  applyEmbeddedModelSwitch,
+  broadcastEmbeddedGoalSnapshot,
+  createEmbeddedConversationRoutes,
+  createEmbeddedProjectRoutes,
+  createEmbeddedSessionRoutes,
+  type EmbeddedAgentConfigContext,
+  type EmbeddedConversationContext,
+  type EmbeddedProjectContext,
+  type EmbeddedProviderContext,
+  type EmbeddedSessionContext,
+} from './embedded-host-adapters.js';
+import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
+import type { GoalRouteHandlers } from './goal-routes.js';
+import type { GoalSnapshotRouteHandlers } from './goal-snapshot-routes.js';
+import type { GoalWebSocketHandler } from './goal-ws-handler.js';
+import type { WorklistContext } from './handlers/worklist-handlers.js';
+import type { HostRouteHandlers } from './host-routes.js';
+import type { IntrospectionRouteContext } from './introspection-routes.js';
+import type { KanbanHostRouteHandlers } from './kanban-host-routes.js';
+import type { KanbanTaskDispatcher } from './kanban-dispatch.js';
+import type { MailboxRouteHandlers } from './mailbox-routes.js';
+import {
+  handleMcpAdd,
+  handleMcpDisable,
+  handleMcpDiscover,
+  handleMcpEnable,
+  handleMcpList,
+  handleMcpPromptGet,
+  handleMcpPrompts,
+  handleMcpRemove,
+  handleMcpResourceRead,
+  handleMcpResources,
+  handleMcpRestart,
+  handleMcpSleep,
+  handleMcpUpdate,
+  handleMcpWake,
+} from './mcp-handlers.js';
+import type { McpRouteHandlers } from './mcp-routes.js';
+import { createModeRouteHandlers } from './mode-routes.js';
+import { createModelOperations } from './model-operations.js';
+import type { PrefsHandlerContext } from './prefs-handlers.js';
+import { createPrefsRouteHandlers } from './prefs-routes.js';
+import { authorizeWebUIAction } from './privileged-actions.js';
+import { handleProcessKill, handleProcessKillAll, handleProcessList } from './process-handlers.js';
+import type { ProcessRouteHandlers } from './process-routes.js';
+import { createProviderOperations } from './provider-handlers.js';
+import type { ProviderRouteHandlers } from './provider-routes.js';
+import { createRouteFamilyDispatcher } from './route-family-dispatcher.js';
+import type { SddBoardRouteHandlers } from './sdd-board-routes.js';
+import type { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+import type { SddWizardRouteHandlers } from './sdd-wizard-routes.js';
+import type { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+import { handleShellOpen } from './shell-open.js';
+import type { ShellGitRouteHandlers } from './shell-git-routes.js';
+import type { SkillsContext } from './skills-handlers.js';
+import type { SpecsRouteHandlers } from './specs-routes.js';
+import type { SpecsWebSocketHandler } from './specs-ws-handler.js';
+import type { TerminalWebSocketHandler } from './terminal-ws-handler.js';
+import type { WSClientMessage, WSServerMessage } from './types.js';
+import { createWorklistRouteHandlers } from './worklist-routes.js';
+import type { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
+import type { PromptsContext } from './prompts-handlers.js';
+
+export interface EmbeddedMessageRouterOptions {
+  agent: Agent;
+  projectRoot?: string | undefined;
+  profileConfigPath: string;
+  mcpRegistry?: MCPRegistry | undefined;
+  memoryStore?: MemoryStore | undefined;
+  onKanbanDispatch?: KanbanTaskDispatcher | undefined;
+}
+
+export interface EmbeddedMessageRouterDeps {
+  trustBoundary: TrustBoundary;
+  opts: EmbeddedMessageRouterOptions;
+  logger: Logger;
+  send: (ws: WebSocket, message: WSServerMessage) => void;
+  sendResult: (ws: WebSocket, success: boolean, message: string) => void;
+  sessionPayload: <T extends Record<string, unknown>>(payload: T) => T & { sessionId: string };
+  currentSessionId: () => string;
+  shutdown: () => void;
+  providerCtx: EmbeddedProviderContext;
+  brainCtx: BrainHandlerContext;
+  introspectionCtx: IntrospectionRouteContext;
+  skillsCtx: SkillsContext;
+  promptsCtx: PromptsContext;
+  designCtx: DesignContext;
+  agentConfigCtx: EmbeddedAgentConfigContext;
+  prefsCtx: PrefsHandlerContext;
+  projectCtx: EmbeddedProjectContext;
+  sessionCtx: EmbeddedSessionContext;
+  conversationCtx: EmbeddedConversationContext;
+  mailboxRoutes: MailboxRouteHandlers;
+  goalHandler: GoalWebSocketHandler;
+  specsHandler: SpecsWebSocketHandler;
+  sddBoardHandler: SddBoardWebSocketHandler;
+  sddWizardHandler: SddWizardWebSocketHandler | null;
+  worktreeHandler: WorktreeWebSocketHandler;
+  terminalHandler: TerminalWebSocketHandler;
+  kanbanHostRoutes: KanbanHostRouteHandlers;
+}
+
+export type EmbeddedMessageRouter = (
+  ws: WebSocket,
+  client: unknown,
+  message: WSClientMessage,
+) => Promise<void>;
+
+export function createEmbeddedMessageRouter(
+  deps: EmbeddedMessageRouterDeps,
+): EmbeddedMessageRouter {
+  const { opts, send, sendResult } = deps;
+  const projectRoot = () => opts.projectRoot ?? opts.agent.ctx.projectRoot ?? '';
+
+  const terminal = async (ws: WebSocket, message: WSClientMessage) => {
+    await deps.terminalHandler.handleMessage(ws, message).catch((error) => {
+      const text = error instanceof Error ? error.message : String(error);
+      const id = (message.payload as { id?: string } | undefined)?.id ?? '';
+      send(ws, { type: 'terminal.output', payload: { id, data: `Internal terminal error: ${text}\r\n` } });
+      send(ws, { type: 'terminal.exit', payload: { id, exitCode: -1 } });
+    });
+  };
+
+  const guardedTypes = new Set([
+    'user_message', 'abort', 'tool.confirm_result', 'session.new', 'session.resume',
+    'session.save', 'session.checkpoints', 'session.rewind', 'context.clear',
+    'context.compact', 'context.repair', 'context.debug', 'context.modes.list',
+    'context.mode.switch', 'context.mode.create', 'context.mode.update',
+    'context.mode.delete', 'todos.get', 'todos.clear', 'todos.remove', 'todo.update',
+    'tasks.get', 'task.update', 'plan.get', 'plan.template_use', 'plan.item.update',
+  ]);
+  const guardSession = (ws: WebSocket, message: WSClientMessage): boolean => {
+    if (!guardedTypes.has(message.type)) return true;
+    const payload = message.payload;
+    const requested = payload && typeof payload === 'object' &&
+      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId : undefined;
+    const current = deps.currentSessionId();
+    if (!requested || requested === current) return true;
+    send(ws, {
+      type: 'error',
+      payload: deps.sessionPayload({
+        phase: message.type,
+        message: `Request targeted session ${requested}, but this WebUI runtime is currently on ${current}.`,
+        requestedSessionId: requested,
+      }),
+    });
+    return false;
+  };
+
+  const mcp: McpRouteHandlers = {
+    list: (ws, msg) => handleMcpList(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    add: (ws, msg) => handleMcpAdd(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    update: (ws, msg) => handleMcpUpdate(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    remove: (ws, msg) => handleMcpRemove(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    enable: (ws, msg) => handleMcpEnable(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    disable: (ws, msg) => handleMcpDisable(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    sleep: (ws, msg) => handleMcpSleep(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    wake: (ws, msg) => handleMcpWake(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    restart: (ws, msg) => handleMcpRestart(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    discover: (ws, msg) => handleMcpDiscover(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    resources: (ws, msg) => handleMcpResources(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    prompts: (ws, msg) => handleMcpPrompts(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    resourceRead: (ws, msg) => handleMcpResourceRead(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+  };
+
+  const shellGit: ShellGitRouteHandlers = {
+    gitInfo: (ws) => handleGitInfo(ws, projectRoot()),
+    gitChanges: (ws) => handleGitChanges(ws, projectRoot()),
+    gitDiff: (ws, msg) => handleGitDiff(ws, projectRoot(), (msg.payload as { path?: string } | undefined)?.path ?? ''),
+    shellOpen: async (ws, msg) => {
+      const payload = msg.payload as { path?: unknown; target?: unknown } | undefined;
+      if (typeof payload?.path !== 'string') return sendResult(ws, false, 'shell.open path must be a string');
+      const targets = ['file', 'file-manager', 'terminal'] as const;
+      if (payload.target !== undefined && !targets.includes(payload.target as never)) {
+        return sendResult(ws, false, `shell.open target must be one of: ${targets.join(', ')} when provided`);
+      }
+      const target = payload.target as (typeof targets)[number] | undefined;
+      const authorization = await authorizeWebUIAction(deps.trustBoundary, {
+        capability: target === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
+        subject: target === 'terminal'
+          ? { kind: 'command', id: payload.path, attributes: { target: target ?? 'unknown' } }
+          : { kind: 'path', id: payload.path, attributes: { target: target ?? 'unknown' } },
+        risk: 'elevated',
+        cwd: projectRoot(),
+        metadata: { backend: 'cli-embedded' },
+      });
+      if (!authorization.allowed) return sendResult(ws, false, `Shell action denied: ${authorization.reason}`);
+      const result = await handleShellOpen(
+        { path: payload.path, target: target === 'terminal' ? 'terminal' : 'file-manager' },
+        deps.logger,
+        { projectRoot: projectRoot() },
+      );
+      sendResult(ws, result.success, result.message);
+    },
+  };
+
+  const providerOperations = createProviderOperations({
+    providerStore: deps.providerCtx.providerStore,
+    broadcast: deps.providerCtx.broadcast,
+    send: deps.providerCtx.send,
+    modelsRegistry: deps.providerCtx.modelsRegistry,
+    log: deps.providerCtx.log,
+    hasActiveModel: () => Boolean(deps.agentConfigCtx.agent.ctx.model),
+    applyModelSwitch: (providerId, modelId) =>
+      applyEmbeddedModelSwitch(deps.agentConfigCtx, providerId, modelId),
+  });
+  const modelOperations = createModelOperations({
+    context: deps.agentConfigCtx.agent.ctx,
+    memoryStore: deps.agentConfigCtx.memoryStore,
+    modelsRegistry: deps.agentConfigCtx.modelsRegistry,
+    getConfig: () => deps.agentConfigCtx.getConfig?.(),
+    getLiveProviderId: () => deps.agentConfigCtx.agent.ctx.provider.id,
+    buildProvider: async (providerId) => {
+      const saved = await deps.agentConfigCtx.loadSavedProviders();
+      return makeProviderFromConfig(providerId, saved[providerId] ?? { type: providerId });
+    },
+    applyModelSwitch: (providerId, modelId) =>
+      applyEmbeddedModelSwitch(deps.agentConfigCtx, providerId, modelId),
+    send: deps.agentConfigCtx.send,
+    log: deps.agentConfigCtx.log,
+  });
+  const provider: ProviderRouteHandlers = {
+    listProviders: (ws) => providerOperations.handleProvidersList(ws),
+    listSavedProviders: (ws) => providerOperations.handleProvidersSaved(ws),
+    listProviderModels: (ws, msg) => providerOperations.handleProviderModels(ws, (msg.payload as { providerId: string }).providerId),
+    switchModel: (ws, msg) => modelOperations.switchModel(ws, msg.payload),
+    refineModel: (ws, msg) => modelOperations.refineModel(ws, msg.payload as never),
+    adoptDefaultProviderIfUnset: providerOperations.adoptDefaultProviderIfUnset,
+    providerHandlers: providerOperations,
+  };
+
+  const session = createEmbeddedSessionRoutes(deps.sessionCtx);
+  const project = createEmbeddedProjectRoutes(deps.projectCtx);
+  const mode = createModeRouteHandlers({
+    modeStore: deps.agentConfigCtx.modeStore,
+    getSession: () => deps.agentConfigCtx.agent.ctx.session,
+    applyModeId: (id) => { deps.agentConfigCtx.agent.ctx.meta['mode'] = id; },
+    send: deps.agentConfigCtx.send,
+    afterSwitch: async (id) => deps.agentConfigCtx.broadcast({
+      type: 'session.start', payload: await deps.agentConfigCtx.buildSessionStart({ mode: id }),
+    }),
+  });
+  const prefs = createPrefsRouteHandlers(deps.prefsCtx);
+  const brain: BrainRouteHandlers = {
+    status: (ws) => handleBrainStatus(deps.brainCtx, ws),
+    risk: (ws, msg) => handleBrainRisk(deps.brainCtx, ws, (msg.payload as { level?: string } | undefined)?.level ?? ''),
+    ask: (ws, msg) => handleBrainAsk(deps.brainCtx, ws, (msg.payload as { question?: string } | undefined)?.question),
+    configGet: (ws) => handleBrainConfigGet(deps.brainCtx, ws),
+    configSet: (ws, msg) => handleBrainConfigSet(deps.brainCtx, ws, msg.payload),
+  };
+  const worklist = createWorklistRouteHandlers({
+    getContext: (): WorklistContext => ({
+      context: {
+        todos: opts.agent.ctx.todos,
+        meta: opts.agent.ctx.meta,
+        session: opts.agent.ctx.session ? { id: opts.agent.ctx.session.id } : null,
+      },
+      send,
+      broadcast: deps.providerCtx.broadcast,
+      replaceTodos: (todos) => opts.agent.ctx.state.replaceTodos(todos),
+    }),
+  });
+  const processRoutes: ProcessRouteHandlers = {
+    list: handleProcessList,
+    kill: (ws, msg) => handleProcessKill(ws, msg.payload, deps.trustBoundary, undefined, { backend: 'cli-embedded' }),
+    killAll: (ws) => handleProcessKillAll(ws, deps.trustBoundary, undefined, { backend: 'cli-embedded' }),
+  };
+  const host: HostRouteHandlers = {
+    shutdown: async (ws) => {
+      const result = await authorizeWebUIAction(deps.trustBoundary, {
+        capability: 'host.shutdown', subject: { kind: 'process', id: String(process.pid) },
+        risk: 'elevated', metadata: { backend: 'cli-embedded' },
+      });
+      if (result.allowed) deps.shutdown();
+      else sendResult(ws, false, `Shutdown denied: ${result.reason}`);
+    },
+  };
+  const clientTransport: ClientTransportRouteHandlers = {
+    collaboration: (ws, msg) => send(ws, { type: 'error', payload: { phase: msg.type, message: 'Collaboration not available in this surface' } }),
+    terminal,
+  };
+  const completion: CompletionRouteHandlers = {
+    request: (ws, msg) => handleCompletionRequest(ws, msg, {
+      projectRoot: projectRoot(), provider: opts.agent.ctx.provider, model: opts.agent.ctx.model,
+      indexDir: typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string' ? opts.agent.ctx.meta['codebaseIndexDir'] : undefined,
+      lspCompletion: createToolLspCompletionSource(opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'), opts.agent.ctx),
+    }),
+  };
+  const goalSnapshot: GoalSnapshotRouteHandlers = { getSnapshot: async () => broadcastEmbeddedGoalSnapshot(deps.sessionCtx) };
+  const goal: GoalRouteHandlers = { handleMessage: (msg) => deps.goalHandler.handleMessage(msg) };
+  const specs: SpecsRouteHandlers = { handleMessage: (msg) => deps.specsHandler.handleMessage(msg) };
+  const sddBoard: SddBoardRouteHandlers = { handleMessage: (msg) => deps.sddBoardHandler.handleMessage(msg) };
+  const sddWizard: SddWizardRouteHandlers = { handleMessage: (msg) => deps.sddWizardHandler?.handleMessage(msg) ?? Promise.resolve() };
+
+  const dispatch = createRouteFamilyDispatcher({
+    routes: {
+      shellGit, mailbox: deps.mailboxRoutes, mcp, provider, session, project, mode, prefs, brain,
+      worklist, process: processRoutes, host, clientTransport,
+      conversation: createEmbeddedConversationRoutes(deps.conversationCtx), completion,
+      autonomy: createAutonomyRouteHandlers(deps.prefsCtx), goalSnapshot, goal, specs, sddBoard,
+      sddWizard, worktree: deps.worktreeHandler, kanbanHost: deps.kanbanHostRoutes,
+    },
+    memory: { getMemoryStore: () => opts.memoryStore, send, sendResult },
+    content: {
+      getProjectRoot: projectRoot,
+      getSkillsContext: () => deps.skillsCtx,
+      getPromptsContext: () => deps.promptsCtx,
+      getDesignContext: () => deps.designCtx,
+    },
+    chronicle: { getProjectRoot: projectRoot, send },
+    introspection: deps.introspectionCtx,
+    getKanbanContext: () => ({
+      projectRoot: opts.projectRoot ?? '', context: opts.agent.ctx,
+      broadcast: deps.providerCtx.broadcast,
+      ...(opts.onKanbanDispatch ? { dispatchTask: opts.onKanbanDispatch } : {}),
+    }),
+    beforeDispatch: guardSession,
+    onUnknown: (_ws, msg) => {
+      if (!msg.type.startsWith('chronicle.')) console.debug(`[WebUI] Unhandled message type: ${msg.type}`);
+    },
+  });
+  return async (ws, _client, message) => dispatch(ws, message);
+}

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite, ensureDir, withFileLock } from '../utils/atomic-write.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import {
   CHRONICLE_SCHEMA_VERSION,
   type ChronicleEvent,
@@ -70,6 +70,8 @@ export class ChronicleJournal {
   private lastBatchDurationMs: number | undefined;
   private partitionIndex = 0;
   private partitionStartedAt: number;
+  private partitionSizeBytes = 0;
+  private stateInitialized = false;
   private lastSequence = 0;
   private lastHash: string = GENESIS_HASH;
   private lastAutoPurgeAt = 0;
@@ -218,6 +220,13 @@ export class ChronicleJournal {
   private scheduleDrain(): void {
     if (this.drainScheduled || this.drainPromise) return;
     this.drainScheduled = true;
+    if (this.batchWindowMs === 0) {
+      queueMicrotask(() => {
+        this.drainScheduled = false;
+        this.startDrain();
+      });
+      return;
+    }
     this.drainTimer = setTimeout(() => { this.drainTimer = undefined; this.drainScheduled = false; this.startDrain(); }, this.batchWindowMs);
   }
 
@@ -232,32 +241,61 @@ export class ChronicleJournal {
     const files = await collectPartitions(this.basePath);
     const latest = files[files.length - 1] ?? this.basePath;
     this.partitionIndex = partitionIndex(latest, this.basePath);
-    const entry = await readLastEntry(latest);
-    const checkpointResult = await readRetentionCheckpoint(this.basePath);
+    const state = await readLastEntryState(latest);
+    const entry = state.entry;
+    // A non-empty active partition already carries the latest sequence and
+    // hash-chain anchor. The retention checkpoint is only needed when no
+    // retained event exists, so avoid opening (or probing for) the sidecar on
+    // every normal append batch.
+    const checkpointResult = entry ? {} : await readRetentionCheckpoint(this.basePath);
     if (checkpointResult.error) throw new Error(checkpointResult.error);
     const checkpoint = checkpointResult.checkpoint;
     this.lastSequence = entry?.sequence ?? checkpoint?.sequence ?? 0;
     this.lastHash = entry?.hash ?? checkpoint?.hash ?? GENESIS_HASH;
-    try { this.partitionStartedAt = (await fs.stat(latest)).birthtimeMs; } catch { this.partitionStartedAt = Date.now(); }
+    this.partitionSizeBytes = state.size;
+    this.partitionStartedAt = state.birthtimeMs ?? Date.now();
+    this.stateInitialized = true;
+  }
+
+  private async canReuseDiskState(): Promise<boolean> {
+    if (!this.stateInitialized) return false;
+    const nextPartition = rotatedPath(this.basePath, this.partitionIndex + 1);
+    const [currentStat, nextExists] = await Promise.all([
+      fs.stat(this.path).catch((error: unknown) => {
+        if (isNotFound(error)) return undefined;
+        throw error;
+      }),
+      fs.access(nextPartition).then(
+        () => true,
+        (error: unknown) => {
+          if (isNotFound(error)) return false;
+          throw error;
+        },
+      ),
+    ]);
+    // Appends change the active partition size; rotations create the next
+    // numbered partition. If neither happened since our last successful
+    // batch, the cached sequence/hash anchor is still current and there is no
+    // need to rescan the directory or read the JSONL tail again.
+    return currentStat?.isFile() === true && currentStat.size === this.partitionSizeBytes && !nextExists;
   }
 
   private async checkRotation(): Promise<void> {
     if (this.partitionIndex === 0 && this.lastSequence === 0) return;
     if (Number.isFinite(this.rotationWindowMs) && Date.now() - this.partitionStartedAt >= this.rotationWindowMs) { this.rotate(); return; }
-    if (Number.isFinite(this.maxPartitionSizeBytes)) { try { if ((await fs.stat(this.path)).size >= this.maxPartitionSizeBytes) this.rotate(); } catch { /* ok */ } }
+    if (Number.isFinite(this.maxPartitionSizeBytes) && this.partitionSizeBytes >= this.maxPartitionSizeBytes) this.rotate();
   }
 
-  private rotate(): void { this.partitionIndex++; this.partitionStartedAt = Date.now(); this.counters.partitionRolls++; }
+  private rotate(): void { this.partitionIndex++; this.partitionStartedAt = Date.now(); this.partitionSizeBytes = 0; this.counters.partitionRolls++; }
 
   private async persistBatch(batch: typeof this.pending): Promise<void> {
     const started = performance.now();
     this.counters.batches++;
     this.counters.largestBatch = Math.max(this.counters.largestBatch, batch.length);
     try {
-      await ensureDir(path.dirname(this.basePath));
       let recorded: ChronicleEvent[] = [];
       await withFileLock(this.basePath, async () => {
-        await this.refreshStateFromDisk();
+        if (!(await this.canReuseDiskState())) await this.refreshStateFromDisk();
         await this.checkRotation();
         const cp = this.path;
         let prev: { sequence: number; hash: string } | undefined = this.lastSequence > 0 ? { sequence: this.lastSequence, hash: this.lastHash } : undefined;
@@ -269,7 +307,9 @@ export class ChronicleJournal {
           prev = event;
           return event;
         });
-        await fs.appendFile(cp, recorded.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+        const serialized = recorded.map((e) => JSON.stringify(e)).join('\n') + '\n';
+        await fs.appendFile(cp, serialized, 'utf8');
+        this.partitionSizeBytes += Buffer.byteLength(serialized);
       });
       const last = recorded[recorded.length - 1]!;
       this.lastSequence = last.sequence;
@@ -278,6 +318,9 @@ export class ChronicleJournal {
       this.counters.persistedEvents += batch.length;
       void this.maybeAutoPurge();
     } catch (error) {
+      // appendFile can fail after a partial write. Force the next batch to
+      // rebuild its chain anchor from disk instead of trusting local counters.
+      this.stateInitialized = false;
       this.counters.failedEvents += batch.length;
       batch.forEach((item) => { item.reject(error); });
     } finally { this.lastBatchDurationMs = performance.now() - started; }
@@ -463,11 +506,16 @@ function partitionIndex(filePath: string, basePath: string): number {
 
 function escapeRegex(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-async function readLastEntry(filePath: string): Promise<ChronicleEvent | undefined> {
+async function readLastEntryState(filePath: string): Promise<{
+  entry?: ChronicleEvent | undefined;
+  size: number;
+  birthtimeMs?: number | undefined;
+}> {
   let handle: fs.FileHandle;
-  try { handle = await fs.open(filePath, 'r'); } catch (error) { if (isNotFound(error)) return undefined; throw error; }
+  try { handle = await fs.open(filePath, 'r'); } catch (error) { if (isNotFound(error)) return { size: 0 }; throw error; }
   try {
-    const size = (await handle.stat()).size;
+    const stat = await handle.stat();
+    const size = stat.size;
     let position = size, suffix = '';
     while (position > 0) {
       const length = Math.min(65536, position);
@@ -480,11 +528,11 @@ async function readLastEntry(filePath: string): Promise<ChronicleEvent | undefin
       for (let i = lines.length - 1; i >= start; i--) {
         const trimmed = lines[i]!.trim();
         if (!trimmed) continue;
-        try { return JSON.parse(trimmed) as ChronicleEvent; } catch { /* scan earlier */ }
+        try { return { entry: JSON.parse(trimmed) as ChronicleEvent, size, birthtimeMs: stat.birthtimeMs }; } catch { /* scan earlier */ }
       }
       suffix = lines[0] ?? '';
     }
-    return undefined;
+    return { size, birthtimeMs: stat.birthtimeMs };
   } finally { await handle.close(); }
 }
 

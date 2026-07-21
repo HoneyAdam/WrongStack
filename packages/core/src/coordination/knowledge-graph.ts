@@ -6,7 +6,8 @@
  * goals, and findings here; other agents subscribe to relevant slices.
  *
  * The graph is backed by JSONL under the session dir, with an in-memory
- * working copy. Writes are append-only to the log; reads are from memory.
+ * working copy. Writes append to the log and periodically compact historical
+ * updates to each node's latest version; reads are from memory.
  *
  * Node types:
  *   fact     — immutable project fact (e.g. "auth/session.ts has a null deref")
@@ -20,7 +21,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { withFileLock } from '../utils/atomic-write.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 
 // ── Core types ────────────────────────────────────────────────────────────
 
@@ -184,6 +185,9 @@ export class KnowledgeGraph {
   private readonly filePath: string;
   private readonly graphFilePath: string;
   private readonly maxNodes: number;
+  private readonly compactEveryWrites: number;
+  private writesSinceCompaction = 0;
+  private graphDirReady: Promise<void> | undefined;
 
   /**
    * Stable per-node insertion sequence. `nodes` (a Map) preserves insertion
@@ -206,10 +210,15 @@ export class KnowledgeGraph {
     return this.index;
   }
 
-  constructor(sessionDir: string, maxNodes = DEFAULT_MAX_NODES) {
+  constructor(
+    sessionDir: string,
+    maxNodes = DEFAULT_MAX_NODES,
+    compactEveryWrites = Math.max(1_000, maxNodes * 4),
+  ) {
     this.filePath = path.join(sessionDir, '_knowledge_graph');
     this.graphFilePath = path.join(this.filePath, 'graph.jsonl');
     this.maxNodes = maxNodes;
+    this.compactEveryWrites = Math.max(1, Math.floor(compactEveryWrites));
   }
 
   // ── Write ──────────────────────────────────────────────────────────────
@@ -263,7 +272,8 @@ export class KnowledgeGraph {
 
   /**
    * Evict oldest terminal-state nodes when the in-memory cap is exceeded.
-   * The JSONL file is the authoritative record; eviction only affects memory.
+   * The JSONL file retains the latest version of every node; eviction only
+   * affects the in-memory working set.
    */
   private _prune(): void {
     if (this.nodes.size <= this.maxNodes) return;
@@ -502,19 +512,56 @@ export class KnowledgeGraph {
   }
 
   private async _persist(node: GraphNode): Promise<void> {
-    await fsp.mkdir(this.filePath, { recursive: true });
-    const line = JSON.stringify(node) + '\n';
-    await withFileLock(this.graphFilePath, async () => {
-      await fsp.appendFile(this.graphFilePath, line, 'utf8');
-    });
+    await this._writeRecord(node);
   }
 
   private async _append(node: GraphNode): Promise<void> {
-    await fsp.mkdir(this.filePath, { recursive: true });
-    const line = JSON.stringify({ op: 'update', node }) + '\n';
+    await this._writeRecord({ op: 'update', node });
+  }
+
+  private async _writeRecord(record: GraphNode | { op: 'update'; node: GraphNode }): Promise<void> {
+    this.graphDirReady ??= fsp
+      .mkdir(this.filePath, { recursive: true })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.graphDirReady = undefined;
+        throw error;
+      });
+    await this.graphDirReady;
+    const line = `${JSON.stringify(record)}\n`;
     await withFileLock(this.graphFilePath, async () => {
       await fsp.appendFile(this.graphFilePath, line, 'utf8');
+      this.writesSinceCompaction++;
+      if (this.writesSinceCompaction < this.compactEveryWrites) return;
+      try {
+        await this._compactLogLocked();
+        this.writesSinceCompaction = 0;
+      } catch {
+        // The append itself is durable. Keep the counter above the threshold
+        // so the next write retries compaction without failing graph updates.
+      }
     });
+  }
+
+  /** Collapse historical update records to the latest version of every node. */
+  private async _compactLogLocked(): Promise<void> {
+    const raw = await fsp.readFile(this.graphFilePath, 'utf8');
+    const latest = new Map<string, GraphNode>();
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as GraphNode | { op?: string; node?: GraphNode };
+        const node =
+          'op' in parsed && parsed.op === 'update' && parsed.node
+            ? parsed.node
+            : (parsed as GraphNode);
+        if (typeof node.id === 'string') latest.set(node.id, node);
+      } catch {
+        /* malformed/torn records are omitted while healing the log */
+      }
+    }
+    const compacted = Array.from(latest.values(), (node) => JSON.stringify(node)).join('\n');
+    await atomicWrite(this.graphFilePath, compacted ? `${compacted}\n` : '', { mode: 0o600 });
   }
 
   /** Rebuild in-memory state from the log file. Call on startup. */
@@ -541,6 +588,7 @@ export class KnowledgeGraph {
           }
         } catch { /* skip malformed lines */ }
       }
+      this._prune();
     } catch {
       // No existing log — fresh start
     }

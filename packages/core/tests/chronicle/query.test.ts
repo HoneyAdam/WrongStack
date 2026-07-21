@@ -163,6 +163,47 @@ describe('ChronicleQueryEngine', () => {
     expect(engine.diagnostics.invalidLines).toBe(2);
   });
 
+  it('computes multiple facets in one partition scan', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-facets-'));
+    tempDirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'facets.events.jsonl') });
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    await journal.append({
+      eventType: 'tool.executed',
+      ...context,
+      outcome: 'success',
+      runtime: { providerId: 'openai' },
+    });
+    await journal.append({
+      eventType: 'tool.executed',
+      ...context,
+      outcome: 'failure',
+      runtime: { providerId: 'anthropic' },
+    });
+    await journal.append({
+      eventType: 'provider.attempt.completed',
+      ...context,
+      outcome: 'success',
+      runtime: { providerId: 'openai' },
+    });
+
+    const engine = await ChronicleQueryEngine.fromDirectory(dir);
+    const facets = await engine.facets(['eventType', 'outcome', 'providerId']);
+
+    expect(facets.eventType).toEqual([
+      { value: 'tool.executed', count: 2 },
+      { value: 'provider.attempt.completed', count: 1 },
+    ]);
+    expect(facets.outcome).toEqual([
+      { value: 'success', count: 2 },
+      { value: 'failure', count: 1 },
+    ]);
+    expect(facets.providerId).toEqual([
+      { value: 'openai', count: 2 },
+      { value: 'anthropic', count: 1 },
+    ]);
+  });
+
   it('orders the complete match set before applying pagination', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-order-'));
     tempDirs.push(dir);

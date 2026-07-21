@@ -48,5 +48,7 @@ describe('per-tool subpath exports (L3-A)', () => {
     expect(bashTool.name).toBe('bash');
     const { readTool } = await import('@wrongstack/tools/read');
     expect(readTool.name).toBe('read');
+    const tier = await import('@wrongstack/tools/tool-tier');
+    expect(typeof tier.registerBuiltinToolTier).toBe('function');
   });
 });

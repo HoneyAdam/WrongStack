@@ -1,0 +1,109 @@
+// ---------------------------------------------------------------------------
+// Per-chat token bucket rate limiter for Telegram outbound sends.
+//
+// Telegram enforces per-chat rate limits:
+//   - Groups: ~20 messages per minute (≈ 0.33 msg/s)
+//   - Private chats: ~30 messages per second
+//
+// Instead of hardcoding chat-type limits (which would require an API call
+// per chat to discover the type), this limiter exposes a configurable
+// tokens-per-second and burst cap. The caller (OutboundQueue) decides
+// the policy for each chat based on known chat type.
+//
+// Each chat gets its own token bucket. When a send is attempted and no
+// tokens are available, the caller waits (via waitForToken) until a token
+// refills. The wait is bounded by an optional timeout to prevent head-of-line
+// blocking when a slow chat stalls the queue.
+//
+// Thread safety: the bucket state is guarded by the calling pattern —
+// OutboundQueue serializes per-chat sends (single ChatLane runner), so
+// concurrent access to the same bucket never happens. Cross-chat buckets
+// are independent and need no coordination.
+// ---------------------------------------------------------------------------
+
+export interface RateLimiterOptions {
+  /** Tokens per second (refill rate). Default: 0.33 (≈20/min for groups). */
+  tokensPerSecond?: number | undefined;
+  /** Maximum burst size (bucket capacity). Default: 4. */
+  burst?: number | undefined;
+}
+
+export interface TokenBucket {
+  /** Wait until a token is available, respecting the optional timeout. */
+  waitForToken(timeoutMs?: number | undefined): Promise<void>;
+  /** Current fill level (for diagnostics). */
+  fill(): number;
+}
+
+/**
+ * Create a token bucket for a single chat.
+ *
+ * The bucket starts full (`burst` tokens). Every `waitForToken` call
+ * consumes one token if available; otherwise it waits until a token
+ * is refilled. Refills happen at `tokensPerSecond` rate, capped at
+ * `burst`.
+ *
+ * @example
+ * ```ts
+ * const bucket = createTokenBucket({ tokensPerSecond: 0.33, burst: 4 });
+ * await bucket.waitForToken(5_000); // waits up to 5s for a slot
+ * bot.sendMessage(chatId, text);
+ * ```
+ */
+export function createTokenBucket(opts?: RateLimiterOptions): TokenBucket {
+  const tokensPerSecond = opts?.tokensPerSecond ?? 0.33;
+  const burst = opts?.burst ?? 4;
+  const refillIntervalMs = 1000 / tokensPerSecond;
+
+  let tokens = burst;
+  let lastRefill = Date.now();
+
+  return { waitForToken, fill };
+
+  async function waitForToken(timeoutMs?: number | undefined): Promise<void> {
+    const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : Infinity;
+
+    while (true) {
+      refill();
+
+      if (tokens >= 1) {
+        tokens -= 1;
+        return;
+      }
+
+      const now = Date.now();
+      if (now >= deadline) {
+        return; // Timeout — caller should proceed or skip
+      }
+
+      // Wait until the next refill tick or the deadline, whichever is sooner.
+      const nextRefill = lastRefill + refillIntervalMs;
+      const delay = Math.min(
+        Math.max(nextRefill - now, 0),
+        deadline - now,
+        5000, // safety cap: never sleep longer than 5s
+      );
+
+      await sleep(delay);
+    }
+  }
+
+  function refill(): void {
+    const now = Date.now();
+    const elapsed = now - lastRefill;
+    if (elapsed <= 0) return;
+
+    const newTokens = (elapsed / 1000) * tokensPerSecond;
+    tokens = Math.min(burst, tokens + newTokens);
+    lastRefill = now;
+  }
+
+  function fill(): number {
+    refill();
+    return tokens;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

@@ -454,7 +454,9 @@ describe('DefaultSessionStore — rebuildIndex / summary fallback / shard scan',
     }
 
     const first = await store.list();
-    const cacheAfterFirst = (store as { _indexCache: { summaries: unknown[] } | null })._indexCache;
+    const cacheAfterFirst = (
+      store as { _indexCache: { summaries: unknown[]; byId: Map<string, unknown> } | null }
+    )._indexCache;
     expect(cacheAfterFirst?.summaries.length).toBeGreaterThanOrEqual(2);
 
     const second = await store.list();
@@ -470,9 +472,38 @@ describe('DefaultSessionStore — rebuildIndex / summary fallback / shard scan',
     );
 
     const third = await store.list();
-    const cacheAfterThird = (store as { _indexCache: { summaries: unknown[] } | null })._indexCache;
+    const cacheAfterThird = (
+      store as { _indexCache: { summaries: unknown[]; byId: Map<string, unknown> } | null }
+    )._indexCache;
     expect(cacheAfterThird).not.toBe(cacheAfterFirst);
+    // Growth on the same index file reuses the parsed map and consumes only
+    // the appended byte range instead of reparsing the complete JSONL.
+    expect(cacheAfterThird?.byId).toBe(cacheAfterFirst?.byId);
     expect(third.some((s) => s.id === 'cache-c')).toBe(true);
+  });
+
+  it('applies appended index tombstones through the incremental cache path', async () => {
+    for (const id of ['keep-indexed', 'drop-indexed']) {
+      const w = await store.create({ id, model: 'm', provider: 'p' });
+      await w.append({ type: 'user_input', ts: now(), content: id });
+      await w.close();
+    }
+    await store.list();
+    const cacheBefore = (store as { _indexCache: { byId: Map<string, unknown> } | null })
+      ._indexCache;
+
+    await fs.appendFile(
+      path.join(tmp, '_index.jsonl'),
+      `${JSON.stringify({ action: 'delete', id: 'drop-indexed' })}\n`,
+      'utf8',
+    );
+
+    const listed = await store.list();
+    const cacheAfter = (store as { _indexCache: { byId: Map<string, unknown> } | null })
+      ._indexCache;
+    expect(cacheAfter?.byId).toBe(cacheBefore?.byId);
+    expect(listed.some((summary) => summary.id === 'keep-indexed')).toBe(true);
+    expect(listed.some((summary) => summary.id === 'drop-indexed')).toBe(false);
   });
 
   it('rebuilds a missing summary sidecar during list()', async () => {

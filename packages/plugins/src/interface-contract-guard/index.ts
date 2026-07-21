@@ -24,10 +24,10 @@
  * @public
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
+import { collectSourceFilesAsync, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -132,18 +132,21 @@ function hasImplementer(name: string, contents: string[]): boolean {
   return false;
 }
 
-function scanPath(rawPath: string, cfg: InterfaceContractGuardConfig): {
+async function scanPath(
+  rawPath: string,
+  cfg: InterfaceContractGuardConfig,
+): Promise<{
   findings: InterfaceContractFinding[];
   scannedFiles: number;
-} {
+}> {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.extensions);
-  const files = collectSourceFiles(resolved, { extensions: exts });
+  const files = await collectSourceFilesAsync(resolved, { extensions: exts });
   const contents: { path: string; content: string }[] = [];
   for (const p of files) {
     try {
-      contents.push({ path: p, content: readFileSync(p, 'utf-8') });
+      contents.push({ path: p, content: await readFile(p, 'utf-8') });
     } catch {
       // skip unreadable
     }
@@ -217,13 +220,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['interface-contract-guard']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
       if (input.toolResult?.isError) return;
 
@@ -240,7 +243,7 @@ const plugin: Plugin = {
       const resolved = resolve(process.cwd(), sourcePath);
       let content: string;
       try {
-        content = readFileSync(resolved, 'utf-8');
+        content = await readFile(resolved, 'utf-8');
       } catch {
         state.errorCount += 1;
         return;
@@ -286,7 +289,7 @@ const plugin: Plugin = {
         state.scanCount += 1;
         let result: { findings: InterfaceContractFinding[]; scannedFiles: number };
         try {
-          result = scanPath(rawPath, cfg);
+          result = await scanPath(rawPath, cfg);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

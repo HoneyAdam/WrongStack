@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "scope": {
+    "workspaceRoots": ["packages", "apps"],
+    "excludedPaths": ["website"]
+  },
+  "sourceExtensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+  "coreAreas": {
+    "chronicle": { "classification": "feature", "targetOwner": "core-review-required" },
+    "coordination": { "classification": "feature-runtime", "targetOwner": "coordination" },
+    "core": { "classification": "agent-domain", "targetOwner": "core" },
+    "defaults": { "classification": "compatibility", "targetOwner": "runtime-or-retire" },
+    "execution": {
+      "classification": "application-runtime",
+      "targetOwner": "runtime-review-required"
+    },
+    "extension": { "classification": "contract", "targetOwner": "core" },
+    "goal": { "classification": "feature", "targetOwner": "core-review-required" },
+    "hooks": { "classification": "extension-runtime", "targetOwner": "core-review-required" },
+    "hq": { "classification": "feature-runtime", "targetOwner": "hq" },
+    "infrastructure": { "classification": "primitive", "targetOwner": "core" },
+    "kernel": { "classification": "primitive", "targetOwner": "core" },
+    "middleware": {
+      "classification": "application-runtime",
+      "targetOwner": "runtime-review-required"
+    },
+    "models": { "classification": "agent-domain", "targetOwner": "core" },
+    "notifications": {
+      "classification": "feature-runtime",
+      "targetOwner": "runtime-review-required"
+    },
+    "observability": { "classification": "infrastructure", "targetOwner": "runtime-pilot" },
+    "plugin": { "classification": "contract-and-loader", "targetOwner": "contracts-or-core" },
+    "plugins": { "classification": "product-feature", "targetOwner": "plugins" },
+    "prompts": { "classification": "feature", "targetOwner": "core-review-required" },
+    "registry": { "classification": "agent-domain", "targetOwner": "core" },
+    "replay": { "classification": "feature-runtime", "targetOwner": "runtime-review-required" },
+    "security": { "classification": "agent-domain", "targetOwner": "core" },
+    "skills": { "classification": "feature-runtime", "targetOwner": "skills" },
+    "storage": { "classification": "persistence-runtime", "targetOwner": "storage" },
+    "tasking": { "classification": "agent-domain", "targetOwner": "core-review-required" },
+    "tools": { "classification": "product-feature", "targetOwner": "tools" },
+    "types": { "classification": "contract", "targetOwner": "contracts-or-core" },
+    "utils": { "classification": "primitive-review-required", "targetOwner": "contracts-or-core" },
+    "worktree": { "classification": "host-runtime", "targetOwner": "runtime-review-required" }
+  },
+  "testProjects": [
+    {
+      "id": "webui-jsdom",
+      "config": "packages/webui/vitest.config.ts",
+      "cwd": "packages/webui",
+      "includePrefixes": ["packages/webui/tests/"]
+    },
+    {
+      "id": "cli-hq-jsdom",
+      "config": "packages/cli/vitest.hqdash.config.ts",
+      "cwd": "packages/cli",
+      "exactFiles": ["packages/cli/tests/hq-dashboard.test.ts"]
+    },
+    {
+      "id": "root-node",
+      "config": "vitest.config.ts",
+      "cwd": ".",
+      "includePrefixes": ["packages/", "apps/"],
+      "excludePrefixes": ["packages/webui/tests/"],
+      "excludeFiles": ["packages/cli/tests/hq-dashboard.test.ts"]
+    }
+  ]
+}

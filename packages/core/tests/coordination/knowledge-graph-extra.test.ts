@@ -111,4 +111,20 @@ describe('knowledge-graph — extra coverage', () => {
     expect(fresh.get('n1')?.type).toBe('fact');
     expect(fresh.get('n2')?.type).toBe('fact');
   });
+
+  it('compacts repeated updates to the latest node versions', async () => {
+    const compacting = new KnowledgeGraph(dir, 2_000, 5);
+    const node = await compacting.add(fact({ detail: 'version-0' }));
+    for (let version = 1; version <= 12; version++) {
+      await compacting.update(node.id, { detail: `version-${version}` } as never);
+    }
+
+    const graphPath = path.join(dir, '_knowledge_graph', 'graph.jsonl');
+    const lines = (await fs.readFile(graphPath, 'utf8')).trim().split('\n').filter(Boolean);
+    expect(lines.length).toBeLessThanOrEqual(4);
+
+    const reloaded = new KnowledgeGraph(dir);
+    await reloaded.load();
+    expect((reloaded.get(node.id) as { detail?: string } | undefined)?.detail).toBe('version-12');
+  });
 });

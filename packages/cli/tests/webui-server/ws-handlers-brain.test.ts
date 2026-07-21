@@ -1,18 +1,16 @@
 import type { BrainConfigPatch, BrainConfigSnapshot, BrainRuntime } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import type {
-  BrainHandlerContext,
-  BrainLogEntry,
-} from '../../src/webui-server/ws-handlers/brain.js';
-import type { WsServerMessage } from '../../src/webui-server/ws-handlers/index.js';
 import {
+  type BrainHandlerContext,
+  type BrainLogEntry,
   handleBrainAsk,
   handleBrainConfigGet,
   handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
-} from '../../src/webui-server/ws-handlers/index.js';
+  type WSServerMessage as WsServerMessage,
+} from '@wrongstack/webui-server';
 
 /**
  * PR 5b of Issue #30: Brain ws-handler unit tests.
@@ -38,8 +36,6 @@ function makeCtx(over: Partial<BrainHandlerContext> = {}): {
     getBrainLog: () => [],
     resolveArbiter: () => undefined,
     send: (_ws, msg) => cap.sent.push(msg),
-    broadcast: () => {},
-    log: () => {},
     ...over,
   };
   return { ctx, cap };
@@ -111,8 +107,36 @@ const SNAPSHOT: BrainConfigSnapshot = {
     quorum: undefined,
     approval: undefined,
     judge: undefined,
+    perCallTimeoutMs: undefined,
+    maxConcurrency: undefined,
+    distinctness: 'none',
+    judgeMaxTokens: undefined,
+    seats: [],
   },
-  ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/ledger.jsonl' },
+  ledger: {
+    enabled: true,
+    autoDenyAfterFailures: undefined,
+    path: 'C:/x/ledger.jsonl',
+    maxMemoryEntries: undefined,
+    interventionRetryWindowMs: undefined,
+  },
+  rules: [],
+  ruleErrors: [],
+  heuristics: {
+    lowRiskAutoAnswer: true,
+    blockedResolved: true,
+    deadlockSkip: true,
+    retryExhausted: true,
+    continuePing: true,
+    blockedResolvedMarkers: undefined,
+  },
+  llm: { maxTokens: 200, rejectUncertain: true, minConfidence: 0, denyIsTerminal: 'never' },
+  trace: { enabled: false, content: 'full', path: undefined },
+  monitor: {},
+  terminalPolicy: 'conservative',
+  decisionLogMaxEntries: 20,
+  circuit: undefined,
+  cache: { enabled: false, ttlMs: 300_000, maxEntries: 200, hits: 0, misses: 0, size: 0 },
   poolLabels: ['a/x'],
   councilLabels: [],
   usingSessionModel: false,

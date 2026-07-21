@@ -1,4 +1,5 @@
 import type { SessionEvent, SessionMetadata, SessionStore } from './session.js';
+import type { SecretScrubber } from './secret-scrubber.js';
 
 /**
  * L2-A: SessionReader — query, replay, search, export over a `SessionStore`.
@@ -86,4 +87,9 @@ export interface SessionReader {
 
 export interface DefaultSessionReaderOptions {
   store: SessionStore;
+  /**
+   * Optional scrubber override. A DefaultSecretScrubber is always installed
+   * so legacy plaintext is sanitized before caching/projection.
+   */
+  secretScrubber?: SecretScrubber | undefined;
 }

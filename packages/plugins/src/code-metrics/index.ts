@@ -24,10 +24,10 @@
  * @public
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
+import { collectSourceFilesAsync, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -206,16 +206,19 @@ function analyzeFile(filePath: string, content: string): FileMetrics {
   };
 }
 
-function measurePath(rawPath: string, cfg: CodeMetricsConfig): { files: FileMetrics[]; totalFiles: number } {
+async function measurePath(
+  rawPath: string,
+  cfg: CodeMetricsConfig,
+): Promise<{ files: FileMetrics[]; totalFiles: number }> {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.extensions);
-  const allFiles = collectSourceFiles(resolved, { extensions: exts });
+  const allFiles = await collectSourceFilesAsync(resolved, { extensions: exts });
   const files = allFiles.slice(0, cfg.maxFiles);
   const metrics: FileMetrics[] = [];
   for (const p of files) {
     try {
-      const content = readFileSync(p, 'utf-8');
+      const content = await readFile(p, 'utf-8');
       metrics.push(analyzeFile(p, content));
     } catch {
       // skip unreadable
@@ -271,13 +274,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['code-metrics']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
       if (input.toolResult?.isError) return;
 
@@ -294,7 +297,7 @@ const plugin: Plugin = {
       const resolved = resolve(process.cwd(), sourcePath);
       let content: string;
       try {
-        content = readFileSync(resolved, 'utf-8');
+        content = await readFile(resolved, 'utf-8');
       } catch {
         state.errorCount += 1;
         return;
@@ -336,7 +339,7 @@ const plugin: Plugin = {
         state.measureCount += 1;
         let result: { files: FileMetrics[]; totalFiles: number };
         try {
-          result = measurePath(rawPath, cfg);
+          result = await measurePath(rawPath, cfg);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

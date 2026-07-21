@@ -1,10 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
 import { ToolRegistry } from '@wrongstack/core';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
- * PR 6 of Issue #29: extract the inline tool-registry
- * registration into a helper. This test pins the contract
- * the helper preserves:
+ * Pins the CLI adapter contract around canonical host tool registration:
  *
  *   1. The builtin tool pack is always registered (memory
  *      feature flag does not gate it).
@@ -16,24 +14,23 @@ import { ToolRegistry } from '@wrongstack/core';
  *      `memoryStore` is truthy. If memoryStore is null
  *      (the runtime null-case when the store is not yet
  *      bound), the memory tools are skipped silently.
- *   4. The three mailbox tools (mailbox / mail_send /
- *      mail_inbox) are always registered, regardless of
+ *   4. The coordination tools (mailbox / mail_send /
+ *      mail_inbox / fleet_status) are always registered, regardless of
  *      the memory feature flag, with the events bus passed
  *      through.
  *
- * The test uses a fake `ToolRegistry` that just counts
- * calls \u2014 we don't need a real registry implementation
- * to assert the registration order or argument shape.
+ * The test uses a fake `ToolRegistry` to assert adapter delegation without
+ * coupling to the concrete registry implementation.
  */
 
 const { registerBuiltinTools } = await import('../../src/boot/tool-registry.js');
 
 function makeFakeToolRegistry() {
-  const calls: { kind: string; toolName: string; isDefault: boolean }[] = [];
+  const calls: { kind: string; toolName: string; isDefault: boolean; toolCount?: number }[] = [];
   return {
     registry: {
-      registerAllOrThrow: vi.fn((_tools: unknown, packName: string) => {
-        calls.push({ kind: 'bulk', toolName: packName, isDefault: false });
+      registerAllOrThrow: vi.fn((tools: unknown[], packName: string) => {
+        calls.push({ kind: 'bulk', toolName: packName, isDefault: false, toolCount: tools.length });
       }),
       registerDefault: vi.fn((_tool: unknown) => {
         calls.push({ kind: 'default', toolName: '<default>', isDefault: true });
@@ -57,7 +54,7 @@ function makeWpaths() {
   return { projectDir: '/tmp/project' };
 }
 
-describe('registerBuiltinTools (PR 6 of #29)', () => {
+describe('registerBuiltinTools', () => {
   it('always registers the builtin tool pack and the context manager default', () => {
     const { registry, calls } = makeFakeToolRegistry();
     registerBuiltinTools({
@@ -68,8 +65,8 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });
-    expect(calls.some(c => c.kind === 'bulk')).toBe(true);
-    expect(calls.some(c => c.kind === 'default')).toBe(true);
+    expect(calls.some((c) => c.kind === 'bulk')).toBe(true);
+    expect(calls.some((c) => c.kind === 'default')).toBe(true);
   });
 
   it('skips memory tools when config.features.memory is false', () => {
@@ -84,7 +81,7 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
     });
     // Exactly four single-tool registrations: mailbox,
     // mail_send, mail_inbox, fleet_status. No memory tools.
-    const singles = calls.filter(c => c.kind === 'single');
+    const singles = calls.filter((c) => c.kind === 'single');
     expect(singles).toHaveLength(4);
   });
 
@@ -106,7 +103,7 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
     // memoryStore is null. The refactor tightens this:
     // features.memory && memoryStore \u2014 the null case
     // is now a no-op.
-    const singles = calls.filter(c => c.kind === 'single');
+    const singles = calls.filter((c) => c.kind === 'single');
     expect(singles).toHaveLength(4);
   });
 
@@ -120,10 +117,12 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });
-    // 3 mailbox tools + fleet_status + 4 memory tools = 8 single
-    // registrations.
-    const singles = calls.filter(c => c.kind === 'single');
-    expect(singles).toHaveLength(8);
+    const memoryBatch = calls.find((c) => c.kind === 'bulk' && c.toolName === 'legacy-memory');
+    expect(memoryBatch?.toolCount).toBe(4);
+
+    // Coordination tools remain individual host registrations.
+    const singles = calls.filter((c) => c.kind === 'single');
+    expect(singles).toHaveLength(4);
   });
 
   it('applies configured tool description modes to the real registry', () => {

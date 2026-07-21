@@ -36,17 +36,23 @@ export function ChronicleDashboard() {
       setLoading(false); setError('Restart the backend once to activate Chronicle protocol support.'); return;
     }
     setLoading(true); setError(null); setQuery(next);
+    setFacets({});
     client.send({ type: 'chronicle.query', payload: { query: next } });
-    for (const field of facetFields) client.send({ type: 'chronicle.facet', payload: { field, query: next, limit: 12 } });
+    if (client.supportsCapability('chronicle.facets')) {
+      client.send({ type: 'chronicle.facets', payload: { fields: [...facetFields], query: next, limit: 12 } });
+    } else {
+      for (const field of facetFields) client.send({ type: 'chronicle.facet', payload: { field, query: next, limit: 12 } });
+    }
   }, [client]);
 
   useEffect(() => {
     const offQuery = client.on('chronicle.query_result', (message: WSServerMessage) => { if (message.type === 'chronicle.query_result') { setEvents(message.payload.events); setMeta(message.payload); setSummary(message.payload.summary ?? emptySummary); setLoading(false); } });
     const offFacet = client.on('chronicle.facet_result', (message: WSServerMessage) => { if (message.type === 'chronicle.facet_result') setFacets((value) => ({ ...value, [message.payload.field]: message.payload.values })); });
+    const offFacets = client.on('chronicle.facets_result', (message: WSServerMessage) => { if (message.type === 'chronicle.facets_result') setFacets(message.payload.values); });
     const offError = client.on('chronicle.error', (message: WSServerMessage) => { if (message.type === 'chronicle.error') { setError(message.payload.message); setLoading(false); } });
     const offGraph = client.on('chronicle.graph_result', (message: WSServerMessage) => { if (message.type === 'chronicle.graph_result') setGraph(message.payload); });
     run({ limit: 300, order: 'desc' });
-    return () => { offQuery(); offFacet(); offError(); offGraph(); };
+    return () => { offQuery(); offFacet(); offFacets(); offError(); offGraph(); };
   }, [client, run]);
 
   const visible = useMemo(() => events.filter((event) => matchesSignal(event, signal)), [events, signal]);

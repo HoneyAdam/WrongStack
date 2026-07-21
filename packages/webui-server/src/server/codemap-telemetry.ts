@@ -39,7 +39,8 @@ function numberField(input: Record<string, unknown>, names: string[]): number | 
 }
 
 function normalizeTarget(projectRoot: string, filePath: string): string {
-  return path.normalize(path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath));
+  const root = typeof projectRoot === 'string' && projectRoot.length > 0 ? projectRoot : process.cwd();
+  return path.normalize(path.isAbsolute(filePath) ? filePath : path.resolve(root, filePath));
 }
 
 export function normalizeCodeMapFileTarget(

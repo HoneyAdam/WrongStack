@@ -63,6 +63,14 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(mockStatSync),
 }));
 
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(async (p: string, encoding?: string) => mockReadFileSync(p, encoding)),
+  readdir: vi.fn(async (p: string, options?: { withFileTypes?: boolean }) =>
+    mockReaddirSync(p, options),
+  ),
+  stat: vi.fn(async (p: string) => mockStatSync(p)),
+}));
+
 const deadCodePlugin = (await import('../src/dead-code-detector')).default;
 
 // ---------------------------------------------------------------------------
@@ -107,10 +115,10 @@ function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknow
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
+function getHook(api: MockApi): (input: unknown) => Promise<HookResult> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => HookResult;
+  return (call as unknown[])[2] as (input: unknown) => Promise<HookResult>;
 }
 
 function setFilesystem(files: Record<string, string>) {
@@ -285,7 +293,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     deadCodePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'export const freshUnused = 100;' },
       toolResult: { content: 'ok', isError: false },
@@ -304,7 +312,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     deadCodePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/feature.ts', old_string: 'x', new_string: 'y' },
       toolResult: { content: 'ok', isError: false },
@@ -316,7 +324,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     deadCodePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'README.md', content: '# hello' },
       toolResult: { content: 'ok', isError: false },
@@ -332,7 +340,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     deadCodePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'x' },
       toolResult: { content: 'error', isError: true },
@@ -346,7 +354,7 @@ describe('PostToolUse hook behavior', () => {
     const hook = getHook(api);
     const outside =
       process.platform === 'win32' ? 'C:\\Windows\\System32\\evil.ts' : '/etc/evil.ts';
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: outside, content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -360,7 +368,7 @@ describe('PostToolUse hook behavior', () => {
     });
     deadCodePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'export const dead = 1;' },
       toolResult: { content: 'ok', isError: false },

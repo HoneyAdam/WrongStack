@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { assessCommitSafety } from '@wrongstack/core';
 import type { SlashCommand } from '@wrongstack/core';
-import { color, toErrorMessage } from '@wrongstack/core';
+import { assessCommitSafety, color, toErrorMessage } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 // ── git child process ───────────────────────────────────────────────

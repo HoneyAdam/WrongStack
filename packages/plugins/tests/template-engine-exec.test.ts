@@ -6,6 +6,13 @@ vi.mock('node:fs', async (o) => ({
   readFileSync: fsm.readFileSync,
   writeFileSync: fsm.writeFileSync,
 }));
+vi.mock('node:fs/promises', async (o) => ({
+  ...(await o()),
+  readFile: vi.fn(async (p: string, encoding?: string) => fsm.readFileSync(p, encoding)),
+  writeFile: vi.fn(async (p: string, data: string, encoding?: string) => {
+    fsm.writeFileSync(p, data, encoding);
+  }),
+}));
 
 import templatePlugin from '../src/template-engine';
 

@@ -1,47 +1,43 @@
 /**
- * Unit tests for WebUI view-manager module.
- * Tests the pure utility functions that don't require Electron runtime.
+ * Unit tests for the navigation policy used by the production WebUI controller.
  */
-import { describe, it, expect, vi } from 'vitest';
-
-// Mock electron module (hoisted to top) to prevent dynamic import errors
-vi.mock('electron', () => ({
-  shell: { openExternal: vi.fn() },
-}));
-
-import { safeOpenExternal, sameOrigin } from '../src/main/webui/view-manager.js';
+import { describe, it, expect } from 'vitest';
+import {
+  allowedExternalProtocol,
+  sameOrigin,
+} from '../src/main/webui/navigation.js';
 import { OPEN_EXTERNAL_ALLOWED_PROTOCOLS } from '../src/main/state/constants.js';
 
 // ============================================================================
 // safeOpenExternal Tests
 // ============================================================================
 
-describe('safeOpenExternal', () => {
+describe('allowedExternalProtocol', () => {
   it('should return early for invalid URLs', () => {
     // Should not throw for invalid URLs
-    expect(() => safeOpenExternal('not-a-url')).not.toThrow();
+    expect(allowedExternalProtocol('not-a-url')).toBeUndefined();
   });
 
   it('should return early for empty string', () => {
-    expect(() => safeOpenExternal('')).not.toThrow();
+    expect(allowedExternalProtocol('')).toBeUndefined();
   });
 
   it('should handle protocol validation without error', () => {
     // These are valid protocols - function checks and conditionally opens
-    expect(() => safeOpenExternal('https://example.com')).not.toThrow();
-    expect(() => safeOpenExternal('http://example.com')).not.toThrow();
-    expect(() => safeOpenExternal('mailto:test@example.com')).not.toThrow();
+    expect(allowedExternalProtocol('https://example.com')).toBe('https:');
+    expect(allowedExternalProtocol('http://example.com')).toBe('http:');
+    expect(allowedExternalProtocol('mailto:test@example.com')).toBe('mailto:');
   });
 
   it('should handle disallowed protocols without error', () => {
-    expect(() => safeOpenExternal('file:///etc/passwd')).not.toThrow();
-    expect(() => safeOpenExternal('javascript:alert(1)')).not.toThrow();
-    expect(() => safeOpenExternal('ftp://example.com')).not.toThrow();
+    expect(allowedExternalProtocol('file:///etc/passwd')).toBeUndefined();
+    expect(allowedExternalProtocol('javascript:alert(1)')).toBeUndefined();
+    expect(allowedExternalProtocol('ftp://example.com')).toBeUndefined();
   });
 
   it('should handle special characters in URL', () => {
-    expect(() => safeOpenExternal('https://example.com/path?q=a b&c=d')).not.toThrow();
-    expect(() => safeOpenExternal('https://例子.测试')).not.toThrow();
+    expect(allowedExternalProtocol('https://example.com/path?q=a b&c=d')).toBe('https:');
+    expect(allowedExternalProtocol('https://例子.测试')).toBe('https:');
   });
 });
 
@@ -132,17 +128,17 @@ describe('OPEN_EXTERNAL_ALLOWED_PROTOCOLS', () => {
 // ============================================================================
 
 describe('URL handling edge cases', () => {
-  describe('safeOpenExternal', () => {
+  describe('allowedExternalProtocol', () => {
     it('should handle URLs with credentials', () => {
-      expect(() => safeOpenExternal('https://user:pass@example.com')).not.toThrow();
+      expect(allowedExternalProtocol('https://user:pass@example.com')).toBe('https:');
     });
 
     it('should handle URLs with fragments', () => {
-      expect(() => safeOpenExternal('https://example.com/page#section')).not.toThrow();
+      expect(allowedExternalProtocol('https://example.com/page#section')).toBe('https:');
     });
 
     it('should handle URLs with query parameters', () => {
-      expect(() => safeOpenExternal('https://example.com?key=value&foo=bar')).not.toThrow();
+      expect(allowedExternalProtocol('https://example.com?key=value&foo=bar')).toBe('https:');
     });
   });
 

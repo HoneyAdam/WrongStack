@@ -1,35 +1,11 @@
 import type { Request } from '@wrongstack/core';
 import type { Capabilities, ReasoningEffort } from '@wrongstack/core';
+import type { CompatibilityQuirks } from './compatibility-quirks.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { applyOpenAICompatiblePolicy } from './openai-compatible-policy.js';
 import { OpenAIProvider } from './openai.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
-
-export interface CompatibilityQuirks {
-  stripCacheControl?: boolean | undefined;
-  systemAsMessage?: boolean | undefined;
-  flattenContentToString?: boolean | undefined;
-  preserveToolCallIds?: boolean | undefined;
-  parallelToolsDisabled?: boolean | undefined;
-  /**
-   * @deprecated No-op. The shared `parseToolInput` repair ladder (fence
-   * strip → JSON5-style sanitize → truncation completion) now runs
-   * unconditionally for every string-based adapter, so buggy JSON arguments
-   * are repaired without opting in.
-   */
-  emptyToolCallContent?: 'null' | 'empty_string' | undefined;
-  thinkingParam?: 'zai-glm' | 'kimi-toggle' | 'always-on' | undefined;
-  /**
-   * Strip literal `<think>…</think>` blocks out of the streamed `content`
-   * channel. Some proxies that front reasoning models (omniroute, LiteLLM, …)
-   * fold the model's hidden thinking into `content` as literal think tags, and
-   * frequently leak a *stray* closing `</think>` with no opener when the body
-   * itself is suppressed — which otherwise pollutes the visible assistant
-   * message (e.g. `</think>The answer…`). With this on, tag-wrapped text is
-   * routed to the thinking channel and a stray `</think>` is dropped.
-   */
-  stripThinkTags?: boolean | undefined;
-}
+export type { CompatibilityQuirks } from './compatibility-quirks.js';
 
 const VALID_QUIRK_KEYS = new Set<keyof CompatibilityQuirks>([
   'stripCacheControl',

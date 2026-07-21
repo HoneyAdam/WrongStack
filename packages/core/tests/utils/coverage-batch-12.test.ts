@@ -1,9 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { AGENT_STALE_MS, CLIENT_STALE_MS, HEARTBEAT_THROTTLE_MS, REGISTRY_CACHE_TTL_MS, MESSAGE_CACHE_MAX_ENTRIES, MAILBOX_AWARENESS_INTERVAL_MS, AUTO_COMPACT_INTERVAL_MS, AUTO_COMPACT_READ_MAX_AGE_MS, AUTO_COMPACT_DEFAULT_TTL_MS, HTTP_RATE_LIMIT_PER_MINUTE, HTTP_RATE_LIMIT_WINDOW_MS } from '../../src/coordination/mailbox-constants.js';
+import { describe, expect, it } from 'vitest';
 import { DISCOVERY_AGENTS } from '../../src/coordination/agents/phase1-discovery.js';
 import { TECHSTACK_AGENTS } from '../../src/coordination/agents/phase3-techstack.js';
 import { KNOWLEDGE_AGENTS } from '../../src/coordination/agents/phase7-knowledge.js';
-import { createSecurityPlugin } from '../../src/plugins/security-plugin.js';
+import {
+  AGENT_STALE_MS,
+  AUTO_COMPACT_DEFAULT_TTL_MS,
+  AUTO_COMPACT_INTERVAL_MS,
+  AUTO_COMPACT_READ_MAX_AGE_MS,
+  CLIENT_STALE_MS,
+  HEARTBEAT_THROTTLE_MS,
+  HTTP_RATE_LIMIT_PER_MINUTE,
+  HTTP_RATE_LIMIT_WINDOW_MS,
+  MAILBOX_AWARENESS_INTERVAL_MS,
+  MESSAGE_CACHE_MAX_ENTRIES,
+  REGISTRY_CACHE_TTL_MS,
+} from '../../src/coordination/mailbox-constants.js';
 
 // ── mailbox-constants ────────────────────────────────────────────────────
 
@@ -74,39 +85,5 @@ describe('DISCOVERY_AGENTS specific', () => {
     expect(ids).toContain('explore');
     expect(ids).toContain('search');
     expect(ids).toContain('research');
-  });
-});
-
-// ── security-plugin ──────────────────────────────────────────────────────
-
-describe('createSecurityPlugin', () => {
-  it('returns a valid plugin object', () => {
-    const plugin = createSecurityPlugin();
-    expect(plugin.name).toBe('wstack-security');
-    expect(plugin.version).toBe('1.0.0');
-    expect(plugin.description).toBeTruthy();
-    expect(plugin.apiVersion).toMatch(/^\^/);
-    expect(plugin.capabilities).toBeDefined();
-    expect(plugin.defaultConfig).toBeDefined();
-  });
-
-  it('setup does not throw', () => {
-    const plugin = createSecurityPlugin();
-    const logs: string[] = [];
-    plugin.setup({ log: { info: (m: string) => logs.push(m) } } as any);
-    expect(logs.length).toBeGreaterThan(0);
-  });
-
-  it('teardown does not throw', () => {
-    const plugin = createSecurityPlugin();
-    const logs: string[] = [];
-    expect(() => plugin.teardown({ log: { info: (m: string) => logs.push(m) } } as any)).not.toThrow();
-  });
-
-  it('health returns ok', async () => {
-    const plugin = createSecurityPlugin();
-    const result = await plugin.health();
-    expect(result.ok).toBe(true);
-    expect(result.message).toContain('security');
   });
 });

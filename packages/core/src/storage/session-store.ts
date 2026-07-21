@@ -4,6 +4,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
+import { DefaultSecretScrubber } from '../security/secret-scrubber.js';
 import type { ContentBlock } from '../types/blocks.js';
 import type { Logger } from '../types/logger.js';
 import type { Message } from '../types/messages.js';
@@ -30,6 +31,10 @@ import { SessionCheckpointCas } from './session-checkpoint-cas.js';
 import { userInputTitle } from './session-helpers.js';
 import { generateSessionId } from './session-id.js';
 import {
+  scrubPersistedSessionEvent,
+  scrubPersistedSessionSummary,
+} from './session-read-scrubber.js';
+import {
   formatInterruptedToolNotice,
   formatResumeValidationNotice,
   validateResumeFileObservations,
@@ -48,12 +53,9 @@ export interface SessionStoreOptions {
   /** Optional EventBus for emitting session diagnostics. */
   events?: EventBus | undefined;
   /**
-   * Optional secret scrubber. When set, `user_input` and `llm_response` event
-   * content is scrubbed before being persisted to the JSONL log and the
-   * summary sidecar â€” so a secret a user pastes or the model echoes does not
-   * sit in cleartext on disk (and does not ride along in history cloud-sync).
-   * Tool output is already scrubbed upstream by the executor; this closes the
-   * conversation-turn gap (finding F-06).
+   * Optional scrubber override. A DefaultSecretScrubber is always installed
+   * so legacy plaintext is sanitized before caching/projection and new writes
+   * retain write-time protection.
    */
   secretScrubber?: SecretScrubber | undefined;
   /**
@@ -85,7 +87,11 @@ interface LoadCacheEntry {
 interface IndexCacheEntry {
   mtimeMs: number;
   size: number;
+  ino: number;
+  birthtimeMs: number;
   summaries: SessionSummary[];
+  byId: Map<string, SessionSummary>;
+  deleted: Set<string>;
 }
 
 interface SessionFileRef {
@@ -101,6 +107,80 @@ interface DirectorySummaryCandidate {
 interface ShardManifestEntry {
   summaries: SessionSummary[];
   ids: string[];
+}
+
+type SessionIndexEntry = {
+  action?: string | undefined;
+  id?: string | undefined;
+} & SessionSummary;
+
+function applySessionIndexLines(
+  raw: string,
+  byId: Map<string, SessionSummary>,
+  deleted: Set<string>,
+): void {
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as SessionIndexEntry;
+      if (entry.action === 'delete' && entry.id) {
+        deleted.add(entry.id);
+        byId.delete(entry.id);
+        continue;
+      }
+      if (entry.id && !deleted.has(entry.id)) {
+        // Keep the latest entry for each session (multiple appends on resume).
+        byId.set(entry.id, entry as SessionSummary);
+      }
+    } catch {
+      // Skip corrupt lines. A later valid line remains usable.
+    }
+  }
+}
+
+async function readFileRange(
+  file: string,
+  start: number,
+  end: number,
+): Promise<{ raw: string; end: number } | null> {
+  const length = end - start;
+  if (length <= 0) return { raw: '', end: start };
+  const buffer = Buffer.allocUnsafe(length);
+  let offset = 0;
+  let handle: fsp.FileHandle | undefined;
+  try {
+    handle = await fsp.open(file, 'r');
+    while (offset < length) {
+      const { bytesRead } = await handle.read(buffer, offset, length - offset, start + offset);
+      if (bytesRead === 0) return null;
+      offset += bytesRead;
+    }
+    let completeLength = buffer.length;
+    if (buffer.at(-1) !== 0x0a) {
+      const lastNewline = buffer.lastIndexOf(0x0a);
+      const trailing = buffer
+        .subarray(lastNewline + 1)
+        .toString('utf8')
+        .trim();
+      try {
+        if (trailing) JSON.parse(trailing);
+        else completeLength = lastNewline + 1;
+      } catch {
+        // A reader can observe an append between the kernel writes that make
+        // up a large line. Keep the incomplete suffix unread so the next
+        // stat/growth check retries it from the last complete newline.
+        completeLength = lastNewline + 1;
+      }
+    }
+    return {
+      raw: buffer.subarray(0, completeLength).toString('utf8'),
+      end: start + completeLength,
+    };
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 function isReplayableMessage(value: unknown): value is Message {
@@ -166,7 +246,7 @@ function inheritsIntoFork(event: SessionEvent): boolean {
 export class DefaultSessionStore implements SessionStore {
   private readonly dir: string;
   private readonly events?: EventBus | undefined;
-  private readonly secretScrubber?: SecretScrubber | undefined;
+  private readonly secretScrubber: SecretScrubber;
   private readonly projectRoot?: string | undefined;
   private readonly checkpointCas?: SessionCheckpointCas | undefined;
   private readonly isSessionInUse?: ((sessionId: string) => Promise<string | null>) | undefined;
@@ -198,7 +278,7 @@ export class DefaultSessionStore implements SessionStore {
         })
       : undefined;
     this.events = opts.events;
-    this.secretScrubber = opts.secretScrubber;
+    this.secretScrubber = opts.secretScrubber ?? new DefaultSecretScrubber();
     this.isSessionInUse = opts.isSessionInUse;
     this.logger = opts.logger;
   }
@@ -213,6 +293,12 @@ export class DefaultSessionStore implements SessionStore {
     } else {
       console.warn(JSON.stringify({ ...ctx, message: msg, timestamp: new Date().toISOString() }));
     }
+  }
+
+  private scrubSummaries(summaries: readonly SessionSummary[]): SessionSummary[] {
+    return summaries.map((summary) =>
+      scrubPersistedSessionSummary(summary, this.secretScrubber),
+    );
   }
 
   /**
@@ -484,9 +570,7 @@ export class DefaultSessionStore implements SessionStore {
     const resumedData: SessionData = {
       ...data,
       ...(resumeValidation ? { resumeValidation } : {}),
-      ...(noticeMessages.length > 0
-        ? { messages: [...data.messages, ...noticeMessages] }
-        : {}),
+      ...(noticeMessages.length > 0 ? { messages: [...data.messages, ...noticeMessages] } : {}),
     };
     let handle: fsp.FileHandle;
     try {
@@ -626,7 +710,10 @@ export class DefaultSessionStore implements SessionStore {
               typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
               typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
             ) {
-              const ev = parsed as SessionEvent;
+              const ev = scrubPersistedSessionEvent(
+                parsed as SessionEvent,
+                this.secretScrubber,
+              );
               events.push(ev);
 
               // Track metadata in the same pass.
@@ -929,7 +1016,7 @@ export class DefaultSessionStore implements SessionStore {
               // tolerance as `load()` (which silently drops non-events).
               continue;
             }
-            ev = parsed as SessionEvent;
+            ev = scrubPersistedSessionEvent(parsed as SessionEvent, this.secretScrubber);
           } catch {
             // Skip malformed JSON, matching `load()` behavior.
             continue;
@@ -953,7 +1040,10 @@ export class DefaultSessionStore implements SessionStore {
             typeof (parsed as { type?: unknown }).type === 'string' &&
             typeof (parsed as { ts?: unknown }).ts === 'string'
           ) {
-            const ev = parsed as SessionEvent;
+            const ev = scrubPersistedSessionEvent(
+              parsed as SessionEvent,
+              this.secretScrubber,
+            );
             if (predicate(ev, eventIndex, ev.ts)) {
               out.push({ event: ev, eventIndex, ts: ev.ts });
             }
@@ -970,19 +1060,18 @@ export class DefaultSessionStore implements SessionStore {
 
   async list(limit = 20): Promise<SessionSummary[]> {
     try {
-      await ensureDir(this.dir);
       // Try the index first; fall back to directory scan if the index is
       // missing, empty, or unreadable.
       const indexed = await this.readIndex();
       if (indexed.length > 0) {
         // `readIndex()` already sorted the array by startedAt DESC, id
         // ASC, so we just slice the prefix.
-        return indexed.slice(0, limit);
+        return this.scrubSummaries(indexed.slice(0, limit));
       }
       // Index unavailable — fall back to a directory scan. Prefer summary
       // sidecars and only backfill full JSONL-derived summaries for the page
       // we are about to return.
-      return await this.listFromDirectoryScan(limit);
+      return this.scrubSummaries(await this.listFromDirectoryScan(limit));
     } catch {
       return [];
     }
@@ -1009,19 +1098,16 @@ export class DefaultSessionStore implements SessionStore {
   }): Promise<SessionSummary[]> {
     const limit = criteria.limit ?? 100;
     try {
-      await ensureDir(this.dir);
       const indexed = await this.readIndex();
       if (indexed.length === 0) {
         // No index — fall back to list() + in-process filter.
         const raw = await this.list(Math.max(limit, 100));
         return raw.filter((s) => matchesSessionFilter(s, criteria)).slice(0, limit);
       }
-      const filtered = indexed.filter((s) => matchesSessionFilter(s, criteria));
-      filtered.sort((a, b) => {
-        if (a.startedAt < b.startedAt) return 1;
-        if (a.startedAt > b.startedAt) return -1;
-        return a.id.localeCompare(b.id);
-      });
+      const filtered = this.scrubSummaries(indexed).filter((s) =>
+        matchesSessionFilter(s, criteria),
+      );
+      // Filtering preserves the index's existing newest-first order.
       return filtered.slice(0, limit);
     } catch {
       return [];
@@ -1140,11 +1226,11 @@ export class DefaultSessionStore implements SessionStore {
    * Entries with a matching tombstone are filtered out.
    * Returns empty array when the index doesn't exist or is corrupt.
    */
-  private async readIndex(): Promise<SessionSummary[]> {
-    let stat: { mtimeMs: number; size: number };
+  private async readIndex(): Promise<readonly SessionSummary[]> {
+    let stat: { mtimeMs: number; size: number; ino: number; birthtimeMs: number };
     try {
       const s = await fsp.stat(this.indexFile);
-      stat = { mtimeMs: s.mtimeMs, size: s.size };
+      stat = { mtimeMs: s.mtimeMs, size: s.size, ino: s.ino, birthtimeMs: s.birthtimeMs };
     } catch {
       this._indexCache = null;
       return [];
@@ -1153,9 +1239,30 @@ export class DefaultSessionStore implements SessionStore {
     if (
       this._indexCache !== null &&
       this._indexCache.mtimeMs === stat.mtimeMs &&
-      this._indexCache.size === stat.size
+      this._indexCache.size === stat.size &&
+      this._indexCache.ino === stat.ino &&
+      this._indexCache.birthtimeMs === stat.birthtimeMs
     ) {
-      return [...this._indexCache.summaries];
+      return this._indexCache.summaries;
+    }
+
+    const cached = this._indexCache;
+    const sameFile =
+      cached !== null && cached.ino === stat.ino && cached.birthtimeMs === stat.birthtimeMs;
+    if (cached && sameFile && stat.size > cached.size) {
+      const appended = await readFileRange(this.indexFile, cached.size, stat.size);
+      if (appended !== null) {
+        applySessionIndexLines(appended.raw, cached.byId, cached.deleted);
+        const summaries = Array.from(cached.byId.values()).sort(compareSessionSummaries);
+        this._indexCache = {
+          ...stat,
+          size: appended.end,
+          summaries,
+          byId: cached.byId,
+          deleted: cached.deleted,
+        };
+        return summaries;
+      }
     }
 
     let raw: string;
@@ -1166,39 +1273,16 @@ export class DefaultSessionStore implements SessionStore {
       return [];
     }
     const deleted = new Set<string>();
-    const seen = new Map<string, SessionSummary>();
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line) as {
-          action?: string | undefined;
-          id?: string | undefined;
-        } & SessionSummary;
-        if (entry.action === 'delete' && entry.id) {
-          deleted.add(entry.id);
-          seen.delete(entry.id);
-          continue;
-        }
-        if (entry.id && !deleted.has(entry.id)) {
-          // Keep the latest entry for each session (multiple appends on resume).
-          seen.set(entry.id, entry as SessionSummary);
-        }
-      } catch {
-        // skip corrupt lines
-      }
-    }
-    const summaries = Array.from(seen.values());
+    const byId = new Map<string, SessionSummary>();
+    applySessionIndexLines(raw, byId, deleted);
+    const summaries = Array.from(byId.values());
     // Sort once when the index is (re)loaded so `list()` callers can
     // take a prefix without re-sorting the whole array per request.
     // Sort key mirrors the original `list()` comparator:
     //   startedAt DESC, then id ASC for tie-breaks.
-    summaries.sort((a, b) => {
-      if (a.startedAt < b.startedAt) return 1;
-      if (a.startedAt > b.startedAt) return -1;
-      return a.id.localeCompare(b.id);
-    });
-    this._indexCache = { ...stat, summaries };
-    return [...summaries];
+    summaries.sort(compareSessionSummaries);
+    this._indexCache = { ...stat, summaries, byId, deleted };
+    return summaries;
   }
 
   /**
@@ -1841,7 +1925,7 @@ export class DefaultSessionStore implements SessionStore {
             typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
             typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
           ) {
-            yield parsed as SessionEvent;
+            yield scrubPersistedSessionEvent(parsed as SessionEvent, this.secretScrubber);
           }
         } catch {
           // skip malformed JSON

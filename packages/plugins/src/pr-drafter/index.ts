@@ -28,8 +28,8 @@
  * @public
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin, PluginAPI } from '@wrongstack/core';
 
@@ -118,31 +118,29 @@ function resolveProjectPath(rawPath: string, cwd = process.cwd()): string | null
 // Git helpers
 // ---------------------------------------------------------------------------
 
-function gitBranch(): string | null {
-  try {
-    const out = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'ignore'],
-      timeout: 5_000,
-    });
-    return out.trim();
-  } catch {
-    return null;
-  }
+function runGit(args: string[], timeout: number): Promise<string | null> {
+  return new Promise((resolveOutput) => {
+    execFile(
+      'git',
+      args,
+      {
+        encoding: 'utf8',
+        cwd: process.cwd(),
+        windowsHide: true,
+        timeout,
+        maxBuffer: 5 * 1024 * 1024,
+      },
+      (error, stdout) => resolveOutput(error ? null : stdout.trim()),
+    );
+  });
 }
 
-function gitDiff(): string | null {
-  try {
-    return execFileSync('git', ['diff', '--stat'], {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'ignore'],
-      timeout: 10_000,
-    }).trim();
-  } catch {
-    return null;
-  }
+function gitBranch(): Promise<string | null> {
+  return runGit(['rev-parse', '--abbrev-ref', 'HEAD'], 5000);
+}
+
+function gitDiff(): Promise<string | null> {
+  return runGit(['diff', '--stat'], 10_000);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,8 +151,10 @@ async function buildDraft(
   cfg: PrDrafterConfig,
   llm: PluginAPI['llm'],
 ): Promise<{ title: string; body: string }> {
-  const branch = gitBranch();
-  const diffStat = cfg.includeDiff ? gitDiff() : null;
+  const [branch, diffStat] = await Promise.all([
+    gitBranch(),
+    cfg.includeDiff ? gitDiff() : Promise.resolve(null),
+  ]);
 
   const lines: string[] = [];
   lines.push('# PR Draft');
@@ -223,8 +223,8 @@ async function writeDraft(cfg: PrDrafterConfig, llm: PluginAPI['llm']): Promise<
   }
   const draft = await buildDraft(cfg, llm);
   try {
-    mkdirSync(dirname(resolved), { recursive: true });
-    writeFileSync(resolved, draft.body);
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeFile(resolved, draft.body);
     state.draftsWritten += 1;
   } catch {
     state.draftErrors += 1;
@@ -377,8 +377,8 @@ const plugin: Plugin = {
         const resolved = resolveProjectPath(cfg.outputPath);
         if (!resolved) return { ok: false, error: 'outputPath resolves outside project' };
         try {
-          mkdirSync(dirname(resolved), { recursive: true });
-          writeFileSync(resolved, draft.body);
+          await mkdir(dirname(resolved), { recursive: true });
+          await writeFile(resolved, draft.body);
           state.draftsWritten += 1;
           return {
             ok: true,

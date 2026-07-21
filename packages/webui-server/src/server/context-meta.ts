@@ -50,11 +50,11 @@ export function seedContextMeta(config: Config, context: { meta: Record<string, 
   // Display language — only seeded when the shared config pins one, so an
   // unset config leaves the client's browser-detected/local default intact.
   if (typeof config.uiLocale === 'string' && config.uiLocale) meta['uiLocale'] = config.uiLocale;
-  meta['featureMcp'] = config.features.mcp !== false;
-  meta['featurePlugins'] = config.features.plugins !== false;
-  meta['featureMemory'] = config.features.memory !== false;
-  meta['featureSkills'] = config.features.skills !== false;
-  meta['featureModelsRegistry'] = config.features.modelsRegistry !== false;
+  meta['featureMcp'] = config.features?.mcp !== false;
+  meta['featurePlugins'] = config.features?.plugins !== false;
+  meta['featureMemory'] = config.features?.memory !== false;
+  meta['featureSkills'] = config.features?.skills !== false;
+  meta['featureModelsRegistry'] = config.features?.modelsRegistry !== false;
   meta['indexOnStart'] = config.indexing?.onSessionStart !== false;
   meta['contextAutoCompact'] = config.context?.autoCompact !== false;
   meta['contextStrategy'] = config.context?.strategy ?? 'hybrid';

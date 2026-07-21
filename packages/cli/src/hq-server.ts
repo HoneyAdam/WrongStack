@@ -5,14 +5,6 @@
  *   /ws/client  — TUI/REPL/WebUI clients publish telemetry
  *   /ws/browser — HQ browser connects and receives snapshot + events
  *
- * Phase 1 is read-only: the HQ browser observes what clients publish. No
- * control commands are sent to clients from the browser yet.
- *
- * Mailbox aggregation: every `mailbox.snapshot` envelope from a client is
- * stored per-(client, mailbox) and merged into the global HqSnapshot on
- * each browser poll / broadcast. Mailbox events still flow through as
- * transient events; snapshots give us the authoritative rollups.
- *
  * @module hq-server
  */
 
@@ -23,14 +15,14 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
-  assessHqExposure,
-  type HqSnapshot,
+  createCompatibilityTrustBoundary,
+  type TrustBoundary,
+} from '@wrongstack/core/security';
+import {
   createHqPersistence,
   createMailboxHttpRouter,
-  DEFAULT_HQ_REDACTION_POLICY,
   MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
   type EnsureHqFirstRunAuthResult,
-  ensureHqFirstRunAuthFile,
   GlobalMailbox,
   type HqAlert,
   HqAlertEngine,
@@ -39,26 +31,19 @@ import {
   HqCommandAuditLog,
   type HqEventEnvelope,
   type HqTranscriptEntry,
-  HqInsecureExposureError as HqInsecureExposureErrorClass,
   MailboxEventEmitter,
   MailboxHttpRateLimiter,
-  resolveHqDataDir,
   toAlertMessage,
-  isTokenExpired,
-  hqAuthContentHash,
-  logHqAuthAudit,
-  type HqToken,
   type MailboxHttpAccessDecision,
   watchHqAuthFile,
 } from '@wrongstack/core';
-import { HQ_HTML } from './hq-dashboard-html.js';
+import { HQ_HTML } from './hq-recovery-html.js';
 import * as HqServerAuth from './hq-server/auth.js';
 import * as HqServerSnapshot from './hq-server/snapshot.js';
 import * as HqServerWs from './hq-server/ws.js';
 import {
   createHqRouter,
   type HqRouterDeps,
-  type HqRouterMutableAuth,
   type HqRouterMailboxGateway,
   authenticateBrowserRequest,
   hasTrustedBrowserOrigin,
@@ -79,7 +64,8 @@ import {
   clearHqRuntimeMarker,
   writeHqStartupInfo,
 } from './hq-server/startup.js';
-import { resolveAuditActor } from './subcommands/handlers/hq.js';
+import { createHqAuthState } from './hq-server/auth-state.js';
+import { prepareHqServerStart } from './hq-server/preflight.js';
 
 import type { ConnectedClient, TranscriptRing } from './hq-server/types.js';
 export type { ConnectedClient, TranscriptRing };
@@ -109,6 +95,8 @@ export {
 // ── Public interfaces ──────────────────────────────────────────────────────
 
 export interface HqServerOptions {
+  /** Policy authority for control-plane command enqueue decisions. */
+  trustBoundary?: TrustBoundary | undefined;
   host?: string;
   port?: number;
   strictPort?: boolean;
@@ -161,57 +149,10 @@ export interface HqServerHandle {
 // ── Server entry points ────────────────────────────────────────────────────
 
 export async function startHqServer(options: HqServerOptions = {}): Promise<HqServerHandle> {
-  const host = options.host ?? DEFAULT_HOST;
-  const port = options.port ?? DEFAULT_PORT;
-  const dataDir = resolveHqDataDir(options.dataDir);
-
-  const actor = resolveAuditActor();
-  const firstRunAuth = await ensureHqFirstRunAuthFile(dataDir, {
-    warn: (msg: string) =>
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'hq.auth_load_failed',
-          message: msg,
-          timestamp: new Date().toISOString(),
-        }),
-      ),
-    actor,
-    ...(options.password !== undefined ? { password: options.password } : {}),
-    ...(options.tokenTtlMs !== undefined ? { tokenTtlMs: options.tokenTtlMs } : {}),
+  const { host, port, dataDir, firstRunAuth } = await prepareHqServerStart(options, {
+    host: DEFAULT_HOST,
+    port: DEFAULT_PORT,
   });
-
-  if (
-    options.requireBrowserAuth &&
-    (firstRunAuth.authFile.browserTokens ?? []).length === 0 &&
-    firstRunAuth.authFile.passwordHash === undefined
-  ) {
-    throw new HqInsecureExposureErrorClass(
-      'HQ public relay requires browser authentication. Set --password or create a browser token first.',
-    );
-  }
-
-  const exposure = assessHqExposure({
-    host,
-    hasBrowserTokens: (firstRunAuth.authFile.browserTokens ?? []).length > 0,
-    hasPassword: firstRunAuth.authFile.passwordHash !== undefined,
-    allowInsecure: options.allowInsecureOpen,
-  });
-  if (exposure.kind === 'refuse') {
-    throw new HqInsecureExposureErrorClass(exposure.message);
-  }
-  if (exposure.kind === 'warn') {
-    console.warn(
-      JSON.stringify({
-        level: 'warn',
-        event: 'hq.insecure_exposure',
-        message: exposure.message,
-        host,
-        timestamp: new Date().toISOString(),
-      }),
-    );
-  }
-
   return startHqServerWithAuth(options, host, port, dataDir, firstRunAuth);
 }
 
@@ -222,127 +163,13 @@ function startHqServerWithAuth(
   dataDir: string,
   firstRunAuth: EnsureHqFirstRunAuthResult,
 ): Promise<HqServerHandle> {
+  const trustBoundary =
+    options.trustBoundary ??
+    createCompatibilityTrustBoundary({ policyId: 'hq-trusted-host-compat-v1' });
   const authFile = firstRunAuth.authFile;
 
-  // ── Mutable auth state ───────────────────────────────────────────────────
-  // Tokens are filtered for wall-clock expiry at load time so an expired
-  // token is structurally absent from the in-memory sets/maps — the HTTP
-  // and WS-upgrade auth paths then reject it without a separate code path.
-  // The live-reload watcher (applyAuthFile below) re-applies the same filter
-  // so editing `expiresAt` in auth.json takes effect without a restart.
-  const filterLiveTokens = <T extends { token: string; expiresAt?: string }>(list: T[] | undefined): T[] =>
-    (list ?? []).filter((t) => !isTokenExpired(t));
-
-  // Track the raw (unfiltered) token lists so computeTokenStats can count
-  // expired tokens that filterLiveTokens has already removed from mutableAuth.
-  let rawBrowserTokens: readonly HqToken[] = authFile.browserTokens ?? [];
-  let rawClientTokens: readonly HqToken[] = authFile.clientTokens ?? [];
-
-  const TOKEN_EXPIRY_WARNING_MS = 24 * 60 * 60 * 1000;
-  function computeTokenStats(): NonNullable<HqSnapshot['totals']['tokenStats']> {
-    const now = Date.now();
-    const all = [...rawBrowserTokens, ...rawClientTokens];
-    const expired = all.filter((t) => isTokenExpired(t, now)).length;
-    const live = all.filter((t) => !isTokenExpired(t, now));
-    const expiringSoon = live.filter((t) => {
-      if (t.expiresAt === undefined) return false;
-      const ms = Date.parse(t.expiresAt);
-      return Number.isFinite(ms) && ms - now <= TOKEN_EXPIRY_WARNING_MS;
-    }).length;
-    return {
-      browserTotal: mutableAuth.browserTokens.size,
-      clientTotal: mutableAuth.clientTokens.size,
-      expired,
-      expiringSoon,
-    };
-  }
-
-  const mutableAuth: HqRouterMutableAuth = {
-    operatorPolicy: { ...DEFAULT_HQ_REDACTION_POLICY, ...(authFile.redactionPolicy ?? {}) },
-    operatorPolicyOverride: authFile.redactionPolicy,
-    browserTokens: new Set(filterLiveTokens(authFile.browserTokens).map((t) => t.token)),
-    clientTokens: new Set(filterLiveTokens(authFile.clientTokens).map((t) => t.token)),
-    browserTokenObjs: new Map(
-      filterLiveTokens(authFile.browserTokens).map((t) => [
-        t.token,
-        {
-          id: t.id,
-          ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}),
-          ...(t.expiresAt !== undefined ? { expiresAt: t.expiresAt } : {}),
-        },
-      ]),
-    ),
-    clientTokenObjs: new Map(filterLiveTokens(authFile.clientTokens).map((token) => [token.token, token])),
-    passwordHash: authFile.passwordHash,
-    cookieSecret: authFile.cookieSecret,
-    alertRules: authFile.alertRules,
-  };
-
-  const applyAuthFile = (next: typeof authFile): void => {
-    // Diff raw token lists against the previous reload to count tokens that
-    // were pruned this cycle because their wall-clock expiresAt had passed.
-    // The diff only counts tokens that were previously live (not already
-    // expired in the prior snapshot) and are now expired — so editing
-    // expiresAt in auth.json to a past timestamp fires a prune event on
-    // the next live-reload tick, even though the token is still listed.
-    const newBrowser = next.browserTokens ?? [];
-    const newClient = next.clientTokens ?? [];
-    const priorBrowserLive = new Set(rawBrowserTokens.filter((t) => !isTokenExpired(t)).map((t) => t.id));
-    const priorClientLive = new Set(rawClientTokens.filter((t) => !isTokenExpired(t)).map((t) => t.id));
-    const browserPruned = newBrowser.filter(
-      (t) => isTokenExpired(t) && priorBrowserLive.has(t.id),
-    );
-    const clientPruned = newClient.filter(
-      (t) => isTokenExpired(t) && priorClientLive.has(t.id),
-    );
-    rawBrowserTokens = newBrowser;
-    rawClientTokens = newClient;
-    // Best-effort audit: one aggregate entry per scope that had pruned
-    // tokens this reload. Swallows errors — a failed audit append must
-    // never roll back the auth-state reload. The `contentHash` ties each
-    // entry to the on-disk state the operator just wrote (the live-reload
-    // path reads auth.json verbatim, so hashing `next` matches disk).
-    const hash = hqAuthContentHash(next);
-    const hashField = hash !== undefined ? { contentHash: hash } : {};
-    if (browserPruned.length > 0) {
-      logHqAuthAudit(dataDir, {
-        kind: 'expired-prune',
-        scope: 'browser',
-        tokenId: '(aggregate)',
-        prunedCount: browserPruned.length,
-        ...hashField,
-      });
-    }
-    if (clientPruned.length > 0) {
-      logHqAuthAudit(dataDir, {
-        kind: 'expired-prune',
-        scope: 'client',
-        tokenId: '(aggregate)',
-        prunedCount: clientPruned.length,
-        ...hashField,
-      });
-    }
-    mutableAuth.operatorPolicy = { ...DEFAULT_HQ_REDACTION_POLICY, ...(next.redactionPolicy ?? {}) };
-    mutableAuth.operatorPolicyOverride = next.redactionPolicy;
-    mutableAuth.browserTokens = new Set(filterLiveTokens(next.browserTokens).map((t) => t.token));
-    mutableAuth.clientTokens = new Set(filterLiveTokens(next.clientTokens).map((t) => t.token));
-    mutableAuth.browserTokenObjs = new Map(
-      filterLiveTokens(next.browserTokens).map((t) => [
-        t.token,
-        {
-          id: t.id,
-          ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}),
-          ...(t.expiresAt !== undefined ? { expiresAt: t.expiresAt } : {}),
-        },
-      ]),
-    );
-    mutableAuth.clientTokenObjs = new Map(
-      filterLiveTokens(next.clientTokens).map((token: HqToken) => [token.token, token]),
-    );
-    mutableAuth.passwordHash = next.passwordHash;
-    mutableAuth.cookieSecret = next.cookieSecret;
-    mutableAuth.alertRules = next.alertRules;
-  };
+  const authState = createHqAuthState(authFile, dataDir);
+  const { mutableAuth } = authState;
 
   console.warn(
     JSON.stringify({
@@ -496,7 +323,7 @@ function startHqServerWithAuth(
     snapshotBroadcaster.currentSerialized();
 
     const stopAlertEngine = alertEngine.startPeriodic(
-      () => HqServerSnapshot.buildSnapshot(clients, { tokenStats: computeTokenStats() }),
+      () => HqServerSnapshot.buildSnapshot(clients, { tokenStats: authState.tokenStats() }),
       (): HqAlertRuleConfig | undefined => mutableAuth.alertRules,
     );
 
@@ -546,6 +373,7 @@ function startHqServerWithAuth(
     // HTTP server with extracted route handlers
     // ══════════════════════════════════════════════════════════════════════
     const routerDeps: HqRouterDeps = {
+      trustBoundary,
       host,
       listeningPort,
       trustedPublicOrigins,
@@ -568,7 +396,7 @@ function startHqServerWithAuth(
       secureCookies: options.secureCookies,
       authorizeMailboxGateway,
       getMailboxGateway,
-      getTokenStats: computeTokenStats,
+      getTokenStats: () => authState.tokenStats(),
     };
     const handleRequest = createHqRouter(routerDeps);
 
@@ -673,7 +501,7 @@ function startHqServerWithAuth(
     const authWatcher = watchHqAuthFile(
       dataDir,
       (next) => {
-        applyAuthFile(next);
+        authState.apply(next);
         if (
           options.requireBrowserAuth &&
           mutableAuth.browserTokens.size === 0 &&

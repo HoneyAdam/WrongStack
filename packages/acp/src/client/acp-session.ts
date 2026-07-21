@@ -8,12 +8,14 @@
  * Spec: https://agentclientprotocol.com/protocol/v1/overview
  * Design: see ./acp-session.design.md in this directory.
  */
-import { ClientTransport, type ACPClientTransport } from '../agent/stdio-transport.js';
+import type {
+  TrustActor,
+  TrustAuthContext,
+  TrustBoundary,
+  TrustScope,
+} from '@wrongstack/core/security';
+import { type ACPClientTransport, ClientTransport } from '../agent/stdio-transport.js';
 import type { ACPMessage } from '../types/acp-messages.js';
-import {
-  WebSocketClientTransport,
-  type WebSocketClientTransportOptions,
-} from './websocket-transport.js';
 import {
   ACP_PROTOCOL_VERSION,
   type AgentCapabilities,
@@ -32,11 +34,13 @@ import {
   type UsageCost,
 } from '../types/acp-v1.js';
 import { FileServer, FsError } from './file-server.js';
-import {
-  readOnlyPermissionPolicy,
-  type PermissionPolicy,
-} from './permission.js';
+import { type PermissionPolicy, readOnlyPermissionPolicy } from './permission.js';
 import { TerminalServer } from './terminal-server.js';
+import { makeTrustBoundaryPermissionPolicy } from './trust-boundary-permission.js';
+import {
+  WebSocketClientTransport,
+  type WebSocketClientTransportOptions,
+} from './websocket-transport.js';
 
 export interface ACPSessionOptions {
   command: string;
@@ -50,6 +54,14 @@ export interface ACPSessionOptions {
   timeoutMs?: number | undefined;
   /** Override the permission policy. */
   permissionPolicy?: PermissionPolicy | undefined;
+  /** Shared authorization authority. Mutually exclusive with `permissionPolicy`. */
+  trustBoundary?: TrustBoundary | undefined;
+  /** Actor identity supplied to `trustBoundary`. Defaults to an ACP agent. */
+  trustActor?: TrustActor | undefined;
+  /** Base scope supplied to `trustBoundary`; callback session IDs are merged in. */
+  trustScope?: TrustScope | undefined;
+  /** Authentication evidence supplied to `trustBoundary`. */
+  trustAuthContext?: TrustAuthContext | undefined;
   /** Per-fs-call timeout, default 30s. */
   fsTimeoutMs?: number | undefined;
   /** Per-terminal command timeout, default 5 minutes. */
@@ -218,7 +230,17 @@ export class ACPSession {
       termOpts.outputByteLimit = opts.terminalOutputByteLimit;
     }
     this.terminalServer = new TerminalServer(termOpts);
-    this.permissionPolicy = opts.permissionPolicy ?? readOnlyPermissionPolicy;
+    if (opts.permissionPolicy && opts.trustBoundary) {
+      throw new TypeError('permissionPolicy and trustBoundary are mutually exclusive');
+    }
+    this.permissionPolicy = opts.trustBoundary
+      ? makeTrustBoundaryPermissionPolicy({
+          boundary: opts.trustBoundary,
+          ...(opts.trustActor ? { actor: opts.trustActor } : {}),
+          scope: opts.trustScope ?? { cwd: opts.projectRoot },
+          ...(opts.trustAuthContext ? { authContext: opts.trustAuthContext } : {}),
+        })
+      : (opts.permissionPolicy ?? readOnlyPermissionPolicy);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -453,11 +475,7 @@ export class ACPSession {
    * @param mcpServers - Optional MCP servers (defaults to options.mcpServers)
    * @param cwd - Optional working directory (defaults to options.cwd or projectRoot)
    */
-  async loadSession(
-    sessionId: SessionId,
-    mcpServers?: McpServer[],
-    cwd?: string,
-  ): Promise<void> {
+  async loadSession(sessionId: SessionId, mcpServers?: McpServer[], cwd?: string): Promise<void> {
     if (this.closed) {
       throw new ACPSessionError('closed', 'session is closed');
     }
@@ -495,11 +513,7 @@ export class ACPSession {
    * @param mcpServers - Optional MCP servers (defaults to options.mcpServers)
    * @param cwd - Optional working directory (defaults to options.cwd or projectRoot)
    */
-  async resumeSession(
-    sessionId: SessionId,
-    mcpServers?: McpServer[],
-    cwd?: string,
-  ): Promise<void> {
+  async resumeSession(sessionId: SessionId, mcpServers?: McpServer[], cwd?: string): Promise<void> {
     if (this.closed) {
       throw new ACPSessionError('closed', 'session is closed');
     }
@@ -521,7 +535,11 @@ export class ACPSession {
       mcpServers: servers,
     });
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `session/resume failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `session/resume failed: ${result.message}`,
+        result,
+      );
     }
     this.sessionId = sessionId;
   }
@@ -531,7 +549,10 @@ export class ACPSession {
    *
    * Only works if the agent advertises `sessionCapabilities.list`.
    */
-  async listSessions(cursor?: string, cwd?: string): Promise<{ sessions: SessionInfo[]; nextCursor?: string | undefined }> {
+  async listSessions(
+    cursor?: string,
+    cwd?: string,
+  ): Promise<{ sessions: SessionInfo[]; nextCursor?: string | undefined }> {
     if (this.closed) {
       throw new ACPSessionError('closed', 'session is closed');
     }
@@ -576,7 +597,11 @@ export class ACPSession {
     const id = this.allocId();
     const result = await this.sendRequest(id, 'session/delete', { sessionId });
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `session/delete failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `session/delete failed: ${result.message}`,
+        result,
+      );
     }
 
     if (this.sessionId === sessionId) {
@@ -619,7 +644,11 @@ export class ACPSession {
     const id = this.allocId();
     const result = await this.sendRequest(id, 'session/set_mode', { sessionId, modeId });
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `session/set_mode failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `session/set_mode failed: ${result.message}`,
+        result,
+      );
     }
   }
 
@@ -630,10 +659,16 @@ export class ACPSession {
     if (this.closed) throw new ACPSessionError('closed', 'session is closed');
     const id = this.allocId();
     const result = await this.sendRequest(id, 'session/set_config_option', {
-      sessionId, configId, value,
+      sessionId,
+      configId,
+      value,
     });
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `session/set_config_option failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `session/set_config_option failed: ${result.message}`,
+        result,
+      );
     }
   }
 
@@ -645,7 +680,11 @@ export class ACPSession {
     const id = this.allocId();
     const result = await this.sendRequest(id, 'providers/list', {});
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `providers/list failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `providers/list failed: ${result.message}`,
+        result,
+      );
     }
     const r = result as { providers?: unknown[]; currentProviderId?: string | null };
     return { providers: r.providers ?? [], currentProviderId: r.currentProviderId ?? null };
@@ -684,7 +723,11 @@ export class ACPSession {
     const id = this.allocId();
     const result = await this.sendRequest(id, 'providers/disable', {});
     if (isJsonRpcError(result)) {
-      throw new ACPSessionError('prompt_failed', `providers/disable failed: ${result.message}`, result);
+      throw new ACPSessionError(
+        'prompt_failed',
+        `providers/disable failed: ${result.message}`,
+        result,
+      );
     }
   }
 
@@ -810,11 +853,7 @@ export class ACPSession {
     }
     const sessionId = (result as { sessionId?: unknown }).sessionId;
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      throw new ACPSessionError(
-        'protocol_error',
-        'session/new returned no sessionId',
-        result,
-      );
+      throw new ACPSessionError('protocol_error', 'session/new returned no sessionId', result);
     }
     this.sessionId = sessionId as SessionId;
   }
@@ -913,10 +952,7 @@ export class ACPSession {
       const handle = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new ACPSessionError(
-            'protocol_error',
-            `${method} timed out after ${effectiveTimeout}ms`,
-          ),
+          new ACPSessionError('protocol_error', `${method} timed out after ${effectiveTimeout}ms`),
         );
       }, effectiveTimeout);
       this.pending.set(id, {
@@ -953,11 +989,7 @@ export class ACPSession {
   }
 
   /** Send a JSON-RPC 2.0 error response (no `method` field, per spec). */
-  private sendErrorResponse(
-    id: string | number,
-    code: number,
-    message: string,
-  ): Promise<void> {
+  private sendErrorResponse(id: string | number, code: number, message: string): Promise<void> {
     return this.transport.send({
       jsonrpc: '2.0',
       id,
@@ -1005,7 +1037,11 @@ export class ACPSession {
     }
 
     // mcp/* requests from the agent
-    if (msg.method === 'mcp/connect' || msg.method === 'mcp/message' || msg.method === 'mcp/disconnect') {
+    if (
+      msg.method === 'mcp/connect' ||
+      msg.method === 'mcp/message' ||
+      msg.method === 'mcp/disconnect'
+    ) {
       // MCP channel management — best-effort acknowledge.
       if (msg.id !== undefined) {
         this.sendResult(msg.id, {}).catch(() => {});
@@ -1081,9 +1117,7 @@ export class ACPSession {
           const usage = {
             used: u.used,
             size: u.size,
-            ...(typeof u.cost === 'object' && u.cost !== null
-              ? { cost: u.cost as UsageCost }
-              : {}),
+            ...(typeof u.cost === 'object' && u.cost !== null ? { cost: u.cost as UsageCost } : {}),
           };
           this.scratch.usage = usage;
           this.emitProgress({ type: 'usage', usage });
@@ -1107,28 +1141,20 @@ export class ACPSession {
    * tool-call map (deduped by toolCallId), extract any `diff` content into
    * the diffs list, and emit live progress.
    */
-  private captureToolCall(
-    u: { [k: string]: unknown },
-    isNew: boolean,
-  ): void {
+  private captureToolCall(u: { [k: string]: unknown }, isNew: boolean): void {
     const toolCallId = typeof u.toolCallId === 'string' ? u.toolCallId : '';
     if (!toolCallId) return;
     const prev = this.scratch.toolCalls.get(toolCallId);
     const record: ACPCapturedToolCall = {
       toolCallId,
-      title:
-        typeof u.title === 'string'
-          ? u.title
-          : (prev?.title ?? toolCallId),
-      kind: (typeof u.kind === 'string' ? (u.kind as ToolKind) : prev?.kind),
+      title: typeof u.title === 'string' ? u.title : (prev?.title ?? toolCallId),
+      kind: typeof u.kind === 'string' ? (u.kind as ToolKind) : prev?.kind,
       status:
         typeof u.status === 'string'
           ? (u.status as ToolCallStatus)
           : (prev?.status ?? (isNew ? 'pending' : 'in_progress')),
-      rawInput:
-        isRecord(u.rawInput) ? u.rawInput : prev?.rawInput,
-      rawOutput:
-        isRecord(u.rawOutput) ? u.rawOutput : prev?.rawOutput,
+      rawInput: isRecord(u.rawInput) ? u.rawInput : prev?.rawInput,
+      rawOutput: isRecord(u.rawOutput) ? u.rawOutput : prev?.rawOutput,
     };
     this.scratch.toolCalls.set(toolCallId, record);
 
@@ -1245,10 +1271,12 @@ export class ACPSession {
         ],
         signal: new AbortController().signal,
       });
-      return outcome.outcome === 'selected' &&
+      return (
+        outcome.outcome === 'selected' &&
         outcome.optionId !== 'reject' &&
         outcome.optionId !== 'reject_once' &&
-        outcome.optionId !== 'reject_always';
+        outcome.optionId !== 'reject_always'
+      );
     } catch {
       // If the policy throws, deny rather than crash.
       return false;
@@ -1258,7 +1286,8 @@ export class ACPSession {
   private async handleFsRequest(msg: ACPMessage): Promise<void> {
     const id = msg.id;
     if (id === undefined) return;
-    const params = (msg as { params?: { sessionId?: string; path?: string; content?: string } }).params;
+    const params = (msg as { params?: { sessionId?: string; path?: string; content?: string } })
+      .params;
     if (!params?.path) {
       await this.sendErrorResponse(id, -32602, 'path is required');
       return;
@@ -1314,9 +1343,15 @@ export class ACPSession {
           // before allowing it, since this is arbitrary code execution.
           const allowed = await this.authorizeCallback({
             toolCallId: `acp-terminal-create-${id}`,
-            title: `Run command: ${String(params.command ?? '')} ${(Array.isArray(params.args) ? params.args : []).join(' ')}`.trim(),
+            title:
+              `Run command: ${String(params.command ?? '')} ${(Array.isArray(params.args) ? params.args : []).join(' ')}`.trim(),
             kind: 'execute',
-            rawInput: { command: params.command, args: params.args, cwd: params.cwd, sessionId: params.sessionId },
+            rawInput: {
+              command: params.command,
+              args: params.args,
+              cwd: params.cwd,
+              sessionId: params.sessionId,
+            },
           });
           if (!allowed) {
             await this.sendErrorResponse(id, -32602, 'terminal create denied by permission policy');

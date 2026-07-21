@@ -1,12 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockExecFileSync = vi.fn((_cmd: string, _args: string[]): string => {
+const mockExecFileSync = vi.fn((_cmd: string, _args: string[], _options?: unknown): string => {
   // Default behavior: alternating flaky result across runs is driven per-test.
   return '';
 });
+const mockExecFile = vi.fn((
+  cmd: string,
+  args: string[],
+  options: unknown,
+  callback: (error: Error | null, stdout: string, stderr: string) => void,
+) => {
+  try {
+    callback(null, mockExecFileSync(cmd, args, options), '');
+  } catch (error) {
+    const failure = error as Error & { stdout?: string; stderr?: string };
+    callback(failure, failure.stdout ?? '', failure.stderr ?? '');
+  }
+  return {};
+});
 
 vi.mock('node:child_process', () => ({
-  execFileSync: mockExecFileSync,
+  execFile: mockExecFile,
 }));
 
 const flakePlugin = (await import('../src/test-flake-detector')).default;
@@ -49,6 +63,7 @@ function getTools(api: MockApi): Array<{ name: string; permission: string; categ
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecFileSync.mockReset();
+  mockExecFile.mockClear();
 });
 
 afterEach(async () => {

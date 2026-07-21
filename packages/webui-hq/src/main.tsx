@@ -3,6 +3,12 @@ import '@fontsource-variable/manrope';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource/ibm-plex-mono';
 import '@xyflow/react/dist/style.css';
+import {
+  projectHqAlertMessage,
+  projectHqCommandStatusMessage,
+  projectHqEventMessage,
+  projectHqFleetMessage,
+} from '@wrongstack/webui-server/protocol';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HqApp } from './app.js';
@@ -19,13 +25,17 @@ if (container !== null) {
   });
   client.on((msg) => {
     if (msg.type === 'hq.snapshot') {
-      useHqStore.getState()._onSnapshot(msg.snapshot);
+      const projection = projectHqFleetMessage(msg);
+      if (projection) useHqStore.getState()._onSnapshot(projection.snapshot);
     } else if (msg.type === 'hq.event') {
-      useHqStore.getState()._onEvent(msg.event);
+      const projection = projectHqEventMessage(msg);
+      if (projection) useHqStore.getState()._onEvent(projection.event);
     } else if (msg.type === 'hq.alert') {
-      useHqStore.getState()._onAlert(msg);
+      const projection = projectHqAlertMessage(msg);
+      if (projection) useHqStore.getState()._onAlert(projection.alert);
     } else if (msg.type === 'hq.command_status') {
-      useHqStore.getState()._onCommandStatus(msg.command);
+      const projection = projectHqCommandStatusMessage(msg);
+      if (projection) useHqStore.getState()._onCommandStatus(projection.command);
     }
   });
   const root = createRoot(container);

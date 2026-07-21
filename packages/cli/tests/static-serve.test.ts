@@ -36,9 +36,9 @@ describe('ensureDistDir', () => {
   const pkgDir = path.dirname(manifest);
   const distDir = path.join(pkgDir, 'dist');
 
-  it('returns the resolved dist immediately when it already exists (no build triggered)', () => {
+  it('returns the resolved dist immediately when it already exists (no build triggered)', async () => {
     const runBuild = vi.fn();
-    const result = ensureDistDir(undefined, {
+    const result = await ensureDistDir(undefined, {
       resolvePackageJson: () => manifest,
       exists: () => true,
       runBuild,
@@ -47,9 +47,9 @@ describe('ensureDistDir', () => {
     expect(runBuild).not.toHaveBeenCalled();
   });
 
-  it('triggers an auto-build when dist is missing, then resolves after build', () => {
+  it('triggers an auto-build when dist is missing, then resolves after build', async () => {
     let built = false;
-    const result = ensureDistDir(undefined, {
+    const result = await ensureDistDir(undefined, {
       resolvePackageJson: () => manifest,
       exists: (file: string) => {
         if (file.endsWith('index.html')) return built;
@@ -64,10 +64,10 @@ describe('ensureDistDir', () => {
     expect(built).toBe(true);
   });
 
-  it('passes the workspace root to runBuild', () => {
+  it('passes the workspace root to runBuild', async () => {
     let receivedCwd: string | undefined;
     let built = false;
-    ensureDistDir(undefined, {
+    await ensureDistDir(undefined, {
       resolvePackageJson: () => manifest,
       exists: (file: string) => {
         if (file.endsWith('index.html')) return built;
@@ -82,8 +82,8 @@ describe('ensureDistDir', () => {
     expect(receivedCwd).toBe('C:\\my-root');
   });
 
-  it('throws a descriptive error when the build itself fails', () => {
-    expect(() =>
+  it('throws a descriptive error when the build itself fails', async () => {
+    await expect(
       ensureDistDir(undefined, {
         resolvePackageJson: () => manifest,
         exists: () => false,
@@ -92,22 +92,22 @@ describe('ensureDistDir', () => {
         },
         findWorkspaceRoot: () => 'C:\\workspace',
       }),
-    ).toThrow('webui.auto_build.failed');
+    ).rejects.toThrow('webui.auto_build.failed');
   });
 
-  it('throws a not-in-workspace error when no pnpm-workspace.yaml is reachable', () => {
-    expect(() =>
+  it('throws a not-in-workspace error when no pnpm-workspace.yaml is reachable', async () => {
+    await expect(
       ensureDistDir(undefined, {
         resolvePackageJson: () => manifest,
         exists: () => false,
         runBuild: () => {},
         findWorkspaceRoot: () => null,
       }),
-    ).toThrow('not inside a pnpm workspace');
+    ).rejects.toThrow('not inside a pnpm workspace');
   });
 
-  it('throws a package-unresolvable error when @wrongstack/webui is missing', () => {
-    expect(() =>
+  it('throws a package-unresolvable error when @wrongstack/webui is missing', async () => {
+    await expect(
       ensureDistDir(undefined, {
         resolvePackageJson: () => {
           throw new Error('not found');
@@ -116,12 +116,12 @@ describe('ensureDistDir', () => {
         runBuild: () => {},
         findWorkspaceRoot: () => 'C:\\workspace',
       }),
-    ).toThrow('webui package could not be resolved');
+    ).rejects.toThrow('webui package could not be resolved');
   });
 
-  it('returns null immediately when an explicit distDir is given but missing (no auto-build)', () => {
+  it('returns null immediately when an explicit distDir is given but missing (no auto-build)', async () => {
     const runBuild = vi.fn();
-    const result = ensureDistDir('C:\\some\\missing\\path', {
+    const result = await ensureDistDir('C:\\some\\missing\\path', {
       resolvePackageJson: () => manifest,
       exists: () => false,
       runBuild,

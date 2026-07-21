@@ -1,0 +1,257 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type {
+  Agent,
+  Config,
+  MemoryStore,
+  ModelsRegistry,
+  ModeStore,
+  ProviderConfig,
+  SessionStore,
+  SessionWriter,
+} from '@wrongstack/core';
+import { TOKENS, wstackGlobalRoot } from '@wrongstack/core';
+import { DefaultSessionStore } from '@wrongstack/core/storage';
+import { toErrorMessage } from '@wrongstack/core/utils';
+import { makeProviderFromConfig } from '@wrongstack/providers';
+import type { WebSocket } from 'ws';
+import { createConversationOperations } from './conversation-operations.js';
+import type { ConversationRouteHandlers } from './conversation-routes.js';
+import type { CustomModeStore } from './custom-context-modes.js';
+import { createProjectHandlers } from './project-handlers.js';
+import type { ProjectRouteHandlers } from './project-routes.js';
+import { createProviderOperations } from './provider-handlers.js';
+import type { PendingConfirm } from './pending-confirms.js';
+import { createSessionHandlers } from './session-handlers.js';
+import type { SessionRouteHandlers } from './session-routes.js';
+import type { WSServerMessage } from './types.js';
+
+export interface EmbeddedHostTransport {
+  send: (ws: WebSocket, message: WSServerMessage) => void;
+  broadcast: (message: WSServerMessage) => void;
+  log: (message: string) => void;
+}
+
+export interface EmbeddedProviderStore {
+  load(): Promise<Record<string, ProviderConfig>>;
+  save(providers: Record<string, ProviderConfig>): Promise<void>;
+}
+
+export interface EmbeddedProviderContext extends EmbeddedHostTransport {
+  providerStore: EmbeddedProviderStore;
+  modelsRegistry: ModelsRegistry | undefined;
+}
+
+export interface EmbeddedAgentConfigContext extends EmbeddedHostTransport {
+  agent: Agent;
+  modeStore: ModeStore | undefined;
+  buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
+  loadSavedProviders: () => Promise<Record<string, ProviderConfig>>;
+  modelsRegistry?: ModelsRegistry | undefined;
+  memoryStore?: MemoryStore | undefined;
+  getConfig?: (() => Config | undefined) | undefined;
+  onMaxContextResolved?:
+    | ((providerId: string, modelId: string, maxContext: number) => void)
+    | undefined;
+  persistPrefs?: ((payload: Record<string, unknown>) => Promise<void>) | undefined;
+}
+
+export async function applyEmbeddedModelSwitch(
+  ctx: EmbeddedAgentConfigContext,
+  providerId: string,
+  modelId: string,
+): Promise<void> {
+  const agentContext = ctx.agent.ctx;
+  agentContext.model = modelId;
+  const saved = await ctx.loadSavedProviders();
+  const providerConfig = saved[providerId] ?? { type: providerId };
+  agentContext.provider = makeProviderFromConfig(providerId, providerConfig);
+  await ctx.modelsRegistry?.refresh().catch((error) => {
+    ctx.log(
+      JSON.stringify({
+        level: 'warn',
+        event: 'models.refresh_failed',
+        provider: providerId,
+        model: modelId,
+        message: toErrorMessage(error),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  });
+  const catalogId =
+    providerConfig.type && providerConfig.type !== providerId ? providerConfig.type : providerId;
+  const resolved = await ctx.modelsRegistry?.getModel(catalogId, modelId).catch(() => undefined);
+  const maxContext =
+    resolved?.capabilities.maxContext ?? agentContext.provider.capabilities.maxContext;
+  agentContext.provider.capabilities.maxContext = maxContext;
+  await ctx.persistPrefs?.({ provider: providerId, model: modelId });
+  if (ctx.onMaxContextResolved) ctx.onMaxContextResolved(providerId, modelId, maxContext);
+  else {
+    if (maxContext > 0) agentContext.meta['effectiveMaxContext'] = maxContext;
+    else delete agentContext.meta['effectiveMaxContext'];
+    ctx.broadcast({
+      type: 'ctx.max_context',
+      payload: {
+        sessionId: agentContext.session.id,
+        providerId,
+        modelId,
+        maxContext,
+      },
+    });
+  }
+  ctx.broadcast({ type: 'session.start', payload: await ctx.buildSessionStart() });
+}
+
+export function createEmbeddedProviderOperations(ctx: EmbeddedProviderContext) {
+  return createProviderOperations({
+    providerStore: ctx.providerStore,
+    broadcast: ctx.broadcast,
+    send: ctx.send,
+    modelsRegistry: ctx.modelsRegistry,
+    log: ctx.log,
+  });
+}
+
+export interface EmbeddedConversationContext extends EmbeddedHostTransport {
+  agent: Agent;
+  abortControllers: Map<WebSocket, AbortController>;
+  pendingConfirms: Map<string, PendingConfirm>;
+}
+
+export function createEmbeddedConversationRoutes(
+  ctx: EmbeddedConversationContext,
+): ConversationRouteHandlers {
+  return createConversationOperations({
+    getAgent: () => ctx.agent,
+    getSessionId: () => ctx.agent.ctx.session?.id ?? '',
+    runControl: {
+      begin: (ws) => {
+        if (ctx.abortControllers.has(ws)) return undefined;
+        const controller = new AbortController();
+        ctx.abortControllers.set(ws, controller);
+        return controller;
+      },
+      end: (ws, controller) => {
+        if (ctx.abortControllers.get(ws) === controller) ctx.abortControllers.delete(ws);
+      },
+      abort: (ws) => ctx.abortControllers.get(ws)?.abort(),
+    },
+    pendingConfirms: ctx.pendingConfirms,
+    send: ctx.send,
+    notifyAbort: (ws, message) => ctx.send(ws, message),
+    busyPhase: 'agent.run',
+    busyMessage: 'A run is already in progress. Abort it first.',
+  });
+}
+
+export interface EmbeddedSessionOptions {
+  projectRoot?: string | undefined;
+  agent: Agent;
+  session: SessionWriter;
+  sessionStore?: SessionStore | undefined;
+  sessionsDir?: string | undefined;
+  onSessionSwapped?: ((sessionId: string) => void) | undefined;
+}
+
+export interface EmbeddedSessionContext extends EmbeddedHostTransport {
+  opts: EmbeddedSessionOptions;
+  buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
+  getCustomModeStore: () => Promise<CustomModeStore>;
+}
+
+function sessionStoreFor(opts: EmbeddedSessionOptions): SessionStore {
+  const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
+  return (
+    opts.sessionStore ??
+    new DefaultSessionStore({ dir: path.join(projectRoot, '.wrongstack', 'sessions'), projectRoot })
+  );
+}
+
+export function createEmbeddedSessionRoutes(
+  ctx: EmbeddedSessionContext,
+): SessionRouteHandlers {
+  const { opts } = ctx;
+  const actx = opts.agent.ctx;
+  const getProjectRoot = () => opts.projectRoot ?? actx.projectRoot;
+  return createSessionHandlers({
+    config: { model: actx.model ?? '', provider: actx.provider?.id ?? '' },
+    getConfig: () => ({ model: actx.model ?? '', provider: actx.provider?.id ?? '' }),
+    context: actx,
+    listTools: () => opts.agent.tools.list(),
+    getCompactor: () => opts.agent.container.resolve(TOKENS.Compactor),
+    getCustomModeStore: ctx.getCustomModeStore,
+    tokenCounter: actx.tokenCounter,
+    getProjectRoot,
+    getSession: () => actx.session ?? opts.session,
+    getSessionStore: () => sessionStoreFor(opts),
+    canSwapSessions: () => opts.sessionStore !== undefined,
+    getSessionsDir: () => opts.sessionsDir ?? path.join(getProjectRoot(), '.wrongstack', 'sessions'),
+    setSession: (next) => {
+      actx.session = next;
+    },
+    onSessionSwapped: async (sessionId) => opts.onSessionSwapped?.(sessionId),
+    sessionStartPayload: async (overrides) => (await ctx.buildSessionStart(overrides)) as never,
+    sendMessage: ctx.send,
+    broadcastMessage: ctx.broadcast,
+  });
+}
+
+export async function broadcastEmbeddedGoalSnapshot(
+  ctx: EmbeddedSessionContext,
+): Promise<void> {
+  const projectRoot = ctx.opts.projectRoot ?? ctx.opts.agent.ctx.projectRoot;
+  try {
+    const raw = await fs.readFile(path.join(projectRoot, '.wrongstack', 'goal.json'), 'utf8');
+    ctx.broadcast({ type: 'goal-state.updated', payload: JSON.parse(raw) });
+  } catch {
+    ctx.broadcast({ type: 'goal-state.updated', payload: null });
+  }
+}
+
+export interface EmbeddedProjectContext extends EmbeddedHostTransport {
+  opts: EmbeddedSessionOptions & { globalConfigPath?: string | undefined };
+  abortControllers: Map<WebSocket, AbortController>;
+  abortLegacyRun: () => void;
+  buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
+}
+
+export function createEmbeddedProjectRoutes(
+  ctx: EmbeddedProjectContext,
+): ProjectRouteHandlers {
+  const { opts } = ctx;
+  const actx = opts.agent.ctx;
+  const globalConfigPath = opts.globalConfigPath ?? path.join(wstackGlobalRoot(), 'config.json');
+  return createProjectHandlers({
+    globalConfigPath,
+    wpaths: { globalRoot: path.dirname(globalConfigPath) },
+    context: actx,
+    tokenCounter: actx.tokenCounter,
+    config: { model: actx.model, provider: actx.provider.id },
+    getConfig: () => ({ model: actx.model, provider: actx.provider.id }),
+    getProjectRoot: () => opts.projectRoot ?? actx.projectRoot,
+    getSession: () => actx.session ?? opts.session,
+    setProjectRoot: (projectRoot) => {
+      opts.projectRoot = projectRoot;
+    },
+    setWorkingDir: (workingDir) => {
+      actx.cwd = workingDir;
+    },
+    setSession: (session) => {
+      opts.session = session;
+      actx.session = session;
+    },
+    setSessionStore: (store) => {
+      opts.sessionStore = store;
+    },
+    abortRunLock: ctx.abortLegacyRun,
+    abortAllRuns: () => {
+      for (const controller of ctx.abortControllers.values()) controller.abort();
+      ctx.abortControllers.clear();
+    },
+    onSessionSwapped: async (sessionId) => opts.onSessionSwapped?.(sessionId),
+    allowProjectMutations: true,
+    sessionStartPayload: ctx.buildSessionStart,
+    sendMessage: ctx.send,
+    broadcastMessage: ctx.broadcast,
+  });
+}

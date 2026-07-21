@@ -89,9 +89,12 @@ export interface HqToken {
    * an expired token at both the HTTP and the WS-upgrade auth boundary,
    * so TTL rotation is enforced even for long-lived browser sessions.
    *
-   * The timestamp is wall-clock (`new Date().toISOString()`) — clock skew
-   * between the issuing HQ and the client just shifts the effective window
-   * slightly, which is acceptable for an operator-set rotation cadence.
+   * The timestamp is wall-clock (`new Date().toISOString()`). Clock skew
+   * between the issuing HQ and the client is handled by passing a
+   * `clockSkewMs` tolerance to {@link isTokenExpired} and
+   * {@link tokenHasCapability} — callers that fetch tokens from a remote
+   * HQ should use the server's clock (e.g. `Date.parse(expiresAt)`)
+   * rather than the local wall clock.
    */
   expiresAt?: string;
 }
@@ -108,14 +111,23 @@ export interface HqToken {
  *
  * @param at - epoch milliseconds; defaults to `Date.now()`. Exposed so
  *   tests can inject a fixed clock.
+ * @param clockSkewMs - tolerance in milliseconds for clock skew between
+ *   the issuing node and the verifying node. When set, a token that has
+ *   technically expired by up to `clockSkewMs` is still accepted, so a
+ *   verifier whose clock is slightly ahead of the issuer does not
+ *   prematurely reject valid tokens. Defaults to 0 (no tolerance).
  */
-export function isTokenExpired(token: Pick<HqToken, 'expiresAt'> | undefined, at: number = Date.now()): boolean {
+export function isTokenExpired(
+  token: Pick<HqToken, 'expiresAt'> | undefined,
+  at: number = Date.now(),
+  clockSkewMs: number = 0,
+): boolean {
   if (token === undefined) return false;
   const expiresAt = token.expiresAt;
   if (expiresAt === undefined) return false;
   const parsed = Date.parse(expiresAt);
   if (!Number.isFinite(parsed)) return false;
-  return at >= parsed;
+  return at >= parsed - Math.max(0, clockSkewMs);
 }
 
 /**
@@ -123,10 +135,18 @@ export function isTokenExpired(token: Pick<HqToken, 'expiresAt'> | undefined, at
  * field is unrestricted (backward-compat). Otherwise the capability must be
  * explicitly listed. **Expired tokens are refused regardless of capability**
  * — call this at the auth boundary so TTL rotation is enforced uniformly.
+ *
+ * @param clockSkewMs - passed through to {@link isTokenExpired}. When set, a
+ *   token that has expired by up to `clockSkewMs` is still accepted. Defaults
+ *   to 0.
  */
-export function tokenHasCapability(token: HqToken | undefined, capability: string): boolean {
+export function tokenHasCapability(
+  token: HqToken | undefined,
+  capability: string,
+  clockSkewMs: number = 0,
+): boolean {
   if (token === undefined) return false;
-  if (isTokenExpired(token)) return false;
+  if (isTokenExpired(token, Date.now(), clockSkewMs)) return false;
   if (token.capabilities === undefined) return true;
   return token.capabilities.includes(capability);
 }

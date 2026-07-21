@@ -375,7 +375,8 @@ export interface SuperMemoryHygieneReport {
   /**
    * Number of already-`deleted` records physically compacted out of the JSONL
    * log by the opt-in `purgeDeletedAfterDays` step. 0 unless that option was
-   * passed (and only ever non-zero on the JSONL backend).
+   * passed. Retained for compatibility with legacy JSONL migration tooling;
+   * the SQLite runtime does not physically purge tombstones during hygiene.
    */
   purgedDeleted: number;
   verified: number;

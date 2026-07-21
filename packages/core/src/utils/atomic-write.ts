@@ -91,7 +91,6 @@ export async function withFileLock<T>(
   opts: FileLockOptions = {},
 ): Promise<T> {
   const dir = path.dirname(targetPath);
-  await fs.mkdir(dir, { recursive: true });
   const lockPath = path.join(dir, `.${path.basename(targetPath)}.lock`);
   // A lock holder can be scheduled out for several seconds when the full test
   // suite (or a busy workstation) is spawning many child processes. Five
@@ -119,8 +118,9 @@ export async function withFileLock<T>(
         handle = undefined;
       }
       const code = (err as NodeJS.ErrnoException).code;
-      // ENOENT means the directory was deleted (e.g. by concurrent cleanup).
-      // Recreate it and retry acquiring the lock.
+      // Keep the normal lock path to one exclusive open. ENOENT means either
+      // the parent has not been created yet or was deleted concurrently;
+      // create it lazily and retry acquiring the lock.
       if (code === 'ENOENT') {
         await fs.mkdir(dir, { recursive: true });
         continue;

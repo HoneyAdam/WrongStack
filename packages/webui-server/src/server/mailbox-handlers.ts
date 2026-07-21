@@ -7,14 +7,44 @@
  */
 
 import type { WebSocket } from 'ws';
-import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir, type EventBus } from '@wrongstack/core';
 import { send, errMessage } from './ws-utils.js';
 
 export interface MailboxHandlerDeps {
-  /** Absolute project root. */
-  projectRoot: string;
-  /** Global WrongStack root (~/.wrongstack). */
-  globalRoot: string;
+  /** Absolute project root or a live getter for hosts that can switch projects. */
+  projectRoot: string | (() => string);
+  /** Global WrongStack root (~/.wrongstack), or a live getter. */
+  globalRoot: string | (() => string);
+  /** Host event bus used by mailbox mutation/activity notifications. */
+  events?: EventBus | undefined;
+}
+
+const defaultMailboxCache = new Map<string, GlobalMailbox>();
+const eventMailboxCaches = new WeakMap<EventBus, Map<string, GlobalMailbox>>();
+
+function current(value: string | (() => string)): string {
+  return typeof value === 'function' ? value() : value;
+}
+
+export function getMailboxForDeps(deps: MailboxHandlerDeps): GlobalMailbox | null {
+  const projectRoot = current(deps.projectRoot);
+  const globalRoot = current(deps.globalRoot);
+  if (!projectRoot || !globalRoot) return null;
+  const dir = resolveProjectDir(projectRoot, globalRoot);
+  const cache = deps.events
+    ? (eventMailboxCaches.get(deps.events) ??
+      (() => {
+        const created = new Map<string, GlobalMailbox>();
+        eventMailboxCaches.set(deps.events as EventBus, created);
+        return created;
+      })())
+    : defaultMailboxCache;
+  let mailbox = cache.get(dir);
+  if (!mailbox) {
+    mailbox = new GlobalMailbox(dir, deps.events);
+    cache.set(dir, mailbox);
+  }
+  return mailbox;
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -30,32 +60,54 @@ export interface MailboxHandlerDeps {
 export async function handleMailboxMessages(
   ws: WebSocket,
   deps: MailboxHandlerDeps,
-  payload: { limit?: number; agentId?: string; unreadOnly?: boolean; incompleteOnly?: boolean } | undefined,
+  payload:
+    | { limit?: number; agentId?: string; unreadOnly?: boolean; incompleteOnly?: boolean }
+    | undefined,
 ): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, {
+      type: 'mailbox.messages',
+      payload: { messages: [], error: 'No project root available' },
+    });
+    return;
+  }
   try {
-    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
-    const mb = new GlobalMailbox(dir);
     const limit = payload?.limit ?? 30;
     const unreadForAgent = payload?.unreadOnly === true && payload.agentId !== undefined;
     const messages = await mb.query({
-      limit: payload?.unreadOnly === true && payload.agentId === undefined ? Math.max(limit * 5, 100) : limit,
+      limit:
+        payload?.unreadOnly === true && payload.agentId === undefined
+          ? Math.max(limit * 5, 100)
+          : limit,
       to: payload?.agentId,
       unreadBy: unreadForAgent ? payload.agentId : undefined,
       incompleteOnly: payload?.incompleteOnly ?? false,
     });
-    const visibleMessages = payload?.unreadOnly === true && payload.agentId === undefined
-      ? messages.filter((m) => Object.keys(m.readBy).length === 0).slice(0, limit)
-      : messages;
+    const visibleMessages =
+      payload?.unreadOnly === true && payload.agentId === undefined
+        ? messages.filter((m) => Object.keys(m.readBy).length === 0).slice(0, limit)
+        : messages;
     send(ws, {
       type: 'mailbox.messages',
       payload: {
         messages: visibleMessages.map((m) => ({
-          id: m.id, from: m.from, to: m.to, type: m.type,
-          subject: m.subject, body: m.body, priority: m.priority,
-          readBy: m.readBy, readByCount: Object.keys(m.readBy).length,
-          completed: m.completed, completedBy: m.completedBy,
-          completedAt: m.completedAt, outcome: m.outcome, timestamp: m.timestamp,
-          replyTo: m.replyTo, senderSessionId: m.senderSessionId,
+          id: m.id,
+          from: m.from,
+          to: m.to,
+          type: m.type,
+          subject: m.subject,
+          body: m.body,
+          priority: m.priority,
+          readBy: m.readBy,
+          readByCount: Object.keys(m.readBy).length,
+          completed: m.completed,
+          completedBy: m.completedBy,
+          completedAt: m.completedAt,
+          outcome: m.outcome,
+          timestamp: m.timestamp,
+          replyTo: m.replyTo,
+          senderSessionId: m.senderSessionId,
           taskContext: m.taskContext,
         })),
       },
@@ -74,22 +126,33 @@ export async function handleMailboxAgents(
   deps: MailboxHandlerDeps,
   payload: { onlineOnly?: boolean } | undefined,
 ): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, {
+      type: 'mailbox.agents',
+      payload: { agents: [], error: 'No project root available' },
+    });
+    return;
+  }
   try {
-    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
-    const mb = new GlobalMailbox(dir);
-    const agents = payload?.onlineOnly
-      ? await mb.getOnlineAgents()
-      : await mb.getAgentStatuses();
+    const agents = payload?.onlineOnly ? await mb.getOnlineAgents() : await mb.getAgentStatuses();
     send(ws, {
       type: 'mailbox.agents',
       payload: {
         agents: agents.map((a) => ({
-          agentId: a.agentId, name: a.name, role: a.role,
-          sessionId: a.sessionId, status: a.status,
-          currentTool: a.currentTool, currentTask: a.currentTask,
-          iterations: a.iterations, toolCalls: a.toolCalls,
-          lastSeenAt: a.lastSeenAt, online: a.online,
-          pid: a.pid, source: a.source,
+          agentId: a.agentId,
+          name: a.name,
+          role: a.role,
+          sessionId: a.sessionId,
+          status: a.status,
+          currentTool: a.currentTool,
+          currentTask: a.currentTask,
+          iterations: a.iterations,
+          toolCalls: a.toolCalls,
+          lastSeenAt: a.lastSeenAt,
+          online: a.online,
+          pid: a.pid,
+          source: a.source,
         })),
       },
     });
@@ -103,13 +166,13 @@ export async function handleMailboxAgents(
  *   { type: 'mailbox.clear' }
  * Server responds with 'mailbox.cleared'.
  */
-export async function handleMailboxClear(
-  ws: WebSocket,
-  deps: MailboxHandlerDeps,
-): Promise<void> {
+export async function handleMailboxClear(ws: WebSocket, deps: MailboxHandlerDeps): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, { type: 'mailbox.cleared', payload: { error: 'No project root available' } });
+    return;
+  }
   try {
-    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
-    const mb = new GlobalMailbox(dir);
     await mb.clearAll();
     send(ws, { type: 'mailbox.cleared', payload: {} });
   } catch (err) {
@@ -127,9 +190,12 @@ export async function handleMailboxPurge(
   deps: MailboxHandlerDeps,
   opts?: { completedMaxAgeMs?: number; incompleteMaxAgeMs?: number },
 ): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, { type: 'mailbox.purged', payload: { error: 'No project root available' } });
+    return;
+  }
   try {
-    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
-    const mb = new GlobalMailbox(dir);
     const result = await mb.purgeStale(opts);
     send(ws, { type: 'mailbox.purged', payload: result });
   } catch (err) {
@@ -153,9 +219,12 @@ export async function handleMailboxCompact(
     incompleteMaxAgeMs?: number;
   },
 ): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, { type: 'mailbox.compacted', payload: { error: 'No project root available' } });
+    return;
+  }
   try {
-    const dir = resolveProjectDir(deps.projectRoot, deps.globalRoot);
-    const mb = new GlobalMailbox(dir);
     const result = await mb.autoCompact(opts);
     send(ws, { type: 'mailbox.compacted', payload: result });
   } catch (err) {

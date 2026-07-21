@@ -13,6 +13,7 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
     projectRoot: '/tmp/test',
     configStore: { get: () => ({}) } as SlashCommandContext['configStore'],
     reader: {} as SlashCommandContext['reader'],
+    onPanelOpen: { current: null },
     ...overrides,
   };
 }

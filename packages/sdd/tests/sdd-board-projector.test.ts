@@ -1,13 +1,13 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
 import { EventBus } from '@wrongstack/core/kernel/events.js';
 import { DefaultTaskStore } from '@wrongstack/core/tasking';
+import type { TaskGraph, TaskNode } from '@wrongstack/core/types/task-graph.js';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { SddBoardProjector } from '../src/sdd-board-projector.js';
 import { SddBoardStore } from '../src/sdd-board-store.js';
 import { TaskTracker, type TaskTrackerChange } from '../src/task-tracker.js';
-import type { TaskGraph, TaskNode } from '@wrongstack/core/types/task-graph.js';
 
 function node(id: string, over: Partial<TaskNode> = {}): TaskNode {
   return {
@@ -313,6 +313,48 @@ describe('SddBoardProjector', () => {
     expect(saved?.status).toBe('completed');
     expect(saved?.progress.completed).toBe(2);
     proj.dispose();
+  });
+
+  it('coalesces snapshots queued behind a slow disk write', async () => {
+    const slowDir = mkdtempSync(join(tmpdir(), 'sdd-proj-slow-'));
+    const slowStore = new SddBoardStore({ baseDir: slowDir });
+    const saved: Array<{ wave: number }> = [];
+    let releaseFirst: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.spyOn(slowStore, 'saveSnapshot').mockImplementation(async (snapshot) => {
+      saved.push({ wave: snapshot.wave });
+      if (saved.length === 1) await firstWrite;
+    });
+    const g = graph();
+    const tracker = makeTracker(g);
+    const events = new EventBus();
+    const proj = new SddBoardProjector({
+      runId: 'slow',
+      graph: g,
+      tracker,
+      events,
+      store: slowStore,
+      throttleMs: 0,
+    });
+
+    events.emit('sdd.run.started', { runId: 'slow', graphId: 'g1', specId: 's1', total: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    for (let wave = 1; wave <= 5; wave++) {
+      events.emit('sdd.wave', { runId: 'slow', wave, batchSize: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(saved).toHaveLength(1);
+
+    releaseFirst?.();
+    await proj.drain();
+    expect(saved).toHaveLength(2);
+    expect(saved.at(-1)?.wave).toBe(5);
+    proj.dispose();
+    await import('node:fs/promises').then((fs) =>
+      fs.rm(slowDir, { recursive: true, force: true }),
+    );
   });
 
   it('marks a user-stopped run as "stopped" (terminal, not the resumable "paused")', async () => {

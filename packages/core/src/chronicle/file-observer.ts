@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
+import { mapWithConcurrency } from '../storage/storage-concurrency.js';
 import type { ChronicleContext } from './context.js';
 import type { ChronicleJournal } from './journal.js';
 import type { ChronicleEventInput } from './types.js';
@@ -37,6 +38,7 @@ export interface ChronicleFileObserver {
 }
 
 const DEFAULT_EXCLUDED = ['.git', '.wrongstack', 'node_modules', 'dist', 'coverage', '.temp_files'];
+const SCAN_HASH_CONCURRENCY = 32;
 
 /** Observe editor/user/external process mutations that bypass WrongStack tools. */
 export async function startChronicleFileObserver(
@@ -46,7 +48,7 @@ export async function startChronicleFileObserver(
   const excluded = new Set(options.excludedDirectories ?? DEFAULT_EXCLUDED);
   const debounceMs = options.debounceMs ?? 120;
   const maxHashBytes = options.maxHashBytes ?? 8 * 1024 * 1024;
-  const known = await scanProject(root, excluded, maxHashBytes, options.onError);
+  const known = (await scanProject(root, excluded, maxHashBytes, options.onError)).files;
   const recentToolMutations = new Map<string, RecentToolMutation>();
   const offToolProgress = options.events?.on('tool.progress', (event) => {
     if (event.event.type !== 'file_changed' || !event.event.path) return;
@@ -88,9 +90,10 @@ export async function startChronicleFileObserver(
   };
 
   const reconcile = async (changedPaths: string[]): Promise<void> => {
-    const candidates = changedPaths.includes('*')
-      ? unionKeys(known, await scanProject(root, excluded, maxHashBytes, options.onError))
-      : changedPaths;
+    const fullScan = changedPaths.includes('*')
+      ? await scanProject(root, excluded, maxHashBytes, options.onError)
+      : undefined;
+    const candidates = fullScan ? unionKeys(known, fullScan.files) : changedPaths;
     const changes: Array<{
       relative: string;
       before?: FileFingerprint | undefined;
@@ -98,7 +101,18 @@ export async function startChronicleFileObserver(
     }> = [];
     for (const relative of candidates) {
       const before = known.get(relative);
-      const after = await fingerprint(path.join(root, relative), maxHashBytes);
+      // A successful full scan already paid the stat/read/hash cost. Reuse
+      // those fingerprints instead of reading every file a second time.
+      // When the scan is incomplete (a directory read or individual hash
+      // threw), reuse whatever was hashed successfully and only re-probe
+      // the files the scan did not reach — never treat a scan gap as a
+      // deletion.
+      const cached = fullScan?.files.get(relative);
+      const after =
+        cached ??
+        (fullScan?.complete
+          ? undefined
+          : await fingerprint(path.join(root, relative), maxHashBytes));
       if (sameFingerprint(before, after)) continue;
       changes.push({ relative, before, after });
     }
@@ -109,56 +123,97 @@ export async function startChronicleFileObserver(
     const deleted = changes.filter((change) => change.before && !change.after);
     const created = changes.filter((change) => !change.before && change.after);
     const consumed = new Set<string>();
+    const journalWrites: Promise<void>[] = [];
     for (const from of deleted) {
-      const match = created.find((to) =>
-        !consumed.has(to.relative) &&
-        from.before?.hash !== undefined &&
-        from.before.hash === to.after?.hash,
+      const match = created.find(
+        (to) =>
+          !consumed.has(to.relative) &&
+          from.before?.hash !== undefined &&
+          from.before.hash === to.after?.hash,
       );
       if (!match) continue;
       consumed.add(from.relative);
       consumed.add(match.relative);
       known.delete(from.relative);
       known.set(match.relative, match.after!);
-      await recordMutation(options, 'file.external.renamed', match.relative, match.after, {
-        operation: 'rename',
-        previousPath: from.relative,
-        previousResourceId: resourceId(from.relative),
-        actor: 'external',
-      }, mutationAttribution(match.relative, recentToolMutations));
+      journalWrites.push(
+        recordMutation(
+          options,
+          'file.external.renamed',
+          match.relative,
+          match.after,
+          {
+            operation: 'rename',
+            previousPath: from.relative,
+            previousResourceId: resourceId(from.relative),
+            actor: 'external',
+          },
+          mutationAttribution(match.relative, recentToolMutations),
+        ),
+      );
     }
 
     for (const change of changes) {
       if (consumed.has(change.relative)) continue;
       if (!change.after) {
         known.delete(change.relative);
-        await recordMutation(options, 'file.external.deleted', change.relative, change.before, {
-          operation: 'delete',
-          actor: 'external',
-          previousHash: change.before?.hash,
-          previousSize: change.before?.size,
-        }, mutationAttribution(change.relative, recentToolMutations));
+        journalWrites.push(
+          recordMutation(
+            options,
+            'file.external.deleted',
+            change.relative,
+            change.before,
+            {
+              operation: 'delete',
+              actor: 'external',
+              previousHash: change.before?.hash,
+              previousSize: change.before?.size,
+            },
+            mutationAttribution(change.relative, recentToolMutations),
+          ),
+        );
       } else if (!change.before) {
         known.set(change.relative, change.after);
-        await recordMutation(options, 'file.external.created', change.relative, change.after, {
-          operation: 'write',
-          actor: 'external',
-        }, mutationAttribution(change.relative, recentToolMutations));
+        journalWrites.push(
+          recordMutation(
+            options,
+            'file.external.created',
+            change.relative,
+            change.after,
+            {
+              operation: 'write',
+              actor: 'external',
+            },
+            mutationAttribution(change.relative, recentToolMutations),
+          ),
+        );
       } else {
         known.set(change.relative, change.after);
-        await recordMutation(options, 'file.external.modified', change.relative, change.after, {
-          operation: 'edit',
-          actor: 'external',
-          previousHash: change.before.hash,
-          previousSize: change.before.size,
-        }, mutationAttribution(change.relative, recentToolMutations));
+        journalWrites.push(
+          recordMutation(
+            options,
+            'file.external.modified',
+            change.relative,
+            change.after,
+            {
+              operation: 'edit',
+              actor: 'external',
+              previousHash: change.before.hash,
+              previousSize: change.before.size,
+            },
+            mutationAttribution(change.relative, recentToolMutations),
+          ),
+        );
       }
     }
+    await Promise.all(journalWrites);
   };
 
   let watcher: fs.FSWatcher;
   try {
-    watcher = fs.watch(root, { recursive: true, persistent: false }, (_eventType, filename) => schedule(filename));
+    watcher = fs.watch(root, { recursive: true, persistent: false }, (_eventType, filename) =>
+      schedule(filename),
+    );
   } catch (error) {
     options.onError?.(error);
     throw error;
@@ -249,40 +304,65 @@ async function scanProject(
   excluded: ReadonlySet<string>,
   maxHashBytes: number,
   onError?: ((error: unknown) => void) | undefined,
-): Promise<Map<string, FileFingerprint>> {
+): Promise<{ files: Map<string, FileFingerprint>; complete: boolean }> {
   const result = new Map<string, FileFingerprint>();
   const dirs = [''];
+  let complete = true;
   while (dirs.length > 0) {
     const relativeDir = dirs.pop()!;
     try {
       const entries = await fsp.readdir(path.join(root, relativeDir), { withFileTypes: true });
+      const filePaths: string[] = [];
       for (const entry of entries) {
         const relative = normalizeRelative(path.join(relativeDir, entry.name));
         if (entry.isDirectory()) {
           if (!excluded.has(entry.name)) dirs.push(relative);
         } else if (entry.isFile()) {
-          const value = await fingerprint(path.join(root, relative), maxHashBytes);
-          if (value) result.set(relative, value);
+          filePaths.push(relative);
         }
       }
+      const fingerprints = await mapWithConcurrency(
+        filePaths,
+        SCAN_HASH_CONCURRENCY,
+        async (relative): Promise<[string, FileFingerprint] | null> => {
+          try {
+            const value = await fingerprint(path.join(root, relative), maxHashBytes);
+            return value ? [relative, value] : null;
+          } catch (error) {
+            complete = false;
+            onError?.(error);
+            return null;
+          }
+        },
+      );
+      for (const entry of fingerprints) {
+        if (entry) result.set(entry[0], entry[1]);
+      }
     } catch (error) {
+      complete = false;
       onError?.(error);
     }
   }
-  return result;
+  return { files: result, complete };
 }
 
-async function fingerprint(filePath: string, maxHashBytes: number): Promise<FileFingerprint | undefined> {
+async function fingerprint(
+  filePath: string,
+  maxHashBytes: number,
+): Promise<FileFingerprint | undefined> {
   try {
     const stat = await fsp.stat(filePath);
     if (!stat.isFile()) return undefined;
     const base: FileFingerprint = { size: stat.size, mtimeMs: stat.mtimeMs };
     if (stat.size <= maxHashBytes) {
-      base.hash = createHash('sha256').update(await fsp.readFile(filePath)).digest('hex');
+      base.hash = createHash('sha256')
+        .update(await fsp.readFile(filePath))
+        .digest('hex');
     }
     return base;
   } catch (error) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return undefined;
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT')
+      return undefined;
     throw error;
   }
 }
@@ -294,7 +374,9 @@ function sameFingerprint(a: FileFingerprint | undefined, b: FileFingerprint | un
 }
 
 function isExcluded(relative: string, excluded: ReadonlySet<string>): boolean {
-  return normalizeRelative(relative).split('/').some((segment) => excluded.has(segment));
+  return normalizeRelative(relative)
+    .split('/')
+    .some((segment) => excluded.has(segment));
 }
 
 function normalizeRelative(value: string): string {

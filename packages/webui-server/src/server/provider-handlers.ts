@@ -1,6 +1,6 @@
-import type { WebSocket } from 'ws';
 import type { ModelsRegistry, ProviderConfig } from '@wrongstack/core';
-import { DefaultSecretScrubber } from '@wrongstack/core';
+import { DefaultSecretScrubber, resolveProviderModelList } from '@wrongstack/core';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   beginOAuthLogin,
   type OAuthKind,
@@ -8,20 +8,25 @@ import {
   type OAuthSession,
 } from '@wrongstack/providers/oauth';
 import { probeLocalLlm } from '@wrongstack/runtime/probe';
-import { loadSavedProviders, saveProviders } from './provider-config-io.js';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import type { WebSocket } from 'ws';
 import {
-  upsertKey as upsertKeyRecord,
-  deleteKey as deleteKeyRecord,
-  setActiveKey as setActiveKeyRecord,
+  resolveProviderCatalogForModels,
+  resolveProviderModelMetadata,
+  SIBLING_CATALOG,
+} from './model-catalog.js';
+import { loadSavedProviders, saveProviders } from './provider-config-io.js';
+import {
   addProvider as addProviderRecord,
-  removeProvider as removeProviderRecord,
+  deleteKey as deleteKeyRecord,
   maskedKey,
   normalizeKeys,
+  removeProvider as removeProviderRecord,
+  setActiveKey as setActiveKeyRecord,
+  upsertKey as upsertKeyRecord,
   writeKeysBack,
 } from './provider-keys.js';
 import type { ConnectedClient, WSServerMessage } from './types.js';
-import { send, sendResult, errMessage } from './ws-utils.js';
+import { errMessage, send as sendToSocket } from './ws-utils.js';
 
 /**
  * Wire shape of one saved provider as broadcast over `providers.saved`.
@@ -121,45 +126,183 @@ export interface ProviderHandlerDeps {
   clients: Map<WebSocket, ConnectedClient>;
   /** Used by the ChatGPT OAuth flow's tier-2 model lookup (best-effort). */
   modelsRegistry?: ModelsRegistry | undefined;
+  hasActiveModel?: (() => boolean) | undefined;
+  onProvidersLoaded?:
+    | ((providers: Record<string, ProviderConfig>) => void | Promise<void>)
+    | undefined;
+  applyModelSwitch?: ((providerId: string, modelId: string) => Promise<void>) | undefined;
 }
 
-export function createProviderHandlers(deps: ProviderHandlerDeps) {
-  const { profileConfigPath, vault, broadcast, clients } = deps;
-  const settingsConfigPath = profileConfigPath;
-  let configWriteLock = deps.getConfigWriteLock();
+export interface ProviderPersistence {
+  load(): Promise<Record<string, ProviderConfig>>;
+  save(providers: Record<string, ProviderConfig>): Promise<void>;
+}
+
+export interface ProviderOperationsDeps {
+  providerStore: ProviderPersistence;
+  broadcast: (message: WSServerMessage) => void;
+  send?: ((ws: WebSocket, message: WSServerMessage) => void) | undefined;
+  modelsRegistry?: ModelsRegistry | undefined;
+  log?: ((message: string) => void) | undefined;
+  hasActiveModel?: (() => boolean) | undefined;
+  onProvidersLoaded?:
+    | ((providers: Record<string, ProviderConfig>) => void | Promise<void>)
+    | undefined;
+  applyModelSwitch?: ((providerId: string, modelId: string) => Promise<void>) | undefined;
+}
+
+export function createProviderOperations(deps: ProviderOperationsDeps) {
+  const sendMessage = deps.send ?? sendToSocket;
+  const sendOperationResult = (ws: WebSocket, success: boolean, message: string): void =>
+    sendMessage(ws, { type: 'key.operation_result', payload: { success, message } });
 
   async function loadConfigProviders(): Promise<Record<string, ProviderConfig>> {
-    return loadSavedProviders(settingsConfigPath, vault);
+    return deps.providerStore.load();
   }
 
   async function saveConfigProviders(providers: Record<string, ProviderConfig>): Promise<void> {
-    const next = configWriteLock
-      .then(() => saveProviders(profileConfigPath, vault, providers))
-      .catch((err) => {
-        const msg = toErrorMessage(err);
-        console.error(JSON.stringify({
-          level: 'error',
-          event: 'webui.provider_save_failed',
-          message: msg,
-          timestamp: new Date().toISOString(),
-        }));
-      });
-    configWriteLock = next;
-    deps.setConfigWriteLock(next);
-    await next;
+    await deps.providerStore.save(providers);
   }
 
-  async function handleKeyUpsert(ws: WebSocket, providerId: string, label: string, apiKey: string): Promise<void> {
+  async function handleProvidersList(ws: WebSocket): Promise<void> {
+    if (!deps.modelsRegistry) {
+      sendOperationResult(ws, false, 'Models registry not available');
+      return;
+    }
+    try {
+      const providers = await deps.modelsRegistry.listProviders();
+      const savedIds = new Set(Object.keys(await loadConfigProviders()));
+      sendMessage(ws, {
+        type: 'provider.catalog',
+        payload: {
+          providers: providers.map((provider) => ({
+            id: provider.id,
+            name: provider.name,
+            family: provider.family,
+            apiBase: provider.apiBase,
+            envVars: provider.envVars,
+            modelCount: provider.models.length,
+            hasApiKey:
+              savedIds.has(provider.id) || provider.envVars.some((name) => !!process.env[name]),
+          })),
+        },
+      });
+    } catch (error) {
+      sendOperationResult(ws, false, errMessage(error));
+    }
+  }
+
+  async function handleProvidersSaved(ws: WebSocket): Promise<void> {
+    try {
+      sendMessage(ws, {
+        type: 'providers.saved',
+        payload: { providers: projectSavedProviders(await loadConfigProviders()) },
+      });
+    } catch (error) {
+      sendOperationResult(ws, false, errMessage(error));
+    }
+  }
+
+  async function handleProviderModels(ws: WebSocket, providerId: string): Promise<void> {
+    if (!deps.modelsRegistry) {
+      sendOperationResult(ws, false, 'Models registry not available');
+      return;
+    }
+    try {
+      const saved = await loadConfigProviders();
+      const config = saved[providerId];
+      const provider = await resolveProviderCatalogForModels(
+        deps.modelsRegistry,
+        providerId,
+        config,
+      );
+      const siblingId = SIBLING_CATALOG[providerId];
+      const sibling =
+        siblingId && siblingId !== providerId
+          ? await deps.modelsRegistry.getProvider(siblingId).catch(() => undefined)
+          : undefined;
+      let models = resolveProviderModelList(
+        config?.models,
+        provider,
+        config?.type ?? providerId,
+        sibling,
+      );
+      if (models.length === 0 && config?.baseUrl) models = await probeModelDescriptors(config);
+      const enriched = await Promise.all(
+        models.map(async (model) => {
+          if (model.contextWindow && model.capabilities.length > 0) return model;
+          const resolved = await resolveProviderModelMetadata(
+            deps.modelsRegistry as ModelsRegistry,
+            providerId,
+            model.id,
+            config,
+          ).catch(() => undefined);
+          if (!resolved) return model;
+          const capabilities = new Set(model.capabilities);
+          if (resolved.capabilities.tools) capabilities.add('tools');
+          if (resolved.capabilities.reasoning) capabilities.add('reasoning');
+          if (resolved.capabilities.vision) capabilities.add('vision');
+          return {
+            ...model,
+            contextWindow: model.contextWindow ?? resolved.capabilities.maxContext ?? undefined,
+            inputCost: model.inputCost ?? resolved.cost?.input,
+            outputCost: model.outputCost ?? resolved.cost?.output,
+            capabilities: [...capabilities],
+          };
+        }),
+      );
+      sendMessage(ws, {
+        type: 'provider.models',
+        payload: { provider: providerId, models: enriched },
+      });
+    } catch (error) {
+      sendOperationResult(ws, false, errMessage(error));
+    }
+  }
+
+  async function adoptDefaultProviderIfUnset(providerId: string): Promise<void> {
+    if (!deps.applyModelSwitch || deps.hasActiveModel?.()) return;
+    const saved = await loadConfigProviders();
+    await deps.onProvidersLoaded?.(saved);
+    const config = saved[providerId];
+    if (!config) return;
+    let model = config.models?.[0];
+    if (!model && deps.modelsRegistry) {
+      const catalogId = config.type && config.type !== providerId ? config.type : providerId;
+      const catalog = await deps.modelsRegistry.getProvider(catalogId).catch(() => undefined);
+      model = catalog?.models?.[0]?.id;
+    }
+    if (!model) model = (await probeModelDescriptors(config))[0]?.id;
+    if (!model) return;
+    try {
+      await deps.applyModelSwitch(providerId, model);
+    } catch {
+      // Best effort: the persisted provider becomes the default next session.
+    }
+  }
+
+  async function handleKeyUpsert(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+    apiKey: string,
+  ): Promise<void> {
     try {
       const providers = await loadConfigProviders();
-      const result = upsertKeyRecord(providers, providerId, label, apiKey, new Date().toISOString());
+      const result = upsertKeyRecord(
+        providers,
+        providerId,
+        label,
+        apiKey,
+        new Date().toISOString(),
+      );
       if (result.ok) {
         await saveConfigProviders(providers);
         broadcastSaved(providers);
       }
-      sendResult(ws, result.ok, result.message);
+      sendOperationResult(ws, result.ok, result.message);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
@@ -171,13 +314,17 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
         await saveConfigProviders(providers);
         broadcastSaved(providers);
       }
-      sendResult(ws, result.ok, result.message);
+      sendOperationResult(ws, result.ok, result.message);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
-  async function handleKeySetActive(ws: WebSocket, providerId: string, label: string): Promise<void> {
+  async function handleKeySetActive(
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+  ): Promise<void> {
     try {
       const providers = await loadConfigProviders();
       const result = setActiveKeyRecord(providers, providerId, label);
@@ -185,13 +332,21 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
         await saveConfigProviders(providers);
         broadcastSaved(providers);
       }
-      sendResult(ws, result.ok, result.message);
+      sendOperationResult(ws, result.ok, result.message);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
-  async function handleProviderAdd(ws: WebSocket, payload: { id: string; family: string; baseUrl?: string | undefined; apiKey?: string | undefined }): Promise<void> {
+  async function handleProviderAdd(
+    ws: WebSocket,
+    payload: {
+      id: string;
+      family: string;
+      baseUrl?: string | undefined;
+      apiKey?: string | undefined;
+    },
+  ): Promise<void> {
     try {
       const providers = await loadConfigProviders();
       const result = addProviderRecord(providers, payload, new Date().toISOString());
@@ -199,12 +354,12 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
         await saveConfigProviders(providers);
         broadcastSaved(providers);
       }
-      sendResult(ws, result.ok, result.message);
+      sendOperationResult(ws, result.ok, result.message);
       if (result.ok) {
-        console.log(`[WebUI] Provider "${payload.id}" added via provider.add`);
+        deps.log?.(`[WebUI] Provider "${payload.id}" added via provider.add`);
       }
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
@@ -216,15 +371,15 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
         await saveConfigProviders(providers);
         broadcastSaved(providers);
       }
-      sendResult(ws, result.ok, result.message);
+      sendOperationResult(ws, result.ok, result.message);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
   /** Broadcast the current saved-provider list to every connected client. */
   function broadcastSaved(providers: Record<string, ProviderConfig>): void {
-    broadcast(clients, {
+    deps.broadcast({
       type: 'providers.saved',
       payload: { providers: projectSavedProviders(providers) },
     });
@@ -236,15 +391,15 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       const providers = await loadConfigProviders();
       const cfg = providers[providerId];
       if (!cfg) {
-        sendResult(ws, false, `Unknown provider "${providerId}"`);
+        sendOperationResult(ws, false, `Unknown provider "${providerId}"`);
         return;
       }
       delete cfg.models;
       await saveConfigProviders(providers);
-      sendResult(ws, true, `Cleared model allowlist for ${providerId}`);
+      sendOperationResult(ws, true, `Cleared model allowlist for ${providerId}`);
       broadcastSaved(providers);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
@@ -258,15 +413,15 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       const providers = await loadConfigProviders();
       const cfg = providers[providerId];
       if (!cfg) {
-        sendResult(ws, false, `Unknown provider "${providerId}"`);
+        sendOperationResult(ws, false, `Unknown provider "${providerId}"`);
         return;
       }
       cfg.models = [...previousModels];
       await saveConfigProviders(providers);
-      sendResult(ws, true, `Restored ${previousModels.length} model(s) for ${providerId}`);
+      sendOperationResult(ws, true, `Restored ${previousModels.length} model(s) for ${providerId}`);
       broadcastSaved(providers);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
@@ -285,7 +440,7 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       const providers = await loadConfigProviders();
       const cfg = providers[payload.id];
       if (!cfg) {
-        sendResult(ws, false, `Unknown provider "${payload.id}"`);
+        sendOperationResult(ws, false, `Unknown provider "${payload.id}"`);
         return;
       }
       if (payload.family !== undefined) cfg.family = payload.family as ProviderConfig['family'];
@@ -293,10 +448,10 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       if (payload.envVars !== undefined) cfg.envVars = payload.envVars;
       if (payload.models !== undefined) cfg.models = payload.models;
       await saveConfigProviders(providers);
-      sendResult(ws, true, `Updated ${payload.id}`);
+      sendOperationResult(ws, true, `Updated ${payload.id}`);
       broadcastSaved(providers);
     } catch (err) {
-      sendResult(ws, false, errMessage(err));
+      sendOperationResult(ws, false, errMessage(err));
     }
   }
 
@@ -311,7 +466,7 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
     timeoutMs?: number,
   ): Promise<void> {
     const reply = (payload: Record<string, unknown>): void =>
-      send(ws, { type: 'provider.probe', payload: { providerId, ...payload } });
+      sendMessage(ws, { type: 'provider.probe', payload: { providerId, ...payload } });
     try {
       const providers = await loadConfigProviders();
       const cfg = providers[providerId];
@@ -345,21 +500,32 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
   // (@wrongstack/providers/oauth) is IO-free — persistence is local below.
 
   const oauthSessions = new Map<OAuthKind, OAuthSession>();
+  const customProviderIds = new Map<OAuthKind, string>();
 
   function sendOAuthStatus(
     ws: WebSocket,
     kind: OAuthKind,
-    phase: 'awaiting_browser' | 'awaiting_code' | 'exchanging' | 'fetching_models' | 'success' | 'error',
+    phase:
+      | 'awaiting_browser'
+      | 'awaiting_code'
+      | 'exchanging'
+      | 'fetching_models'
+      | 'success'
+      | 'error',
     extra: Record<string, unknown> = {},
   ): void {
-    send(ws, { type: 'auth.oauth.status', payload: { kind, phase, ...extra } });
+    sendMessage(ws, { type: 'auth.oauth.status', payload: { kind, phase, ...extra } });
   }
 
   /** Persist a successful login by upserting the OAuth credential. */
-  async function persistOAuthOutcome(outcome: OAuthLoginOutcome): Promise<void> {
+  async function persistOAuthOutcome(
+    outcome: OAuthLoginOutcome,
+    customProviderId?: string,
+  ): Promise<void> {
     const providers = await loadConfigProviders();
-    const existing = providers[outcome.providerId];
-    const p: ProviderConfig = existing ? { ...existing } : { type: outcome.providerId };
+    const providerId = customProviderId ?? outcome.providerId;
+    const existing = providers[providerId];
+    const p: ProviderConfig = existing ? { ...existing } : { type: providerId };
     p.family = outcome.family as ProviderConfig['family'];
     if (!p.baseUrl) p.baseUrl = outcome.baseUrl;
     p.models = [...outcome.models];
@@ -367,7 +533,7 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
     keys.push(outcome.apiKey);
     writeKeysBack(p, keys);
     p.activeKey = outcome.apiKey.label;
-    providers[outcome.providerId] = p;
+    providers[providerId] = p;
     await saveConfigProviders(providers);
     broadcastSaved(providers);
   }
@@ -376,37 +542,46 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
     ws: WebSocket,
     kind: OAuthKind,
     outcome: OAuthLoginOutcome | null,
+    customProviderId?: string,
   ): Promise<void> {
     if (!outcome) {
       sendOAuthStatus(ws, kind, 'error', { message: 'Sign-in cancelled or timed out.' });
       return;
     }
-    sendOAuthStatus(ws, kind, 'fetching_models', { providerId: outcome.providerId });
-    await persistOAuthOutcome(outcome);
+    const providerId = customProviderId ?? outcome.providerId;
+    sendOAuthStatus(ws, kind, 'fetching_models', { providerId });
+    await persistOAuthOutcome(outcome, customProviderId);
     sendOAuthStatus(ws, kind, 'success', {
-      providerId: outcome.providerId,
-      message: `Signed in — saved as ${outcome.providerId} (${outcome.models.length} models).`,
+      providerId,
+      message: `Signed in — saved as ${providerId} (${outcome.models.length} models).`,
     });
   }
 
-  async function handleOAuthStart(ws: WebSocket, kind: OAuthKind): Promise<void> {
+  async function handleOAuthStart(
+    ws: WebSocket,
+    kind: OAuthKind,
+    customProviderId?: string,
+  ): Promise<void> {
     try {
       oauthSessions.get(kind)?.close();
       oauthSessions.delete(kind);
 
       const session = await beginOAuthLogin(kind, { modelsRegistry: deps.modelsRegistry });
+      if (customProviderId) customProviderIds.set(kind, customProviderId);
+      else customProviderIds.delete(kind);
       oauthSessions.set(kind, session);
+      const providerId = customProviderId ?? session.providerId;
 
       if (kind === 'copilot') {
         sendOAuthStatus(ws, kind, 'awaiting_code', {
-          providerId: session.providerId,
+          providerId,
           verificationUri: session.verificationUri,
           userCode: session.userCode,
           bound: false,
         });
       } else {
         sendOAuthStatus(ws, kind, 'awaiting_browser', {
-          providerId: session.providerId,
+          providerId,
           authorizeUrl: session.authorizeUrl,
           bound: session.bound,
         });
@@ -420,11 +595,14 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
         void (async () => {
           try {
             const outcome = await session.waitForCompletion();
-            await finishOAuth(ws, kind, outcome);
+            await finishOAuth(ws, kind, outcome, customProviderIds.get(kind));
           } catch (err) {
             sendOAuthStatus(ws, kind, 'error', { message: errMessage(err) });
           } finally {
-            if (oauthSessions.get(kind) === session) oauthSessions.delete(kind);
+            if (oauthSessions.get(kind) === session) {
+              oauthSessions.delete(kind);
+              customProviderIds.delete(kind);
+            }
           }
         })();
       }
@@ -442,24 +620,35 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
       return;
     }
     try {
-      sendOAuthStatus(ws, kind, 'exchanging', { providerId: session.providerId });
+      sendOAuthStatus(ws, kind, 'exchanging', {
+        providerId: customProviderIds.get(kind) ?? session.providerId,
+      });
       const outcome = await session.completeWithCode(input);
-      await finishOAuth(ws, kind, outcome);
+      await finishOAuth(ws, kind, outcome, customProviderIds.get(kind));
     } catch (err) {
       sendOAuthStatus(ws, kind, 'error', { message: errMessage(err) });
     } finally {
       session.close();
-      if (oauthSessions.get(kind) === session) oauthSessions.delete(kind);
+      if (oauthSessions.get(kind) === session) {
+        oauthSessions.delete(kind);
+        customProviderIds.delete(kind);
+      }
     }
   }
 
   function handleOAuthCancel(ws: WebSocket, kind: OAuthKind): void {
     oauthSessions.get(kind)?.close();
     oauthSessions.delete(kind);
+    customProviderIds.delete(kind);
     sendOAuthStatus(ws, kind, 'error', { message: 'Sign-in cancelled.' });
   }
 
   return {
+    handleProvidersList,
+    handleProvidersSaved,
+    handleProviderModels,
+    adoptDefaultProviderIfUnset,
+    broadcastSaved,
     handleKeyUpsert,
     handleKeyDelete,
     handleKeySetActive,
@@ -474,4 +663,42 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
     handleOAuthCancel,
     loadConfigProviders,
   };
+}
+
+/**
+ * Standalone-host adapter. It preserves the existing serialized profile-file
+ * persistence while delegating all provider and OAuth behavior to the
+ * store-backed canonical operations factory.
+ */
+export function createProviderHandlers(deps: ProviderHandlerDeps) {
+  let configWriteLock = deps.getConfigWriteLock();
+  const providerStore: ProviderPersistence = {
+    load: () => loadSavedProviders(deps.profileConfigPath, deps.vault),
+    save: async (providers) => {
+      const next = configWriteLock
+        .then(() => saveProviders(deps.profileConfigPath, deps.vault, providers))
+        .catch((error) => {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'webui.provider_save_failed',
+              message: toErrorMessage(error),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        });
+      configWriteLock = next;
+      deps.setConfigWriteLock(next);
+      await next;
+    },
+  };
+  return createProviderOperations({
+    providerStore,
+    broadcast: (message) => deps.broadcast(deps.clients, message),
+    modelsRegistry: deps.modelsRegistry,
+    log: (message) => console.log(message),
+    hasActiveModel: deps.hasActiveModel,
+    onProvidersLoaded: deps.onProvidersLoaded,
+    applyModelSwitch: deps.applyModelSwitch,
+  });
 }

@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { atomicWrite } from '@wrongstack/core';
 import type { Finding, ScanResult } from './scanner.js';
@@ -54,7 +54,6 @@ export class ReportGenerator {
       await stat(this.options.outputDir);
     } catch {
       // Directory doesn't exist, create it
-      const { mkdir } = await import('node:fs/promises');
       await mkdir(this.options.outputDir, { recursive: true });
     }
   }

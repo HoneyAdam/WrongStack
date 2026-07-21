@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { MemoryEntry, MemoryScope } from '../types/memory.js';
 import { MEMORY_TYPE_LABELS, type MemoryPriority, type MemoryType } from '../types/memory.js';
-import { atomicWrite, ensureDir, withFileLock } from '../utils/atomic-write.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 
 // ── Backend interface ──────────────────────────────────────────────────
@@ -328,17 +328,35 @@ export class FileMemoryBackend implements MemoryBackend {
 
   async remember(scope: MemoryScope, entry: MemoryEntry, filePath: string): Promise<void> {
     const file = this.resolveFile(filePath, scope);
-    await ensureDir(path.dirname(file));
-    let existing = '';
-    try { existing = await fs.readFile(file, 'utf8'); } catch { /* new file */ }
-
     const id = `mem_${Date.now()}_${randomUUID().slice(0, 8)}`;
     const meta = formatMetadata(entry);
-    const line = `\n- [${entry.ts}] ${id}${meta} ${entry.text.replace(/\n/g, ' ')}\n`;
-    const next = existing.trim()
-      ? existing.replace(/\n+$/, '') + line
-      : `# Agent Memory\n${line}`;
-    await atomicWrite(file, next);
+    const line = `- [${entry.ts}] ${id}${meta} ${entry.text.replace(/\n/g, ' ')}\n`;
+
+    // The legacy implementation read and atomically rewrote the entire
+    // Markdown file for every new memory. Besides O(file size) I/O per append,
+    // concurrent callers could overwrite one another. Serialize writers and
+    // append only the new line; inspect one trailing byte solely to preserve a
+    // valid line boundary for hand-edited files that lack a final newline.
+    await withFileLock(file, async () => {
+      const handle = await fs.open(file, 'a+');
+      try {
+        const stat = await handle.stat();
+        let prefix = '';
+        if (stat.size === 0) {
+          prefix = '# Agent Memory\n\n';
+        } else {
+          const tail = Buffer.allocUnsafe(1);
+          const { bytesRead } = await handle.read(tail, 0, 1, stat.size - 1);
+          if (bytesRead === 1 && tail[0] !== 0x0a) prefix = '\n';
+        }
+        await handle.appendFile(`${prefix}${line}`, 'utf8');
+        // Match atomicWrite's durability guarantee without rewriting the old
+        // bytes. fsync is best-effort because memory persistence is non-fatal.
+        await handle.sync().catch(() => undefined);
+      } finally {
+        await handle.close();
+      }
+    });
     this.invalidateCache(file);
   }
 

@@ -1,11 +1,11 @@
-import type { WebSocket } from 'ws';
 import type { EventBus } from '@wrongstack/core';
 import {
   applySddLifecycle,
-  SddBoardStore,
   type SddBoardSnapshot,
+  SddBoardStore,
   type SddLifecycleOp,
 } from '@wrongstack/sdd';
+import type { WebSocket } from 'ws';
 
 interface WSClient {
   ws: WebSocket;
@@ -75,13 +75,16 @@ export class SddBoardWebSocketHandler {
   private readonly store: SddBoardStore;
   private readonly clients = new Set<WSClient>();
   private readonly lifecycle?: SddBoardLifecycleDeps | undefined;
+  private readonly diskPollingEnabled: boolean;
   private latest: SddBoardSnapshot | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
+  private pollInFlight = false;
   private unsub: (() => void) | null = null;
 
   constructor(boardsDir: string, events?: EventBus, lifecycle?: SddBoardLifecycleDeps) {
     this.store = new SddBoardStore({ baseDir: boardsDir });
     this.lifecycle = lifecycle;
+    this.diskPollingEnabled = events === undefined;
 
     if (events) {
       // Instant updates in the CLI-hosted server (shared bus).
@@ -90,17 +93,19 @@ export class SddBoardWebSocketHandler {
         this.broadcast({ type: 'sdd.board.snapshot', payload: e.snapshot });
       };
       this.unsub = events.on('sdd.board.snapshot', handler as (p: unknown) => void);
-    } else {
-      // Standalone server (other process): poll the persisted snapshot.
-      this.poll = setInterval(() => void this.pollLatest(), 1000);
     }
   }
 
   addClient(ws: WebSocket): void {
     const client: WSClient = { ws, id: crypto.randomUUID() };
     this.clients.add(client);
-    ws.on('close', () => this.clients.delete(client));
-    ws.on('error', () => this.clients.delete(client));
+    const remove = () => {
+      this.clients.delete(client);
+      if (this.clients.size === 0) this.stopPolling();
+    };
+    ws.on('close', remove);
+    ws.on('error', remove);
+    this.startPolling();
     // Send the current board immediately (from memory or disk).
     void this.sendCurrent(client);
   }
@@ -182,25 +187,46 @@ export class SddBoardWebSocketHandler {
   }
 
   dispose(): void {
-    if (this.poll) clearInterval(this.poll);
+    this.stopPolling();
     this.unsub?.();
-    this.poll = null;
     this.unsub = null;
   }
 
   // ── internal ────────────────────────────────────────────────────────────
 
   private async pollLatest(): Promise<void> {
-    const entry = (await this.store.list())[0];
-    if (!entry) return;
-    if (this.latest && this.latest.updatedAt >= entry.updatedAt && this.latest.runId === entry.runId) {
-      return; // nothing newer
+    if (this.pollInFlight) return;
+    this.pollInFlight = true;
+    try {
+      const entry = await this.store.latest();
+      if (!entry) return;
+      if (
+        this.latest &&
+        this.latest.updatedAt >= entry.updatedAt &&
+        this.latest.runId === entry.runId
+      ) {
+        return; // nothing newer
+      }
+      const snap = await this.store.load(entry.runId);
+      if (snap) {
+        this.latest = snap;
+        this.broadcast({ type: 'sdd.board.snapshot', payload: snap });
+      }
+    } finally {
+      this.pollInFlight = false;
     }
-    const snap = await this.store.load(entry.runId);
-    if (snap) {
-      this.latest = snap;
-      this.broadcast({ type: 'sdd.board.snapshot', payload: snap });
-    }
+  }
+
+  private startPolling(): void {
+    if (!this.diskPollingEnabled || this.poll !== null || this.clients.size === 0) return;
+    this.poll = setInterval(() => void this.pollLatest(), 1000);
+    this.poll.unref?.();
+  }
+
+  private stopPolling(): void {
+    if (this.poll === null) return;
+    clearInterval(this.poll);
+    this.poll = null;
   }
 
   private async sendCurrent(client: WSClient): Promise<void> {
@@ -214,7 +240,7 @@ export class SddBoardWebSocketHandler {
   }
 
   private async loadLatestFromDisk(): Promise<SddBoardSnapshot | null> {
-    const entry = (await this.store.list())[0];
+    const entry = await this.store.latest();
     return entry ? this.store.load(entry.runId) : null;
   }
 

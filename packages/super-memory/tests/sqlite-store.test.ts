@@ -129,16 +129,21 @@ describe('SqliteSuperMemoryStore', () => {
   });
 
   describe('deleteSuper', () => {
-    it('deletes a memory and its graph edges', async () => {
+    it('soft-deletes a memory (tombstone preserved)', async () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
       await store.initialize();
       const mem = await store.rememberSuper({ text: 'To be deleted', kind: 'fact' });
-      await store.addGraphEdge('mem:abc', `mem:${mem.id}`, 'related_to');
       const result = await store.deleteSuper(mem.id, 'test deletion');
       expect(result.deleted).toBe(true);
-      const stats = await store.getStats();
-      expect(stats.total).toBe(0);
 
+      // Tombstone preserved (soft-delete), not hard-deleted.
+      const stats = await store.getStats();
+      expect(stats.total).toBe(1);
+      expect(stats.byStatus.deleted).toBe(1);
+
+      const deleted = await store.getSuperMemory(mem.id);
+      expect(deleted).not.toBeNull();
+      expect(deleted!.status).toBe('deleted');
     });
   });
 
@@ -437,11 +442,13 @@ describe('SqliteSuperMemoryStore', () => {
 
   describe('JSONL → SQLite migration', () => {
     it('auto-migrates existing JSONL records on first open', async () => {
-      // First, write memories via the JSONL store (creates memories.jsonl)
+      // First, write every legacy artifact via the JSONL store.
       const jsonlStore = new SuperMemoryStore({ projectRoot: tempDir });
       await jsonlStore.initialize();
-      await jsonlStore.rememberSuper({ text: 'JSONL memory one', kind: 'fact' });
-      await jsonlStore.rememberSuper({ text: 'JSONL memory two', kind: 'decision' });
+      const first = await jsonlStore.rememberSuper({ text: 'JSONL memory one', kind: 'fact' });
+      const second = await jsonlStore.rememberSuper({ text: 'JSONL memory two', kind: 'decision' });
+      await jsonlStore.createCandidate({ text: 'JSONL candidate', kind: 'fact' });
+      await jsonlStore.addGraphEdge(`mem:${first.id}`, `mem:${second.id}`, 'related_to', 0.8);
 
       // Now open with SQLite store — should auto-migrate
       const sqliteStore = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
@@ -451,12 +458,47 @@ describe('SqliteSuperMemoryStore', () => {
       expect(stats.total).toBe(2);
       expect(stats.byKind.fact).toBeGreaterThanOrEqual(1);
       expect(stats.byKind.decision).toBeGreaterThanOrEqual(1);
+      expect(stats.edges).toBe(1);
+      expect(await sqliteStore.listCandidates()).toHaveLength(1);
+
+      const db = (sqliteStore as unknown as {
+        db: { prepare: (sql: string) => { get: (...args: unknown[]) => { n: number } } };
+      }).db;
+      expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE event != 'memory.legacy_jsonl_migrated'").get().n)
+        .toBeGreaterThan(0);
 
       // Search should find migrated content
       const results = await sqliteStore.searchSuper('JSONL');
       expect(results.length).toBeGreaterThanOrEqual(2);
 
       sqliteStore.close();
+    });
+
+    it('merges later JSONL revisions into a non-empty SQLite database', async () => {
+      const store1 = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store1.initialize();
+      const original = await store1.rememberSuper({ text: 'SQLite original', kind: 'fact' });
+      store1.close();
+
+      const migrated = {
+        ...original,
+        revision: original.revision + 1,
+        text: 'Newer legacy JSONL revision',
+        updatedAt: new Date(Date.parse(original.updatedAt) + 1_000).toISOString(),
+      };
+      await fs.promises.writeFile(
+        path.join(tempDir, '.wrongstack', 'memories', 'memories.jsonl'),
+        `${JSON.stringify({ recordType: 'memory', schemaVersion: 1, op: 'update', memory: migrated })}\n`,
+        'utf8',
+      );
+
+      const store2 = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store2.initialize();
+
+      expect(await store2.getSuperMemory(original.id)).toMatchObject({
+        revision: migrated.revision,
+        text: migrated.text,
+      });
     });
 
     it('does not re-migrate if SQLite db already has data', async () => {

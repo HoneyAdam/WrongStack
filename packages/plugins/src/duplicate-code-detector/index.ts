@@ -26,10 +26,10 @@
  * @public
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { collectSourceFiles, withinProject } from '../runtime/index.js';
+import { collectSourceFilesAsync, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -234,14 +234,20 @@ function findDuplicates(files: Map<string, string>, minLines: number, maxFinding
   return findings;
 }
 
-function scanPath(rawPath: string, cfg: DuplicateCodeDetectorConfig): { findings: DuplicateFinding[]; scannedFiles: number } {
+async function scanPath(
+  rawPath: string,
+  cfg: DuplicateCodeDetectorConfig,
+): Promise<{ findings: DuplicateFinding[]; scannedFiles: number }> {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
-  const filePaths = collectSourceFiles(resolved, { extensions: cfg.extensions, excludeDirs: cfg.excludeDirs });
+  const filePaths = await collectSourceFilesAsync(resolved, {
+    extensions: cfg.extensions,
+    excludeDirs: cfg.excludeDirs,
+  });
   const files = new Map<string, string>();
   for (const p of filePaths) {
     try {
-      files.set(p, readFileSync(p, 'utf-8'));
+      files.set(p, await readFile(p, 'utf-8'));
     } catch {
       // skip unreadable files
     }
@@ -326,10 +332,13 @@ const plugin: Plugin = {
      *
      * Returns null if the file is unreadable.
      */
-    function readCachedWindows(filePath: string, minLines: number): CodeWindow[] | null {
+    async function readCachedWindows(
+      filePath: string,
+      minLines: number,
+    ): Promise<CodeWindow[] | null> {
       let st: { mtimeMs: number; size: number };
       try {
-        st = statSync(filePath);
+        st = await stat(filePath);
       } catch {
         return null;
       }
@@ -339,7 +348,7 @@ const plugin: Plugin = {
       }
       let content: string;
       try {
-        content = readFileSync(filePath, 'utf-8');
+        content = await readFile(filePath, 'utf-8');
       } catch {
         return null;
       }
@@ -348,13 +357,21 @@ const plugin: Plugin = {
       return windows;
     }
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string; contextAs?: 'inline' | 'separate' } | void => {
+    ): Promise<
+      | {
+          decision?: 'block';
+          reason?: string;
+          additionalContext?: string;
+          contextAs?: 'inline' | 'separate';
+        }
+      | void
+    > => {
       if (!cfg.enabled) return;
       if (input.toolResult?.isError) return;
 
@@ -380,7 +397,7 @@ const plugin: Plugin = {
       if (lastWarning !== undefined && now - lastWarning < 60_000) return;
 
       const changedFile = resolve(process.cwd(), sourcePath);
-      const changedWindows = readCachedWindows(changedFile, cfg.minLines);
+      const changedWindows = await readCachedWindows(changedFile, cfg.minLines);
       if (changedWindows === null) {
         state.errorCount += 1;
         return;
@@ -390,10 +407,10 @@ const plugin: Plugin = {
       const projectRoot = resolve(process.cwd());
       let otherFilePaths: string[];
       try {
-        otherFilePaths = collectSourceFiles(projectRoot, {
+        otherFilePaths = (await collectSourceFilesAsync(projectRoot, {
           extensions: cfg.extensions,
           excludeDirs: cfg.excludeDirs,
-        }).filter((p) => p !== changedFile);
+        })).filter((p) => p !== changedFile);
       } catch {
         state.errorCount += 1;
         return;
@@ -406,7 +423,7 @@ const plugin: Plugin = {
       // no-op projects.
       const existingWindows: CodeWindow[] = [];
       for (const p of otherFilePaths) {
-        const w = readCachedWindows(p, cfg.minLines);
+        const w = await readCachedWindows(p, cfg.minLines);
         if (w !== null) existingWindows.push(...w);
       }
 
@@ -459,7 +476,7 @@ const plugin: Plugin = {
         state.scanCount += 1;
         let result: { findings: DuplicateFinding[]; scannedFiles: number };
         try {
-          result = scanPath(rawPath, cfg);
+          result = await scanPath(rawPath, cfg);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

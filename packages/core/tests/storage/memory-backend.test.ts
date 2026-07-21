@@ -43,6 +43,23 @@ describe('FileMemoryBackend remember/readAll/list', () => {
     expect(list.length).toBe(2);
   });
 
+  it('preserves a line boundary when appending to a hand-edited file', async () => {
+    await fs.writeFile(file, '# Agent Memory\n\nmanual text without newline');
+    await backend.remember(scope, entry('appended safely'), file);
+    const raw = await backend.readAll(scope, file);
+    expect(raw).toContain('manual text without newline\n- [');
+    expect((await backend.list(scope, file)).map((item) => item.text)).toContain('appended safely');
+  });
+
+  it('does not lose concurrent appends', async () => {
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        backend.remember(scope, entry(`concurrent ${index}`), file),
+      ),
+    );
+    expect(await backend.list(scope, file)).toHaveLength(20);
+  });
+
   it('serializes type-only and priority-only metadata', async () => {
     await backend.remember(scope, entry('type only', { type: 'fact' }), file);
     await backend.remember(scope, entry('prio only', { priority: 'low' }), file);

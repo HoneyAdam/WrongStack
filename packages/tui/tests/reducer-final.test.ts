@@ -1,6 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import { reducer } from '../src/app.js';
+import type { BrainPanelSettings } from '../src/components/brain-panel-model.js';
 import { initial } from './reducer.test.js';
+
+function brainSettings(riskLevel: BrainPanelSettings['riskLevel']): BrainPanelSettings {
+  return {
+    mode: 'interactive',
+    riskLevel,
+    strategy: 'fallback',
+    pool: ['provider/model'],
+    poolResolved: ['provider/model'],
+    usingSessionModel: false,
+    councilEnabled: false,
+    councilMinRisk: 'medium',
+    voters: [],
+    councilSeats: [],
+    ledgerEnabled: false,
+    terminalPolicy: 'conservative',
+    heuristics: {
+      lowRiskAutoAnswer: true,
+      blockedResolved: true,
+      deadlockSkip: true,
+      retryExhausted: true,
+      continuePing: true,
+    },
+    llmMaxTokens: 200,
+    llmRejectUncertain: true,
+    llmMinConfidence: 0,
+    llmDenyIsTerminal: 'never',
+    cacheEnabled: false,
+    cacheTtlMs: 300_000,
+    cacheMaxEntries: 200,
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheSize: 0,
+    traceEnabled: false,
+    traceContent: 'full',
+    ruleCount: 0,
+    ruleErrors: [],
+  };
+}
 
 describe('reducer — final correct branches', () => {
   // ── Scroll (needs totalLines, viewportRows now in initial()) ──────
@@ -87,13 +126,13 @@ describe('reducer — final correct branches', () => {
 
   // ── Brain settings (needs settings with voters/councilEnabled) ──
   it('brainSettingsLoaded works with council settings', () => {
-    const settings = { pool: [{ id: 'v1', persona: 'p', weight: 1 }], strategy: 'majority' as const, riskLevel: 'off' as const, persona: 'default', selectedVoter: 'v1', councilEnabled: false, voters: [] };
+    const settings = brainSettings('off');
     const s = initial({ brainPanel: { open: true, log: [], settings: null, selected: 0, view: 'settings' as const, busy: false, hint: undefined } } as never);
     const r = reducer(s, { type: 'brainSettingsLoaded', settings });
     expect(r.brainPanel.settings?.riskLevel).toBe('off');
   });
   it('brainRowMove moves selection', () => {
-    const settings = { pool: [{ id: 'v1', persona: 'p', weight: 1 }], strategy: 'majority' as const, riskLevel: 'medium' as const, persona: 'default', selectedVoter: 'v1', councilEnabled: false, voters: [] };
+    const settings = brainSettings('medium');
     const s = initial({ brainPanel: { open: true, log: [], settings, selected: 0, row: 0, view: 'settings' as const, busy: false, hint: undefined } } as never);
     expect(reducer(s, { type: 'brainRowMove', delta: 1 }).brainPanel.row).toBe(1);
   });

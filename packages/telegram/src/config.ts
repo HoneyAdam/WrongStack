@@ -1,6 +1,12 @@
-import type { Config, PluginAPI } from '@wrongstack/core';
+import {
+  type Config,
+  type PluginAPI,
+  type PluginConfigFields,
+  resolvePluginConfig,
+} from '@wrongstack/core';
 
 export const PLUGIN_NAME = 'telegram';
+export const PLUGIN_CONFIG_ALIASES = ['@wrongstack/telegram'] as const;
 
 export type TelegramInboundMode = 'disabled' | 'paired' | 'allowlist' | 'public';
 
@@ -59,6 +65,19 @@ export interface TelegramPluginConfig {
   outboundQueuePerChat?: number | undefined;
   /** Maximum concurrent outbound sends across all chats. Default: 4. */
   outboundQueueConcurrency?: number | undefined;
+  /** Permit group-chat approvals only when an explicit user allowlist also matches. */
+  allowGroupApprovals?: boolean | undefined;
+  /** Per-chat rate limit (tokens per second). Default: 0.33 (≈20 msg/min). */
+  rateLimitTokensPerSecond?: number | undefined;
+  /** Per-chat rate limit burst size. Default: 4. */
+  rateLimitBurst?: number | undefined;
+  /**
+   * Telegram parse mode for message text formatting. Supports:
+   * - `'HTML'` — `<b>bold</b>`, `<i>italic</i>`, `<a href="...">link</a>`, `<code>mono</code>`, `<pre>code block</pre>`
+   * - `'MarkdownV2'` — `*bold*`, `_italic_`, `[link](url)`, `` `code` ``, ```pre```
+   * - unset / `''` — plain text (no formatting)
+   */
+  parseMode?: '' | 'HTML' | 'MarkdownV2' | undefined;
 }
 
 export const DEFAULT_CONFIG: Required<
@@ -76,7 +95,33 @@ export const DEFAULT_CONFIG: Required<
   singleInstanceLock: true,
   outboundQueuePerChat: 32,
   outboundQueueConcurrency: 4,
+  allowGroupApprovals: false,
+  rateLimitTokensPerSecond: 0.33,
+  rateLimitBurst: 4,
+  parseMode: '',
 };
+
+export const TELEGRAM_CONFIG_FIELDS = {
+  botToken: { lifecycle: 'restart', secret: true },
+  notifyChatId: { lifecycle: 'restart' },
+  inboundMode: { lifecycle: 'hot' },
+  allowedUsers: { lifecycle: 'hot' },
+  allowedChats: { lifecycle: 'hot' },
+  allowedOutboundChats: { lifecycle: 'hot' },
+  allowGroupApprovals: { lifecycle: 'hot' },
+  pollIntervalSec: { lifecycle: 'hot' },
+  notifyOnSessionEnd: { lifecycle: 'hot' },
+  longToolThresholdMs: { lifecycle: 'hot' },
+  notifyOnDelegate: { lifecycle: 'hot' },
+  maxMessageLength: { lifecycle: 'hot' },
+  offsetStoragePath: { lifecycle: 'immutable' },
+  singleInstanceLock: { lifecycle: 'restart' },
+  outboundQueuePerChat: { lifecycle: 'restart' },
+  outboundQueueConcurrency: { lifecycle: 'restart' },
+  rateLimitTokensPerSecond: { lifecycle: 'hot', description: 'Per-chat rate limit (tokens/sec)' },
+  rateLimitBurst: { lifecycle: 'hot', description: 'Per-chat rate limit burst size' },
+  parseMode: { lifecycle: 'hot', description: 'Telegram parse mode: HTML, MarkdownV2, or empty for plain text' },
+} as const satisfies PluginConfigFields<TelegramPluginConfig>;
 
 export const telegramConfigSchema = {
   type: 'object',
@@ -118,6 +163,7 @@ export const telegramConfigSchema = {
     longToolThresholdMs: { type: 'integer', minimum: 0 },
     notifyOnDelegate: { type: 'boolean' },
     maxMessageLength: { type: 'integer', minimum: 100, maximum: 4096 },
+    offsetStoragePath: { type: 'string' },
     singleInstanceLock: {
       type: 'boolean',
       description:
@@ -135,6 +181,24 @@ export const telegramConfigSchema = {
       maximum: 64,
       description: 'Maximum concurrent outbound sends across all chats (default 4)',
     },
+    allowGroupApprovals: { type: 'boolean' },
+    rateLimitTokensPerSecond: {
+      type: 'number',
+      minimum: 0.1,
+      maximum: 100,
+      description: 'Per-chat rate limit in tokens per second (default: 0.33 ≈20 msg/min)',
+    },
+    rateLimitBurst: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 100,
+      description: 'Per-chat burst size (default: 1)',
+    },
+    parseMode: {
+      type: 'string',
+      enum: ['', 'HTML', 'MarkdownV2'],
+      description: 'Telegram parse mode: HTML, MarkdownV2, or empty for plain text',
+    },
   },
   required: ['botToken'],
 };
@@ -143,20 +207,14 @@ export function readTelegramConfig(
   api: Pick<PluginAPI, 'config'> & Partial<Pick<PluginAPI, 'log'>>,
 ): Required<Omit<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'>> &
   Pick<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'> {
-  const config = api.config as never as Record<string, unknown>;
-  const extensions = config.extensions as Record<string, unknown> | undefined;
-  const pluginEntries = config.plugins;
-  const legacyPlugins = pluginEntries as Record<string, unknown> | undefined;
-  const legacyOpts =
-    legacyPlugins && !Array.isArray(legacyPlugins) ? legacyPlugins[PLUGIN_NAME] : undefined;
-  const entryOpts = pluginOptionsFromEntries(pluginEntries);
-  const extensionOpts = extensions?.[PLUGIN_NAME];
-  const opts = {
-    ...((legacyOpts ?? entryOpts) as TelegramPluginConfig),
-    ...((extensionOpts ?? {}) as TelegramPluginConfig),
-  };
+  const resolution = resolvePluginConfig({
+    name: PLUGIN_NAME,
+    aliases: PLUGIN_CONFIG_ALIASES,
+    config: api.config,
+  });
+  const opts = resolution.options as unknown as TelegramPluginConfig;
   const inboundMode = resolveInboundMode(opts, {
-    configured: legacyOpts !== undefined || entryOpts !== undefined || extensionOpts !== undefined,
+    configured: resolution.configured,
     warn: api.log?.warn.bind(api.log),
   });
 
@@ -216,19 +274,4 @@ function resolveInboundMode(
 
 function hasEntries(values: Array<string | number> | undefined): boolean {
   return Array.isArray(values) && values.length > 0;
-}
-
-function pluginOptionsFromEntries(entries: unknown): TelegramPluginConfig | undefined {
-  if (!Array.isArray(entries)) return undefined;
-  const found = entries.find(
-    (entry) =>
-      typeof entry === 'object' &&
-      entry !== null &&
-      'name' in entry &&
-      ((entry as { name?: unknown | undefined }).name === '@wrongstack/telegram' ||
-        (entry as { name?: unknown | undefined }).name === PLUGIN_NAME),
-  ) as { name?: unknown | undefined; options?: unknown | undefined } | undefined;
-  return found?.options && typeof found.options === 'object'
-    ? (found.options as TelegramPluginConfig)
-    : undefined;
 }

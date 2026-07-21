@@ -24,10 +24,10 @@
  * @public
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
+import { collectSourceFilesAsync, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -156,16 +156,19 @@ function scanFile(filePath: string, content: string, patterns: RegExp[], maxFind
   return usages.slice(0, maxFindings);
 }
 
-function scanPath(rawPath: string, cfg: FeatureFlagTrackerConfig): { usages: FeatureFlagUsage[]; scannedFiles: number } {
+async function scanPath(
+  rawPath: string,
+  cfg: FeatureFlagTrackerConfig,
+): Promise<{ usages: FeatureFlagUsage[]; scannedFiles: number }> {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.extensions);
-  const files = collectSourceFiles(resolved, { extensions: exts });
+  const files = await collectSourceFilesAsync(resolved, { extensions: exts });
   const patterns = compilePatterns(cfg.patterns);
   const usages: FeatureFlagUsage[] = [];
   for (const p of files) {
     try {
-      const content = readFileSync(p, 'utf-8');
+      const content = await readFile(p, 'utf-8');
       usages.push(...scanFile(p, content, patterns, cfg.maxFindings));
       if (usages.length >= cfg.maxFindings) break;
     } catch {
@@ -229,13 +232,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['feature-flag-tracker']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
       if (input.toolResult?.isError) return;
 
@@ -252,7 +255,7 @@ const plugin: Plugin = {
       const resolved = resolve(process.cwd(), sourcePath);
       let content: string;
       try {
-        content = readFileSync(resolved, 'utf-8');
+        content = await readFile(resolved, 'utf-8');
       } catch {
         state.errorCount += 1;
         return;
@@ -298,7 +301,7 @@ const plugin: Plugin = {
         state.scanCount += 1;
         let result: { usages: FeatureFlagUsage[]; scannedFiles: number };
         try {
-          result = scanPath(rawPath, cfg);
+          result = await scanPath(rawPath, cfg);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

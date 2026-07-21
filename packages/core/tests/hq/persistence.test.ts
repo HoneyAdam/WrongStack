@@ -3,10 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  createHqPersistence,
   HqEventLog,
   HqSnapshotStore,
   HqTimeseriesStore,
-  createHqPersistence,
 } from '../../src/hq/persistence.js';
 import type { HqEventEnvelope, HqSnapshot } from '../../src/hq/protocol.js';
 
@@ -46,6 +46,15 @@ describe('HqEventLog', () => {
     expect(recent[2]!.seq).toBe(1);
   });
 
+  it('drain waits for a batch queued while an earlier batch is starting', async () => {
+    const log = new HqEventLog({ dataDir });
+    log.append(makeEvent(1));
+    await Promise.resolve();
+    log.append(makeEvent(2));
+    await log.drain();
+    expect((await log.recent(10)).map((event) => event.seq)).toEqual([2, 1]);
+  });
+
   it('filters by event type', async () => {
     const log = new HqEventLog({ dataDir });
     log.append(makeEvent(1, 'session.usage'));
@@ -57,6 +66,23 @@ describe('HqEventLog', () => {
     expect(usage.every((e) => e.type === 'session.usage')).toBe(true);
   });
 
+  it('reads long UTF-8 lines across tail blocks and skips malformed records', async () => {
+    const log = new HqEventLog({ dataDir });
+    log.append(makeEvent(1));
+    log.append({
+      ...makeEvent(2),
+      payload: { text: `${'x'.repeat(70_000)}🧪` },
+    });
+    log.append(makeEvent(3));
+    await log.drain();
+    await fs.appendFile(path.join(dataDir, 'events.jsonl'), '{malformed\n', 'utf8');
+
+    const recent = await log.recent(3);
+
+    expect(recent.map((event) => event.seq)).toEqual([3, 2, 1]);
+    expect((recent[1]!.payload as { text: string }).text.endsWith('🧪')).toBe(true);
+  });
+
   it('rotates when exceeding maxLines', async () => {
     const log = new HqEventLog({ dataDir, maxLines: 5, rotateKeep: 2 });
     // Append exactly maxLines events — rotation fires on the last append.
@@ -66,6 +92,19 @@ describe('HqEventLog', () => {
     // After rotation only the last rotateKeep (2) are retained.
     expect(recent.length).toBeLessThanOrEqual(2);
     expect(recent[0]!.seq).toBe(5);
+  });
+
+  it('preserves long UTF-8 records while compacting the tail', async () => {
+    const log = new HqEventLog({ dataDir, maxLines: 3, rotateKeep: 2 });
+    log.append(makeEvent(1));
+    log.append({ ...makeEvent(2), payload: { text: `${'x'.repeat(70_000)}🧪` } });
+    log.append(makeEvent(3));
+    await log.drain();
+
+    const recent = await log.recent(10);
+
+    expect(recent.map((event) => event.seq)).toEqual([3, 2]);
+    expect((recent[1]!.payload as { text: string }).text.endsWith('🧪')).toBe(true);
   });
 
   it('hydrate seeds the line count from disk', async () => {
@@ -142,6 +181,37 @@ describe('HqTimeseriesStore', () => {
     await store2.load();
     const samples = await store2.read();
     expect(samples.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('flushes only buckets changed since the previous successful write', async () => {
+    const store = new HqTimeseriesStore({ dataDir, bucketMs: 1000 });
+    const file = path.join(dataDir, 'timeseries.jsonl');
+    store.record({ ts: 10_000, costUsd: 1 });
+    store.flush();
+    await store.drain();
+    store.flush();
+    await store.drain();
+    expect((await fs.readFile(file, 'utf8')).trim().split('\n')).toHaveLength(1);
+
+    store.record({ ts: 10_100, costUsd: 2 });
+    store.flush();
+    await store.drain();
+    expect((await fs.readFile(file, 'utf8')).trim().split('\n')).toHaveLength(2);
+  });
+
+  it('compacts persisted bucket revisions to a bounded log', async () => {
+    const store = new HqTimeseriesStore({ dataDir, bucketMs: 1000, maxBuckets: 2 });
+    const file = path.join(dataDir, 'timeseries.jsonl');
+    for (let index = 0; index < 9; index++) {
+      store.record({ ts: (index % 2) * 1000, costUsd: 1 });
+      store.flush();
+      await store.drain();
+    }
+
+    expect((await fs.readFile(file, 'utf8')).trim().split('\n').length).toBeLessThanOrEqual(3);
+    const reloaded = new HqTimeseriesStore({ dataDir, bucketMs: 1000, maxBuckets: 2 });
+    await reloaded.load();
+    expect((await reloaded.read()).map((sample) => sample.costUsd)).toEqual([5, 4]);
   });
 
   it('prunes to maxBuckets on record', async () => {

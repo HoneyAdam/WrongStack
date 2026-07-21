@@ -16,6 +16,7 @@ describe('@wrongstack/runtime subpath exports', () => {
     expect(pkg.exports).toHaveProperty('./clipboard');
     expect(pkg.exports).toHaveProperty('./host');
     expect(pkg.exports).toHaveProperty('./pack');
+    expect(pkg.exports).toHaveProperty('./tool-registration');
   });
 
   it('every declared JS export points at a built dist file', () => {
@@ -36,6 +37,9 @@ describe('@wrongstack/runtime subpath exports', () => {
 
     const clipboard = await import('@wrongstack/runtime/clipboard');
     expect(typeof clipboard.readClipboardImage).toBe('function');
+
+    const registration = await import('@wrongstack/runtime/tool-registration');
+    expect(typeof registration.registerCanonicalHostTools).toBe('function');
   });
 
   it('exposes probeLocalLlm from the main barrel', async () => {

@@ -2,7 +2,15 @@ import type { Config, Logger, Plugin, PluginAPI, SlashCommand } from '@wrongstac
 import { expectDefined } from '@wrongstack/core';
 import type { TelegramIncomingMessage } from './bot.js';
 import { TelegramBot } from './bot.js';
-import { PLUGIN_NAME, readTelegramConfig, readTelegramConfigFromConfig, telegramConfigSchema } from './config.js';
+import {
+  DEFAULT_CONFIG,
+  PLUGIN_CONFIG_ALIASES,
+  PLUGIN_NAME,
+  readTelegramConfig,
+  readTelegramConfigFromConfig,
+  TELEGRAM_CONFIG_FIELDS,
+  telegramConfigSchema,
+} from './config.js';
 import type { SessionEndedLike, ToolExecutedLike } from './format.js';
 import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
 import { lockPathForToken, PollLock } from './poll-lock.js';
@@ -33,6 +41,12 @@ interface RuntimeConfig {
   maxMessageLength: number;
   outboundQueuePerChat: number;
   outboundQueueConcurrency: number;
+  /** Per-chat rate-limit pacing for outbound sends (live via getter). */
+  rateLimitTokensPerSecond: number;
+  /** Per-chat rate-limit burst size for outbound sends (live via getter). */
+  rateLimitBurst: number;
+  /** Telegram parse mode resolved per-send so hot-reload takes effect live. */
+  parseMode: '' | 'HTML' | 'MarkdownV2';
 }
 
 interface RuntimeState {
@@ -96,12 +110,27 @@ function registerCommand(api: PluginAPI, command: SlashCommand, cleanups: Array<
   });
 }
 
+/**
+ * Build the plugin's `defaultConfig` from `DEFAULT_CONFIG` with defensive
+ * deep copies of every field (arrays and any future nested values).
+ * Using `structuredClone` ensures any key added to `DEFAULT_CONFIG` is
+ * automatically copied rather than shared by reference, preventing silent
+ * drift from the documented defaults. Scalar (immutable) values are
+ * unaffected by deep copy.
+ *
+ * Return type widens to `Record<string, unknown>` to align with the
+ * `Plugin.defaultConfig` interface (see `packages/core/src/types/plugin.ts`).
+ * The narrower `DEFAULT_CONFIG` shape is still enforced by
+ * `telegramConfigSchema` validation downstream.
+ */
+function telegramDefaultConfig(): Record<string, unknown> {
+  return structuredClone(DEFAULT_CONFIG) as Record<string, unknown>;
+}
+
 /** Read the Telegram section from a full Config object.
  * Delegates to {@link readTelegramConfigFromConfig} for the canonical
  * extension-slice extraction + default merge, then applies the runtime
- * coercions that `RuntimeConfig` requires (String chatId, array copies).
- * `allowGroupApprovals` is not part of `TelegramPluginConfig` so it is
- * still read from the raw extension slice. */
+ * coercions that `RuntimeConfig` requires (String chatId, array copies). */
 function telegramFromConfig(cfg: Config): {
   notifyChatId: string | number | undefined;
   allowedOutboundChats: Array<string | number>;
@@ -111,20 +140,27 @@ function telegramFromConfig(cfg: Config): {
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
   maxMessageLength: number;
+  outboundQueuePerChat: number;
+  outboundQueueConcurrency: number;
+  rateLimitTokensPerSecond: number;
+  rateLimitBurst: number;
+  parseMode: '' | 'HTML' | 'MarkdownV2';
 } {
   const tg = readTelegramConfigFromConfig(cfg);
-  // allowGroupApprovals is not in TelegramPluginConfig; read from raw ext.
-  const ext =
-    (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[PLUGIN_NAME] ?? {};
   return {
     notifyChatId: tg.notifyChatId !== undefined ? String(tg.notifyChatId) : undefined,
     allowedOutboundChats: [...(tg.allowedOutboundChats ?? [])],
     allowedUserIds: [...(tg.allowedUsers ?? [])],
-    allowGroupApprovals: ext.allowGroupApprovals === true,
+    allowGroupApprovals: tg.allowGroupApprovals ?? false,
     notifyOnSessionEnd: tg.notifyOnSessionEnd ?? false,
     notifyOnDelegate: tg.notifyOnDelegate ?? true,
     longToolThresholdMs: tg.longToolThresholdMs ?? 30_000,
     maxMessageLength: tg.maxMessageLength ?? 4000,
+    outboundQueuePerChat: tg.outboundQueuePerChat ?? 32,
+    outboundQueueConcurrency: tg.outboundQueueConcurrency ?? 4,
+    rateLimitTokensPerSecond: tg.rateLimitTokensPerSecond ?? 0.33,
+    rateLimitBurst: tg.rateLimitBurst ?? 1,
+    parseMode: tg.parseMode ?? '',
   };
 }
 
@@ -142,14 +178,10 @@ const plugin: Plugin = {
     slashCommands: true,
     pipelines: [],
   },
+  configAliases: [...PLUGIN_CONFIG_ALIASES],
+  configFields: TELEGRAM_CONFIG_FIELDS,
   configSchema: telegramConfigSchema,
-  defaultConfig: {
-    allowedOutboundChats: [],
-    pollIntervalSec: 2,
-    notifyOnSessionEnd: false,
-    longToolThresholdMs: 30_000,
-    maxMessageLength: 4000,
-  },
+  defaultConfig: telegramDefaultConfig(),
 
   async setup(api) {
     const log = api.log;
@@ -159,20 +191,20 @@ const plugin: Plugin = {
     log.info('Starting Telegram plugin...');
 
     // ---- Mutable runtime config (updated via onConfigChange) ----
-    const rawCfg = cfg as ReturnType<typeof readTelegramConfig> & {
-      allowGroupApprovals?: boolean | undefined;
-    };
     const runtimeCfg: RuntimeConfig = {
       notifyChatId: cfg.notifyChatId,
       allowedOutboundChats: [...(cfg.allowedOutboundChats ?? [])],
       allowedUserIds: [...(cfg.allowedUsers ?? [])],
-      allowGroupApprovals: rawCfg.allowGroupApprovals === true,
+      allowGroupApprovals: cfg.allowGroupApprovals ?? false,
       notifyOnSessionEnd: cfg.notifyOnSessionEnd ?? false,
       notifyOnDelegate: cfg.notifyOnDelegate ?? true,
       longToolThresholdMs: cfg.longToolThresholdMs ?? 30_000,
       maxMessageLength: cfg.maxMessageLength ?? 4000,
       outboundQueuePerChat: cfg.outboundQueuePerChat ?? 32,
       outboundQueueConcurrency: cfg.outboundQueueConcurrency ?? 4,
+      rateLimitTokensPerSecond: cfg.rateLimitTokensPerSecond ?? 0.33,
+      rateLimitBurst: cfg.rateLimitBurst ?? 1,
+      parseMode: cfg.parseMode ?? '',
     };
 
     // ---- Bot ----
@@ -199,10 +231,35 @@ const plugin: Plugin = {
       log,
       offsetStore,
       lock,
+      getParseMode: () => runtimeCfg.parseMode,
       onMessage(msg: TelegramIncomingMessage) {
         // Emit custom event so other plugins or the host can react.
         // The TUI can subscribe and surface it (future hook).
         api.emitCustom('telegram:message_received', msg);
+
+        // Bridge to the inter-agent mailbox so other agents (leader,
+        // background watchers) can discover Telegram messages without
+        // polling the bot buffer. Broadcast as a low-priority note so
+        // it informs without interrupting. Mailbox delivery is
+        // best-effort — failure must never disrupt the bot's polling
+        // loop, but surface it for debugging.
+        const mailbox = api.mailbox;
+        if (mailbox) {
+          mailbox
+            .send({
+              from: 'telegram',
+              to: 'leader',
+              type: 'note',
+              subject: scrubTelegramOutboundText(
+                `📨 Telegram from ${msg.userName ?? `user_${msg.userId ?? 'unknown'}`}`,
+              ),
+              body: scrubTelegramOutboundText(msg.text),
+              priority: 'low',
+            })
+            .catch((err: unknown) => {
+              log.debug(`Telegram→mailbox bridge delivery failed: ${(err as Error).message}`);
+            });
+        }
 
         // Keep untrusted inbound content in the bot buffer only. Logs expose
         // bounded metadata so message text, sender, and chat IDs cannot leak.
@@ -232,11 +289,16 @@ const plugin: Plugin = {
       // and the /telegram:send slash command both enqueue through it; manual
       // telegram_send tool sends go through bot.sendMessage directly so user
       // errors surface immediately. The queue is drained on teardown.
+      // Rate-limit fields are passed as getter callbacks so hot-reload
+      // (via api.onConfigChange) takes effect on the next send without
+      // rebuilding the queue.
       const outbound = new TelegramBotOutbound({
         bot,
         log,
         maxPerChat: runtimeCfg.outboundQueuePerChat,
         maxConcurrency: runtimeCfg.outboundQueueConcurrency,
+        getRateLimitTokensPerSecond: () => runtimeCfg.rateLimitTokensPerSecond,
+        getRateLimitBurst: () => runtimeCfg.rateLimitBurst,
       });
       cleanups.push(() => {
         void outbound.stop();
@@ -256,7 +318,7 @@ const plugin: Plugin = {
         getDefaultChatId: () => runtimeCfg.notifyChatId,
         getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
         getAllowedUserIds: () => runtimeCfg.allowedUserIds,
-        allowGroupApprovals: runtimeCfg.allowGroupApprovals,
+        getAllowGroupApprovals: () => runtimeCfg.allowGroupApprovals,
         maxMessageLength: runtimeCfg.maxMessageLength,
         log,
       });
@@ -418,22 +480,33 @@ const plugin: Plugin = {
 
         // Phase 1: Apply hot keys to the shared runtime config.
         // Only keys classified as hot-reload-safe are applied live.
-        // Restart-required keys (notifyChatId, outboundQueue*) keep
-        // their previous values until the operator restarts the plugin.
+        // Restart-required keys (notifyChatId, outboundQueue*, singleInstanceLock,
+        // botToken, offsetStoragePath) keep their previous values until
+        // the operator restarts the plugin.
         const fresh = telegramFromConfig(next);
         const was = telegramFromConfig(prev);
-        const hotSet = new Set(hotKeys);
-        if (hotSet.has('allowedOutboundChats')) runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
-        if (hotSet.has('allowedUsers')) runtimeCfg.allowedUserIds = fresh.allowedUserIds;
-        if (hotSet.has('notifyOnSessionEnd')) runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
-        if (hotSet.has('notifyOnDelegate')) runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
-        if (hotSet.has('longToolThresholdMs')) runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
-        if (hotSet.has('maxMessageLength')) runtimeCfg.maxMessageLength = fresh.maxMessageLength;
-        // allowGroupApprovals is not a TelegramPluginConfig key, so
-        // diffConfigKeys never classifies it.  Apply unconditionally —
-        // it is a simple flag read at event time with no setup-time
-        // side effects.
-        runtimeCfg.allowGroupApprovals = fresh.allowGroupApprovals;
+        const hotSet = new Set<string>(hotKeys);
+
+        // Table-driven hot-apply. Each entry maps a Telegram config key
+        // to the runtime mutation to perform when that key changed.
+        // Adding a new hot key here is a one-line change instead of a
+        // duplicated `if (hotSet.has(...))` arm.
+        type HotApplier = (runtimeCfg: RuntimeConfig, fresh: ReturnType<typeof telegramFromConfig>) => void;
+        const HOT_APPLIERS: ReadonlyMap<string, HotApplier> = new Map<string, HotApplier>([
+          ['allowedOutboundChats', (r, f) => { r.allowedOutboundChats = f.allowedOutboundChats; }],
+          ['allowedUsers', (r, f) => { r.allowedUserIds = f.allowedUserIds; }],
+          ['notifyOnSessionEnd', (r, f) => { r.notifyOnSessionEnd = f.notifyOnSessionEnd; }],
+          ['notifyOnDelegate', (r, f) => { r.notifyOnDelegate = f.notifyOnDelegate; }],
+          ['longToolThresholdMs', (r, f) => { r.longToolThresholdMs = f.longToolThresholdMs; }],
+          ['maxMessageLength', (r, f) => { r.maxMessageLength = f.maxMessageLength; }],
+          ['allowGroupApprovals', (r, f) => { r.allowGroupApprovals = f.allowGroupApprovals; }],
+          ['rateLimitTokensPerSecond', (r, f) => { r.rateLimitTokensPerSecond = f.rateLimitTokensPerSecond; }],
+          ['rateLimitBurst', (r, f) => { r.rateLimitBurst = f.rateLimitBurst; }],
+          ['parseMode', (r, f) => { r.parseMode = f.parseMode; }],
+        ]);
+        for (const [key, apply] of HOT_APPLIERS) {
+          if (hotSet.has(key)) apply(runtimeCfg, fresh);
+        }
         // notifyChatId is RESTART-REQUIRED: the inbound allowlist
         // (built at setup) still uses the old value.  Applying the new
         // one here would make outbound notifications target a chat the
@@ -475,6 +548,7 @@ const plugin: Plugin = {
           notifyOnSessionEnd: runtimeCfg.notifyOnSessionEnd,
           notifyOnDelegate: runtimeCfg.notifyOnDelegate,
           longToolThresholdMs: runtimeCfg.longToolThresholdMs,
+          parseMode: runtimeCfg.parseMode,
           notifyChatId: runtimeCfg.notifyChatId ?? 'not set',
         });
       });

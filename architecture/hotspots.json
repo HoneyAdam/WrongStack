@@ -1,0 +1,442 @@
+{
+  "schemaVersion": 1,
+  "thresholdLines": 800,
+  "files": {
+    "packages/acp/src/agent/protocol-handler.ts": {
+      "lines": 899,
+      "relativeImports": 2
+    },
+    "packages/acp/src/client/acp-session.ts": {
+      "lines": 1473,
+      "relativeImports": 10
+    },
+    "packages/cli/src/cli-main.ts": {
+      "lines": 2675,
+      "relativeImports": 47
+    },
+    "packages/cli/src/execution.ts": {
+      "lines": 1793,
+      "relativeImports": 24
+    },
+    "packages/cli/src/fleet/host.ts": {
+      "lines": 2230,
+      "relativeImports": 4
+    },
+    "packages/cli/src/goal-host.ts": {
+      "lines": 926,
+      "relativeImports": 1
+    },
+    "packages/cli/src/hq-server/routes.ts": {
+      "lines": 1396,
+      "relativeImports": 9
+    },
+    "packages/cli/src/picker.ts": {
+      "lines": 1188,
+      "relativeImports": 5
+    },
+    "packages/cli/src/repl.ts": {
+      "lines": 1570,
+      "relativeImports": 12
+    },
+    "packages/cli/src/slash-commands/brain.ts": {
+      "lines": 921,
+      "relativeImports": 1
+    },
+    "packages/cli/src/slash-commands/kanban.ts": {
+      "lines": 1270,
+      "relativeImports": 2
+    },
+    "packages/cli/src/slash-commands/memory.ts": {
+      "lines": 1798,
+      "relativeImports": 2
+    },
+    "packages/cli/src/slash-commands/sdd.ts": {
+      "lines": 1306,
+      "relativeImports": 12
+    },
+    "packages/cli/src/slash-commands/settings.ts": {
+      "lines": 964,
+      "relativeImports": 4
+    },
+    "packages/cli/src/subcommands/handlers/modeldiag.ts": {
+      "lines": 1180,
+      "relativeImports": 1
+    },
+    "packages/cli/src/subcommands/handlers/per-subcommand-help.ts": {
+      "lines": 1400,
+      "relativeImports": 4
+    },
+    "packages/cli/src/webui-server.ts": {
+      "lines": 1264,
+      "relativeImports": 14
+    },
+    "packages/core/src/agent-status-tracker.ts": {
+      "lines": 967,
+      "relativeImports": 2
+    },
+    "packages/core/src/coordination/autonomous-coordinator.ts": {
+      "lines": 960,
+      "relativeImports": 14
+    },
+    "packages/core/src/coordination/collab-debug.ts": {
+      "lines": 1028,
+      "relativeImports": 7
+    },
+    "packages/core/src/coordination/delegate-tool.ts": {
+      "lines": 880,
+      "relativeImports": 8
+    },
+    "packages/core/src/coordination/director-tools.ts": {
+      "lines": 2013,
+      "relativeImports": 10
+    },
+    "packages/core/src/coordination/director.ts": {
+      "lines": 2188,
+      "relativeImports": 36
+    },
+    "packages/core/src/coordination/global-mailbox.ts": {
+      "lines": 1744,
+      "relativeImports": 9
+    },
+    "packages/core/src/coordination/mailbox-http-router.ts": {
+      "lines": 995,
+      "relativeImports": 4
+    },
+    "packages/core/src/coordination/mailbox-types.ts": {
+      "lines": 918,
+      "relativeImports": 0
+    },
+    "packages/core/src/coordination/multi-agent-coordinator.ts": {
+      "lines": 1272,
+      "relativeImports": 9
+    },
+    "packages/core/src/coordination/provider-status-tracker.ts": {
+      "lines": 802,
+      "relativeImports": 2
+    },
+    "packages/core/src/core/agent-loop.ts": {
+      "lines": 1125,
+      "relativeImports": 22
+    },
+    "packages/core/src/core/system-prompt-builder.ts": {
+      "lines": 1349,
+      "relativeImports": 15
+    },
+    "packages/core/src/execution/compaction-core.ts": {
+      "lines": 1198,
+      "relativeImports": 6
+    },
+    "packages/core/src/execution/autonomy-brain.ts": {
+      "lines": 962,
+      "relativeImports": 8
+    },
+    "packages/core/src/execution/brain-runtime.ts": {
+      "lines": 980,
+      "relativeImports": 12
+    },
+    "packages/core/src/execution/council-orchestrator.ts": {
+      "lines": 838,
+      "relativeImports": 8
+    },
+    "packages/core/src/execution/eternal-autonomy.ts": {
+      "lines": 1089,
+      "relativeImports": 11
+    },
+    "packages/core/src/execution/tool-executor.ts": {
+      "lines": 1454,
+      "relativeImports": 20
+    },
+    "packages/core/src/goal/phase-orchestrator.ts": {
+      "lines": 1094,
+      "relativeImports": 8
+    },
+    "packages/core/src/hq/protocol/core.ts": {
+      "lines": 912,
+      "relativeImports": 8
+    },
+    "packages/core/src/hq/persistence.ts": {
+      "lines": 1026,
+      "relativeImports": 2
+    },
+    "packages/core/src/index.ts": {
+      "lines": 925,
+      "relativeImports": 142
+    },
+    "packages/core/src/security/permission-policy.ts": {
+      "lines": 833,
+      "relativeImports": 12
+    },
+    "packages/core/src/storage/config-loader.ts": {
+      "lines": 1477,
+      "relativeImports": 14
+    },
+    "packages/core/src/storage/file-session-writer.ts": {
+      "lines": 1045,
+      "relativeImports": 8
+    },
+    "packages/core/src/storage/session-store.ts": {
+      "lines": 1940,
+      "relativeImports": 21
+    },
+    "packages/core/src/tools/fallback-manage-tools.ts": {
+      "lines": 1555,
+      "relativeImports": 6
+    },
+    "packages/core/src/types/config.ts": {
+      "lines": 1872,
+      "relativeImports": 8
+    },
+    "packages/core/src/utils/tool-output-serializer.ts": {
+      "lines": 835,
+      "relativeImports": 0
+    },
+    "packages/core/src/worktree/worktree-manager.ts": {
+      "lines": 972,
+      "relativeImports": 3
+    },
+    "packages/kanban/src/manager/_internal.ts": {
+      "lines": 1314,
+      "relativeImports": 8
+    },
+    "packages/kanban/src/types.ts": {
+      "lines": 847,
+      "relativeImports": 0
+    },
+    "packages/mcp/src/authorization.ts": {
+      "lines": 833,
+      "relativeImports": 0
+    },
+    "packages/mcp/src/client.ts": {
+      "lines": 1059,
+      "relativeImports": 5
+    },
+    "packages/mcp/src/registry.ts": {
+      "lines": 1283,
+      "relativeImports": 9
+    },
+    "packages/plugins/src/test-runner-gate/index.ts": {
+      "lines": 812,
+      "relativeImports": 1
+    },
+    "packages/sdd/src/sdd-parallel-run.ts": {
+      "lines": 1306,
+      "relativeImports": 1
+    },
+    "packages/simpleui/src/simple-ui-session.tsx": {
+      "lines": 925,
+      "relativeImports": 44
+    },
+    "packages/super-memory/src/middleware/tool-call-memory.ts": {
+      "lines": 890,
+      "relativeImports": 6
+    },
+    "packages/super-memory/src/sqlite-store.ts": {
+      "lines": 1973,
+      "relativeImports": 6
+    },
+    "packages/super-memory/src/store.ts": {
+      "lines": 3772,
+      "relativeImports": 7
+    },
+    "packages/super-memory/src/types.ts": {
+      "lines": 910,
+      "relativeImports": 0
+    },
+    "packages/telegram/src/bot.ts": {
+      "lines": 801,
+      "relativeImports": 3
+    },
+    "packages/tools/src/codebase-index/writer.ts": {
+      "lines": 1854,
+      "relativeImports": 5
+    },
+    "packages/tools/src/kanban.ts": {
+      "lines": 1420,
+      "relativeImports": 1
+    },
+    "packages/tools/src/session-kanban.ts": {
+      "lines": 922,
+      "relativeImports": 0
+    },
+    "packages/tui/src/app-reducer.ts": {
+      "lines": 2533,
+      "relativeImports": 16
+    },
+    "packages/tui/src/app-state.ts": {
+      "lines": 1515,
+      "relativeImports": 22
+    },
+    "packages/tui/src/app.tsx": {
+      "lines": 7672,
+      "relativeImports": 115
+    },
+    "packages/tui/src/components/agents-monitor.tsx": {
+      "lines": 1019,
+      "relativeImports": 9
+    },
+    "packages/tui/src/components/context-panel.tsx": {
+      "lines": 842,
+      "relativeImports": 6
+    },
+    "packages/tui/src/components/history/code-block.tsx": {
+      "lines": 1064,
+      "relativeImports": 4
+    },
+    "packages/tui/src/components/history/utils.tsx": {
+      "lines": 2301,
+      "relativeImports": 2
+    },
+    "packages/tui/src/components/kanban-panel.tsx": {
+      "lines": 877,
+      "relativeImports": 3
+    },
+    "packages/tui/src/components/settings-picker.tsx": {
+      "lines": 1602,
+      "relativeImports": 3
+    },
+    "packages/tui/src/components/status-bar.tsx": {
+      "lines": 1704,
+      "relativeImports": 15
+    },
+    "packages/tui/src/hooks/use-picker-keys.ts": {
+      "lines": 1024,
+      "relativeImports": 9
+    },
+    "packages/tui/src/input-validation.ts": {
+      "lines": 1729,
+      "relativeImports": 2
+    },
+    "packages/tui/src/kanban-slash.ts": {
+      "lines": 930,
+      "relativeImports": 1
+    },
+    "packages/tui/src/memory-slash.ts": {
+      "lines": 1089,
+      "relativeImports": 0
+    },
+    "packages/tui/src/run-tui.ts": {
+      "lines": 1402,
+      "relativeImports": 18
+    },
+    "packages/webui/src/App.tsx": {
+      "lines": 840,
+      "relativeImports": 43
+    },
+    "packages/webui/src/components/AgentOfficeView.tsx": {
+      "lines": 1539,
+      "relativeImports": 4
+    },
+    "packages/webui/src/components/AgentsPage.tsx": {
+      "lines": 979,
+      "relativeImports": 5
+    },
+    "packages/webui/src/components/AudienceMemoryPanel.tsx": {
+      "lines": 899,
+      "relativeImports": 0
+    },
+    "packages/webui/src/components/ChatInput.tsx": {
+      "lines": 1380,
+      "relativeImports": 13
+    },
+    "packages/webui/src/components/ChatView/index.tsx": {
+      "lines": 870,
+      "relativeImports": 17
+    },
+    "packages/webui/src/components/CodeMap.tsx": {
+      "lines": 2313,
+      "relativeImports": 1
+    },
+    "packages/webui/src/components/ContextDashboard.tsx": {
+      "lines": 886,
+      "relativeImports": 2
+    },
+    "packages/webui/src/components/FileExplorer.tsx": {
+      "lines": 822,
+      "relativeImports": 2
+    },
+    "packages/webui/src/components/KanbanView.tsx": {
+      "lines": 2549,
+      "relativeImports": 9
+    },
+    "packages/webui/src/components/MemoryManager/index.tsx": {
+      "lines": 1102,
+      "relativeImports": 8
+    },
+    "packages/webui/src/components/OfficeMapCanvas.tsx": {
+      "lines": 1566,
+      "relativeImports": 7
+    },
+    "packages/webui/src/components/SettingsPanel/index.tsx": {
+      "lines": 1202,
+      "relativeImports": 19
+    },
+    "packages/webui/src/components/SettingsPanel/BrainSection.tsx": {
+      "lines": 1049,
+      "relativeImports": 5
+    },
+    "packages/webui/src/components/SettingsPanel/MCPSection.tsx": {
+      "lines": 894,
+      "relativeImports": 7
+    },
+    "packages/webui/src/components/SettingsPanel/ProviderSection.tsx": {
+      "lines": 820,
+      "relativeImports": 5
+    },
+    "packages/webui/src/components/SetupScreen.tsx": {
+      "lines": 1366,
+      "relativeImports": 6
+    },
+    "packages/webui/src/components/SidePanel/SessionList.tsx": {
+      "lines": 847,
+      "relativeImports": 0
+    },
+    "packages/webui/src/components/SkillDetailView.tsx": {
+      "lines": 927,
+      "relativeImports": 2
+    },
+    "packages/webui/src/hooks/ws-handlers/session-handlers.ts": {
+      "lines": 938,
+      "relativeImports": 0
+    },
+    "packages/webui/src/lib/ws-client.ts": {
+      "lines": 1220,
+      "relativeImports": 4
+    },
+    "packages/webui/src/stores/viz-store.ts": {
+      "lines": 878,
+      "relativeImports": 0
+    },
+    "packages/webui/src/types.ts": {
+      "lines": 3202,
+      "relativeImports": 0
+    },
+    "packages/webui-server/src/server/collaboration-ws-handler.ts": {
+      "lines": 952,
+      "relativeImports": 1
+    },
+    "packages/webui-server/src/server/kanban-routes.ts": {
+      "lines": 1161,
+      "relativeImports": 3
+    },
+    "packages/webui-server/src/server/setup-events.ts": {
+      "lines": 1455,
+      "relativeImports": 7
+    },
+    "packages/webui-server/src/server/start-webui.ts": {
+      "lines": 846,
+      "relativeImports": 16
+    },
+    "packages/webui-server/src/server/ws-payload-validation.ts": {
+      "lines": 910,
+      "relativeImports": 0
+    },
+    "apps/desktop/src/main/runtime-manager.ts": {
+      "lines": 1005,
+      "relativeImports": 2
+    },
+    "apps/desktop/src/renderer/src/renderer.ts": {
+      "lines": 1241,
+      "relativeImports": 5
+    }
+  }
+}

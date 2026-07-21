@@ -32,6 +32,10 @@
       "types": "./dist/pack.d.ts",
       "import": "./dist/pack.js"
     },
+    "./tool-tier": {
+      "types": "./dist/tool-tier.d.ts",
+      "import": "./dist/tool-tier.js"
+    },
     "./tool-icons": {
       "types": "./dist/tool-icons.d.ts",
       "import": "./dist/tool-icons.js"

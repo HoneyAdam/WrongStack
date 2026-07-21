@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PromptUsageStore } from '../../src/storage/prompt-usage-store.js';
 
 describe('PromptUsageStore', () => {
@@ -28,6 +28,42 @@ describe('PromptUsageStore', () => {
     const b = await store.record('p1', new Date(2000).toISOString());
     expect(b).toMatchObject({ count: 2, lastUsedAt: new Date(2000).toISOString() });
     expect((await store.get('p1'))?.count).toBe(2);
+  });
+
+  it('coalesces concurrent records without losing increments', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        store.record('burst', new Date(1000 + index).toISOString()),
+      ),
+    );
+    expect(results.map((usage) => usage.count)).toEqual(
+      Array.from({ length: 50 }, (_, index) => index + 1),
+    );
+    expect((await store.get('burst'))?.count).toBe(50);
+  });
+
+  it('preserves increments across concurrent store instances', async () => {
+    const file = path.join(dir, 'shared-prompt-usage.json');
+    const first = new PromptUsageStore(file);
+    const second = new PromptUsageStore(file);
+    await Promise.all([
+      ...Array.from({ length: 25 }, () => first.record('shared')),
+      ...Array.from({ length: 25 }, () => second.record('shared')),
+    ]);
+    expect((await first.get('shared'))?.count).toBe(50);
+  });
+
+  it('invalidates the cache when another writer replaces the file', async () => {
+    await store.record('original');
+    await store.load();
+    await fs.writeFile(
+      path.join(dir, 'prompt-usage.json'),
+      JSON.stringify({
+        version: 1,
+        usage: { external: { count: 7, lastUsedAt: new Date(7000).toISOString() } },
+      }),
+    );
+    expect((await store.get('external'))?.count).toBe(7);
   });
 
   it('recent() orders by lastUsedAt desc; top() by count desc', async () => {

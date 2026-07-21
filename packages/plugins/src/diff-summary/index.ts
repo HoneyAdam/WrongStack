@@ -29,7 +29,7 @@
  * @public
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import type { Plugin } from '@wrongstack/core';
 import { withinProject } from '../runtime/index.js';
 
@@ -39,11 +39,9 @@ const API_VERSION = '^0.1.10';
 // Sandbox: reject file paths that resolve outside the project root.
 // diff-summary invokes `git diff` against whatever path the write/edit
 // tool passed. An absolute path outside the project would feed host FS
-// contents into the LLM context. Used to call `execSync` with a string
-// template — fine when path contains no shell metacharacters, brittle
-// when it does. Switch to execFileSync for argv-form git invocations so
+// contents into the LLM context. Git is invoked with argv-form `execFile`, so
 // filenames with spaces, double quotes, or shell metacharacters cannot
-// escape the command.
+// escape the command, and the post-tool hook does not block the event loop.
 // ---------------------------------------------------------------------------
 // withinProject() imported from ../runtime/index.js
 
@@ -190,44 +188,49 @@ interface DiffResult {
  *
  * Returns null if not in a git repo or git is unavailable.
  */
-function getGitDiff(filePath: string, contextLines: number, cwd?: string): DiffResult | null {
-  const opts = {
-    encoding: 'utf-8' as const,
-    timeout: 3_000,
-    cwd,
-    stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[],
-  };
+interface GitCommandResult {
+  ok: boolean;
+  stdout: string;
+}
 
-  // First, check if the file is tracked by git. execFileSync (argv) so a
+function runGit(args: string[], cwd?: string): Promise<GitCommandResult> {
+  return new Promise((resolveCommand) => {
+    execFile(
+      'git',
+      args,
+      {
+        encoding: 'utf8',
+        timeout: 3000,
+        cwd,
+        windowsHide: true,
+        maxBuffer: 5 * 1024 * 1024,
+      },
+      (error, stdout) => resolveCommand({ ok: !error, stdout }),
+    );
+  });
+}
+
+async function getGitDiff(filePath: string, contextLines: number, cwd?: string): Promise<DiffResult | null> {
+  // First, check if the file is tracked by git. argv form ensures a
   // filePath with `"` or `;` cannot escape the command.
-  let isTracked = false;
-  try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', filePath], opts);
-    isTracked = true;
-  } catch {
-    isTracked = false;
-  }
+  const tracked = await runGit(['ls-files', '--error-unmatch', '--', filePath], cwd);
+  const isTracked = tracked.ok;
 
   try {
     let rawDiff: string;
     const contextFlag = `-U${contextLines}`;
     if (isTracked) {
       // Standard diff for tracked files — argv form, no shell interpolation.
-      rawDiff = execFileSync('git', ['diff', contextFlag, '--', filePath], opts);
+      const result = await runGit(['diff', contextFlag, '--', filePath], cwd);
+      if (!result.ok) return null;
+      rawDiff = result.stdout;
     } else {
       // New/untracked file — diff against /dev/null.
-      try {
-        rawDiff = execFileSync(
-          'git',
-          ['diff', '--no-index', contextFlag, '/dev/null', filePath],
-          opts,
-        );
-      } catch (err: unknown) {
-        // git diff --no-index exits 1 when there ARE differences (which is
-        // what we want). stdout has the diff.
-        const e = err as { stdout?: string };
-        rawDiff = e.stdout ?? '';
-      }
+      // git diff --no-index exits 1 when there ARE differences; stdout still
+      // contains the desired diff, so the status is intentionally ignored.
+      rawDiff = (
+        await runGit(['diff', '--no-index', contextFlag, '/dev/null', filePath], cwd)
+      ).stdout;
     }
 
     // If diff is empty, the file might be staged but not modified,
@@ -344,11 +347,11 @@ const plugin: Plugin = {
     const cfg = readConfig(api.config.extensions?.['diff-summary']);
     const cwd = typeof process.cwd === 'function' ? process.cwd() : undefined;
 
-    const hook = (input: {
+    const hook = async (input: {
       toolName?: string | undefined;
       toolInput?: unknown;
       toolResult?: { content: string; isError: boolean } | undefined;
-    }): { additionalContext?: string | undefined } | void => {
+    }): Promise<{ additionalContext?: string | undefined } | void> => {
       if (cfg.mode === 'off') return;
 
       // Skip if the tool errored — no point summarizing a failed write.
@@ -400,7 +403,7 @@ const plugin: Plugin = {
         }
       }
 
-      const result = getGitDiff(filePath, cfg.includeContext, cwd);
+      const result = await getGitDiff(filePath, cfg.includeContext, cwd);
       if (!result) {
         state.fallbackCount += 1;
         return; // not a git repo or git failed — silent

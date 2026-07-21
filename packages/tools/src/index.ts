@@ -19,7 +19,13 @@ export {
   type CircuitBreakerConfig,
   type CircuitBreakerSnapshot,
 } from './circuit-breaker.js';
-export type { CircuitSnapshot, CircuitState } from './codebase-index/index.js';
+export type {
+  CircuitSnapshot,
+  CircuitState,
+  CodeMapGraph,
+  GraphEdge,
+  GraphNode,
+} from './codebase-index/index.js';
 export {
   CircuitOpenError,
   cancelPendingReindexes,
@@ -28,6 +34,7 @@ export {
   codebaseSearchTool,
   codebaseStatsTool,
   enqueueReindex,
+  fileGraphService,
   getIndexState,
   IndexCircuitBreaker,
   IndexTimeoutError,
@@ -36,18 +43,12 @@ export {
   isIndexing,
   isIndexReady,
   onIndexStateChange,
+  packageGraphService,
   resetIndexCircuitBreaker,
   runStartupIndex,
   searchCodebaseIndex,
   shutdownCodebaseIndexHost,
-  fileGraphService,
-  packageGraphService,
   symbolGraphService,
-} from './codebase-index/index.js';
-export type {
-  CodeMapGraph,
-  GraphEdge,
-  GraphNode,
 } from './codebase-index/index.js';
 export { designTool } from './design.js';
 export { diffTool } from './diff.js';
@@ -73,6 +74,10 @@ export {
   resetDangerBypass,
   resetExecPolicy,
 } from './exec.js';
+export {
+  checkExecKillCommand,
+  type ExecKillCheckResult,
+} from './exec-kill-guard.js';
 export { fetchTool } from './fetch.js';
 export { formatTool } from './format.js';
 export { gitTool } from './git.js';
@@ -105,10 +110,6 @@ export {
   type RegistryStats,
   type TrackedProcess,
 } from './process-registry.js';
-export {
-  checkExecKillCommand,
-  type ExecKillCheckResult,
-} from './exec-kill-guard.js';
 export {
   getPersistentProcessRegistry,
   type PersistentProcessEntry,
@@ -158,6 +159,11 @@ export {
   type ToolIconId,
 } from './tool-icon-map.js';
 export { toolSearchTool } from './tool-search.js';
+export {
+  type RegisterBuiltinToolTierOptions,
+  registerBuiltinToolTier,
+  selectBuiltinToolsForTier,
+} from './tool-tier.js';
 export { toolUseTool } from './tool-use.js';
 export { treeTool } from './tree.js';
 export { typecheckTool } from './typecheck.js';

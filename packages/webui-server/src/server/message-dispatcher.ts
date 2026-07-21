@@ -17,104 +17,27 @@
  * guard around `agent.run` are all unchanged.
  */
 
-import * as os from 'node:os';
 import path from 'node:path';
-import type { ContentBlock } from '@wrongstack/core';
-import {
-  type ChronicleFacet,
-  type ChronicleQuery,
-  ChronicleQueryEngine,
-  resolveWstackPaths,
-} from '@wrongstack/core';
-import {
-  buildUserContentBlocks,
-  IncomingImageError,
-  type IncomingImagePayload,
-  parseIncomingImages,
-} from '@wrongstack/core/utils';
-import {
-  createToolVisionAdapters,
-  ImageInputUnsupportedError,
-  routeImagesForModel,
-  VisionUrlBlockedError,
-} from '@wrongstack/runtime/vision';
 import type { WebSocket } from 'ws';
-import { handleBrainRoute } from './brain-routes.js';
+import type { ClientTransportRouteHandlers } from './client-transport-routes.js';
 import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
-import {
-  handleDesignList,
-  handleDesignMaterialize,
-  handleDesignSet,
-  handleDesignState,
-  handleDesignUse,
-  handleDesignVerify,
-} from './design-handlers.js';
-import {
-  handleFilesList,
-  handleFilesRead,
-  handleFilesTree,
-  handleFilesWrite,
-} from './file-handlers.js';
+import type { CompletionRouteHandlers } from './completion-routes.js';
+import { createConversationOperations } from './conversation-operations.js';
 import { handleGoalGet } from './goal-handlers.js';
-import { handleGoalRoute } from './goal-routes.js';
-import {
-  handleWorklistMessage,
-  type WorklistContext,
-  type WorklistMessage,
-} from './handlers/index.js';
+import type { GoalSnapshotRouteHandlers } from './goal-snapshot-routes.js';
+import type { WorklistContext } from './handlers/index.js';
+import type { HostRouteHandlers } from './host-routes.js';
+import type { KanbanHostRouteHandlers } from './kanban-host-routes.js';
 import { handleKanbanRoute } from './kanban-routes.js';
-import { handleMailboxRoute } from './mailbox-routes.js';
-import { handleMcpRoute } from './mcp-routes.js';
-import {
-  handleMemoryList,
-  handleSuperMemoryBackfillRecoverable,
-  handleSuperMemoryCandidateResolve,
-  handleSuperMemoryDelete,
-  handleSuperMemoryForFile,
-  handleSuperMemoryGet,
-  handleSuperMemoryGraph,
-  handleSuperMemoryList,
-  handleSuperMemoryListPage,
-  handleSuperMemoryRecover,
-  handleSuperMemoryRemember,
-  handleSuperMemoryUpdate,
-} from './memory-handlers.js';
-import { handleModeRoute } from './mode-routes.js';
-import { resolveProviderModelMetadata } from './model-catalog.js';
-import type { ConfirmDecision, PendingConfirm } from './pending-confirms.js';
-import { handlePrefsRoute } from './prefs-routes.js';
+import type { PendingConfirm } from './pending-confirms.js';
+import { authorizeWebUIAction } from './privileged-actions.js';
 import { handleProcessKill, handleProcessKillAll, handleProcessList } from './process-handlers.js';
-import { handleProjectRoute } from './project-routes.js';
-import {
-  handlePromptsContent,
-  handlePromptsCreate,
-  handlePromptsFavorite,
-  handlePromptsList,
-  handlePromptsRecent,
-  handlePromptsSearch,
-  handlePromptsUsed,
-} from './prompts-handlers.js';
-import { handleProviderRoute } from './provider-routes.js';
-import type { AllRoutes, WebuiCallbacks, WebuiDeps, WebuiMutableState } from './routes.js';
-import { handleSddBoardRoute } from './sdd-board-routes.js';
-import { handleSddWizardRoute } from './sdd-wizard-routes.js';
-import { handleSessionRoute } from './session-routes.js';
-import { handleShellGitRoute } from './shell-git-routes.js';
-import {
-  handleSkillsContent,
-  handleSkillsCreate,
-  handleSkillsEdit,
-  handleSkillsExport,
-  handleSkillsInstall,
-  handleSkillsList,
-  handleSkillsUninstall,
-  handleSkillsUpdate,
-} from './skills-handlers.js';
-import { handleSpecsRoute } from './specs-routes.js';
+import type { ProcessRouteHandlers } from './process-routes.js';
+import { createRouteFamilyDispatcher } from './route-family-dispatcher.js';
+import type { AllRoutes, WebuiDeps, WebuiMutableState } from './routes.js';
 import type { ConnectedClient, WSClientMessage } from './types.js';
-import { computeUsageCost, getCostRates } from './usage-cost.js';
-import { validateAutonomySwitchPayload } from './ws-payload-validation.js';
-import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
+import { createWorklistRouteHandlers } from './worklist-routes.js';
+import { broadcast, send, sendResult } from './ws-utils.js';
 
 /**
  * Shared run-lock control. `user_message` acquires/releases it around
@@ -129,7 +52,6 @@ interface RunLockControl {
 interface MessageDispatcherOptions {
   state: WebuiMutableState;
   deps: WebuiDeps;
-  cb: WebuiCallbacks;
   routes: AllRoutes;
   /** Prompt-library context ({ promptLoader, promptUsage }). */
   promptsCtx: { promptLoader: unknown; promptUsage: unknown };
@@ -142,34 +64,15 @@ interface MessageDispatcherOptions {
 }
 
 /**
- * Chronicle engine cache — mirrors the embedded server's pattern in
- * `message-router.ts:332-340`. The engine reads the journal from disk
- * (`.wrongstack/chronicle/` under the project dir), so we cache it for
- * 1s to avoid re-reading on every query. The cache is keyed by project
- * root so project switches get a fresh engine.
- */
-const chronicleCache = new Map<string, { loadedAt: number; engine: ChronicleQueryEngine }>();
-
-async function chronicleEngine(projectRoot: string): Promise<ChronicleQueryEngine> {
-  const now = Date.now();
-  const cached = chronicleCache.get(projectRoot);
-  if (cached && now - cached.loadedAt < 60_000) return cached.engine;
-  const paths = resolveWstackPaths({ projectRoot, userHome: os.homedir() });
-  const engine = await ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
-  chronicleCache.set(projectRoot, { loadedAt: now, engine });
-  return engine;
-}
-
-/**
  * Build the inbound message dispatcher. Mirrors the `handleMessage` closure
  * that lived inline in `startWebUI`. Reads live config/session/projectRoot
- * through `state`, services through `deps`, and the boot-local closures
- * through `cb` — same reference semantics, no behaviour change.
+ * through `state` and services through `deps` — same reference semantics,
+ * no behaviour change.
  */
 export function createMessageDispatcher(
   opts: MessageDispatcherOptions,
 ): (ws: WebSocket, _client: ConnectedClient, msg: WSClientMessage) => Promise<void> {
-  const { state, deps, cb, routes, promptsCtx, codebaseIndexing, runLock, pendingConfirms } = opts;
+  const { state, deps, routes, promptsCtx, codebaseIndexing, runLock, pendingConfirms } = opts;
 
   function makeWorklistContext(): WorklistContext {
     return {
@@ -177,7 +80,6 @@ export function createMessageDispatcher(
         todos: deps.context.todos,
         meta: deps.context.meta as Record<string, unknown>,
         session: deps.context.session ? { id: deps.context.session.id } : null,
-        state: deps.context.state,
       },
       send: (w, m) => send(w, m),
       broadcast: (m) => broadcast(state.getClients(), m),
@@ -227,661 +129,197 @@ export function createMessageDispatcher(
     return false;
   }
 
-  return async function handleMessage(
-    ws: WebSocket,
-    _client: ConnectedClient,
-    msg: WSClientMessage,
-  ): Promise<void> {
-    if (await handleProviderRoute(ws, msg, routes.providerRoutes)) return;
-    if (await handleSessionRoute(ws, msg, routes.sessionRoutes)) return;
-    if (await handleProjectRoute(ws, msg, routes.projectRoutes)) return;
-    if (await handleModeRoute(ws, msg, routes.modeRoutes)) return;
-    if (await handlePrefsRoute(ws, msg, routes.prefsRoutes)) return;
-    if (await handleShellGitRoute(ws, msg, routes.shellGitRoutes)) return;
-    if (await handleMailboxRoute(ws, msg, routes.mailboxRoutes)) return;
-    if (await handleMcpRoute(ws, msg, routes.mcpRoutes)) return;
-    if (await handleBrainRoute(ws, msg, routes.brainRoutes)) return;
-    if (await handleGoalRoute(ws, msg, routes.goalRoutes)) return;
-    if (await handleSpecsRoute(ws, msg, routes.specsRoutes)) return;
-    if (await handleSddBoardRoute(ws, msg, routes.sddBoardRoutes)) return;
-    if (await handleSddWizardRoute(ws, msg, routes.sddWizardRoutes)) return;
-    if (
-      await handleKanbanRoute(ws, msg, {
-        projectRoot: state.getProjectRoot(),
-        context: deps.context,
-        broadcast: (message) => broadcast(state.getClients(), message),
-      })
-    )
-      return;
-    if (
-      msg.type.startsWith('worktree.') &&
-      (await deps.worktreeHandler.handleMessage(
-        msg as { type: string; payload?: Record<string, unknown> },
-      ))
-    )
-      return;
-
-    switch (msg.type) {
-      // Collaboration messages short-circuit the user/agent flow.
-      case 'collab.join':
-      case 'collab.leave':
-      case 'collab.annotate':
-      case 'collab.resolve':
-      case 'collab.request_pause':
-      case 'collab.resume':
-      case 'collab.grant_control':
-      case 'collab.inject_tool': {
-        deps.collabHandler.handleMessage(
-          ws,
-          msg as { type: string; payload?: unknown | undefined },
-        );
-        return;
-      }
-      // Integrated terminal — interactive pty transport, bypasses the agent loop.
-      case 'terminal.create':
-      case 'terminal.input':
-      case 'terminal.resize':
-      case 'terminal.close': {
-        deps.terminalHandler.handleMessage(ws, msg);
-        return;
-      }
-      case 'user_message': {
-        if (!ensureCurrentSession(ws, msg, 'user_message')) return;
-        const userPayload = (
-          msg as {
-            payload: {
-              content: string;
-              images?: IncomingImagePayload[];
-              imageBase64?: string;
-            };
-          }
-        ).payload;
-        const content = userPayload.content;
-
-        // Guard against concurrent agent runs — a second user_message while
-        // the agent is already processing would kick off two agent.run()
-        // calls on the same shared context/agent, leading to corrupted
-        // state. Reject with an inline error; the frontend should wait for
-        // run.result before sending the next message.
-        if (runLock.get()) {
-          send(ws, {
-            type: 'error',
-            payload: sessionPayload({
-              phase: 'user_message',
-              message: 'Agent is already processing a request. Wait for the current run to finish.',
-            }),
-          });
-          break;
-        }
-
-        const thisRun = new AbortController();
-        runLock.set(thisRun);
-
-        try {
-          // Turn attached images into canonical ImageBlocks and route them
-          // like the TUI: native for vision models, otherwise through any
-          // registered image-understanding tool that replaces each image
-          // with a text description. Neither available → reject upfront.
-          let input: string | ContentBlock[] = content;
-          const imageBlocks = parseIncomingImages(userPayload.images, userPayload.imageBase64);
-          if (imageBlocks.length > 0) {
-            const routed = await routeImagesForModel(buildUserContentBlocks(content, imageBlocks), {
-              supportsVision: deps.agent.ctx.provider.capabilities.vision,
-              adapters: () => createToolVisionAdapters(deps.agent.tools),
-              ctx: deps.agent.ctx,
-              signal: thisRun.signal,
-              providerId: deps.agent.ctx.provider.id,
-              model: deps.agent.ctx.model,
-            });
-            input = routed.blocks;
-          }
-
-          // Read maxIterations from context.meta so the webui settings
-          // panel can adjust the cap dynamically without restarting.
-          const maxIt =
-            typeof deps.context.meta['maxIterations'] === 'number'
-              ? deps.context.meta['maxIterations']
-              : undefined;
-          const result = await deps.agent.run(input, {
-            signal: thisRun.signal,
-            maxIterations: maxIt,
-          });
-          send(ws, {
-            type: 'run.result',
-            payload: sessionPayload({
-              status: result.status,
-              iterations: result.iterations,
-              finalText: result.finalText,
-              error: result.error
-                ? {
-                    code: result.error.code,
-                    message: result.error.message,
-                    recoverable: result.error.recoverable,
-                  }
-                : undefined,
-            }),
-          });
-        } catch (err) {
-          // Image-input failures are user_message-phase errors: the run
-          // never started, and the message tells the user how to fix it.
-          if (
-            err instanceof IncomingImageError ||
-            err instanceof ImageInputUnsupportedError ||
-            err instanceof VisionUrlBlockedError
-          ) {
-            send(ws, {
-              type: 'error',
-              payload: sessionPayload({
-                phase: 'user_message',
-                ...(err instanceof ImageInputUnsupportedError
-                  ? { code: 'vision_unsupported' }
-                  : {}),
-                message: err.message,
-              }),
-            });
-          } else {
-            send(ws, {
-              type: 'error',
-              payload: sessionPayload({
-                phase: 'agent.run',
-                message: errMessage(err),
-              }),
-            });
-          }
-        } finally {
-          // Only clear runLock if it's still ours — otherwise we'd wipe a
-          // newer run's controller set after we returned.
-          if (runLock.get() === thisRun) {
-            runLock.set(null);
-          }
-        }
-        break;
-      }
-
-      case 'tool.confirm_result': {
-        if (!ensureCurrentSession(ws, msg, 'tool.confirm_result')) return;
-        const { id, decision } = (msg as { payload: { id: string; decision: ConfirmDecision } })
-          .payload;
-        const confirm = pendingConfirms.get(id);
-        if (confirm) {
-          pendingConfirms.delete(id);
-          confirm.resolve(decision);
-        }
-        break;
-      }
-
-      case 'abort':
-        if (!ensureCurrentSession(ws, msg, 'abort')) return;
-        runLock.get()?.abort();
-        broadcast(state.getClients(), {
-          type: 'error',
-          payload: sessionPayload({ phase: 'abort', message: 'User aborted' }),
-        });
-        break;
-
-      case 'ping':
-        send(ws, { type: 'pong', payload: {} });
-        break;
-
-      case 'tools.list': {
-        // Full tool registry dump for the /tools inspect view.
-        const entries = [...deps.toolRegistry.listWithOwner(), ...deps.toolRegistry.listDisabled()];
-        const list = entries.map(({ tool, owner }) => {
-          const schema =
-            (tool as { inputSchema?: { properties?: Record<string, unknown> } }).inputSchema ?? {};
-          const params = schema.properties ? Object.keys(schema.properties) : [];
-          return {
-            name: tool.name,
-            owner,
-            description: (tool as { description?: string | undefined }).description ?? '',
-            params,
-            disabled: deps.toolRegistry.isDisabled(tool.name),
-            mutating: tool.mutating,
-            permission: tool.permission,
-          };
-        });
-        send(ws, { type: 'tools.list', payload: { tools: list } });
-        break;
-      }
-      case 'tool.disable': {
-        const name = (msg as { payload?: { name?: string } }).payload?.name;
-        if (!name) {
-          send(ws, { type: 'error', payload: { message: 'tool.disable requires a name' } });
-          break;
-        }
-        const ok = deps.toolRegistry.disable(name);
-        // Persist the disabled list to config
-        const currentCfg = deps.configStore.get().tools ?? {};
-        const currentDisabled: string[] =
-          (currentCfg as { disabledTools?: string[] }).disabledTools ?? [];
-        if (ok && !currentDisabled.includes(name)) {
-          deps.configStore.update({
-            tools: { ...currentCfg, disabledTools: [...currentDisabled, name] },
-          });
-        }
-        send(ws, { type: 'tool.disabled', payload: { name, ok } });
-        break;
-      }
-      case 'tool.enable': {
-        const name = (msg as { payload?: { name?: string } }).payload?.name;
-        if (!name) {
-          send(ws, { type: 'error', payload: { message: 'tool.enable requires a name' } });
-          break;
-        }
-        const ok = deps.toolRegistry.enable(name);
-        if (ok) {
-          const currentCfg = deps.configStore.get().tools ?? {};
-          const currentDisabled: string[] =
-            (currentCfg as { disabledTools?: string[] }).disabledTools ?? [];
-          deps.configStore.update({
-            tools: {
-              ...currentCfg,
-              disabledTools: currentDisabled.filter((n: string) => n !== name),
-            },
-          });
-        }
-        send(ws, { type: 'tool.enabled', payload: { name, ok } });
-        break;
-      }
-
-      // ── Memory operations — delegated to shared handlers (memory-handlers.ts) ──
-      // `memory.list` renders the single Super Memory store; all writes go
-      // through the structured `memory.super.*` operations below.
-      case 'memory.list':
-        return handleMemoryList(ws, deps.memoryStore);
-
-      // ── SuperMemory operations ──
-      case 'memory.super.list':
-        return handleSuperMemoryList(ws, deps.memoryStore);
-      case 'memory.super.listPage':
-        return handleSuperMemoryListPage(ws, msg, deps.memoryStore);
-      case 'memory.super.get':
-        return handleSuperMemoryGet(ws, msg, deps.memoryStore);
-      case 'memory.super.graph':
-        return handleSuperMemoryGraph(ws, msg, deps.memoryStore);
-      case 'memory.super.update':
-        return handleSuperMemoryUpdate(ws, msg, deps.memoryStore);
-      case 'memory.super.delete':
-        return handleSuperMemoryDelete(ws, msg, deps.memoryStore);
-      case 'memory.super.remember':
-        return handleSuperMemoryRemember(ws, msg, deps.memoryStore);
-      case 'memory.super.recover':
-        return handleSuperMemoryRecover(ws, msg, deps.memoryStore);
-      case 'memory.super.candidateResolve':
-        return handleSuperMemoryCandidateResolve(ws, msg, deps.memoryStore);
-      case 'memory.super.backfillRecoverable':
-        return handleSuperMemoryBackfillRecoverable(ws, msg, deps.memoryStore);
-      case 'memory.super.forFile':
-        return handleSuperMemoryForFile(ws, msg, deps.memoryStore);
-
-      // ── MCP tripwires — handleMcpRoute claims these upstream. ──
-      case 'mcp.list':
-        throw new Error('handleMcpRoute did not claim mcp.list — check chain order');
-      case 'mcp.add':
-        throw new Error('handleMcpRoute did not claim mcp.add — check chain order');
-      case 'mcp.update':
-        throw new Error('handleMcpRoute did not claim mcp.update — check chain order');
-      case 'mcp.remove':
-        throw new Error('handleMcpRoute did not claim mcp.remove — check chain order');
-      case 'mcp.enable':
-        throw new Error('handleMcpRoute did not claim mcp.enable — check chain order');
-      case 'mcp.disable':
-        throw new Error('handleMcpRoute did not claim mcp.disable — check chain order');
-      case 'mcp.sleep':
-        throw new Error('handleMcpRoute did not claim mcp.sleep — check chain order');
-      case 'mcp.wake':
-        throw new Error('handleMcpRoute did not claim mcp.wake — check chain order');
-      case 'mcp.restart':
-        throw new Error('handleMcpRoute did not claim mcp.restart — check chain order');
-      case 'mcp.discover':
-        throw new Error('handleMcpRoute did not claim mcp.discover — check chain order');
-      case 'mcp.resources':
-        throw new Error('handleMcpRoute did not claim mcp.resources — check chain order');
-      case 'mcp.prompts':
-        throw new Error('handleMcpRoute did not claim mcp.prompts — check chain order');
-      case 'mcp.resource.read':
-        throw new Error('handleMcpRoute did not claim mcp.resource.read — check chain order');
-      case 'mcp.prompt.get':
-        throw new Error('handleMcpRoute did not claim mcp.prompt.get — check chain order');
-
-      // Skills — full request→response cycle lives in skills-handlers.ts.
-      case 'skills.list':
-        await handleSkillsList(ws, makeSkillsContext());
-        break;
-      case 'skills.content':
-        await handleSkillsContent(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.install':
-        await handleSkillsInstall(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.uninstall':
-        await handleSkillsUninstall(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.update':
-        await handleSkillsUpdate(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.create':
-        await handleSkillsCreate(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.edit':
-        await handleSkillsEdit(ws, makeSkillsContext(), msg);
-        break;
-      case 'skills.export':
-        await handleSkillsExport(ws, makeSkillsContext());
-        break;
-
-      // Prompt library — shared handlers (prompts-handlers.ts).
-      case 'prompts.list':
-        await handlePromptsList(ws, promptsCtx as never);
-        break;
-      case 'prompts.search':
-        await handlePromptsSearch(ws, promptsCtx as never, msg);
-        break;
-      case 'prompts.content':
-        await handlePromptsContent(ws, promptsCtx as never, msg);
-        break;
-      case 'prompts.favorite':
-        await handlePromptsFavorite(ws, promptsCtx as never, msg);
-        break;
-      case 'prompts.create':
-        await handlePromptsCreate(ws, promptsCtx as never, msg);
-        break;
-      case 'prompts.used':
-        await handlePromptsUsed(ws, promptsCtx as never, msg);
-        break;
-      case 'prompts.recent':
-        await handlePromptsRecent(ws, promptsCtx as never);
-        break;
-
-      // Design Studio — shared handlers (design-handlers.ts).
-      case 'design.list':
-        await handleDesignList(ws, {
-          projectRoot: state.getProjectRoot(),
-          agentMeta: deps.context,
-        });
-        break;
-      case 'design.use':
-        await handleDesignUse(
-          ws,
-          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
-          msg,
-        );
-        break;
-      case 'design.state':
-        await handleDesignState(ws, {
-          projectRoot: state.getProjectRoot(),
-          agentMeta: deps.context,
-        });
-        break;
-      case 'design.set':
-        await handleDesignSet(
-          ws,
-          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
-          msg,
-        );
-        break;
-      case 'design.materialize':
-        await handleDesignMaterialize(
-          ws,
-          { projectRoot: state.getProjectRoot(), agentMeta: deps.context },
-          msg,
-        );
-        break;
-      case 'design.verify':
-        await handleDesignVerify(ws, {
-          projectRoot: state.getProjectRoot(),
-          agentMeta: deps.context,
-        });
-        break;
-
-      case 'diag.get': {
-        if (!ensureCurrentSession(ws, msg, 'diag.get')) return;
-        const config = state.getConfig();
-        const session = state.getSession();
-        const usage = deps.tokenCounter.total();
-        send(ws, {
-          type: 'diag.get',
-          payload: {
-            provider: config.provider,
-            model: config.model,
-            cwd: state.getProjectRoot(),
-            sessionId: session.id,
-            tools: {
-              count: deps.toolRegistry.list().length,
-              names: deps.toolRegistry.list().map((t) => t.name),
-            },
-            features: {
-              memory: !!config.features?.memory,
-              skills: !!config.features?.skills,
-              modelsRegistry: !!config.features?.modelsRegistry,
-            },
-            mode: state.getModeId() ?? 'default',
-            usage,
-            messages: deps.context.messages.length,
-            todos: deps.context.todos.length,
-          },
-        });
-        break;
-      }
-
-      // ── Worklist (todos / tasks / plan) — shared dispatcher ──
-      case 'todos.get':
-      case 'todos.clear':
-      case 'todos.remove':
-      case 'tasks.get':
-      case 'plan.get':
-      case 'plan.template_use':
-      case 'todo.update':
-      case 'task.update':
-      case 'plan.item.update': {
-        if (!ensureCurrentSession(ws, msg, msg.type)) return;
-        await handleWorklistMessage(makeWorklistContext(), ws, msg as WorklistMessage);
-        break;
-      }
-
-      // ── File operations — shared handlers (file-handlers.ts) ──
-      case 'files.list':
-        return handleFilesList(ws, msg, state.getProjectRoot());
-      case 'files.tree':
-        return handleFilesTree(ws, msg, state.getProjectRoot());
-      case 'files.read':
-        return handleFilesRead(ws, msg, state.getProjectRoot());
-      case 'files.write':
-        return handleFilesWrite(ws, msg, state.getProjectRoot(), {
-          onWritten: (filePath) => codebaseIndexing.onFileWritten(filePath),
-        });
-      case 'completion.request':
-        return handleCompletionRequest(ws, msg, {
-          projectRoot: state.getProjectRoot(),
-          provider: deps.context.provider,
-          model: deps.context.model,
-          indexDir:
-            typeof deps.context.meta['codebaseIndexDir'] === 'string'
-              ? deps.context.meta['codebaseIndexDir']
-              : undefined,
-          lspCompletion: createToolLspCompletionSource(
-            deps.toolRegistry.get('lsp_completion'),
-            deps.context,
-          ),
-        });
-
-      case 'stats.get': {
-        if (!ensureCurrentSession(ws, msg, 'stats.get')) return;
-        const config = state.getConfig();
-        const session = state.getSession();
-        const usage = deps.tokenCounter.total();
-        const cacheStats = deps.tokenCounter.cacheStats();
-        const m = await resolveProviderModelMetadata(
-          deps.modelsRegistry,
-          config.provider,
-          config.model,
-          config.providers?.[config.provider],
-        ).catch(() => null);
-        const cost = computeUsageCost(usage, getCostRates(m));
-        send(ws, {
-          type: 'stats.get',
-          payload: {
-            sessionId: session.id,
-            provider: config.provider,
-            model: config.model,
-            usage,
-            cache: cacheStats,
-            cost,
-            messages: deps.context.messages.length,
-            readFiles: deps.context.readFiles.size,
-            tools: deps.toolRegistry.list().length,
-            sideEffectCount: deps.context.sideEffects?.length ?? 0,
-            elapsedMs: Date.now() - state.getSessionStartedAt(),
-          },
-        });
-        break;
-      }
-
-      case 'side_effects.list': {
-        if (!ensureCurrentSession(ws, msg, 'side_effects.list')) return;
-        const sideEffects = deps.context.sideEffects ?? [];
-        send(ws, {
-          type: 'side_effects',
-          payload: sessionPayload({
-            sideEffects: sideEffects.slice(-50).map((se) => ({
-              toolUseId: se.toolUseId,
-              toolName: se.toolName,
-              ts: se.ts,
-              input: se.input,
-              outcome: se.outcome,
-              risk: se.risk,
-            })),
-          }),
-        });
-        break;
-      }
-
-      // ── Chronicle journal queries (parity with embedded webui-server) ──
-      // Mirrors packages/cli/src/webui-server/message-router.ts:645-664.
-      // The engine is cached for 1s to avoid re-reading the journal on every
-      // query; the cache is module-scoped so it survives across messages on
-      // the same connection.
-      case 'chronicle.query': {
-        const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
-        const engine = await chronicleEngine(state.getProjectRoot());
-        send(ws, {
-          type: 'chronicle.query_result',
-          payload: await engine.query(payload.query ?? {}),
-        });
-        break;
-      }
-
-      case 'chronicle.facet': {
-        const payload = (msg.payload ?? {}) as {
-          field?: ChronicleFacet;
-          query?: ChronicleQuery;
-          limit?: number;
-        };
-        const allowed = new Set<ChronicleFacet>([
-          'eventType',
-          'outcome',
-          'projectId',
-          'sessionId',
-          'agentId',
-          'taskId',
-          'providerId',
-          'modelId',
-          'resourceKind',
-          'resourcePath',
-          'toolCallId',
-        ]);
-        if (!payload.field || !allowed.has(payload.field)) {
-          send(ws, {
-            type: 'chronicle.error',
-            payload: { message: 'Invalid Chronicle facet field.' },
-          });
-          break;
-        }
-        const engine = await chronicleEngine(state.getProjectRoot());
-        send(ws, {
-          type: 'chronicle.facet_result',
-          payload: {
-            field: payload.field,
-            values: await engine.facet(payload.field, payload.query ?? {}, payload.limit),
-            diagnostics: engine.diagnostics,
-          },
-        });
-        break;
-      }
-
-      case 'chronicle.graph': {
-        const payload = (msg.payload ?? {}) as {
-          seed?: ChronicleQuery;
-          hops?: number;
-          maxNodes?: number;
-        };
-        const engine = await chronicleEngine(state.getProjectRoot());
-        send(ws, {
-          type: 'chronicle.graph_result',
-          payload: await engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes),
-        });
-        break;
-      }
-
-      case 'process.list': {
-        await handleProcessList(ws);
-        break;
-      }
-
-      case 'process.kill': {
-        await handleProcessKill(ws, msg.payload);
-        break;
-      }
-
-      case 'process.killAll': {
-        await handleProcessKillAll(ws);
-        break;
-      }
-
-      case 'webui.shutdown': {
-        // `/exit` from the client. Route through SIGINT so the registered
-        // shutdown handlers (session flush, disposers, registry unregister)
-        // all run.
+  const worklistRoutes = createWorklistRouteHandlers({
+    getContext: makeWorklistContext,
+    allowMessage: (ws, msg) => ensureCurrentSession(ws, msg, msg.type),
+  });
+  const processRoutes: ProcessRouteHandlers = {
+    list: (ws) => handleProcessList(ws),
+    kill: (ws, msg) => handleProcessKill(ws, msg.payload, deps.trustBoundary, deps.logger),
+    killAll: (ws) => handleProcessKillAll(ws, deps.trustBoundary, deps.logger),
+  };
+  const hostRoutes: HostRouteHandlers = {
+    shutdown: async (ws) => {
+      const authorization = await authorizeWebUIAction(
+        deps.trustBoundary,
+        {
+          // 'elevated' (not 'critical') so the default compatibility trust
+          // boundary allows WS-authenticated clients to shut down their own
+          // agent process. 'critical' is unconditionally denied for
+          // remote-client actors, which would silently break the Exit button.
+          capability: 'host.shutdown',
+          subject: { kind: 'process', id: String(process.pid) },
+          risk: 'elevated',
+          metadata: { transport: 'websocket' },
+        },
+        deps.logger,
+      );
+      if (authorization.allowed) {
         console.log('[WebUI] Shutdown requested from client');
         process.kill(process.pid, 'SIGINT');
-        break;
+      } else {
+        sendResult(ws, false, `Shutdown denied: ${authorization.reason}`);
       }
-
-      case 'goal-state.get': {
-        await handleGoalGet(state.getProjectRoot(), (m) => broadcast(state.getClients(), m));
-        break;
-      }
-
-      case 'autonomy.switch': {
-        const parsed = validateAutonomySwitchPayload(msg.payload);
-        if (!parsed.ok) {
-          sendResult(ws, false, parsed.message);
-          break;
-        }
-        const { mode } = parsed.value;
-        deps.context.meta['autonomy'] = mode;
-        sendResult(ws, true, `Autonomy mode set to "${mode}"`);
-        broadcast(state.getClients(), { type: 'prefs.updated', payload: { autonomy: mode } });
-        void cb.persistPrefsToConfig({ autonomy: mode });
-        break;
-      }
-
-      case 'prefs.update': {
-        // Routed via handlePrefsRoute — tripwire for chain-order regressions.
-        void ws;
-        throw new Error('handlePrefsRoute did not claim prefs.update — check chain order');
-      }
-
-      case 'prefs.get': {
-        // Routed via handlePrefsRoute — tripwire for chain-order regressions.
-        throw new Error('handlePrefsRoute did not claim prefs.get — check chain order');
-      }
-
-      default:
-        send(ws, {
-          type: 'error',
-          payload: { phase: 'handleMessage', message: `Unknown message type: ${msg.type}` },
-        });
-    }
+    },
   };
+  const clientTransportRoutes: ClientTransportRouteHandlers = {
+    collaboration: (ws, msg) => {
+      deps.collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
+    },
+    terminal: (ws, msg) => {
+      void deps.terminalHandler.handleMessage(ws, msg);
+    },
+  };
+  const conversationRoutes = createConversationOperations({
+    getAgent: () => deps.agent,
+    getSessionId: () => state.getSession().id,
+    runControl: {
+      begin: () => {
+        if (runLock.get()) return undefined;
+        const controller = new AbortController();
+        runLock.set(controller);
+        return controller;
+      },
+      end: (_ws, controller) => {
+        if (runLock.get() === controller) runLock.set(null);
+      },
+      abort: () => runLock.get()?.abort(),
+    },
+    pendingConfirms,
+    send,
+    notifyAbort: (_ws, message) => broadcast(state.getClients(), message),
+    getMaxIterations: () =>
+      typeof deps.context.meta['maxIterations'] === 'number'
+        ? deps.context.meta['maxIterations']
+        : undefined,
+  });
+  const completionRoutes: CompletionRouteHandlers = {
+    request: (ws, msg) =>
+      handleCompletionRequest(ws, msg, {
+        projectRoot: state.getProjectRoot(),
+        provider: deps.context.provider,
+        model: deps.context.model,
+        indexDir:
+          typeof deps.context.meta['codebaseIndexDir'] === 'string'
+            ? deps.context.meta['codebaseIndexDir']
+            : undefined,
+        lspCompletion: createToolLspCompletionSource(
+          deps.toolRegistry.get('lsp_completion'),
+          deps.context,
+        ),
+      }),
+  };
+  const goalSnapshotRoutes: GoalSnapshotRouteHandlers = {
+    getSnapshot: () =>
+      handleGoalGet(state.getProjectRoot(), (message) => broadcast(state.getClients(), message)),
+  };
+  const kanbanContext = () => ({
+    projectRoot: state.getProjectRoot(),
+    context: deps.context,
+    broadcast: (message: object) => broadcast(state.getClients(), message),
+  });
+  const kanbanHostRoutes: KanbanHostRouteHandlers = {
+    meta: async (ws) => {
+      const skills = deps.skillLoader
+        ? (await deps.skillLoader.list()).map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+          }))
+        : [];
+      send(ws, {
+        type: 'kanban.meta',
+        payload: {
+          success: true,
+          data: {
+            tools: deps.agent.ctx.tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description ?? '',
+            })),
+            skills,
+            fallbackProfiles: state.getConfig().fallbackProfiles ?? {},
+            sessionProvider: deps.context.provider,
+            sessionModel: deps.context.model,
+          },
+        },
+      });
+    },
+    supervisorStatus: async (ws, msg) => {
+      await handleKanbanRoute(ws, msg, kanbanContext());
+    },
+    supervisorAudit: async (ws, msg) => {
+      await handleKanbanRoute(ws, msg, kanbanContext());
+    },
+    runStart: (ws) => {
+      send(ws, {
+        type: 'kanban.run.start',
+        payload: {
+          success: false,
+          error: 'Kanban run launch is unavailable in this standalone runtime.',
+        },
+      });
+    },
+  };
+
+  const dispatch = createRouteFamilyDispatcher({
+    routes: {
+      shellGit: routes.shellGitRoutes,
+      mailbox: routes.mailboxRoutes,
+      mcp: routes.mcpRoutes,
+      provider: routes.providerRoutes,
+      session: routes.sessionRoutes,
+      project: routes.projectRoutes,
+      mode: routes.modeRoutes,
+      prefs: routes.prefsRoutes,
+      brain: routes.brainRoutes,
+      worklist: worklistRoutes,
+      process: processRoutes,
+      host: hostRoutes,
+      clientTransport: clientTransportRoutes,
+      conversation: conversationRoutes,
+      completion: completionRoutes,
+      autonomy: routes.autonomyRoutes,
+      goalSnapshot: goalSnapshotRoutes,
+      goal: routes.goalRoutes,
+      specs: routes.specsRoutes,
+      sddBoard: routes.sddBoardRoutes,
+      sddWizard: routes.sddWizardRoutes,
+      worktree: deps.worktreeHandler,
+      kanbanHost: kanbanHostRoutes,
+    },
+    memory: { getMemoryStore: () => deps.memoryStore, send, sendResult },
+    content: {
+      getProjectRoot: state.getProjectRoot,
+      getSkillsContext: makeSkillsContext,
+      getPromptsContext: () => promptsCtx as never,
+      getDesignContext: () => ({
+        projectRoot: state.getProjectRoot(),
+        agentMeta: deps.context,
+      }),
+      onFileWritten: codebaseIndexing.onFileWritten,
+    },
+    chronicle: { getProjectRoot: state.getProjectRoot, send },
+    introspection: {
+      agent: deps.agent,
+      modelsRegistry: deps.modelsRegistry,
+      configStore: deps.configStore,
+      getConfig: state.getConfig,
+      getProjectRoot: state.getProjectRoot,
+      getSessionId: () => state.getSession().id,
+      getSessionStartedAt: state.getSessionStartedAt,
+      getModeId: state.getModeId,
+      send,
+      allowSessionMessage: (socket, message) =>
+        ensureCurrentSession(socket, message, message.type),
+    },
+    getKanbanContext: kanbanContext,
+    onUnknown: (ws, msg) => {
+      send(ws, {
+        type: 'error',
+        payload: { phase: 'handleMessage', message: `Unknown message type: ${msg.type}` },
+      });
+    },
+  });
+
+  return async (ws, _client, msg) => dispatch(ws, msg);
 }

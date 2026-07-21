@@ -2,6 +2,14 @@ import { createBoardObject, mutateBoard, readBoard, writeBoard } from '../storag
 import { DEFAULT_COLUMNS, type KanbanBoard } from '../types.js';
 import type { PhaseGraph, PhaseNode } from '../types/phase-graph.js';
 import type { TaskGraph, TaskNode } from '../types/task-graph.js';
+import type {
+  CreateKanbanBoardFromTaskGraphOptions,
+  SyncKanbanBoardFromTaskGraphOptions,
+} from './task-graph-contracts.js';
+export type {
+  CreateKanbanBoardFromTaskGraphOptions,
+  SyncKanbanBoardFromTaskGraphOptions,
+} from './task-graph-contracts.js';
 import {
   applyGraphNodeToTask,
   applyTaskGraphRelationships,
@@ -22,16 +30,6 @@ import {
   uniqueIdFromSet,
   uniqueStrings,
 } from './_internal.js';
-
-export interface CreateKanbanBoardFromTaskGraphOptions {
-  title?: string | undefined;
-  description?: string | undefined;
-  tags?: string[] | undefined;
-  generatedBy?: string | undefined;
-  sourceSystem?: string | undefined;
-  phaseId?: string | undefined;
-  includeCompletedTasks?: boolean | undefined;
-}
 
 export async function createBoardFromTaskGraph(
   projectRoot: string,
@@ -94,11 +92,6 @@ export async function createBoardFromTaskGraph(
   normalizeAllColumnTaskOrders(board);
   await writeBoard(projectRoot, board);
   return { board, taskIdMap };
-}
-
-export interface SyncKanbanBoardFromTaskGraphOptions extends CreateKanbanBoardFromTaskGraphOptions {
-  archiveMissingTasks?: boolean | undefined;
-  preserveManualDependencies?: boolean | undefined;
 }
 
 export async function syncBoardFromTaskGraph(

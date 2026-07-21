@@ -28,10 +28,25 @@ import type { ModelMatrixSource } from './director.js';
 import type { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
 import type { FleetManager } from './fleet-manager.js';
 import type { InMemoryBridgeTransport } from './in-memory-transport.js';
+import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
 import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
 import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
 import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import { resolveMaxSpawnDepth } from './spawn-budget.js';
+
+/**
+ * Shape stored in the Director's manifestEntries map for each spawned subagent.
+ * Keyed by subagentId.
+ */
+export interface ManifestEntry {
+  subagentId: string;
+  name: string;
+  role?: string | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  taskIds: string[];
+  worktrees?: Record<string, WorktreeTaskStateUpdate> | undefined;
+}
 
 /**
  * Narrow interface the helpers in this file need from the Director.
@@ -68,6 +83,8 @@ export interface DirectorFleetHost {
   readonly manifestEntries: Map<string, unknown>;
   readonly completed: Map<string, TaskResult>;
   readonly subagentBridges: Map<string, InMemoryAgentBridge>;
+  readonly taskWorktrees: Map<string, WorktreeTaskStateUpdate>;
+  readonly extendTotals: Map<string, number>;
   readonly taskWaiters: Map<
     string,
     { promise: Promise<TaskResult>; resolve: (r: TaskResult) => void }
@@ -86,7 +103,7 @@ export interface DirectorFleetHost {
   >;
 
   // Nickname tracking
-  readonly _usedNicknames: Set<string>;
+  readonly usedNicknames: Set<string>;
 
   // Helpers exposed back to the helpers
   appendSessionEvent(event: unknown): Promise<void>;
@@ -202,9 +219,9 @@ export async function spawn(
       // the manifest is keyed by the real subagentId.
       host.fleetManager.assignNicknameAndRecord(config);
     } else {
-      const { key, display } = assignNickname(role, host._usedNicknames);
+      const { key, display } = assignNickname(role, host.usedNicknames);
       config.name = display;
-      host._usedNicknames.add(key);
+      host.usedNicknames.add(key);
     }
   }
   const total = host.usage.snapshot().total;
@@ -436,12 +453,24 @@ export async function remove(host: DirectorFleetHost, subagentId: string): Promi
     const entry = host.manifestEntries.get(subagentId) as { name?: string } | undefined;
     if (entry?.name) {
       const nicknameKey = nicknameKeyFromDisplay(entry.name);
-      if (nicknameKey) host._usedNicknames.delete(nicknameKey);
+      if (nicknameKey) host.usedNicknames.delete(nicknameKey);
     }
   }
 
   // Remove all local state entries for this subagent.
+  // taskOwners and taskDescriptions are keyed by taskId, not subagentId.
+  // Iterate the subagent's owned task IDs rather than using subagentId as the
+  // key (which would never match).
+  const entry = host.manifestEntries.get(subagentId) as
+    | { taskIds?: string[] }
+    | undefined;
+  if (entry?.taskIds) {
+    for (const tid of entry.taskIds) {
+      host.taskOwners.delete(tid);
+      host.taskDescriptions.delete(tid);
+      host.taskWorktrees.delete(tid);
+    }
+  }
+  host.extendTotals.delete(subagentId);
   host.manifestEntries.delete(subagentId);
-  host.taskOwners.delete(subagentId);
-  host.taskDescriptions.delete(subagentId);
 }

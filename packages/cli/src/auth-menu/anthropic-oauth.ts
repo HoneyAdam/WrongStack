@@ -12,9 +12,8 @@
  * adds the Bearer + beta headers and the required Claude Code system block.
  */
 
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { openBrowser, startLoopbackServer } from './loopback-server.js';
 import { color, FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
 import {
   mutateConfigProviders,
@@ -184,154 +183,8 @@ async function fetchClaudeModels(accessToken: string, signal: AbortSignal): Prom
 
 // ── Loopback server ──────────────────────────────────────────────────────────
 
-const ESCAPE_HTML: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) => ESCAPE_HTML[ch] ?? ch);
-}
-
-function callbackHtml(ok: boolean, message: string): string {
-  const heading = ok ? 'Authentication successful' : 'Authentication failed';
-  return (
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"/>` +
-    `<title>${escapeHtml(heading)}</title><style>body{margin:0;min-height:100vh;display:flex;` +
-    `align-items:center;justify-content:center;background:#09090b;color:#fafafa;` +
-    `font-family:ui-sans-serif,system-ui,sans-serif;text-align:center}` +
-    `h1{font-size:26px;margin:0 0 8px}p{color:#a1a1aa}</style></head><body><main>` +
-    `<h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p></main></body></html>`
-  );
-}
-
-interface LoopbackServer {
-  waitForCode(): Promise<{ code: string; state: string } | null>;
-  close(): void;
-  readonly bound: boolean;
-}
-
-function startLoopbackServer(
-  expectedState: string,
-  signal?: AbortSignal,
-): Promise<LoopbackServer> {
-  let resolveCode: (v: { code: string; state: string } | null) => void = () => {};
-  const codePromise = new Promise<{ code: string; state: string } | null>((resolve) => {
-    let settled = false;
-    resolveCode = (v) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-  });
-
-  const server: Server = createServer((req, res) => {
-    let url: URL;
-    try {
-      url = new URL(req.url ?? '', `http://${REDIRECT_HOST}`);
-    } catch {
-      res.statusCode = 400;
-      res.end();
-      return;
-    }
-    if (url.pathname !== REDIRECT_PATH) {
-      res.statusCode = 404;
-      res.setHeader('content-type', 'text/html; charset=utf-8');
-      res.end(callbackHtml(false, 'Callback route not found.'));
-      return;
-    }
-    res.setHeader('content-type', 'text/html; charset=utf-8');
-    const err = url.searchParams.get('error');
-    if (err) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, `Authorization error: ${err}`));
-      resolveCode(null);
-      return;
-    }
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    if (!code || !state) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, 'Missing code or state.'));
-      return;
-    }
-    if (state !== expectedState) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, 'State mismatch — please restart the login.'));
-      resolveCode(null);
-      return;
-    }
-    res.statusCode = 200;
-    res.end(callbackHtml(true, 'You can close this window and return to the terminal.'));
-    resolveCode({ code, state });
-  });
-
-  // Abort (Ctrl+C / TUI Esc) → unblock the pending wait and close the server
-  // so the login flow returns promptly instead of hanging on the loopback.
-  const onAbort = (): void => {
-    resolveCode(null);
-    try {
-      server.close();
-    } catch {
-      /* ignore */
-    }
-  };
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  return new Promise<LoopbackServer>((resolve) => {
-    server.on('error', () => {
-      resolveCode(null);
-      resolve({
-        bound: false,
-        waitForCode: () => Promise.resolve(null),
-        close: () => {
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
-      });
-    });
-    server.listen(REDIRECT_PORT, REDIRECT_HOST, () => {
-      resolve({
-        bound: true,
-        waitForCode: () => codePromise,
-        close: () => {
-          resolveCode(null);
-          try {
-            server.close();
-          } catch {
-            /* ignore */
-          }
-        },
-      });
-    });
-  });
-}
-
-function openBrowser(url: string): void {
-  try {
-    const platform = process.platform;
-    const { command, args } =
-      platform === 'win32'
-        ? { command: 'cmd', args: ['/c', 'start', '', url] }
-        : platform === 'darwin'
-          ? { command: 'open', args: [url] }
-          : { command: 'xdg-open', args: [url] };
-    const child = spawn(command, args, { stdio: 'ignore', windowsHide: true });
-    child.on('error', () => {});
-    child.unref();
-  } catch {
-    /* best-effort */
-  }
-}
+// ── Loopback server, browser opener, and callback HTML are now in
+// `./loopback-server.js` — imported at the top of this file.
 
 // ── Main flow ─────────────────────────────────────────────────────────────
 
@@ -369,7 +222,7 @@ export async function runClaudeOAuthLogin(
     process.on('SIGINT', onSig);
   }
 
-  const server = await startLoopbackServer(state, ac.signal);
+  const server = await startLoopbackServer(state, [REDIRECT_PORT], ac.signal, REDIRECT_PATH, REDIRECT_HOST);
 
   deps.renderer.write(
     color.bold(`\n  Sign in with Claude — ${color.cyan(providerId)}\n`) +

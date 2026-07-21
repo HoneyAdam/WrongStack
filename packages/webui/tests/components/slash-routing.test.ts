@@ -68,7 +68,7 @@ vi.mock('@/stores/ui-store', () => ({
   },
 }));
 
-vi.mock('../../src/components/CommandPalette', () => ({
+vi.mock('../../src/components/CommandPalette/export-utils.js', () => ({
   downloadChatAsMarkdown: vi.fn(),
 }));
 

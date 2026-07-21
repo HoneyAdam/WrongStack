@@ -16,11 +16,10 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
+import { ACPSession } from '../src/client/acp-session.js';
 import { FileServer } from '../src/client/file-server.js';
-import { TerminalServer } from '../src/client/terminal-server.js';
-import { ACPSession, textContent } from '../src/client/acp-session.js';
 import { defaultPermissionPolicy, readOnlyPermissionPolicy } from '../src/client/permission.js';
+import { TerminalServer } from '../src/client/terminal-server.js';
 import type { ACPMessage } from '../src/types/acp-messages.js';
 
 // ── Symlink-aware containment ─────────────────────────────────────────────
@@ -51,9 +50,9 @@ describe('FileServer symlink-escape prevention', () => {
       return skip('OS does not allow unprivileged symlinks');
     }
 
-    await expect(
-      server.readTextFile({ sessionId: 's1', path: linkPath }),
-    ).rejects.toMatchObject({ code: 'OUTSIDE_ROOT' });
+    await expect(server.readTextFile({ sessionId: 's1', path: linkPath })).rejects.toMatchObject({
+      code: 'OUTSIDE_ROOT',
+    });
   });
 
   it('rejects writing through an in-project symlink that points outside root', async ({ skip }) => {
@@ -99,9 +98,9 @@ describe('FileServer symlink-escape prevention', () => {
     const p = path.join(projectRoot, 'big.txt');
     await fsp.writeFile(p, 'x'.repeat(2048), 'utf8');
     const smallServer = new FileServer({ projectRoot, maxReadBytes: 1024 });
-    await expect(
-      smallServer.readTextFile({ sessionId: 's1', path: p }),
-    ).rejects.toMatchObject({ code: 'TOO_LARGE' });
+    await expect(smallServer.readTextFile({ sessionId: 's1', path: p })).rejects.toMatchObject({
+      code: 'TOO_LARGE',
+    });
   });
 
   it('rejects writing content larger than maxWriteBytes', async () => {
@@ -120,7 +119,10 @@ describe('TerminalServer environment sanitization', () => {
   let server: TerminalServer;
 
   beforeEach(async () => {
-    projectRoot = path.resolve(os.tmpdir(), 'wstack-term-sec-' + Math.random().toString(36).slice(2));
+    projectRoot = path.resolve(
+      os.tmpdir(),
+      'wstack-term-sec-' + Math.random().toString(36).slice(2),
+    );
     await fsp.mkdir(projectRoot, { recursive: true });
   });
 
@@ -179,7 +181,10 @@ describe('TerminalServer environment sanitization', () => {
     const { terminalId } = server.create({
       sessionId: 's1',
       command: 'node',
-      args: ['-e', 'const p = process.env.PATH ?? ""; console.log(p.includes("/tmp/evil") ? "INJECTED" : "SAFE")'],
+      args: [
+        '-e',
+        'const p = process.env.PATH ?? ""; console.log(p.includes("/tmp/evil") ? "INJECTED" : "SAFE")',
+      ],
       env: [{ name: 'PATH', value: '/tmp/evil/bin:/usr/bin' }],
     });
     await server.waitForExit(terminalId);
@@ -222,10 +227,19 @@ vi.mock('../src/agent/stdio-transport.js', () => {
     handlers: Array<(m: ACPMessage) => void> = [];
     start = vi.fn(async () => {});
     stop = vi.fn();
-    send = vi.fn(async (m: ACPMessage) => { this.sent.push(m); });
-    constructor() { (hoisted as unknown as { instances: unknown[] }).instances.push(this); }
-    onMessage(h: (m: ACPMessage) => void): () => void { this.handlers.push(h); return () => {}; }
-    emit(m: ACPMessage): void { for (const h of [...this.handlers]) h(m); }
+    send = vi.fn(async (m: ACPMessage) => {
+      this.sent.push(m);
+    });
+    constructor() {
+      (hoisted as unknown as { instances: unknown[] }).instances.push(this);
+    }
+    onMessage(h: (m: ACPMessage) => void): () => void {
+      this.handlers.push(h);
+      return () => {};
+    }
+    emit(m: ACPMessage): void {
+      for (const h of [...this.handlers]) h(m);
+    }
     respond(id: number | string, _method: string, result: unknown): void {
       this.emit({ jsonrpc: '2.0', id, result } as never as ACPMessage);
     }
@@ -290,10 +304,47 @@ describe('ACPSession callback authorization gate', () => {
     } as never as ACPMessage);
     await new Promise((r) => setImmediate(r));
 
-    const response = t.sent.find((m) => m.id === id) as { error?: { code?: number; message?: string } } | undefined;
+    const response = t.sent.find((m) => m.id === id) as
+      | { error?: { code?: number; message?: string } }
+      | undefined;
     expect(response?.error).toBeDefined();
     expect(response!.error!.message).toContain('denied by permission policy');
 
+    await session.close();
+  });
+
+  it('routes privileged callbacks through the shared TrustBoundary', async () => {
+    const evaluate = vi.fn(async () => ({ kind: 'deny', reason: 'adapter policy' }) as const);
+    const session = await startSession({
+      trustBoundary: { evaluate },
+      trustActor: { kind: 'subagent', id: 'agent-1' },
+      trustScope: { projectId: 'project-1', cwd: SESSION_PROJECT_ROOT },
+    });
+    const t = lastTransport();
+    const id = 202;
+    const filePath = path.join(SESSION_PROJECT_ROOT, 'denied.txt');
+    t.emit({
+      jsonrpc: '2.0',
+      id,
+      method: 'fs/write_text_file',
+      params: { sessionId: 'sess_abc', path: filePath, content: 'blocked' },
+    } as never as ACPMessage);
+    await new Promise((r) => setImmediate(r));
+
+    expect(evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { kind: 'subagent', id: 'agent-1', sessionId: 'sess_abc' },
+        surface: 'acp',
+        capability: 'filesystem.write',
+        subject: expect.objectContaining({ kind: 'path', id: filePath }),
+        scope: { projectId: 'project-1', cwd: SESSION_PROJECT_ROOT, sessionId: 'sess_abc' },
+      }),
+    );
+    const response = t.sent.find((message) => message.id === id) as
+      | { error?: { message?: string } }
+      | undefined;
+    expect(response?.error?.message).toContain('denied by permission policy');
+    await expect(fsp.stat(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
     await session.close();
   });
 
@@ -314,7 +365,8 @@ describe('ACPSession callback authorization gate', () => {
     await new Promise((r) => setTimeout(r, 100));
 
     const response = t.sent.find((m) => m.id === id && m.result !== undefined) as
-      | { result?: { content?: string } } | undefined;
+      | { result?: { content?: string } }
+      | undefined;
     expect(response).toBeDefined();
     expect(response!.result!.content).toBe('hello');
 
@@ -338,7 +390,9 @@ describe('ACPSession callback authorization gate', () => {
     } as never as ACPMessage);
     await new Promise((r) => setImmediate(r));
 
-    const response = t.sent.find((m) => m.id === id) as { error?: { code?: number; message?: string } } | undefined;
+    const response = t.sent.find((m) => m.id === id) as
+      | { error?: { code?: number; message?: string } }
+      | undefined;
     expect(response?.error).toBeDefined();
     expect(response!.error!.message).toContain('denied by permission policy');
 
@@ -363,7 +417,9 @@ describe('ACPSession callback authorization gate', () => {
     } as never as ACPMessage);
     await new Promise((r) => setImmediate(r));
 
-    const response = t.sent.find((m) => m.id === id) as { result?: { terminalId?: string } } | undefined;
+    const response = t.sent.find((m) => m.id === id) as
+      | { result?: { terminalId?: string } }
+      | undefined;
     expect(response?.result?.terminalId).toMatch(/^term_/);
 
     await session.close();

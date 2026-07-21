@@ -23,7 +23,6 @@ import {
   assignmentEventType,
   buildAssignment,
   claimReadyTaskOnBoard,
-  collectBoardsForHealth,
   createKanbanEvent,
   emitKanbanEvent,
   findTask,
@@ -36,6 +35,7 @@ import {
   selectRecoveryMode,
   syncTaskColumnForStatus,
 } from './_internal.js';
+import { collectBoardsForHealth } from './board-health.js';
 import { getBoard, listBoards } from './boards.js';
 import { areDependenciesMet } from './dependencies.js';
 

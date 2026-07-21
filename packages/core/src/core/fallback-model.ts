@@ -27,6 +27,9 @@ import {
 import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
 import { FallbackProfileManager } from './fallback-profile-manager.js';
 import { evaluateModelCalendar, logicalCalendarTarget } from './model-availability-calendar.js';
+// Compatibility: the canonical leaf implementation lives in model-ref.ts.
+export { formatModelRef, normalizeModelRef, parseModelRef } from './model-ref.js';
+export type { ModelRef } from './model-ref.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -73,40 +76,6 @@ export interface FallbackModelDeps {
    * the fallback chain.
    */
   statusTracker?: ProviderModelStatusTracker | undefined;
-}
-
-interface ModelRef {
-  provider?: string | undefined;
-  model: string;
-}
-
-/** Parse a fallback entry: `model`, `provider/model`, or `provider model`. */
-export function parseModelRef(ref: string): ModelRef {
-  const trimmed = ref.trim();
-  const slash = trimmed.indexOf('/');
-  if (slash !== -1) {
-    // An empty provider (leading slash, e.g. "/gpt") means "use the primary
-    // provider" — collapse to undefined so the `?? cfg.provider` fallback fires.
-    return {
-      provider: trimmed.slice(0, slash) || undefined,
-      model: trimmed.slice(slash + 1).trim(),
-    };
-  }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length >= 2) {
-    return { provider: parts[0], model: parts.slice(1).join(' ') };
-  }
-  return { model: trimmed };
-}
-
-export function formatModelRef(ref: ModelRef, defaultProvider?: string | undefined): string {
-  const provider = ref.provider ?? defaultProvider;
-  return provider ? `${provider}/${ref.model}` : ref.model;
-}
-
-export function normalizeModelRef(ref: string, defaultProvider?: string | undefined): string {
-  const parsed = parseModelRef(ref);
-  return formatModelRef(parsed, defaultProvider);
 }
 
 export function fallbackProfileChain(config: Config, profileName: string | undefined): string[] {

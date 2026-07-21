@@ -1,14 +1,32 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { execFileSyncMock, spawnMock } = vi.hoisted(() => ({
-  execFileSyncMock: vi.fn(),
-  spawnMock: vi.fn(),
-}));
+const { execFileBehavior, execFileMock, spawnMock } = vi.hoisted(() => {
+  const behavior = vi.fn();
+  return {
+    execFileBehavior: behavior,
+    execFileMock: vi.fn(
+      (
+        command: string,
+        args: string[],
+        options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        try {
+          callback(null, behavior(command, args, options), '');
+        } catch (error) {
+          callback(error as Error, '', '');
+        }
+        return {};
+      },
+    ),
+    spawnMock: vi.fn(),
+  };
+});
 
 vi.mock('node:child_process', async (orig) => ({
   ...(await orig<typeof import('node:child_process')>()),
-  execFileSync: (...a: unknown[]) => execFileSyncMock(...a),
+  execFile: execFileMock,
   spawn: (...a: unknown[]) => spawnMock(...a),
 }));
 
@@ -40,12 +58,13 @@ function spawnResult(stdoutText: string, code = 0) {
 
 /** Force the native-parser probe to report "unavailable" so the regex path runs. */
 const forceRegex = () =>
-  execFileSyncMock.mockImplementation(() => {
+  execFileBehavior.mockImplementation(() => {
     throw new Error('rustc missing');
   });
 
 beforeEach(() => {
-  execFileSyncMock.mockReset();
+  execFileBehavior.mockReset();
+  execFileMock.mockClear();
   spawnMock.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
@@ -90,7 +109,7 @@ describe('rs-parser regex fallback', () => {
 
 describe('rs-parser native (syn) path', () => {
   it('returns native symbols when rustc + cargo + syn-parser succeed', async () => {
-    execFileSyncMock.mockReturnValue(''); // rustc --version and cargo metadata both ok
+    execFileBehavior.mockReturnValue(''); // rustc --version and cargo metadata both ok
     spawnMock.mockReturnValue(
       spawnResult(
         JSON.stringify([
@@ -105,7 +124,7 @@ describe('rs-parser native (syn) path', () => {
   });
 
   it('falls back to regex when cargo metadata is missing', async () => {
-    execFileSyncMock.mockImplementation((cmd: string, args: string[]) => {
+    execFileBehavior.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'cargo' && args[0] === 'metadata') throw new Error('no cargo project');
       return '';
     });
@@ -114,13 +133,13 @@ describe('rs-parser native (syn) path', () => {
   });
 
   it('falls back to regex when the native run exits non-zero', async () => {
-    execFileSyncMock.mockReturnValue('');
+    execFileBehavior.mockReturnValue('');
     spawnMock.mockReturnValue(spawnResult('', 1));
     expect((await find('struct FromRegex {}', 'FromRegex'))?.kind).toBe('struct');
   });
 
   it('falls back to regex when the native run throws', async () => {
-    execFileSyncMock.mockReturnValue('');
+    execFileBehavior.mockReturnValue('');
     spawnMock.mockImplementation(() => {
       throw new Error('cargo run failed');
     });

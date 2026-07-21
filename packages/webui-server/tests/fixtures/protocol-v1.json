@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "client": [
+    { "type": "user_message", "payload": { "content": "hello" } },
+    { "type": "files.read", "payload": { "filePath": "README.md" } },
+    { "type": "goal.start", "payload": { "title": "Ship" } },
+    { "type": "memory.super.list", "payload": {} },
+    { "type": "mcp.list", "payload": {} },
+    { "type": "collab.join", "payload": { "sessionId": "s1", "role": "observer" } },
+    { "type": "kanban.meta", "payload": {} }
+  ],
+  "server": [
+    { "type": "session.start", "payload": { "sessionId": "s1", "protocolVersion": 1 } },
+    { "type": "provider.text_delta", "payload": { "text": "hello" } },
+    { "type": "files.read", "payload": { "content": "# Readme" } },
+    { "type": "goal.completed", "payload": { "goalId": "g1" } },
+    { "type": "mailbox.compacted", "payload": { "removed": 3 } },
+    { "type": "prompts.created", "payload": { "name": "review" } },
+    { "type": "kanban.supervisor.status", "payload": { "running": true } }
+  ]
+}

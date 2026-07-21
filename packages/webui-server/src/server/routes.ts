@@ -25,7 +25,6 @@ import type {
   AgentPipelines,
   AutoCompactionMiddleware,
   BrainAutoRisk,
-  BrainConfigPatch,
   BrainRuntime,
   Compactor,
   ConfigStore,
@@ -46,17 +45,6 @@ import type {
   SkillLoader,
   ToolRegistry,
 } from '@wrongstack/core';
-import {
-  buildRefinerContextSections,
-  type EnhanceFailureKind,
-  enhanceUserPrompt,
-  gatedEnhancerReasoning,
-  nextEnhanceTimeout,
-  recentTextTurns,
-  resolveConfiguredRefinerRef,
-  resolveEnhanceFallbackRef,
-  resolveProviderModelList,
-} from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { WebSocket, WebSocketServer } from 'ws';
 
@@ -65,21 +53,23 @@ type Session = Awaited<ReturnType<SessionStore['create']>>;
 import type { Config } from '@wrongstack/core/types';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
+import { type AutonomyRouteHandlers, createAutonomyRouteHandlers } from './autonomy-routes.js';
 import { patchConfig } from './boot.js';
+import {
+  handleBrainAsk,
+  handleBrainConfigGet,
+  handleBrainConfigSet,
+  handleBrainRisk,
+  handleBrainStatus,
+  type BrainHandlerContext,
+} from './brain-handlers.js';
 import type { BrainRouteHandlers } from './brain-routes.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
 import type { GoalRouteHandlers } from './goal-routes.js';
 import type { GoalWebSocketHandler } from './goal-ws-handler.js';
-import {
-  handleMailboxAgents,
-  handleMailboxClear,
-  handleMailboxCompact,
-  handleMailboxMessages,
-  handleMailboxPurge,
-} from './mailbox-handlers.js';
-import type { MailboxRouteHandlers } from './mailbox-routes.js';
+import { createMailboxRouteHandlers, type MailboxRouteHandlers } from './mailbox-routes.js';
 import {
   handleMcpAdd,
   handleMcpDisable,
@@ -99,20 +89,14 @@ import {
 import type { McpRouteHandlers } from './mcp-routes.js';
 import { createModeHandlers } from './mode-handlers.js';
 import type { ModeRouteHandlers } from './mode-routes.js';
-import {
-  resolveProviderCatalogForModels,
-  resolveProviderModelMetadata,
-  SIBLING_CATALOG,
-} from './model-catalog.js';
-import { type PendingConfirm, resolveYoloEligiblePendingConfirms } from './pending-confirms.js';
-import type { PrefsRouteHandlers } from './prefs-routes.js';
+import { createModelOperations } from './model-operations.js';
+import type { PendingConfirm } from './pending-confirms.js';
+import type { PrefsHandlerContext } from './prefs-handlers.js';
+import { createPrefsRouteHandlers, type PrefsRouteHandlers } from './prefs-routes.js';
+import { authorizeWebUIAction } from './privileged-actions.js';
 import { createProjectHandlers } from './project-handlers.js';
 import type { ProjectRouteHandlers } from './project-routes.js';
-import {
-  createProviderHandlers,
-  probeModelDescriptors,
-  projectSavedProviders,
-} from './provider-handlers.js';
+import { createProviderHandlers } from './provider-handlers.js';
 import type { ProviderRouteHandlers } from './provider-routes.js';
 import type { SddBoardRouteHandlers } from './sdd-board-routes.js';
 import type { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
@@ -127,21 +111,8 @@ import type { SpecsWebSocketHandler } from './specs-ws-handler.js';
 import type { TerminalWebSocketHandler } from './terminal-ws-handler.js';
 import type { ConnectedClient } from './types.js';
 import type { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import {
-  validateBrainAskPayload,
-  validateBrainConfigSetPayload,
-  validateBrainRiskPayload,
-  validateGitDiffPayload,
-  validateMailboxAgentsPayload,
-  validateMailboxMessagesPayload,
-  validateMailboxPurgePayload,
-  validateModelSwitchPayload,
-  validatePrefsUpdatePayload,
-  validateShellOpenPayload,
-} from './ws-payload-validation.js';
-import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
-
-type ProviderModelDescriptor = ReturnType<typeof resolveProviderModelList>[number];
+import { validateGitDiffPayload, validateShellOpenPayload } from './ws-payload-validation.js';
+import { broadcast, send, sendResult } from './ws-utils.js';
 
 /**
  * Mutable session-scoped state. Handlers always read LIVE values through
@@ -178,42 +149,12 @@ export interface WebuiMutableState {
   /** Read-only reference to the live WS clients map. */
   getClients(): Map<WebSocket, ConnectedClient>;
 }
-async function enrichProviderModelDescriptors(
-  modelsRegistry: ModelsRegistry,
-  providerId: string,
-  cfg: ProviderConfig | undefined,
-  models: ProviderModelDescriptor[],
-): Promise<ProviderModelDescriptor[]> {
-  return Promise.all(
-    models.map(async (model) => {
-      if (model.contextWindow && model.capabilities.length > 0) return model;
-      const resolved = await resolveProviderModelMetadata(
-        modelsRegistry,
-        providerId,
-        model.id,
-        cfg,
-      ).catch(() => undefined);
-      if (!resolved) return model;
-      const capabilities = new Set(model.capabilities);
-      if (resolved.capabilities.tools) capabilities.add('tools');
-      if (resolved.capabilities.reasoning) capabilities.add('reasoning');
-      if (resolved.capabilities.vision) capabilities.add('vision');
-      return {
-        ...model,
-        contextWindow: model.contextWindow ?? resolved.capabilities.maxContext ?? undefined,
-        inputCost: model.inputCost ?? resolved.cost?.input,
-        outputCost: model.outputCost ?? resolved.cost?.output,
-        capabilities: [...capabilities],
-      };
-    }),
-  );
-}
-
 /**
  * Services + WS-subsystem handlers, bootstrapped once. Immutable for
  * the duration of a session (the mutable ones live in `WebuiMutableState`).
  */
 export interface WebuiDeps {
+  trustBoundary: import('@wrongstack/core/security').TrustBoundary;
   agent: Agent;
   context: Context;
   container: import('@wrongstack/core').Container;
@@ -313,6 +254,7 @@ export interface AllRoutes {
   projectRoutes: ProjectRouteHandlers;
   modeRoutes: ModeRouteHandlers;
   prefsRoutes: PrefsRouteHandlers;
+  autonomyRoutes: AutonomyRouteHandlers;
   shellGitRoutes: ShellGitRouteHandlers;
   mailboxRoutes: MailboxRouteHandlers;
   mcpRoutes: McpRouteHandlers;
@@ -342,6 +284,11 @@ export function buildRoutes(
     broadcast: (msg) => broadcast(state.getClients(), msg),
     clients: state.getClients(),
     modelsRegistry: deps.modelsRegistry,
+    hasActiveModel: () => Boolean(state.getConfig().model),
+    onProvidersLoaded: (providers) => {
+      state.setConfig(patchConfig(state.getConfig(), { providers }));
+    },
+    applyModelSwitch: applyModelSwitchCore,
   });
 
   // Apply a provider+model switch to the live session: sync config, rebuild the
@@ -373,330 +320,37 @@ export function buildRoutes(
     });
   }
 
+  const modelOperations = createModelOperations({
+    context: deps.context,
+    memoryStore: deps.memoryStore,
+    modelsRegistry: deps.modelsRegistry,
+    getConfig: state.getConfig,
+    getLiveProviderId: () => state.getConfig().provider ?? '',
+    buildProvider: (providerId, providerConfig) =>
+      deps.providerRegistry.has(providerId)
+        ? deps.providerRegistry.create({ ...providerConfig, type: providerId } as never)
+        : makeProviderFromConfig(providerId, providerConfig),
+    applyModelSwitch: applyModelSwitchCore,
+    send,
+    log: (message) => console.warn(message),
+  });
+
   const providerRoutes: ProviderRouteHandlers = {
     providerHandlers,
-    listProviders: async (ws) => {
-      const providers = await deps.modelsRegistry.listProviders();
-      // "Configured" should mean *any* working credential, not just env vars.
-      // Users register keys with `wstack auth`, which writes apiKey/apiKeys
-      // into config.providers[<id>] — those are decrypted in memory here.
-      const savedIds = new Set(Object.keys(state.getConfig().providers ?? {}));
-      send(ws, {
-        type: 'provider.catalog',
-        payload: {
-          providers: providers.map(
-            (p: {
-              id: string;
-              name: string;
-              family: unknown;
-              apiBase?: unknown;
-              envVars: string[];
-              models: readonly unknown[];
-            }) => ({
-              id: p.id,
-              name: p.name,
-              family: p.family,
-              apiBase: p.apiBase,
-              envVars: p.envVars,
-              modelCount: p.models.length,
-              hasApiKey: savedIds.has(p.id) || p.envVars.some((v: string) => !!process.env[v]),
-            }),
-          ),
-        },
-      });
-    },
-    listSavedProviders: async (ws) => {
-      const saved = await providerHandlers.loadConfigProviders();
-      send(ws, {
-        type: 'providers.saved',
-        payload: { providers: projectSavedProviders(saved) },
-      });
-    },
-    listProviderModels: async (ws, msg) => {
-      const providerId = (msg as { payload: { providerId: string } }).payload.providerId;
-      // Merge catalog + saved config so OAuth / subscription providers
-      // (github-copilot, anthropic-oauth, openai-codex, …) that models.dev
-      // doesn't list still resolve to their saved model allowlist. Always
-      // reply (possibly empty) — the switcher lazy-loads every saved provider.
-      const saved = await providerHandlers.loadConfigProviders();
-      const cfg = saved[providerId];
-      const provider = await resolveProviderCatalogForModels(deps.modelsRegistry, providerId, cfg);
-      // Also resolve the sibling catalog (e.g. `openai` for `openai-codex`)
-      // so subscription users see both the curated overlay models AND the
-      // wire-family models from models.dev they may have access to.
-      const siblingId = SIBLING_CATALOG[providerId];
-      const siblingCatalog =
-        siblingId && siblingId !== providerId
-          ? await deps.modelsRegistry.getProvider(siblingId).catch(() => undefined)
-          : undefined;
-      let resolved = resolveProviderModelList(
-        cfg?.models,
-        provider,
-        cfg?.type ?? providerId,
-        siblingCatalog,
-      );
-      // A config-only custom provider with no saved `models` allowlist and no
-      // catalog entry resolves to an EMPTY list → the dropdown shows "no
-      // models". If it exposes an OpenAI-compatible `/v1/models`, probe live so
-      // the user can pick a model. Best-effort: a down server leaves it empty.
-      if (resolved.length === 0 && cfg?.baseUrl) {
-        resolved = await probeModelDescriptors(cfg);
-      }
-      const models = await enrichProviderModelDescriptors(
-        deps.modelsRegistry,
-        providerId,
-        cfg,
-        resolved,
-      );
-      send(ws, {
-        type: 'provider.models',
-        payload: {
-          provider: providerId,
-          models,
-        },
-      });
-    },
-    switchModel: async (ws, msg) => {
-      const parsed = validateModelSwitchPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { provider: newProvider, model: newModel } = parsed.value;
-      try {
-        // Fail loudly if the user picks a provider with no creds rather than
-        // silently keeping the old one. `applyModelSwitchCore` broadcasts the
-        // fresh session.start on success.
-        await applyModelSwitchCore(newProvider, newModel);
-        send(ws, {
-          type: 'key.operation_result',
-          payload: { success: true, message: `Switched to ${newProvider} / ${newModel}` },
-        });
-      } catch (err) {
-        send(ws, {
-          type: 'key.operation_result',
-          payload: {
-            success: false,
-            message: `Switch failed: ${errMessage(err)}`,
-          },
-        });
-      }
-    },
-    adoptDefaultProviderIfUnset: async (providerId: string) => {
-      // In-session counterpart to the boot auto-select: when the session has
-      // no usable model yet, adopt the just-added provider as the live default
-      // so it's immediately usable instead of leaving a blank model. Never
-      // hijacks once a model is active.
-      if (state.getConfig().model) return;
-      // handleProviderAdd wrote to disk, not the in-memory state — reload so
-      // the provider build below sees the new entry's baseUrl/family/keys.
-      const saved = await providerHandlers.loadConfigProviders();
-      state.setConfig(patchConfig(state.getConfig(), { providers: saved }));
-      const cfg = saved[providerId];
-      if (!cfg) return;
-
-      let model = cfg.models?.[0];
-      if (!model) {
-        const catalogId = cfg.type && cfg.type !== providerId ? cfg.type : providerId;
-        const catalog = await deps.modelsRegistry.getProvider(catalogId).catch(() => undefined);
-        model = catalog?.models?.[0]?.id;
-      }
-      if (!model) {
-        const probed = await probeModelDescriptors(cfg);
-        model = probed[0]?.id;
-      }
-      if (!model) return;
-
-      try {
-        await applyModelSwitchCore(providerId, model);
-      } catch {
-        /* best-effort — the model becomes the default on the next session start */
-      }
-    },
-    refineModel: async (ws, msg) => {
-      const payload = (
-        msg as {
-          payload: {
-            text: string;
-            timeoutMs?: number;
-            provider?: string;
-            model?: string;
-            previousRefined?: string;
-            previousEnglish?: string;
-            retryFeedback?: string;
-          };
-        }
-      ).payload;
-      const { text } = payload;
-      if (!text?.trim()) {
-        send(ws, {
-          type: 'model.refine_result',
-          payload: { refined: '', english: '', error: 'Empty text', errorKind: 'provider_error' },
-        });
-        return;
-      }
-      const cfg = state.getConfig();
-      // Resolve the one-key "retry with another model" offer against the live
-      // provider/model so the active model is never offered as its own fallback.
-      const fallbackRef = resolveEnhanceFallbackRef({
-        ...cfg,
-        provider: cfg.provider ?? '',
-        model: cfg.model ?? '',
-      });
-
-      // Explicit client choice wins. Otherwise use the configured dedicated
-      // refiner target, with the live session as the final fallback.
-      let provider = deps.context.provider;
-      let providerId = cfg.provider ?? '';
-      let model = deps.context.model;
-      if (payload.provider && payload.model) {
-        try {
-          const providerCfg: ProviderConfig = cfg.providers?.[payload.provider] ?? {
-            type: payload.provider,
-          };
-          provider = deps.providerRegistry.has(payload.provider)
-            ? deps.providerRegistry.create({ ...providerCfg, type: payload.provider } as never)
-            : makeProviderFromConfig(payload.provider, providerCfg);
-          providerId = payload.provider;
-          model = payload.model;
-        } catch (err) {
-          send(ws, {
-            type: 'model.refine_result',
-            payload: {
-              refined: text,
-              english: text,
-              error: `Cannot use ${payload.provider}/${payload.model}: ${errMessage(err)}`,
-              errorKind: 'provider_error',
-              ...(fallbackRef ? { fallbackRef } : {}),
-            },
-          });
-          return;
-        }
-      } else {
-        const configuredRef = resolveConfiguredRefinerRef({
-          ...cfg,
-          provider: providerId,
-          model,
-        });
-        if (configuredRef) {
-          const slash = configuredRef.indexOf('/');
-          const configuredProvider = slash > 0 ? configuredRef.slice(0, slash) : providerId;
-          const configuredModel = slash > 0 ? configuredRef.slice(slash + 1) : configuredRef;
-          try {
-            const providerCfg: ProviderConfig = cfg.providers?.[configuredProvider] ?? {
-              type: configuredProvider,
-            };
-            provider = deps.providerRegistry.has(configuredProvider)
-              ? deps.providerRegistry.create({ ...providerCfg, type: configuredProvider } as never)
-              : makeProviderFromConfig(configuredProvider, providerCfg);
-            providerId = configuredProvider;
-            model = configuredModel;
-          } catch {
-            // Best effort: retain the live session target when unavailable.
-          }
-        }
-      }
-
-      const baseTimeout = 90000;
-      const timeoutMs =
-        typeof payload.timeoutMs === 'number' && payload.timeoutMs > 0
-          ? payload.timeoutMs
-          : baseTimeout;
-      try {
-        const history = recentTextTurns(deps.context.messages);
-        const contextSections = await buildRefinerContextSections({
-          text,
-          memoryStore: deps.memoryStore,
-          context: deps.context,
-        });
-        // Gate a low-effort reasoning hint to the chosen model's capabilities.
-        // Refinement is a shallow rewrite, so this trims wasted thinking on
-        // reasoning models; resolves to undefined → no reasoning field.
-        const resolved = await resolveProviderModelMetadata(
-          deps.modelsRegistry,
-          providerId,
-          model,
-          cfg.providers?.[providerId],
-        ).catch(() => undefined);
-        const reasoning = gatedEnhancerReasoning(resolved?.capabilities?.reasoningConfig as never);
-        let failureKind: EnhanceFailureKind | undefined;
-        const result = await enhanceUserPrompt({
-          provider,
-          model,
-          text,
-          history,
-          contextSections,
-          ...(payload.previousRefined
-            ? {
-                previousRefinement: {
-                  refined: payload.previousRefined,
-                  english: payload.previousEnglish || payload.previousRefined,
-                },
-              }
-            : {}),
-          ...(payload.retryFeedback ? { retryFeedback: payload.retryFeedback } : {}),
-          timeoutMs,
-          ...(reasoning ? { reasoning } : {}),
-          onError: (reason: unknown, kind?: EnhanceFailureKind) => {
-            failureKind = kind;
-            console.warn(
-              JSON.stringify({
-                level: 'warn',
-                event: 'model.refine_failed',
-                reason,
-                kind,
-                provider: providerId,
-                model,
-                timestamp: new Date().toISOString(),
-              }),
-            );
-          },
-        });
-        if (result) {
-          send(ws, {
-            type: 'model.refine_result',
-            payload: {
-              refined: result.refined,
-              english: result.english,
-              refinedWith: { provider: providerId, model },
-            },
-          });
-        } else {
-          send(ws, {
-            type: 'model.refine_result',
-            payload: {
-              refined: text,
-              english: text,
-              error: 'Refinement returned no result',
-              errorKind: failureKind ?? 'empty',
-              ...(failureKind === 'timeout'
-                ? { retryTimeoutMs: nextEnhanceTimeout(timeoutMs, cfg.autonomy) }
-                : {}),
-              ...(fallbackRef ? { fallbackRef } : {}),
-            },
-          });
-        }
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'model.refine.error',
-            error: errMessage(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-        send(ws, {
-          type: 'model.refine_result',
-          payload: {
-            refined: text,
-            english: text,
-            error: errMessage(err),
-            errorKind: 'provider_error',
-            ...(fallbackRef ? { fallbackRef } : {}),
-          },
-        });
-      }
-    },
+    listProviders: (ws) => providerHandlers.handleProvidersList(ws),
+    listSavedProviders: (ws) => providerHandlers.handleProvidersSaved(ws),
+    listProviderModels: (ws, msg) =>
+      providerHandlers.handleProviderModels(
+        ws,
+        (msg as { payload: { providerId: string } }).payload.providerId,
+      ),
+    switchModel: (ws, msg) => modelOperations.switchModel(ws, msg.payload),
+    adoptDefaultProviderIfUnset: providerHandlers.adoptDefaultProviderIfUnset,
+    refineModel: (ws, msg) =>
+      modelOperations.refineModel(
+        ws,
+        msg.payload as import('./model-operations.js').ModelRefinePayload,
+      ),
   };
 
   const sessionRoutes: SessionRouteHandlers = createSessionHandlers({
@@ -722,14 +376,9 @@ export function buildRoutes(
     wpaths: deps.wpaths as never,
     clients: state.getClients(),
     context: deps.context,
-    modeStore: deps.modeStore,
-    memoryStore: deps.memoryStore,
-    skillLoader: deps.skillLoader,
-    modelCapabilities: (() => state.getModelCapabilities()) as never,
-    toolRegistry: deps.toolRegistry,
     tokenCounter: deps.tokenCounter,
     config: state.getConfig(),
-    getModeId: state.getModeId,
+    getConfig: state.getConfig,
     getProjectRoot: state.getProjectRoot,
     getSession: state.getSession,
     setProjectRoot: state.setProjectRoot,
@@ -756,41 +405,17 @@ export function buildRoutes(
     sessionStartPayload: cb.sessionStartPayload,
   });
 
-  const prefsRoutes: PrefsRouteHandlers = {
-    getPrefs: async (ws) => {
-      // Return the current pref snapshot so a freshly-connected client
-      // can seed its local-prefs store from the server's truth.
-      send(ws, { type: 'prefs.updated', payload: cb.prefSnapshot() });
-    },
-    updatePrefs: async (ws, msgPayload) => {
-      // Batch preference update from the webui. Merges arbitrary key/value
-      // pairs into context.meta so the runtime can read them immediately,
-      // broadcasts the full pref snapshot to every connected client so all
-      // browser tabs stay in sync, and persists the durable keys to
-      // config.json (same keys the TUI settings picker writes).
-      const parsed = validatePrefsUpdatePayload(msgPayload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const payload = parsed.value.prefs;
-      // Write each pref into context.meta
-      for (const [key, val] of Object.entries(payload)) {
-        deps.context.meta[key] = val;
-      }
-      void cb.persistPrefsToConfig(payload);
-      // YOLO mode: toggle the permission policy so tool confirmations
-      // are auto-approved instead of prompting the user. Uses the live
-      // reference resolved from the container at startup.
-      if (typeof payload['yolo'] === 'boolean') {
-        (deps.permissionPolicy as { setYolo?: (v: boolean) => void }).setYolo?.(payload['yolo']);
-        if (payload['yolo'] === true) resolveYoloEligiblePendingConfirms(deps.pendingConfirms);
-      }
-      // Also update config.features for feature flags that affect tool/skill
-      // initialisation (these were read at startup but can be changed at runtime
-      // by the agent's permission middleware or tool guards).
-      const cfg = state.getConfig();
-      const features = (cfg.features ?? {}) as unknown as Record<string, unknown>;
+  const prefsContext: PrefsHandlerContext = {
+    meta: deps.context.meta,
+    snapshot: cb.prefSnapshot,
+    persist: cb.persistPrefsToConfig,
+    pendingConfirms: deps.pendingConfirms,
+    configStore: deps.configStore,
+    setYolo: (enabled) =>
+      (deps.permissionPolicy as { setYolo?: (value: boolean) => void }).setYolo?.(enabled),
+    applyConfigPrefs: (payload) => {
+      const config = state.getConfig();
+      const features = (config.features ?? {}) as unknown as Record<string, unknown>;
       if (typeof payload['featureMcp'] === 'boolean') features['mcp'] = payload['featureMcp'];
       if (typeof payload['featurePlugins'] === 'boolean')
         features['plugins'] = payload['featurePlugins'];
@@ -800,25 +425,22 @@ export function buildRoutes(
         features['skills'] = payload['featureSkills'];
       if (typeof payload['featureModelsRegistry'] === 'boolean')
         features['modelsRegistry'] = payload['featureModelsRegistry'];
-      cfg.features = features as never;
-
-      // Global fallback chain: mutate the live config so the leader's fallback
-      // extension (which reads config each turn) honours it without a restart.
+      config.features = features as never;
       if (Array.isArray(payload['fallbackModels']))
-        cfg.fallbackModels = payload['fallbackModels'] as string[];
+        config.fallbackModels = payload['fallbackModels'] as string[];
       if (
         payload['fallbackProfiles'] &&
         typeof payload['fallbackProfiles'] === 'object' &&
         !Array.isArray(payload['fallbackProfiles'])
       ) {
-        cfg.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
+        config.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
       }
       if (Array.isArray(payload['favoriteModels']))
-        cfg.favoriteModels = payload['favoriteModels'] as string[];
+        config.favoriteModels = payload['favoriteModels'] as string[];
       if (typeof payload['favoriteModelsOnly'] === 'boolean')
-        cfg.favoriteModelsOnly = payload['favoriteModelsOnly'];
+        config.favoriteModelsOnly = payload['favoriteModelsOnly'];
       if (Array.isArray(payload['modelAvailabilitySchedule']))
-        cfg.modelAvailabilitySchedule = payload[
+        config.modelAvailabilitySchedule = payload[
           'modelAvailabilitySchedule'
         ] as import('@wrongstack/core').ModelBlackoutRule[];
       if (
@@ -826,101 +448,28 @@ export function buildRoutes(
         typeof payload['modelMatrix'] === 'object' &&
         !Array.isArray(payload['modelMatrix'])
       ) {
-        cfg.modelMatrix = payload['modelMatrix'] as NonNullable<typeof cfg.modelMatrix>;
+        config.modelMatrix = payload['modelMatrix'] as NonNullable<typeof config.modelMatrix>;
       }
-      if (typeof payload['fallbackAuto'] === 'boolean') cfg.fallbackAuto = payload['fallbackAuto'];
-
-      // Push routing changes into ConfigStore so running workers and the
-      // fallback extension pick them up without a restart.
-      const routingPatch: Record<string, unknown> = {};
-      if (Array.isArray(payload['fallbackModels']))
-        routingPatch.fallbackModels = payload['fallbackModels'];
-      if (
-        payload['fallbackProfiles'] &&
-        typeof payload['fallbackProfiles'] === 'object' &&
-        !Array.isArray(payload['fallbackProfiles'])
-      )
-        routingPatch.fallbackProfiles = payload['fallbackProfiles'];
-      if (Array.isArray(payload['favoriteModels']))
-        routingPatch.favoriteModels = payload['favoriteModels'];
-      if (typeof payload['favoriteModelsOnly'] === 'boolean')
-        routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
-      if (Array.isArray(payload['modelAvailabilitySchedule']))
-        routingPatch.modelAvailabilitySchedule = payload['modelAvailabilitySchedule'];
-      if (
-        payload['modelMatrix'] &&
-        typeof payload['modelMatrix'] === 'object' &&
-        !Array.isArray(payload['modelMatrix'])
-      )
-        routingPatch.modelMatrix = payload['modelMatrix'];
       if (typeof payload['fallbackAuto'] === 'boolean')
-        routingPatch.fallbackAuto = payload['fallbackAuto'];
-      if (Object.keys(routingPatch).length > 0)
-        deps.configStore.update(routingPatch as Parameters<typeof deps.configStore.update>[0]);
-
-      // Runtime effects: apply prefs that change server behaviour immediately.
-
-      // contextAutoCompact — toggle AutoCompactionMiddleware in/out of the
-      // contextWindow pipeline. When off, the pipeline skips the compaction
-      // step entirely (zero overhead). When on, re-adds the middleware.
-      if (typeof payload['contextAutoCompact'] === 'boolean') {
-        if (payload['contextAutoCompact'] && deps.autoCompactor) {
-          // Re-add: remove first (idempotent via optional), then insert.
-          deps.pipelines.contextWindow.remove('AutoCompaction', { optional: true });
-          deps.pipelines.contextWindow.use({
-            name: 'AutoCompaction',
-            handler: deps.autoCompactor.handler(),
-          });
-        } else {
-          deps.pipelines.contextWindow.remove('AutoCompaction', { optional: true });
-        }
-      }
-
-      // Process circuit breaker — flip the runtime singleton so the toggle
-      // takes effect on the next bash/exec without a restart (same pattern
-      // as /settings breaker in the CLI).
-      if (
-        typeof payload['breakerEnabled'] === 'boolean' ||
-        typeof payload['breakerAutoKillResetMs'] === 'number'
-      ) {
-        const { getProcessRegistry } = await import('@wrongstack/tools');
-        getProcessRegistry().setBreakerConfig({
-          ...(typeof payload['breakerEnabled'] === 'boolean'
-            ? { enabled: payload['breakerEnabled'] }
-            : {}),
-          ...(typeof payload['breakerAutoKillResetMs'] === 'number'
-            ? { autoKillResetMs: payload['breakerAutoKillResetMs'] }
-            : {}),
+        config.fallbackAuto = payload['fallbackAuto'];
+    },
+    setAutoCompact: (enabled) => {
+      deps.pipelines.contextWindow.remove('AutoCompaction', { optional: true });
+      if (enabled && deps.autoCompactor) {
+        deps.pipelines.contextWindow.use({
+          name: 'AutoCompaction',
+          handler: deps.autoCompactor.handler(),
         });
       }
-
-      // debugStream — WireAdapter checks the runtime singleton on every
-      // stream() call, so the toggle applies to the next request.
-      if (typeof payload['debugStream'] === 'boolean') {
-        const { setDebugStreamEnabled } = await import('@wrongstack/providers');
-        setDebugStreamEnabled(payload['debugStream']);
-      }
-
-      // fsAccess is persist-only — file-tool scoping is wired at session
-      // boot, so a change applies on the next session (hinted in the UI).
-
-      // logLevel — the DefaultLogger.level property is a public mutable
-      // field. Setting it at runtime changes the log threshold immediately
-      // (the log() method checks LEVEL_RANK on every call).
-      if (typeof payload['logLevel'] === 'string') {
-        const valid = ['debug', 'info', 'warn', 'error'] as const;
-        if ((valid as readonly string[]).includes(payload['logLevel'])) {
-          (deps.logger as { level: string }).level = payload['logLevel'] as (typeof valid)[number];
-        }
-      }
-
-      // auditLevel — stored in context.meta by the generic loop above.
-      // Consumed by the session audit log system at session-close time.
-
-      // Broadcast the full current prefs snapshot to ALL clients.
-      broadcast(state.getClients(), { type: 'prefs.updated', payload: cb.prefSnapshot() });
     },
+    setLogLevel: (level) => {
+      (deps.logger as { level: string }).level = level;
+    },
+    send,
+    broadcast: (message) => broadcast(state.getClients(), message),
   };
+  const prefsRoutes = createPrefsRouteHandlers(prefsContext);
+  const autonomyRoutes = createAutonomyRouteHandlers(prefsContext);
 
   const shellGitRoutes: ShellGitRouteHandlers = {
     gitInfo: async (ws) => {
@@ -943,64 +492,40 @@ export function buildRoutes(
         sendResult(ws, false, parsed.message);
         return;
       }
+      const authorization = await authorizeWebUIAction(
+        deps.trustBoundary,
+        {
+          capability:
+            parsed.value.target === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
+          subject: {
+            kind: 'path',
+            id: parsed.value.path,
+            attributes: { target: parsed.value.target ?? 'file' },
+          },
+          risk: 'elevated',
+          cwd: state.getProjectRoot(),
+          metadata: { transport: 'websocket' },
+        },
+        deps.logger,
+      );
+      if (!authorization.allowed) {
+        sendResult(ws, false, `Shell action denied: ${authorization.reason}`);
+        return;
+      }
       const result: ShellOpenResult = await handleShellOpen(
         parsed.value as ShellOpenRequest,
         deps.logger,
+        { projectRoot: state.getProjectRoot() },
       );
       sendResult(ws, result.success, result.message);
     },
   };
 
-  const mailboxRoutes: MailboxRouteHandlers = {
-    messages: (ws, msg) => {
-      const parsed = validateMailboxMessagesPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxMessages(
-        ws,
-        { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
-        parsed.value,
-      );
-    },
-    agents: (ws, msg) => {
-      const parsed = validateMailboxAgentsPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxAgents(
-        ws,
-        { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
-        parsed.value,
-      );
-    },
-    clear: (ws) =>
-      handleMailboxClear(ws, {
-        projectRoot: state.getProjectRoot(),
-        globalRoot: path.dirname(deps.globalConfigPath),
-      }),
-    purge: (ws, msg) => {
-      const parsed = validateMailboxPurgePayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      return handleMailboxPurge(
-        ws,
-        { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
-        parsed.value,
-      );
-    },
-    compact: (ws, msg) => {
-      return handleMailboxCompact(
-        ws,
-        { projectRoot: state.getProjectRoot(), globalRoot: path.dirname(deps.globalConfigPath) },
-        (msg.payload as { readMaxAgeMs?: number; defaultTtlMs?: number }) ?? {},
-      );
-    },
-  };
+  const mailboxRoutes = createMailboxRouteHandlers({
+    getProjectRoot: state.getProjectRoot,
+    getGlobalRoot: () => path.dirname(deps.globalConfigPath),
+    events: deps.events,
+  });
 
   // ---- MCP route (handleMcpRoute) ----
   // Issue #31 follow-on (after #118 PR 0 baseline, #119 prefs extraction).
@@ -1027,96 +552,30 @@ export function buildRoutes(
     promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
   };
 
-  const sendBrainStatus = (ws: WebSocket): void => {
-    const snapshot = deps.brainRuntime.getSnapshot();
-    send(ws, {
-      type: 'brain.status',
-      payload: {
-        maxAutoRisk: deps.brainSettings.maxAutoRisk,
-        log: deps.brainLog,
-        mode: snapshot.mode,
-        poolLabels: snapshot.poolLabels,
-        councilLabels: snapshot.councilLabels,
-        ledgerPath: snapshot.ledger.path,
-      },
-    });
+  const brainContext: BrainHandlerContext = {
+    send,
+    brainSettings: deps.brainSettings,
+    brainRuntime: deps.brainRuntime,
+    getBrainLog: () => deps.brainLog,
+    resolveArbiter: () => deps.brain,
+    getSessionId: () => deps.context.session?.id,
   };
-
   const brainRoutes: BrainRouteHandlers = {
-    status: (ws) => {
-      sendBrainStatus(ws);
-    },
-    risk: (ws, msg) => {
-      const parsed = validateBrainRiskPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { level } = parsed.value;
-      deps.brainSettings.maxAutoRisk = level as BrainAutoRisk;
-      sendBrainStatus(ws);
-    },
-    configGet: (ws) => {
-      send(ws, {
-        type: 'brain.config',
-        payload: { config: deps.brainRuntime.getSnapshot(), persisted: true },
-      });
-    },
-    configSet: async (ws, msg) => {
-      const parsed = validateBrainConfigSetPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      try {
-        // BrainRuntime.apply is the field-level validator: unknown fields /
-        // bad values throw BEFORE any live state changes.
-        const { persisted } = deps.brainRuntime.apply(parsed.value.patch as BrainConfigPatch);
-        const result = await persisted;
-        send(ws, {
-          type: 'brain.config',
-          payload: {
-            config: deps.brainRuntime.getSnapshot(),
-            persisted: result.ok,
-            ...(result.ok ? {} : { error: result.error ?? 'Persist failed.' }),
-          },
-        });
-        sendBrainStatus(ws);
-      } catch (err) {
-        send(ws, {
-          type: 'brain.config',
-          payload: {
-            config: deps.brainRuntime.getSnapshot(),
-            persisted: false,
-            error: `Invalid Brain setting: ${errMessage(err)}`,
-          },
-        });
-      }
-    },
-    ask: async (ws, msg) => {
-      const parsed = validateBrainAskPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { question } = parsed.value;
-      try {
-        const decision = await deps.brain.decide({
-          id: `brain-ask-${Date.now().toString(36)}`,
-          sessionId: deps.context.session?.id,
-          source: 'user',
-          question,
-          risk: 'medium',
-          fallback: 'ask_human',
-        });
-        send(ws, {
-          type: 'brain.answer',
-          payload: { sessionId: deps.context.session?.id, question, decision },
-        });
-      } catch (err) {
-        sendResult(ws, false, `Brain consultation failed: ${errMessage(err)}`);
-      }
-    },
+    status: (ws) => handleBrainStatus(brainContext, ws),
+    risk: (ws, msg) =>
+      handleBrainRisk(
+        brainContext,
+        ws,
+        (msg.payload as { level?: string } | undefined)?.level ?? '',
+      ),
+    ask: (ws, msg) =>
+      handleBrainAsk(
+        brainContext,
+        ws,
+        (msg.payload as { question?: string } | undefined)?.question,
+      ),
+    configGet: (ws) => handleBrainConfigGet(brainContext, ws),
+    configSet: (ws, msg) => handleBrainConfigSet(brainContext, ws, msg.payload),
   };
 
   const goalRoutes: GoalRouteHandlers = {
@@ -1141,6 +600,7 @@ export function buildRoutes(
     projectRoutes,
     modeRoutes,
     prefsRoutes,
+    autonomyRoutes,
     shellGitRoutes,
     mailboxRoutes,
     mcpRoutes,

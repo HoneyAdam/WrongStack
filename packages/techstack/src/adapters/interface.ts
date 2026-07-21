@@ -17,6 +17,7 @@ import type {
 
 export {
   fileExists,
+  fileExistsAsync,
   lockfileEvidence,
   manifestEvidence,
   resolveIn,

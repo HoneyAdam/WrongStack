@@ -9,9 +9,13 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { SessionRegistry, getSessionRegistry, hasSessionRegistry } from '../src/session-registry.js';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AgentEntry } from '../src/session-registry.js';
+import {
+  getSessionRegistry,
+  hasSessionRegistry,
+  SessionRegistry,
+} from '../src/session-registry.js';
 
 let tempRoot: string;
 
@@ -70,6 +74,22 @@ async function deadPid(): Promise<number> {
 }
 
 describe('cross-process session discovery', () => {
+  it('throttles heartbeat temp-file directory scans', async () => {
+    const root = await freshRoot();
+    const registry = new SessionRegistry(root);
+    const internal = registry as unknown as {
+      maybePruneStaleTempFiles(): Promise<void>;
+      pruneStaleTempFiles(): Promise<void>;
+    };
+    const prune = vi.fn(async () => undefined);
+    internal.pruneStaleTempFiles = prune;
+
+    await internal.maybePruneStaleTempFiles();
+    await internal.maybePruneStaleTempFiles();
+
+    expect(prune).toHaveBeenCalledTimes(1);
+  });
+
   it('a single process can register and discover itself', async () => {
     const root = await freshRoot();
     const registry = new SessionRegistry(root);

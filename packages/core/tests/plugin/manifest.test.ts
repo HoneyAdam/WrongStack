@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DefaultLogger } from '../../src/infrastructure/logger.js';
 import { loadPlugins } from '../../src/plugin/loader.js';
 import type { Plugin, PluginAPI } from '../../src/types/plugin.js';
@@ -84,6 +84,44 @@ describe('Plugin manifest — structured dependencies', () => {
 });
 
 describe('Plugin manifest — configSchema validation', () => {
+  it('passes one canonically resolved default-plus-user option bag to the API factory', async () => {
+    let received: Readonly<Record<string, unknown>> | undefined;
+    const pluginOptions = { configured: { port: 9000 } };
+    const { loaded } = await loadPlugins(
+      [p({ name: 'configured', defaultConfig: { port: 8000, host: 'localhost' } })],
+      {
+        apiFactory: (_plugin, options) => {
+          received = options;
+          return fakeApi;
+        },
+        log,
+        pluginOptions,
+      },
+    );
+
+    expect(loaded).toHaveLength(1);
+    expect(received).toEqual({ port: 9000, host: 'localhost' });
+    expect(pluginOptions.configured).toEqual(received);
+  });
+
+  it('rejects opted-in config metadata that omits a schema field', async () => {
+    const setup = vi.fn();
+    const { failed } = await loadPlugins(
+      [
+        p({
+          name: 'metadata-gap',
+          configSchema: { properties: { token: { type: 'string' } } },
+          configFields: {},
+          setup,
+        }),
+      ],
+      { apiFactory: () => fakeApi, log },
+    );
+
+    expect(failed[0]?.err).toMatchObject({ message: expect.stringContaining('metadata invalid') });
+    expect(setup).not.toHaveBeenCalled();
+  });
+
   it('validates plugin options before calling setup', async () => {
     let setupCalled = false;
     const { failed, loaded } = await loadPlugins(

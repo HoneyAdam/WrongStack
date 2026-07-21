@@ -36,8 +36,7 @@
  * @public
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
@@ -141,11 +140,14 @@ function hashContent(s: string): number {
   return h >>> 0;
 }
 
-function captureFile(path: string, maxBytes: number): Snapshot['files'][number] | 'too-large' {
+async function captureFile(
+  path: string,
+  maxBytes: number,
+): Promise<Snapshot['files'][number] | 'too-large'> {
   try {
-    const st = statSync(path);
+    const st = await stat(path);
     if (st.size > maxBytes) return 'too-large';
-    const content = readFileSync(path, 'utf-8');
+    const content = await readFile(path, 'utf-8');
     return { path, content, bytes: st.size };
   } catch {
     // File does not exist yet — record that so restore knows the file
@@ -322,7 +324,7 @@ const plugin: Plugin = {
             rejectedOutsideProject.push(p);
             continue;
           }
-          const captured = captureFile(safePath, cfg.maxFileBytes);
+          const captured = await captureFile(safePath, cfg.maxFileBytes);
           if (captured === 'too-large') {
             skipped += 1;
             state.skippedLarge += 1;
@@ -447,8 +449,8 @@ const plugin: Plugin = {
             continue;
           }
           try {
-            mkdirSync(dirname(f.path), { recursive: true });
-            writeFileSync(f.path, f.content);
+            await mkdir(dirname(f.path), { recursive: true });
+            await writeFile(f.path, f.content);
             restored.push(f.path);
           } catch (err) {
             errors.push({ path: f.path, error: err instanceof Error ? err.message : String(err) });

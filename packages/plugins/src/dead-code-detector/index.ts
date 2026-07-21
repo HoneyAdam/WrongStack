@@ -27,7 +27,7 @@
  * @public
  */
 
-import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 import { withinProject } from '../runtime/index.js';
@@ -123,14 +123,18 @@ interface ScannedFile {
  * Determinism: sorts directory entries before traversal so scan results are
  * reproducible across platforms and file systems.
  */
-function gatherFiles(root: string, depth: number, cfg: DeadCodeDetectorConfig): string[] {
+async function gatherFiles(
+  root: string,
+  depth: number,
+  cfg: DeadCodeDetectorConfig,
+): Promise<string[]> {
   const files: string[] = [];
   const excludeSet = new Set(cfg.excludeDirs); // O(1) lookup
 
-  function walk(dir: string, remaining: number) {
-    let entries: Dirent[];
+  async function walk(dir: string, remaining: number): Promise<void> {
+    let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -140,7 +144,7 @@ function gatherFiles(root: string, depth: number, cfg: DeadCodeDetectorConfig): 
     for (const entry of entries) {
       if (entry.isDirectory()) {
         if (remaining > 0 && !excludeSet.has(entry.name)) {
-          walk(join(dir, entry.name), remaining - 1);
+          await walk(join(dir, entry.name), remaining - 1);
         }
       } else if (entry.isFile()) {
         const ext = extname(entry.name).toLowerCase();
@@ -151,7 +155,7 @@ function gatherFiles(root: string, depth: number, cfg: DeadCodeDetectorConfig): 
     }
   }
 
-  walk(resolve(root), depth);
+  await walk(resolve(root), depth);
   return files;
 }
 
@@ -269,12 +273,12 @@ interface ScanResult {
   scannedFiles: number;
 }
 
-function scan(root: string, depth: number, cfg: DeadCodeDetectorConfig): ScanResult {
-  const filePaths = gatherFiles(root, depth, cfg);
+async function scan(root: string, depth: number, cfg: DeadCodeDetectorConfig): Promise<ScanResult> {
+  const filePaths = await gatherFiles(root, depth, cfg);
   const files: ScannedFile[] = [];
   for (const p of filePaths) {
     try {
-      const content = readFileSync(p, 'utf-8');
+      const content = await readFile(p, 'utf-8');
       files.push({ path: p, content, stripped: stripNoise(content) });
     } catch {
       // Skip unreadable files.
@@ -289,10 +293,10 @@ function scan(root: string, depth: number, cfg: DeadCodeDetectorConfig): ScanRes
 
 // withinProject() imported from ../runtime/index.js
 
-function resolveScanRoot(rawPath: string): string {
+async function resolveScanRoot(rawPath: string): Promise<string> {
   const resolved = resolve(process.cwd(), rawPath);
   try {
-    const stats = statSync(resolved);
+    const stats = await stat(resolved);
     if (!stats.isDirectory()) {
       return resolve(resolved, '..');
     }
@@ -371,13 +375,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['dead-code-detector']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
 
       // Skip if the mutating tool itself errored.
@@ -395,10 +399,10 @@ const plugin: Plugin = {
 
       state.hookInvocationCount += 1;
 
-      const scanRoot = resolveScanRoot(sourcePath);
+      const scanRoot = await resolveScanRoot(sourcePath);
       let result: ScanResult;
       try {
-        result = scan(scanRoot, 1, cfg);
+        result = await scan(scanRoot, 1, cfg);
       } catch {
         state.errorCount += 1;
         return;
@@ -467,10 +471,10 @@ const plugin: Plugin = {
 
         state.scanCount += 1;
 
-        const scanRoot = resolveScanRoot(rawPath);
+        const scanRoot = await resolveScanRoot(rawPath);
         let result: ScanResult;
         try {
-          result = scan(scanRoot, depth, cfg);
+          result = await scan(scanRoot, depth, cfg);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

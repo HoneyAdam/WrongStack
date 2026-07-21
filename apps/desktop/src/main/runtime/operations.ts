@@ -12,8 +12,8 @@ export interface RuntimeOperationsContext {
   getAgentBridge(): IAgentBridge;
   broadcastState(): void;
   syncActiveWebuiView(): void;
-  configureApplicationMenu(): void;
   dispatchWebuiCommand(command: DesktopWebuiCommand): Promise<boolean>;
+  chooseProjectRoot(kind: 'open' | 'register'): Promise<string | undefined>;
 }
 
 /**
@@ -25,13 +25,7 @@ export async function openProject(
 ): Promise<ReturnType<IRuntimeManager['snapshot']>> {
   let projectRoot = requestedRoot;
   if (!projectRoot) {
-    const result = await import('electron').then(({ dialog }) =>
-      dialog.showOpenDialog({
-        title: 'Open Project Folder',
-        properties: ['openDirectory'],
-      }),
-    );
-    projectRoot = result.filePaths[0];
+    projectRoot = await ctx.chooseProjectRoot('open');
   }
   if (!projectRoot) return ctx.getRuntimeManager().snapshot();
 
@@ -50,13 +44,7 @@ export async function registerProject(
 ): Promise<ReturnType<IRuntimeManager['snapshot']>> {
   let projectRoot = requestedRoot;
   if (!projectRoot) {
-    const result = await import('electron').then(({ dialog }) =>
-      dialog.showOpenDialog({
-        title: 'Register Project Folder',
-        properties: ['openDirectory'],
-      }),
-    );
-    projectRoot = result.filePaths[0];
+    projectRoot = await ctx.chooseProjectRoot('register');
   }
   if (!projectRoot) return ctx.getRuntimeManager().snapshot();
 

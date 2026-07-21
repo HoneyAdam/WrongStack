@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../../../..');
 const webui = path.join(repoRoot, 'packages/webui');
+const webuiServer = path.join(repoRoot, 'packages/webui-server');
 const cli = path.join(repoRoot, 'packages/cli');
 
 /** Recursively collect *.ts/*.tsx files under a dir. */
@@ -51,6 +52,7 @@ function read(files: string[]): string {
 function serverSendTypes(): Set<string> {
   const sources = read([
     ...srcFiles(path.join(webui, 'src/server')),
+    ...srcFiles(path.join(webuiServer, 'src/server')),
     path.join(cli, 'src/webui-server.ts'),
     ...srcFiles(path.join(cli, 'src/webui-server')),
   ]);
@@ -105,6 +107,11 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   // Eternal-autonomy iteration stream — observability only; the loop is started
   // from REPL/TUI/--eternal, not a WebUI action, and has no live consumer yet.
   'eternal.iteration',
+  // Terminal error frame — sent fire-and-forget when a pty-spawn or pty-write
+  // rejects. The terminal panel already shows pty output/exit on success paths;
+  // this diagnostic frame is a best-effort surface for edge-case failures that
+  // don't have a dedicated UI handler yet.
+  'terminal.error',
   // Goal granular events — the client mirrors the full canonical state via
   // `goal.state` (handled), so these per-event signals are redundant.
   'goal.error',
@@ -124,6 +131,12 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   // `prompts.list` payload locally and never issues `prompts.search`, so this
   // response has no browser consumer (it exists for other pickers).
   'prompts.search',
+  // Skill-authoring/install acknowledgements are consumed by non-Website
+  // clients. The Website refreshes `skills.list` after mutations and does not
+  // register handlers for these one-shot acknowledgement frames.
+  'skills.created',
+  'skills.exported',
+  'skills.installed',
   // Redundant design-state echo. The gallery mirrors activeKit/stack/overrides
   // from the `design.list` payload (handled) and never issues `design.state`.
   'design.state',

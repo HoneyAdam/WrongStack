@@ -94,7 +94,7 @@ describe('TechStackDetector - additional coverage', () => {
 
   it('detects Ruby project', async () => {
     const dir = await createProject({
-      'Gemfile': 'source "https://rubygems.org"',
+      Gemfile: 'source "https://rubygems.org"',
       'Gemfile.lock': '',
     });
     const result = await detector.detect(dir);
@@ -104,11 +104,11 @@ describe('TechStackDetector - additional coverage', () => {
   it('detects Docker project', async () => {
     // Docker is not in STACK_SIGNATURES - verify the detector doesn't detect it
     const dir = await createProject({
-      'Dockerfile': 'FROM node:20',
+      Dockerfile: 'FROM node:20',
     });
     const result = await detector.detect(dir);
     // No docker signature exists in STACK_SIGNATURES
-    expect(result.detectedStacks.some((s) => s.stack === 'docker')).toBe(false);
+    expect(result.detectedStacks).toHaveLength(0);
   });
 
   it('detects Terraform project', async () => {
@@ -117,7 +117,7 @@ describe('TechStackDetector - additional coverage', () => {
       'main.tf': 'resource "local_file" "test" {}',
     });
     const result = await detector.detect(dir);
-    expect(result.detectedStacks.some((s) => s.stack === 'terraform')).toBe(false);
+    expect(result.detectedStacks).toHaveLength(0);
   });
 
   it('detects Kubernetes project', async () => {
@@ -126,7 +126,7 @@ describe('TechStackDetector - additional coverage', () => {
       'deployment.yaml': 'apiVersion: apps/v1',
     });
     const result = await detector.detect(dir);
-    expect(result.detectedStacks.some((s) => s.stack === 'kubernetes')).toBe(false);
+    expect(result.detectedStacks).toHaveLength(0);
   });
 
   // ============================================================================
@@ -172,7 +172,9 @@ describe('TechStackDetector - additional coverage', () => {
       'poetry.lock': '',
     });
     const result = await detector.detect(dir);
-    expect(result.detectedStacks.some((s) => s.stack === 'python' && s.packageManager === 'poetry')).toBe(true);
+    expect(
+      result.detectedStacks.some((s) => s.stack === 'python' && s.packageManager === 'poetry'),
+    ).toBe(true);
   });
 
   it('detects pip project with requirements.txt', async () => {
@@ -238,7 +240,7 @@ describe('TechStackDetector - additional coverage', () => {
     const result = await detector.detect(dir);
     expect(result.isMonorepo).toBe(true);
     expect(result.workspaceConfigs).toBeDefined();
-    expect(result.workspaceConfigs.length).toBeGreaterThanOrEqual(1);
+    expect(result.workspaceConfigs!.length).toBeGreaterThanOrEqual(1);
   });
 
   // ============================================================================

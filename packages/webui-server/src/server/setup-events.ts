@@ -13,22 +13,14 @@ import { getBoard, getKanbanDir, recordTaskFileActivity } from '@wrongstack/kanb
 import type { WebSocket } from 'ws';
 import { extractCodeMapFileTargets, normalizeCodeMapFileTarget } from './codemap-telemetry.js';
 import type { PendingConfirm } from './pending-confirms.js';
+import type { SetupEventProjection } from './setup-event-projection.js';
+import {
+  type FileWatcherMetrics,
+  shouldLogWatcherStats,
+  statusProjectHashFromWatchFilename,
+} from './setup-events-watcher.js';
 import type { ConnectedClient, WSServerMessage } from './types.js';
-
-/** Metrics for the file watcher that watches status.json files. */
-export interface FileWatcherMetrics {
-  /** Number of status.json filesystem events detected after filename filtering. */
-  fileChangesDetected: number;
-  filesProcessed: number;
-  broadcastsSent: number;
-  debounceResets: number;
-  totalDebounceDelayMs: number;
-  activeProjects: number;
-  /** Average debounce delay in ms across all broadcasts. */
-  averageDebounceDelayMs: number;
-  /** Whether the file watcher is currently active. */
-  watcherActive: boolean;
-}
+export type { FileWatcherMetrics } from './setup-events-watcher.js';
 
 export interface SetupEventsDeps {
   events: EventBus;
@@ -48,11 +40,7 @@ export interface SetupEventsDeps {
   sessionBridge?: SessionEventBridge | undefined;
   /** Optional wpaths for writing status.json file. */
   wpaths?: WstackPaths | undefined;
-  /**
-   * Optional object to populate with file watcher metrics.
-   * When provided, the setupEvents function will populate this object
-   * with real-time metrics from the file watcher.
-   */
+  /** Optional live file-watcher metrics sink. */
   watcherMetrics?: FileWatcherMetrics | undefined;
   /**
    * Receives the internal `broadcastSessions` fn so the HTTP layer can trigger
@@ -60,24 +48,11 @@ export interface SetupEventsDeps {
    * from a TUI/REPL), instead of waiting on the registry file-watch/poll.
    */
   onFleetBroadcaster?: ((fn: () => Promise<void>) => void) | undefined;
+  /** Optional high-volume/sensitive event adapter used by embedded hosts. */
+  projection?: SetupEventProjection | undefined;
 }
 
-export function statusProjectHashFromWatchFilename(
-  projectsDir: string,
-  filename: string | Buffer,
-): string | null {
-  const raw = String(filename);
-  const relative = path.isAbsolute(raw) ? path.relative(projectsDir, raw) : raw;
-  const parts = relative.split(/[\\/]+/).filter(Boolean);
-  if (parts.length < 2) return null;
-  if (parts[parts.length - 1] !== 'status.json') return null;
-  return parts[parts.length - 2] ?? null;
-}
-
-function shouldLogWatcherStats(): boolean {
-  const value = process.env['WRONGSTACK_WEBUI_WATCHER_STATS']?.trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
-}
+export { statusProjectHashFromWatchFilename } from './setup-events-watcher.js';
 
 /**
  * Wire kernel events to WS broadcasts and (when wpaths/globalConfigPath are
@@ -103,15 +78,15 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     wpaths,
     watcherMetrics,
     onFleetBroadcaster,
+    projection,
   } = deps;
+  const scrub = <T>(value: T): T => (projection?.scrubObject?.(value) ?? value) as T;
   const disposers: Array<() => void> = [];
   let disposed = false;
   const on = <E extends EventName>(event: E, listener: Listener<E>): void => {
     disposers.push(events.on(event, listener));
   };
-  // Standalone embedders may provide a partial Context when they do not use
-  // live todo state. Keep that optional surface from blocking all event
-  // wiring, while subscribing normally for a full core Context.
+  // Partial standalone contexts may omit live todo state.
   const conversationState = (context as { state?: Context['state'] }).state;
   if (typeof conversationState?.onChange === 'function') {
     disposers.push(
@@ -230,6 +205,11 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('provider.text_delta', (e) => {
+    if (projection?.queueTextDelta) {
+      projection.flushThinkingDelta?.();
+      projection.queueTextDelta(e.text, e.sessionId);
+      return;
+    }
     broadcast(clients, {
       type: 'provider.text_delta',
       payload: sessionPayload({ sessionId: e.sessionId, text: e.text, messageId: 'current' }),
@@ -237,6 +217,10 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('provider.thinking_delta', (e) => {
+    if (projection?.queueThinkingDelta) {
+      projection.queueThinkingDelta(e.text, e.sessionId);
+      return;
+    }
     broadcast(clients, {
       type: 'provider.thinking_delta',
       payload: sessionPayload({ sessionId: e.sessionId, text: e.text }),
@@ -251,6 +235,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('tool.started', (e) => {
+    projection?.flushAllStreamBuffers?.();
     broadcast(clients, {
       type: 'tool.started',
       payload: sessionPayload({
@@ -260,8 +245,8 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         agentName: e.agentName,
         id: e.id,
         name: e.name,
-        input: e.input,
-        fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
+        input: scrub(e.input),
+        fileTargets: extractCodeMapFileTargets(projectRoot || '.', e.name, e.input),
         messageId: `tool_${e.id}`,
       }),
     });
@@ -271,7 +256,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       ts: new Date().toISOString(),
       name: e.name,
       id: e.id,
-      input: e.input,
+      input: scrub(e.input),
     });
   });
 
@@ -281,37 +266,41 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       (typeof e.event.data?.['path'] === 'string' ? e.event.data['path'] : undefined);
     const progressTarget = rawProgressPath
       ? normalizeCodeMapFileTarget(
-          context.projectRoot,
+          projectRoot || '.',
           rawProgressPath,
           e.event.operation ?? 'edit',
           e.event.line,
           e.event.endLine,
         )
       : undefined;
-    broadcast(clients, {
-      type: 'tool.progress',
-      // Nested `event` shape — the client handler reads `payload.event?.text`
-      // and early-returns on a falsy text, so a flat { eventType, text } payload
-      // makes live tool progress (bash streaming, partial_output, warnings)
-      // never render. Must match WSToolProgress and the CLI server.
-      payload: sessionPayload({
-        sessionId: e.sessionId,
-        traceId: e.traceId,
-        agentId: e.agentId,
-        agentName: e.agentName,
-        id: e.id,
-        name: e.name,
-        event: {
-          type: e.event.type,
-          text: e.event.text,
-          data: e.event.data,
-          path: progressTarget?.filePath,
-          operation: e.event.operation,
-          line: progressTarget?.line,
-          endLine: progressTarget?.endLine,
-        },
-      }),
+    const progressPayload = sessionPayload({
+      sessionId: e.sessionId,
+      traceId: e.traceId,
+      agentId: e.agentId,
+      agentName: e.agentName,
+      id: e.id,
+      name: e.name,
+      event: {
+        type: e.event.type,
+        text: e.event.text,
+        data: e.event.data,
+        path: progressTarget?.filePath,
+        operation: e.event.operation,
+        line: progressTarget?.line,
+        endLine: progressTarget?.endLine,
+      },
     });
+    if (projection?.queueToolProgress) {
+      projection.queueToolProgress(progressPayload);
+    } else
+      broadcast(clients, {
+        type: 'tool.progress',
+        // Nested `event` shape — the client handler reads `payload.event?.text`
+        // and early-returns on a falsy text, so a flat { eventType, text } payload
+        // makes live tool progress (bash streaming, partial_output, warnings)
+        // never render. Must match WSToolProgress and the CLI server.
+        payload: progressPayload,
+      });
     appendForCurrentSession(e.sessionId, {
       type: 'tool_progress',
       ts: new Date().toISOString(),
@@ -326,6 +315,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('tool.executed', (e) => {
+    projection?.flushAllStreamBuffers?.();
     broadcast(clients, {
       type: 'tool.executed',
       payload: sessionPayload({
@@ -337,9 +327,9 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         name: e.name,
         durationMs: e.durationMs,
         ok: e.ok,
-        input: e.input,
-        fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
-        output: e.output,
+        input: scrub(e.input),
+        fileTargets: extractCodeMapFileTargets(projectRoot || '.', e.name, e.input),
+        output: scrub(e.output),
         outputBytes: e.outputBytes,
         outputTokens: e.outputTokens,
         outputLines: e.outputLines,
@@ -429,8 +419,8 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('file.event', (e) => {
-    if (e.scope !== 'task' || !e.boardId || !e.taskId) return;
-    void recordTaskFileActivity(context.projectRoot, e.boardId, e.taskId, e)
+    if (e.scope !== 'task' || !e.boardId || !e.taskId || !projectRoot) return;
+    void recordTaskFileActivity(projectRoot, e.boardId, e.taskId, e)
       .then((recorded) => {
         if (recorded) {
           broadcast(clients, {
@@ -496,6 +486,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   on('provider.response', (e) => {
+    projection?.flushAllStreamBuffers?.();
     broadcast(clients, {
       type: 'provider.response',
       payload: sessionPayload({
@@ -575,7 +566,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       sessionId: e.sessionId,
       id,
       toolName: e.tool?.name ?? 'unknown',
-      input: e.input,
+      input: scrub(e.input),
       suggestedPattern: e.suggestedPattern,
       decisionSource: e.decisionSource,
       riskTier: e.riskTier,
@@ -822,12 +813,17 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   // browser so the user sees multi-terminal/multi-surface chatter live.
   // These events are emitted via emit() with untyped names (GlobalMailbox
   // + mailbox-loop), so subscribe by pattern like the TUI does.
-  events.onPattern('mailbox.received', (_e, payload) => {
-    broadcast(clients, { type: 'mailbox.received', payload } as never as WSServerMessage);
-  });
-  events.onPattern('mailbox.agent_registered', (_e, payload) => {
-    broadcast(clients, { type: 'mailbox.agent_registered', payload } as never as WSServerMessage);
-  });
+  disposers.push(
+    events.onPattern('mailbox.received', (_e, payload) => {
+      broadcast(clients, { type: 'mailbox.received', payload } as never as WSServerMessage);
+    }),
+    events.onPattern('mailbox.agent_registered', (_e, payload) => {
+      broadcast(clients, {
+        type: 'mailbox.agent_registered',
+        payload,
+      } as never as WSServerMessage);
+    }),
+  );
 
   // Subagent fleet lifecycle
   const forwardSubagent = (kind: string, payload: Record<string, unknown>) =>
@@ -863,8 +859,8 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         agentName: e.agentName ?? e.subagentId,
         id: e.id,
         name: e.name,
-        input: e.input,
-        fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
+        input: scrub(e.input),
+        fileTargets: extractCodeMapFileTargets(projectRoot || '.', e.name, e.input),
       },
     });
   });
@@ -881,9 +877,9 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         name: e.name,
         durationMs: e.durationMs,
         ok: e.ok,
-        input: e.input,
-        fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
-        output: e.output,
+        input: scrub(e.input),
+        fileTargets: extractCodeMapFileTargets(projectRoot || '.', e.name, e.input),
+        output: scrub(e.output),
         outputBytes: e.outputBytes,
         outputTokens: e.outputTokens,
         outputLines: e.outputLines,
@@ -1061,42 +1057,44 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   });
 
   // ── Mailbox events — broadcast to WebUI for real-time per-project visibility ──
-  events.onPattern('mailbox.*', (eventName, payload) => {
-    broadcast(clients, {
-      type: 'mailbox.event',
-      payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
-    });
-  });
+  disposers.push(
+    events.onPattern('mailbox.*', (eventName, payload) => {
+      broadcast(clients, {
+        type: 'mailbox.event',
+        payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
+      });
+    }),
 
-  // ── Brain events — decisions + proactive interventions, live in the browser ──
-  events.onPattern('brain.*', (eventName, payload) => {
-    broadcast(clients, {
-      type: 'brain.event',
-      payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
-    } as never as WSServerMessage);
-  });
+    // ── Brain events — decisions + proactive interventions, live in the browser ──
+    events.onPattern('brain.*', (eventName, payload) => {
+      broadcast(clients, {
+        type: 'brain.event',
+        payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
+      } as never as WSServerMessage);
+    }),
 
-  // ── Super Memory events — retrieval, verification and hygiene observability ──
-  events.onPattern('memory.*', (eventName, payload) => {
-    broadcast(clients, {
-      type: 'memory.event',
-      payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
-    });
-  });
+    // ── Super Memory events — retrieval, verification and hygiene observability ──
+    events.onPattern('memory.*', (eventName, payload) => {
+      broadcast(clients, {
+        type: 'memory.event',
+        payload: sessionPayload({ event: eventName, ...(payload as Record<string, unknown>) }),
+      });
+    }),
 
-  // ── Cron plugin events — broadcast state snapshots so WebUI tracks active jobs ──
-  events.onPattern('cron:state_snapshot', (_eventName, payload) => {
-    broadcast(clients, {
-      type: 'cron.snapshot',
-      payload,
-    } as never as WSServerMessage);
-  });
-  events.onPattern('cron:job_fired', (_eventName, payload) => {
-    broadcast(clients, {
-      type: 'cron.job_fired',
-      payload,
-    } as never as WSServerMessage);
-  });
+    // ── Cron plugin events — broadcast state snapshots so WebUI tracks active jobs ──
+    events.onPattern('cron:state_snapshot', (_eventName, payload) => {
+      broadcast(clients, {
+        type: 'cron.snapshot',
+        payload,
+      } as never as WSServerMessage);
+    }),
+    events.onPattern('cron:job_fired', (_eventName, payload) => {
+      broadcast(clients, {
+        type: 'cron.job_fired',
+        payload,
+      } as never as WSServerMessage);
+    }),
+  );
 
   // ── Client status events — immediate broadcast to WebUI + write to status.json ──
   // Emitted by TUI/CLI/WebUI when significant status changes occur (tool calls, tokens, etc.)

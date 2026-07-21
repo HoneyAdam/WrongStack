@@ -70,9 +70,9 @@ import {
   makeACPSubagentRunner,
   makeACPSubagentRunnerWithStop,
   resolveAcpAgentCommand,
-  runOneAcpTask,
 } from '../src/integration/acp-subagent-runner.js';
 import { ACPSessionError } from '../src/client/acp-session.js';
+import { runOneAcpTask } from '../src/integration/run-one-acp-task.js';
 
 const TASK: TaskSpec = { id: 't1', description: 'do the thing' };
 

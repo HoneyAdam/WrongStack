@@ -227,6 +227,7 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'project',
   'working_dir',
   'auto_proceed',
+  'cpu',
   'eternal_stage',
   'git',
   'goal',

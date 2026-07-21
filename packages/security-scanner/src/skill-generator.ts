@@ -73,7 +73,9 @@ export class SkillGenerator {
 
     if (this.options.includeInjection) {
       const injectionPatterns = this.getInjectionPatterns(stack);
-      patterns.push(...injectionPatterns.filter((p) => severityOrder.indexOf(p.severity) <= minIndex));
+      patterns.push(
+        ...injectionPatterns.filter((p) => severityOrder.indexOf(p.severity) <= minIndex),
+      );
     }
 
     if (this.options.includeConfig) {
@@ -98,7 +100,9 @@ export class SkillGenerator {
       ],
       fileExtensions: ['.ts', '.js', '.py', '.go', '.java', '.rb', '.php', '.env'],
       falsePositiveMarkers: ['process.env', 'process.argv', 'process.env.NODE_ENV'],
-      remediation: 'Use environment variables or a secrets manager. Never commit secrets to version control.',
+      remediation:
+        'Use environment variables or a secrets manager. Never commit secrets to version control.',
+      confidence: 'medium',
     };
 
     const stackSpecific: Partial<Record<TechStack, SecurityPattern[]>> = {
@@ -116,6 +120,7 @@ export class SkillGenerator {
           fileExtensions: ['.npmrc'],
           falsePositiveMarkers: [],
           remediation: 'Use npm token from environment variable, not hardcoded in .npmrc',
+          confidence: 'high',
         },
       ],
       python: [
@@ -189,7 +194,11 @@ export class SkillGenerator {
       ],
     };
 
-    return [commonSecrets, ...(stackSpecific[stack] ?? [])];
+    return [commonSecrets, ...(stackSpecific[stack] ?? [])].map((pattern) => ({
+      ...pattern,
+      category: 'secrets',
+      confidence: pattern.confidence ?? 'medium',
+    }));
   }
 
   private getInjectionPatterns(stack: TechStack): SecurityPattern[] {
@@ -206,7 +215,8 @@ export class SkillGenerator {
       ],
       fileExtensions: ['.ts', '.js', '.php', '.py', '.rb'],
       falsePositiveMarkers: ['escapeshellarg', 'escapeshellcmd', 'sanitize'],
-      remediation: 'Use parameterized commands with argument arrays instead of string interpolation.',
+      remediation:
+        'Use parameterized commands with argument arrays instead of string interpolation.',
     };
 
     const stackSpecific: Partial<Record<TechStack, SecurityPattern[]>> = {
@@ -223,6 +233,7 @@ export class SkillGenerator {
           fileExtensions: ['.ts', '.js'],
           falsePositiveMarkers: ['JSON.parse'],
           remediation: 'Never eval user input. Use JSON.parse for data, or proper sandboxing.',
+          confidence: 'high',
         },
         {
           id: 'sql-injection-template',
@@ -242,10 +253,7 @@ export class SkillGenerator {
           name: 'NoSQL Injection',
           severity: 'high',
           description: 'Detects NoSQL query injection via user input',
-          patterns: [
-            /find\s*\(\s*\{.*\$where/g,
-            /collection\.(?:find|aggregate)\s*\([^)]*\$/g,
-          ],
+          patterns: [/find\s*\(\s*\{.*\$where/g, /collection\.(?:find|aggregate)\s*\([^)]*\$/g],
           fileExtensions: ['.ts', '.js'],
           falsePositiveMarkers: [],
           remediation: 'Sanitize and validate all user input before NoSQL queries.',
@@ -257,10 +265,7 @@ export class SkillGenerator {
           name: 'Python SQL Injection',
           severity: 'critical',
           description: 'Detects SQL queries built with string formatting',
-          patterns: [
-            /execute\s*\(\s*f?["'].*%.*/g,
-            /cursor\.execute\s*\([^)]*\+[^)]*\)/g,
-          ],
+          patterns: [/execute\s*\(\s*f?["'].*%.*/g, /cursor\.execute\s*\([^)]*\+[^)]*\)/g],
           fileExtensions: ['.py'],
           falsePositiveMarkers: ['%s', '%d', '?', 'parameterized'],
           remediation: 'Use parameterized queries with cursor.execute(query, params).',
@@ -270,14 +275,11 @@ export class SkillGenerator {
           name: 'Pickle Deserialization',
           severity: 'critical',
           description: 'Detects insecure pickle deserialization',
-          patterns: [
-            /pickle\.load\s*\(/g,
-            /pickle\.loads\s*\(/g,
-            /unpickle\.load\s*\(/g,
-          ],
+          patterns: [/pickle\.load\s*\(/g, /pickle\.loads\s*\(/g, /unpickle\.load\s*\(/g],
           fileExtensions: ['.py'],
           falsePositiveMarkers: [],
-          remediation: 'Never unpickle data from untrusted sources. Use JSON or custom serialization.',
+          remediation:
+            'Never unpickle data from untrusted sources. Use JSON or custom serialization.',
         },
       ],
       go: [
@@ -286,13 +288,11 @@ export class SkillGenerator {
           name: 'Go SQL Injection',
           severity: 'critical',
           description: 'Detects SQL queries with string concatenation',
-          patterns: [
-            /db\.Query\s*\([^)]*\+[^)]*\)/g,
-            /QueryContext?\s*\([^)]*\+[^)]*\)/g,
-          ],
+          patterns: [/db\.Query\s*\([^)]*\+[^)]*\)/g, /QueryContext?\s*\([^)]*\+[^)]*\)/g],
           fileExtensions: ['.go'],
           falsePositiveMarkers: ['$1', '$2', '?', 'params'],
-          remediation: 'Use parameterized queries: db.QueryContext(ctx, "SELECT * FROM users WHERE id=?", userID)',
+          remediation:
+            'Use parameterized queries: db.QueryContext(ctx, "SELECT * FROM users WHERE id=?", userID)',
         },
       ],
       java: [
@@ -331,10 +331,7 @@ export class SkillGenerator {
           name: 'C# SQL Injection',
           severity: 'critical',
           description: 'Detects SQL with string concatenation in C#',
-          patterns: [
-            /SqlCommand\s*\([^)]*\+[^)]*\)/g,
-            /\.ExecuteQuery\s*\([^)]*\+[^)]*\)/g,
-          ],
+          patterns: [/SqlCommand\s*\([^)]*\+[^)]*\)/g, /\.ExecuteQuery\s*\([^)]*\+[^)]*\)/g],
           fileExtensions: ['.cs'],
           falsePositiveMarkers: ['parameters.Add', '@', 'SqlParameter'],
           remediation: 'Use parameterized queries with SqlParameter.',
@@ -342,7 +339,11 @@ export class SkillGenerator {
       ],
     };
 
-    return [commonInjection, ...(stackSpecific[stack] ?? [])];
+    return [commonInjection, ...(stackSpecific[stack] ?? [])].map((pattern) => ({
+      ...pattern,
+      category: 'injection',
+      confidence: pattern.confidence ?? 'medium',
+    }));
   }
 
   private getConfigPatterns(_stack: TechStack): SecurityPattern[] {
@@ -368,18 +369,19 @@ export class SkillGenerator {
         name: 'Debug Mode Enabled',
         severity: 'medium',
         description: 'Detects debug flags that may expose sensitive information',
-        patterns: [
-          /debug\s*[:=]\s*true/g,
-          /DEBUG\s*[:=]\s*true/g,
-          /development\s*mode/g,
-        ],
+        patterns: [/debug\s*[:=]\s*true/g, /DEBUG\s*[:=]\s*true/g, /development\s*mode/g],
         fileExtensions: ['.ts', '.js', '.py', '.env', '.json'],
         falsePositiveMarkers: ['process.env.NODE_ENV !== "production"', 'if (process.env.DEBUG)'],
         remediation: 'Disable debug mode in production. Use proper log levels.',
+        confidence: 'low',
       },
     ];
 
-    return commonConfig;
+    return commonConfig.map((pattern) => ({
+      ...pattern,
+      category: 'config',
+      confidence: pattern.confidence ?? 'medium',
+    }));
   }
 
   private getTargetFilesForStack(techStack: TechStackInfo): string[] {
@@ -392,13 +394,7 @@ export class SkillGenerator {
         '**/package.json',
         '**/tsconfig.json',
       ],
-      python: [
-        '**/*.py',
-        '**/requirements*.txt',
-        '**/setup.py',
-        '**/pyproject.toml',
-        '**/.env*',
-      ],
+      python: ['**/*.py', '**/requirements*.txt', '**/setup.py', '**/pyproject.toml', '**/.env*'],
       rust: ['**/*.rs', '**/Cargo.toml', '**/Cargo.lock'],
       go: ['**/*.go', '**/go.mod', '**/go.sum'],
       java: ['**/*.java', '**/pom.xml', '**/build.gradle', '**/*.properties'],
@@ -415,7 +411,10 @@ export class SkillGenerator {
     return filesByStack[techStack.stack] || filesByStack.unknown;
   }
 
-  private buildSkillContent(techStack: TechStackInfo, patterns: SecurityPattern[]): GeneratedSkillContent {
+  private buildSkillContent(
+    techStack: TechStackInfo,
+    patterns: SecurityPattern[],
+  ): GeneratedSkillContent {
     const lines: string[] = [
       '---',
       `name: security-scanner-${techStack.stack}`,
@@ -433,13 +432,21 @@ export class SkillGenerator {
       '',
       '### Code Vulnerabilities',
       patterns
-        .filter((p) => p.fileExtensions.some((ext) => ['.ts', '.js', '.py', '.go', '.java', '.cs', '.rs'].includes(ext)))
+        .filter((p) =>
+          p.fileExtensions.some((ext) =>
+            ['.ts', '.js', '.py', '.go', '.java', '.cs', '.rs'].includes(ext),
+          ),
+        )
         .map((p) => `- **${p.name}** (${p.severity}): ${p.description}`)
         .join('\n'),
       '',
       '### Configuration Issues',
       patterns
-        .filter((p) => p.fileExtensions.some((ext) => ['.json', '.yaml', '.yml', '.env', '.config'].includes(ext)))
+        .filter((p) =>
+          p.fileExtensions.some((ext) =>
+            ['.json', '.yaml', '.yml', '.env', '.config'].includes(ext),
+          ),
+        )
         .map((p) => `- **${p.name}** (${p.severity}): ${p.description}`)
         .join('\n'),
       '',

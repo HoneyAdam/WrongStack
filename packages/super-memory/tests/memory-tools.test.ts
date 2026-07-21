@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SuperMemoryServiceLike } from '../src/tools/memory-tools.js';
+import type { SuperMemoryServiceLike } from '../src/service-contract.js';
+import { isSuperMemoryService } from '../src/service-guard.js';
 import { createSuperMemoryTools } from '../src/tools/memory-tools.js';
 
 function createMockService(): SuperMemoryServiceLike {
@@ -117,6 +118,19 @@ function createMockService(): SuperMemoryServiceLike {
   };
 }
 
+describe('isSuperMemoryService', () => {
+  it('accepts the complete service contract', () => {
+    expect(isSuperMemoryService(createMockService())).toBe(true);
+  });
+
+  it('rejects partial duck types before their tools are exposed', () => {
+    const partial = createMockService();
+    delete (partial as unknown as Record<string, unknown>)['findMemoriesForFile'];
+
+    expect(isSuperMemoryService(partial)).toBe(false);
+  });
+});
+
 describe('createSuperMemoryTools', () => {
   it('returns 13 tools with correct names', () => {
     const service = createMockService();
@@ -178,7 +192,7 @@ describe('memory_for_file tool', () => {
       lineEnd: 60,
       limit: 5,
       includeSuperseded: true, // default true
-      includeDeleted: false,    // default false
+      includeDeleted: false, // default false
     });
   });
 
@@ -464,7 +478,9 @@ describe('memory_candidates tool', () => {
   });
 
   it('resolves a candidate by applying the decision to the target memory', async () => {
-    const resolveCandidate = vi.fn().mockResolvedValue({ candidateId: 'cand_1', decision: 'delete', applied: true });
+    const resolveCandidate = vi
+      .fn()
+      .mockResolvedValue({ candidateId: 'cand_1', decision: 'delete', applied: true });
     const service = createMockService();
     service.resolveCandidate = resolveCandidate;
 
@@ -483,7 +499,9 @@ describe('memory_candidates tool', () => {
   it('requires candidate_id and decision for resolve', async () => {
     const tools = createSuperMemoryTools(createMockService());
     const tool = tools[6]!;
-    expect(tool.validate?.({ action: 'resolve' }) ?? []).toContain('candidate_id is required for resolve');
+    expect(tool.validate?.({ action: 'resolve' }) ?? []).toContain(
+      'candidate_id is required for resolve',
+    );
     expect(tool.validate?.({ action: 'resolve', candidate_id: 'cand_1' }) ?? []).toContain(
       'decision is required for resolve (delete|archive|keep)',
     );
@@ -698,6 +716,8 @@ describe('memory_delete tool', () => {
   it('rejects deletion without force', async () => {
     const tool = createSuperMemoryTools(createMockService())[10]!;
     const errors = tool.validate?.({ id: 'mem_1', reason: 'test' } as never) ?? [];
-    expect(errors).toContain('force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.');
+    expect(errors).toContain(
+      'force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.',
+    );
   });
 });

@@ -1,5 +1,20 @@
+import type { EventBus } from '@wrongstack/core';
 import type { WebSocket } from 'ws';
+import {
+  handleMailboxAgents,
+  handleMailboxClear,
+  handleMailboxCompact,
+  handleMailboxMessages,
+  handleMailboxPurge,
+  type MailboxHandlerDeps,
+} from './mailbox-handlers.js';
 import type { WSClientMessage } from './types.js';
+import {
+  validateMailboxAgentsPayload,
+  validateMailboxMessagesPayload,
+  validateMailboxPurgePayload,
+} from './ws-payload-validation.js';
+import { sendResult } from './ws-utils.js';
 
 export interface MailboxRouteHandlers {
   messages: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
@@ -7,6 +22,58 @@ export interface MailboxRouteHandlers {
   clear: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   purge: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   compact: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
+}
+
+export interface MailboxRouteContext {
+  getProjectRoot: () => string;
+  getGlobalRoot: () => string;
+  events?: EventBus | undefined;
+}
+
+export function createMailboxRouteHandlers(ctx: MailboxRouteContext): MailboxRouteHandlers {
+  const deps: MailboxHandlerDeps = {
+    projectRoot: ctx.getProjectRoot,
+    globalRoot: ctx.getGlobalRoot,
+    ...(ctx.events ? { events: ctx.events } : {}),
+  };
+  return {
+    messages: (ws, msg) => {
+      const parsed = validateMailboxMessagesPayload(msg.payload);
+      if (!parsed.ok) {
+        sendResult(ws, false, parsed.message);
+        return;
+      }
+      return handleMailboxMessages(ws, deps, parsed.value);
+    },
+    agents: (ws, msg) => {
+      const parsed = validateMailboxAgentsPayload(msg.payload);
+      if (!parsed.ok) {
+        sendResult(ws, false, parsed.message);
+        return;
+      }
+      return handleMailboxAgents(ws, deps, parsed.value);
+    },
+    clear: (ws) => handleMailboxClear(ws, deps),
+    purge: (ws, msg) => {
+      const parsed = validateMailboxPurgePayload(msg.payload);
+      if (!parsed.ok) {
+        sendResult(ws, false, parsed.message);
+        return;
+      }
+      return handleMailboxPurge(ws, deps, parsed.value);
+    },
+    compact: (ws, msg) =>
+      handleMailboxCompact(
+        ws,
+        deps,
+        (msg.payload as {
+          readMaxAgeMs?: number;
+          defaultTtlMs?: number;
+          completedMaxAgeMs?: number;
+          incompleteMaxAgeMs?: number;
+        }) ?? {},
+      ),
+  };
 }
 
 export async function handleMailboxRoute(

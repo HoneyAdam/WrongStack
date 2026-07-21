@@ -2,14 +2,14 @@ import type { Message, Request, TextBlock } from '@wrongstack/core';
 import type { Middleware } from '@wrongstack/core/kernel';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance } from '../retrieval/relevance.js';
-import { tokenize } from '../store-helpers.js';
+import { normalizeTextKey, tokenize } from '../store-helpers.js';
 import { InjectionTracker } from './injection-tracker.js';
 import type { SuperMemorySearchLike } from './tool-call-memory.js';
 
 // Re-exported to keep the public API stable: callers import `tokenize` from
 // this module (or the package index). The single implementation lives in
 // store-helpers.ts — see its docblock for the tokenizer invariants.
-export { tokenize };
+export { normalizeTextKey, tokenize };
 
 export interface SuperMemoryTurnMiddlewareOptions {
   memory: SuperMemorySearchLike;
@@ -162,15 +162,6 @@ function lastMessageTextByRole(messages: Message[], role: Message['role']): stri
       .trim();
   }
   return '';
-}
-
-/**
- * Normalize text for deduplication and comparison.
- * Applies NFKC normalization, lowercasing, whitespace collapse, and trim
- * so that strings differing only in unicode form, case, or spacing compare equal.
- */
-export function normalizeTextKey(text: string): string {
-  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**

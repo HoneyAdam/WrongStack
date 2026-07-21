@@ -48,6 +48,17 @@ function createHarness() {
     clearJudge: vi.fn().mockResolvedValue(null as string | null),
     setLedgerEnabled: vi.fn().mockResolvedValue(null as string | null),
     setAutoDeny: vi.fn().mockResolvedValue(null as string | null),
+    setTerminalPolicy: vi.fn().mockResolvedValue(null as string | null),
+    setHeuristic: vi.fn().mockResolvedValue(null as string | null),
+    setLlmMaxTokens: vi.fn().mockResolvedValue(null as string | null),
+    setLlmRejectUncertain: vi.fn().mockResolvedValue(null as string | null),
+    setLlmMinConfidence: vi.fn().mockResolvedValue(null as string | null),
+    setLlmDenyIsTerminal: vi.fn().mockResolvedValue(null as string | null),
+    setCacheEnabled: vi.fn().mockResolvedValue(null as string | null),
+    setCacheTtl: vi.fn().mockResolvedValue(null as string | null),
+    setCacheMaxEntries: vi.fn().mockResolvedValue(null as string | null),
+    setTraceEnabled: vi.fn().mockResolvedValue(null as string | null),
+    setTraceContent: vi.fn().mockResolvedValue(null as string | null),
   };
 
   const getBrainData = vi.fn().mockReturnValue({

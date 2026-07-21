@@ -43,10 +43,12 @@ describe('TechStackDetector', () => {
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('nodejs');
-      expect(result.detectedStacks[0].packageManager).toBe('npm');
-      // Note: dependency parsing is handled by the scanner, not the detector
-      expect(result.detectedStacks[0].dependencies).toEqual([]);
+      expect(result.detectedStacks[0]!.stack).toBe('nodejs');
+      expect(result.detectedStacks[0]!.packageManager).toBe('npm');
+      expect(result.detectedStacks[0]!.dependencies).toEqual([
+        { name: 'express', version: '^4.18.0', isDev: false },
+        { name: 'typescript', version: '^5.0.0', isDev: true },
+      ]);
     });
 
     it('detects pnpm project', async () => {
@@ -58,7 +60,7 @@ describe('TechStackDetector', () => {
 
       const result = await detector.detect(dir);
 
-      expect(result.detectedStacks[0].packageManager).toBe('pnpm');
+      expect(result.detectedStacks[0]!.packageManager).toBe('pnpm');
       expect(result.isMonorepo).toBe(true);
     });
 
@@ -70,7 +72,7 @@ describe('TechStackDetector', () => {
 
       const result = await detector.detect(dir);
 
-      expect(result.detectedStacks[0].packageManager).toBe('yarn');
+      expect(result.detectedStacks[0]!.packageManager).toBe('yarn');
     });
 
     it('detects bun project', async () => {
@@ -81,7 +83,7 @@ describe('TechStackDetector', () => {
 
       const result = await detector.detect(dir);
 
-      expect(result.detectedStacks[0].packageManager).toBe('bun');
+      expect(result.detectedStacks[0]!.packageManager).toBe('bun');
     });
   });
 
@@ -94,8 +96,8 @@ describe('TechStackDetector', () => {
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('python');
-      expect(result.detectedStacks[0].packageManager).toBe('pip');
+      expect(result.detectedStacks[0]!.stack).toBe('python');
+      expect(result.detectedStacks[0]!.packageManager).toBe('pip');
     });
 
     it('detects Poetry project', async () => {
@@ -112,7 +114,7 @@ flask = "^2.0"`,
 
       const result = await detector.detect(dir);
 
-      expect(result.detectedStacks[0].packageManager).toBe('poetry');
+      expect(result.detectedStacks[0]!.packageManager).toBe('poetry');
     });
   });
 
@@ -134,8 +136,8 @@ mockall = "0.11"`,
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('rust');
-      expect(result.detectedStacks[0].packageManager).toBe('cargo');
+      expect(result.detectedStacks[0]!.stack).toBe('rust');
+      expect(result.detectedStacks[0]!.packageManager).toBe('cargo');
       // Note: dependency parsing from Cargo.toml is out of scope for this test —
       // the detector identifies the stack and package manager only.
     });
@@ -157,8 +159,8 @@ require (
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('go');
-      expect(result.detectedStacks[0].packageManager).toBe('go');
+      expect(result.detectedStacks[0]!.stack).toBe('go');
+      expect(result.detectedStacks[0]!.packageManager).toBe('go');
     });
   });
 
@@ -177,19 +179,19 @@ require (
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('java');
-      expect(result.detectedStacks[0].packageManager).toBe('maven');
+      expect(result.detectedStacks[0]!.stack).toBe('java');
+      expect(result.detectedStacks[0]!.packageManager).toBe('maven');
     });
 
     it('detects Gradle project', async () => {
       const dir = await createTempProject({
         'build.gradle': 'plugins { id "java" }',
-        'gradlew': '#!/bin/bash',
+        gradlew: '#!/bin/bash',
       });
 
       const result = await detector.detect(dir);
 
-      expect(result.detectedStacks[0].packageManager).toBe('gradle');
+      expect(result.detectedStacks[0]!.packageManager).toBe('gradle');
     });
   });
 
@@ -206,8 +208,8 @@ require (
       const result = await detector.detect(dir);
 
       expect(result.detectedStacks).toHaveLength(1);
-      expect(result.detectedStacks[0].stack).toBe('dotnet');
-      expect(result.detectedStacks[0].packageManager).toBe('nuget');
+      expect(result.detectedStacks[0]!.stack).toBe('dotnet');
+      expect(result.detectedStacks[0]!.packageManager).toBe('nuget');
     });
   });
 
@@ -267,6 +269,27 @@ require (
 
       const result = await detector.detect(newDir);
       expect(result.detectedStacks.some((s) => s.packageManager === 'cargo')).toBe(true);
+    });
+
+    it('refreshes dependencies after the cache TTL expires', async () => {
+      const ttlDetector = new TechStackDetector(0);
+      const dir = await createTempProject({
+        'package.json': JSON.stringify({ dependencies: { alpha: '1.0.0' } }),
+      });
+
+      const first = await ttlDetector.detect(dir);
+      await fs.writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ dependencies: { beta: '2.0.0' } }),
+      );
+      const second = await ttlDetector.detect(dir);
+
+      expect(first.detectedStacks[0]!.dependencies.map((dependency) => dependency.name)).toEqual([
+        'alpha',
+      ]);
+      expect(second.detectedStacks[0]!.dependencies.map((dependency) => dependency.name)).toEqual([
+        'beta',
+      ]);
     });
   });
 

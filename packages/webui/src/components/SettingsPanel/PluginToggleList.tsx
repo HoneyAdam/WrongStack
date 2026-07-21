@@ -7,7 +7,6 @@ const PLUGINS: Array<[string, string]> = [
   ['wstack-chimera', 'settings:features.pluginChimera'],
   ['wstack-skills', 'settings:features.pluginSkills'],
   ['wstack-prompts', 'settings:features.pluginPrompts'],
-  ['wstack-security', 'settings:features.pluginSecurity'],
   ['cost-tracker', 'settings:features.pluginCostTracker'],
   ['telegram', 'settings:features.pluginTelegram'],
   ['knowledge-graph', 'settings:features.pluginKnowledgeGraph'],
@@ -35,7 +34,9 @@ export function PluginToggleList() {
         <Puzzle className="h-4 w-4 text-muted-foreground" />
         {t('settings:features.pluginsPerPluginHeading')}
       </h3>
-      <p className="text-xs text-muted-foreground mb-2">{t('settings:features.pluginsPerPluginHint')}</p>
+      <p className="text-xs text-muted-foreground mb-2">
+        {t('settings:features.pluginsPerPluginHint')}
+      </p>
       {PLUGINS.map(([pluginName, labelKey]) => {
         const enabled = localPrefs.pluginsEnabled?.[pluginName] ?? true;
         return (

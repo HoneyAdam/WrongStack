@@ -71,7 +71,7 @@ export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): Web
   const lastWatcherEvent = new Map<string, number>();
   if (idx?.watchExternal || deps.events) {
     try {
-      watcher = fs.watch(deps.projectRoot, { recursive: true }, (eventType, filename) => {
+      watcher = fs.watch(deps.projectRoot, { recursive: true }, async (eventType, filename) => {
         if (!filename) return;
         const rel = filename.toString();
         if (isIgnored(rel)) return;
@@ -80,9 +80,17 @@ export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): Web
         const now = Date.now();
         if (now - (lastWatcherEvent.get(abs) ?? 0) > 75) {
           lastWatcherEvent.set(abs, now);
+          let operation: 'delete' | 'edit' = 'edit';
+          if (eventType === 'rename') {
+            try {
+              await fs.promises.access(abs);
+            } catch {
+              operation = 'delete';
+            }
+          }
           deps.events?.emit('file.activity', {
             filePath: path.normalize(abs),
-            operation: eventType === 'rename' && !fs.existsSync(abs) ? 'delete' : 'edit',
+            operation,
             phase: 'changed',
             source: 'watcher',
             at: now,

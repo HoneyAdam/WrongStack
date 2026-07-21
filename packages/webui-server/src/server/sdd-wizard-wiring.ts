@@ -1,5 +1,4 @@
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import {
   type Agent,
   type AgentFactory,
@@ -25,6 +24,7 @@ import {
   TaskGraphStore,
 } from '@wrongstack/sdd';
 import type { SddWizardDeps } from './sdd-wizard-ws-handler.js';
+import { isGitWorkTree } from './git-process.js';
 
 /** Config knobs shared by the wizard start and the launch-from-board start. */
 export interface StartSddRunFromGraphConfig {
@@ -54,14 +54,15 @@ export interface StartSddRunFromGraphDeps {
  * TaskTracker from the graph (when none is supplied), sets up worktree isolation,
  * the completion-gate verifier and the Brain failure supervisor, then defers to
  * `startSddRun` (which owns the projector + cross-process control drain, so the
- * run is steerable from any surface). Returns the run handle.
+ * run is steerable from any surface). Resolves to the run handle after the
+ * non-blocking git worktree capability probe completes.
  */
-export function startSddRunFromGraph(
+export async function startSddRunFromGraph(
   graph: TaskGraph,
   deps: StartSddRunFromGraphDeps,
   config: StartSddRunFromGraphConfig = {},
   tracker?: TaskTracker,
-): SddRunHandle {
+): Promise<SddRunHandle> {
   const runTracker =
     tracker ??
     (() => {
@@ -73,24 +74,16 @@ export function startSddRunFromGraph(
   // Per-task git-worktree isolation (per-run toggle wins; env default otherwise).
   const worktreesEnabled = config.worktrees ?? process.env['WRONGSTACK_SDD_WORKTREES'] !== '0';
   let worktrees: WorktreeManager | undefined;
-  if (worktreesEnabled) {
-    const inGit =
-      spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
-        cwd: deps.projectRoot,
-        encoding: 'utf8',
-        windowsHide: true,
-      }).stdout?.trim() === 'true';
-    if (inGit) {
-      void cleanupStaleSddWorktrees({
-        projectRoot: deps.projectRoot,
-        boardsDir: deps.projectSddBoards,
-      }).catch(() => undefined);
-      worktrees = new WorktreeManager({
-        projectRoot: deps.projectRoot,
-        events: deps.events,
-        sessionId: () => deps.agent.ctx.session?.id,
-      });
-    }
+  if (worktreesEnabled && (await isGitWorkTree(deps.projectRoot))) {
+    void cleanupStaleSddWorktrees({
+      projectRoot: deps.projectRoot,
+      boardsDir: deps.projectSddBoards,
+    }).catch(() => undefined);
+    worktrees = new WorktreeManager({
+      projectRoot: deps.projectRoot,
+      events: deps.events,
+      sessionId: () => deps.agent.ctx.session?.id,
+    });
   }
 
   const superviseFailure =
@@ -234,7 +227,7 @@ export function buildSddWizardDeps(opts: SddWizardWiringOptions): SddWizardDeps 
 
       // Shared with launch-from-board: builds worktrees + verifier + supervisor
       // and defers to startSddRun (parity with the CLI /sdd parallel path).
-      const handle = startSddRunFromGraph(
+      const handle = await startSddRunFromGraph(
         graph,
         {
           agent: opts.agent,

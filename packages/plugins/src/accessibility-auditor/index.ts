@@ -25,10 +25,10 @@
  * @public
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
+import { collectSourceFilesAsync, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -145,10 +145,10 @@ function hasMeaningfulAlt(tag: string): boolean {
   return valMatch ? valMatch[1]!.trim().length > 0 : false;
 }
 
-function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
+async function auditFile(filePath: string, projectRoot: string): Promise<A11yFinding[]> {
   let content: string;
   try {
-    content = readFileSync(filePath, 'utf-8');
+    content = await readFile(filePath, 'utf-8');
   } catch {
     return [];
   }
@@ -259,14 +259,17 @@ function auditFile(filePath: string, projectRoot: string): A11yFinding[] {
   return findings;
 }
 
-function auditPath(rawPath: string, cfg: AccessibilityAuditorConfig): { path: string; findings: A11yFinding[]; fileCount: number } {
+async function auditPath(
+  rawPath: string,
+  cfg: AccessibilityAuditorConfig,
+): Promise<{ path: string; findings: A11yFinding[]; fileCount: number }> {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.includeExtensions);
-  const files = collectSourceFiles(resolved, { extensions: exts });
+  const files = await collectSourceFilesAsync(resolved, { extensions: exts });
   const findings: A11yFinding[] = [];
   for (const file of files) {
-    const fileFindings = auditFile(file, root);
+    const fileFindings = await auditFile(file, root);
     findings.push(...fileFindings);
     if (findings.length >= cfg.maxFindings) break;
   }
@@ -348,13 +351,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['accessibility-auditor']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled || !cfg.onWriteEdit) return;
       if (input.toolResult?.isError) return;
 
@@ -367,7 +370,7 @@ const plugin: Plugin = {
       if (!matchesExtension(sourcePath, exts)) return;
 
       state.hookInvocationCount += 1;
-      const result = auditPath(sourcePath, cfg);
+      const result = await auditPath(sourcePath, cfg);
       state.auditCount += 1;
       state.fileCount += result.fileCount;
       state.findingCount += result.findings.length;
@@ -418,7 +421,7 @@ const plugin: Plugin = {
         }
 
         state.auditCount += 1;
-        const result = auditPath(rawPath, cfg);
+        const result = await auditPath(rawPath, cfg);
         state.fileCount += result.fileCount;
         state.findingCount += result.findings.length;
         state.lastResult = {

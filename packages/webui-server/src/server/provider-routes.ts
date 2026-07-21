@@ -1,7 +1,57 @@
 import type { WebSocket } from 'ws';
-import type { createProviderHandlers } from './provider-handlers.js';
 import type { WSClientMessage } from './types.js';
 import { sendResult } from './ws-utils.js';
+
+type OAuthKind = 'chatgpt' | 'claude' | 'copilot';
+
+export interface ProviderMutationHandlers {
+  handleKeyUpsert: (
+    ws: WebSocket,
+    providerId: string,
+    label: string,
+    apiKey: string,
+  ) => Promise<void>;
+  handleKeyDelete: (ws: WebSocket, providerId: string, label: string) => Promise<void>;
+  handleKeySetActive: (ws: WebSocket, providerId: string, label: string) => Promise<void>;
+  handleProviderAdd: (
+    ws: WebSocket,
+    payload: {
+      id: string;
+      family: string;
+      baseUrl?: string | undefined;
+      apiKey?: string | undefined;
+    },
+  ) => Promise<void>;
+  handleProviderRemove: (ws: WebSocket, providerId: string) => Promise<void>;
+  handleProviderClearModels: (ws: WebSocket, providerId: string) => Promise<void>;
+  handleProviderUndoClear: (
+    ws: WebSocket,
+    providerId: string,
+    previousModels: string[],
+  ) => Promise<void>;
+  handleProviderUpdate: (
+    ws: WebSocket,
+    payload: {
+      id: string;
+      family?: string | undefined;
+      baseUrl?: string | undefined;
+      envVars?: string[] | undefined;
+      models?: string[] | undefined;
+    },
+  ) => Promise<void>;
+  handleProviderProbe: (
+    ws: WebSocket,
+    providerId: string,
+    timeoutMs?: number | undefined,
+  ) => Promise<void>;
+  handleOAuthStart: (
+    ws: WebSocket,
+    kind: OAuthKind,
+    providerId?: string | undefined,
+  ) => Promise<void>;
+  handleOAuthCode: (ws: WebSocket, kind: OAuthKind, input: string) => Promise<void>;
+  handleOAuthCancel: (ws: WebSocket, kind: OAuthKind) => void;
+}
 
 export interface ProviderRouteHandlers {
   listProviders: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
@@ -11,7 +61,7 @@ export interface ProviderRouteHandlers {
   refineModel: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   /** Adopt a just-added provider as the live default when no model is active. */
   adoptDefaultProviderIfUnset: (providerId: string) => Promise<void>;
-  providerHandlers: ReturnType<typeof createProviderHandlers>;
+  providerHandlers: ProviderMutationHandlers;
 }
 
 function asPayloadRecord(msg: WSClientMessage): Record<string, unknown> | null {
@@ -32,7 +82,10 @@ function optionalNumber(payload: Record<string, unknown>, key: string): number |
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function optionalStringArray(payload: Record<string, unknown>, key: string): string[] | undefined | null {
+function optionalStringArray(
+  payload: Record<string, unknown>,
+  key: string,
+): string[] | undefined | null {
   const value = payload[key];
   if (value === undefined) return undefined;
   return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null;
@@ -44,7 +97,9 @@ function invalidPayload(ws: WebSocket, type: string): true {
 }
 
 const OAUTH_KINDS = new Set(['chatgpt', 'claude', 'copilot']);
-function oauthKind(payload: Record<string, unknown> | null): 'chatgpt' | 'claude' | 'copilot' | null {
+function oauthKind(
+  payload: Record<string, unknown> | null,
+): 'chatgpt' | 'claude' | 'copilot' | null {
   const kind = payload?.['kind'];
   return typeof kind === 'string' && OAUTH_KINDS.has(kind)
     ? (kind as 'chatgpt' | 'claude' | 'copilot')
@@ -153,9 +208,11 @@ export async function handleProviderRoute(
       const id = payload ? requiredString(payload, 'id') : null;
       const envVars = payload ? optionalStringArray(payload, 'envVars') : null;
       const models = payload ? optionalStringArray(payload, 'models') : null;
-      if (!payload || !id || envVars === null || models === null) return invalidPayload(ws, msg.type);
+      if (!payload || !id || envVars === null || models === null)
+        return invalidPayload(ws, msg.type);
       for (const key of ['family', 'baseUrl'] as const) {
-        if (payload[key] !== undefined && typeof payload[key] !== 'string') return invalidPayload(ws, msg.type);
+        if (payload[key] !== undefined && typeof payload[key] !== 'string')
+          return invalidPayload(ws, msg.type);
       }
       await routes.providerHandlers.handleProviderUpdate(ws, {
         id,
@@ -177,9 +234,14 @@ export async function handleProviderRoute(
     }
 
     case 'auth.oauth.start': {
-      const kind = oauthKind(asPayloadRecord(msg));
+      const payload = asPayloadRecord(msg);
+      const kind = oauthKind(payload);
+      const providerId = payload?.['providerId'];
       if (!kind) return invalidPayload(ws, msg.type);
-      await routes.providerHandlers.handleOAuthStart(ws, kind);
+      if (providerId !== undefined && typeof providerId !== 'string') {
+        return invalidPayload(ws, msg.type);
+      }
+      await routes.providerHandlers.handleOAuthStart(ws, kind, providerId);
       return true;
     }
 

@@ -2,10 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  ReportGenerator,
-  defaultReportGenerator,
-} from '../src/report-generator.js';
+import { ReportGenerator, defaultReportGenerator } from '../src/report-generator.js';
 import type { Finding, ScanResult } from '../src/scanner.js';
 
 let tmp: string;
@@ -175,7 +172,7 @@ describe('ReportGenerator', () => {
           findings: [
             mkFinding({
               title: '"><script>alert(1)</script>',
-              category: 'injection"onload="x',
+              category: 'injection"onload="x' as Finding['category'],
               file: "src/<bad>&'.ts",
               line: 1,
               remediation: 'Use <safe> & "quoted" text',

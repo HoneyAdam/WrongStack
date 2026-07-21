@@ -14,14 +14,15 @@
  */
 import { DefaultSecretScrubber, type SecretScrubber } from '@wrongstack/core';
 import type { EventBus, EventMap } from '@wrongstack/core/kernel';
-import type { TaskGraph } from '@wrongstack/core/types';
 import type { TaskTracker } from '@wrongstack/core/tasking';
+import type { TaskGraph } from '@wrongstack/core/types';
 import {
   buildBoardSnapshot,
-  shortIdMap,
   type SddBoardFeedEntry,
+  type SddBoardSnapshot,
   type SddBoardStatus,
   type SddDeadlockChain,
+  shortIdMap,
 } from './board-types.js';
 import type { SddBoardStore } from './sdd-board-store.js';
 
@@ -102,8 +103,10 @@ export class SddBoardProjector {
   private dirty = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly unsubs: Array<() => void> = [];
-  /** Tail of in-flight persistence, so callers can await a settled state. */
-  private lastSave: Promise<void> = Promise.resolve();
+  /** Latest snapshot waiting behind an in-flight disk write. */
+  private pendingSnapshot: SddBoardSnapshot | undefined;
+  /** At most one persistence loop runs; intermediate snapshots are coalesced. */
+  private saveLoop: Promise<void> | undefined;
 
   constructor(opts: SddBoardProjectorOptions) {
     this.o = opts;
@@ -358,7 +361,12 @@ export class SddBoardProjector {
 
   /** Resolve once all in-flight snapshot persistence has settled. */
   async drain(): Promise<void> {
-    await this.lastSave;
+    for (;;) {
+      const observed = this.saveLoop;
+      if (!observed) return;
+      await observed;
+      if (observed === this.saveLoop && !this.pendingSnapshot) return;
+    }
   }
 
   /** Stop projecting and release subscriptions. */
@@ -460,10 +468,30 @@ export class SddBoardProjector {
       snapshot: snap,
     });
     if (this.o.store) {
-      // Serialize writes (no two snapshots race on the same file) and swallow
-      // persistence errors — a live stream must never crash on a disk hiccup.
-      const store = this.o.store;
-      this.lastSave = this.lastSave.then(() => store.saveSnapshot(snap)).catch(() => {});
+      // Keep one write in flight and one latest pending snapshot. If disk is
+      // slower than the projection cadence, obsolete intermediate snapshots
+      // are replaced instead of building an unbounded Promise/write backlog.
+      this.pendingSnapshot = snap;
+      this.startSaveLoop(this.o.store);
+    }
+  }
+
+  private startSaveLoop(store: SddBoardStore): void {
+    if (this.saveLoop) return;
+    const loop = this.persistPendingSnapshots(store);
+    this.saveLoop = loop;
+    void loop.finally(() => {
+      if (this.saveLoop !== loop) return;
+      this.saveLoop = undefined;
+      if (this.pendingSnapshot) this.startSaveLoop(store);
+    });
+  }
+
+  private async persistPendingSnapshots(store: SddBoardStore): Promise<void> {
+    while (this.pendingSnapshot) {
+      const snapshot = this.pendingSnapshot;
+      this.pendingSnapshot = undefined;
+      await store.saveSnapshot(snapshot).catch(() => {});
     }
   }
 

@@ -22,7 +22,7 @@
  * `boot/<phase>.ts` file and call it from `main()` in the
  * order shown above. Do not inline it.
  */
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -448,21 +448,21 @@ export async function main(argv: string[]): Promise<number> {
     const projectName = path.basename(projectRoot);
 
     // Detect current git branch (best-effort, non-blocking)
-    let gitBranch: string | undefined;
-    try {
-      const { execFileSync } = await import('node:child_process');
-      gitBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd: projectRoot,
-        timeout: 3000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-        windowsHide: true,
-      })
-        .toString()
-        .trim();
-      if (gitBranch === 'HEAD') gitBranch = undefined; // detached HEAD
-    } catch {
-      // Not a git repo or git not available — leave undefined
-    }
+    let gitBranch = await new Promise<string | undefined>((resolve) => {
+      execFile(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        {
+          cwd: projectRoot,
+          encoding: 'utf8',
+          timeout: 3000,
+          windowsHide: true,
+          maxBuffer: 64 * 1024,
+        },
+        (error, stdout) => resolve(error ? undefined : stdout.trim() || undefined),
+      );
+    });
+    if (gitBranch === 'HEAD') gitBranch = undefined; // detached HEAD
 
     await registry.register({
       sessionId: session.id,
@@ -573,6 +573,7 @@ export async function main(argv: string[]): Promise<number> {
     slashRegistry,
     hqPublisherRef,
     brainMailbox,
+    pluginHost,
   } = await setupLifecycleAndPlugins({
     flags,
     config,
@@ -1871,18 +1872,24 @@ export async function main(argv: string[]): Promise<number> {
     onExit: async () => {
       for (const teardown of teardownHandlers) teardown();
       teardownHandlers.length = 0;
-      const [mcpResult, hostResult] = await Promise.allSettled([
+      const [mcpResult, multiAgentResult, pluginResult] = await Promise.allSettled([
         mcpRegistry.stopAll(),
         multiAgentHost.dispose(),
+        pluginHost?.dispose() ?? Promise.resolve(),
       ]);
       if (mcpResult.status === 'rejected') {
         logger.warn(
           `mcpRegistry.stopAll() failed: ${mcpResult.reason instanceof Error ? mcpResult.reason.message : String(mcpResult.reason)}`,
         );
       }
-      if (hostResult.status === 'rejected') {
+      if (multiAgentResult.status === 'rejected') {
         logger.warn(
-          `multiAgentHost.dispose() failed: ${hostResult.reason instanceof Error ? hostResult.reason.message : String(hostResult.reason)}`,
+          `multiAgentHost.dispose() failed: ${multiAgentResult.reason instanceof Error ? multiAgentResult.reason.message : String(multiAgentResult.reason)}`,
+        );
+      }
+      if (pluginResult.status === 'rejected') {
+        logger.warn(
+          `pluginHost.dispose() failed: ${pluginResult.reason instanceof Error ? pluginResult.reason.message : String(pluginResult.reason)}`,
         );
       }
     },
@@ -2626,6 +2633,9 @@ export async function main(argv: string[]): Promise<number> {
         onDestroy: () => {
           void runSuperMemorySessionHygiene().catch((err) => {
             logger.warn('super-memory session hygiene failed', { error: String(err) });
+          });
+          void pluginHost?.dispose().catch((err) => {
+            logger.warn('plugin host disposal failed', { error: String(err) });
           });
           teardownHandlers.forEach((fn) => {
             fn();

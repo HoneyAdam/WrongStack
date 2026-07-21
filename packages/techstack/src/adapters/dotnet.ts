@@ -7,7 +7,7 @@
  * @see docs/specs/techstack-sdd.md §6 Tier A
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   DependencyObservation,
@@ -108,8 +108,8 @@ export class DotNetAdapter implements EcosystemAdapter {
     // Find .csproj file via readdirSync
     let csprojPath: string | undefined;
     try {
-      const files = readdirSync(root);
-      const csproj = files.find((f: string) => f.endsWith('.csproj'));
+      const files = await readdir(root);
+      const csproj = files.find((f) => f.endsWith('.csproj'));
       if (csproj) csprojPath = join(root, csproj);
     } catch {
       // Can't read directory
@@ -119,7 +119,7 @@ export class DotNetAdapter implements EcosystemAdapter {
 
     let csprojContent: string;
     try {
-      csprojContent = readFileSync(csprojPath, 'utf-8');
+      csprojContent = await readFile(csprojPath, 'utf-8');
     } catch {
       return [];
     }
@@ -134,7 +134,7 @@ export class DotNetAdapter implements EcosystemAdapter {
     let lockVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     try {
-      const assetsContent = readFileSync(assetsPath, 'utf-8');
+      const assetsContent = await readFile(assetsPath, 'utf-8');
       lockVersions = parseProjectAssetsJson(assetsContent);
       lockEv = lockfileEvidence(assetsPath);
     } catch {

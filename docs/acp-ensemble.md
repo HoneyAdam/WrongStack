@@ -61,10 +61,13 @@ The integration lives in `packages/acp/`. It depends only on `@wrongstack/core` 
 packages/acp/
   src/
     types/
-      acp-messages.ts          legacy draft-protocol envelope (kept for back-compat)
+      acp-messages.ts          internal legacy draft envelope (public only via `/legacy`)
       acp-v1.ts                v1 type definitions — branded IDs, content blocks,
                                tool-call lifecycle, discriminated SessionUpdate union
                                (11 stable kinds + 2 escape hatches)
+    v1.ts                      stable v1 public type entry point
+    legacy.ts                  deprecated pre-v1 compatibility entry point
+    sdk.ts                     official upstream SDK entry point
     registry/
       agents.catalog.ts        12-entry static catalog (one entry per agent)
       ensemble-registry.ts     EnsembleRegistry class — $PATH probe + 5s cache

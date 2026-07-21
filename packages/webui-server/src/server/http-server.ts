@@ -749,6 +749,14 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
         return;
       }
 
+      if (!shouldSetAuthCookie) {
+        res.setHeader(
+          'Cache-Control',
+          url.pathname.startsWith('/assets/')
+            ? 'public, max-age=31536000, immutable'
+            : 'public, max-age=3600',
+        );
+      }
       const fileContent = await fs.readFile(resolvedPath);
       res.writeHead(200);
       res.end(fileContent);

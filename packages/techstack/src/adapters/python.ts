@@ -7,7 +7,7 @@
  * Supports: pip, pipenv, poetry, uv — determined by manifest/lockfile presence.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
   DependencyObservation,
@@ -17,7 +17,7 @@ import type {
   Workspace,
 } from '../types.js';
 import {
-  fileExists,
+  fileExistsAsync,
   lockfileEvidence,
   manifestEvidence,
   workspaceRoot,
@@ -255,18 +255,18 @@ export class PythonAdapter implements EcosystemAdapter {
     const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
-    const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || fileExists(join(root, 'pyproject.toml'));
-    const hasRequirements = workspace.manifests.some((m) => m.includes('requirements.txt')) || fileExists(join(root, 'requirements.txt'));
-    const hasPipfile = workspace.manifests.some((m) => m.includes('Pipfile')) || fileExists(join(root, 'Pipfile'));
+    const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || await fileExistsAsync(join(root, 'pyproject.toml'));
+    const hasRequirements = workspace.manifests.some((m) => m.includes('requirements.txt')) || await fileExistsAsync(join(root, 'requirements.txt'));
+    const hasPipfile = workspace.manifests.some((m) => m.includes('Pipfile')) || await fileExistsAsync(join(root, 'Pipfile'));
 
-    const lockfilePath = this.detectLockfile(root);
+    const lockfilePath = await this.detectLockfile(root);
 
     let allDeps: Array<{ name: string; constraint: string | undefined; scope: DependencyScope; source: string }> = [];
     let pyprojectEv: Evidence | undefined;
 
     if (hasPyproject) {
       try {
-        const content = readFileSync(join(root, 'pyproject.toml'), 'utf-8');
+        const content = await readFile(join(root, 'pyproject.toml'), 'utf-8');
         pyprojectEv = manifestEvidence(join(root, 'pyproject.toml'));
         const parsed = parsePyprojectDeps(content);
         for (const d of parsed) allDeps.push({ ...d, source: 'pyproject.toml' });
@@ -278,7 +278,7 @@ export class PythonAdapter implements EcosystemAdapter {
 
     if (hasRequirements) {
       try {
-        const content = readFileSync(join(root, 'requirements.txt'), 'utf-8');
+        const content = await readFile(join(root, 'requirements.txt'), 'utf-8');
         requirementsEv = manifestEvidence(join(root, 'requirements.txt'));
         const parsed = parseRequirementsTxt(content);
         for (const d of parsed) {
@@ -292,7 +292,7 @@ export class PythonAdapter implements EcosystemAdapter {
 
     if (hasPipfile) {
       try {
-        const content = readFileSync(join(root, 'Pipfile'), 'utf-8');
+        const content = await readFile(join(root, 'Pipfile'), 'utf-8');
         if (!pyprojectEv) pyprojectEv = manifestEvidence(join(root, 'Pipfile'));
         const parsed = parsePipfileDeps(content);
         for (const d of parsed) {
@@ -307,7 +307,7 @@ export class PythonAdapter implements EcosystemAdapter {
     const lockVersions = new Map(reqLockVersions);
     if (lockfilePath) {
       try {
-        const lockContent = readFileSync(lockfilePath, 'utf-8');
+        const lockContent = await readFile(lockfilePath, 'utf-8');
         const parsed = lockfilePath.endsWith('poetry.lock') || lockfilePath.endsWith('uv.lock')
           ? parsePoetryLock(lockContent)
           : parsePipfileLock(lockContent);
@@ -378,10 +378,10 @@ export class PythonAdapter implements EcosystemAdapter {
     return observations;
   }
 
-  private detectLockfile(workspaceRoot: string): string | undefined {
+  private async detectLockfile(workspaceRoot: string): Promise<string | undefined> {
     for (const file of ['Pipfile.lock', 'poetry.lock', 'uv.lock']) {
       const candidate = join(workspaceRoot, file);
-      if (fileExists(candidate)) return candidate;
+      if (await fileExistsAsync(candidate)) return candidate;
     }
     return undefined;
   }

@@ -751,6 +751,18 @@ function deepMerge<T, TPatch extends object>(base: T, patch: TPatch): T {
   ) as T;
 }
 
+/** Remove the retired backend selector from legacy/user-supplied configs. */
+function removeLegacySuperMemoryEngine(config: Record<string, unknown>): boolean {
+  const superMemory = config['superMemory'];
+  if (!isPlainRecord(superMemory)) return false;
+  const storage = superMemory['storage'];
+  if (!isPlainRecord(storage) || !Object.prototype.hasOwnProperty.call(storage, 'engine')) {
+    return false;
+  }
+  delete storage['engine'];
+  return true;
+}
+
 /**
  * A single config source. Higher priority wins in merges.
  * Sources are applied in priority order (lowest first), so a source
@@ -981,6 +993,9 @@ export class DefaultConfigLoader implements ConfigLoader {
       }
     }
 
+    // `superMemory.storage.engine` used to select JSONL. SQLite is now the
+    // sole backend, so ignore the retired key from every config layer.
+    removeLegacySuperMemoryEngine(cfg as Record<string, unknown>);
     this.validateBehavior(cfg);
     if (this.strict && !opts.skipIdentityValidation) {
       this.validateIdentity(cfg);
@@ -1155,6 +1170,8 @@ export class DefaultConfigLoader implements ConfigLoader {
       parsed = {};
     }
 
+    const removedLegacyEngine = removeLegacySuperMemoryEngine(parsed);
+
     // Migration from old flat config to profile: If the old global config
     // existed and had any setting at all (can be just `version` + one user
     // setting like `mcpServers`), promote them into the new profile config.
@@ -1164,13 +1181,14 @@ export class DefaultConfigLoader implements ConfigLoader {
       // Copy old global content into the profile, excluding bootstrap-only fields.
       seed = { ...oldGlobalParsed };
       delete seed['activeProfile'];
+      removeLegacySuperMemoryEngine(seed);
       // Fill in any missing behavior defaults.
       const filled = fillMissingDefaults(seed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
       seed = filled.value;
     } else {
       // Normal boot: fill missing defaults on existing (or empty) profile.
       const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
-      if (!filled.changed) return; // Nothing to write
+      if (!filled.changed && !removedLegacyEngine) return; // Nothing to write
       seed = filled.value;
     }
 

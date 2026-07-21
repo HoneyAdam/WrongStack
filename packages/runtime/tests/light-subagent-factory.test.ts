@@ -10,6 +10,7 @@ import {
   TOKENS,
   type Tool,
   ToolRegistry,
+  type UserInputPayload,
 } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import { makeLightSubagentFactory } from '../src/index.js';
@@ -296,20 +297,25 @@ describe('makeLightSubagentFactory', () => {
   });
 
   // ── fallback must not drift the worker onto the leader's model ──────────
-  //
-  // The fallback extension reads `getConfig().provider/.model` as "the primary
-  // to prefer and to restore to". It used to be handed the raw ConfigStore —
-  // i.e. the LEADER's pair — while the worker ran on its own assigned model.
-  // Two consequences: the leader's model was injected into the chain ahead of
-  // the worker's own `fallbackModels`, and after any hop `beforeRun` restored
-  // the worker onto the leader's model and kept it there for the rest of the
-  // run.
+  // getConfig() must pin provider/model to the worker's target so the
+  // extension restores the worker, never the leader, after any hop.
   it('restores a worker to its OWN model after a hop, never the leaders', async () => {
+    // Pin `now` so the 60s primary cooldown does NOT short-circuit `beforeRun`
+    // — we want the half-open probe to actually read `cfg.provider`/`cfg.model`.
+    // The mock advances by 70 s on every call: `markPrimaryFailure` fires first
+    // (during the hop) and sets `primaryBlockedUntil = now + 60 s`; the next
+    // `now()` (during `runBeforeRun`) must clear that gate so the restore path
+    // actually runs.
     const deps = makeDeps(true, {
       provider: 'noop',
       model: 'leader-m',
       providers: { noop: { type: 'noop' }, alt: { type: 'alt' } },
     } as never);
+    let mockNow = 1000;
+    (deps as typeof deps & { now?: () => number }).now = () => {
+      mockNow += 70_000;
+      return mockNow;
+    };
     const factory = makeLightSubagentFactory(deps);
     const r = await factory({
       id: 's1',
@@ -330,6 +336,8 @@ describe('makeLightSubagentFactory', () => {
         content: [{ type: 'text', text: 'ok' }],
         stopReason: 'end_turn',
         usage: { input: 0, output: 0 },
+        // Return ctx.model (post-hop target), not request.model: the wrapper
+        // rebinds request.model internally to the fallback it selected.
         model: r.agent.ctx.model,
       } as never;
     });
@@ -342,10 +350,16 @@ describe('makeLightSubagentFactory', () => {
     expect(r.agent.ctx.model).toBe('backup-m');
     expect(r.agent.ctx.provider.id).toBe('noop');
 
-    // beforeRun is the half-open probe back to the primary. It correctly
-    // declines here — the worker's own model just failed, so it is inside its
-    // cooldown — but it must never drag the worker onto the leader's model.
-    await r.agent.extensions.runBeforeRun(r.agent.ctx as never);
-    expect(r.agent.ctx.model).not.toBe('leader-m');
+    // beforeRun is the half-open probe back to the primary. With `now` pinned
+    // past the cooldown, it ACTUALLY reads `cfg.provider`/`cfg.model` and
+    // restores them — those must be the WORKER's pinned pair (`worker-m`/`alt`),
+    // never the leader's (`leader-m`/`noop`). This is the independent regression
+    // check for the worker-vs-leader-pin bug.
+    await r.agent.extensions.runBeforeRun(
+      r.agent.ctx as never,
+      { content: [], text: '', ctx: r.agent.ctx } as unknown as UserInputPayload,
+    );
+    expect(r.agent.ctx.model).toBe('worker-m');
+    expect(r.agent.ctx.provider.id).toBe('alt');
   });
 });

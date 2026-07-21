@@ -1,26 +1,48 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const execFileSyncMock = vi.fn();
-const mkdirSyncMock = vi.fn();
-const writeFileSyncMock = vi.fn();
+const { execFileBehavior, execFileMock, mkdirMock, writeFileMock } = vi.hoisted(() => {
+  const behavior = vi.fn();
+  const execFile = vi.fn(
+    (
+      command: string,
+      args: string[],
+      options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      try {
+        callback(null, behavior(command, args, options), '');
+      } catch (error) {
+        callback(error as Error, '', '');
+      }
+      return {};
+    },
+  );
+  return {
+    execFileBehavior: behavior,
+    execFileMock: execFile,
+    mkdirMock: vi.fn(async () => undefined),
+    writeFileMock: vi.fn(async () => undefined),
+  };
+});
 
 vi.mock('node:child_process', async (orig) => ({
   ...(await orig<typeof import('node:child_process')>()),
-  execFileSync: (...a: unknown[]) => execFileSyncMock(...a),
+  execFile: execFileMock,
 }));
 
-vi.mock('node:fs', async (orig) => ({
-  ...(await orig<typeof import('node:fs')>()),
-  mkdirSync: (...a: unknown[]) => mkdirSyncMock(...a),
-  writeFileSync: (...a: unknown[]) => writeFileSyncMock(...a),
+vi.mock('node:fs/promises', async (orig) => ({
+  ...(await orig<typeof import('node:fs/promises')>()),
+  mkdir: mkdirMock,
+  writeFile: writeFileMock,
 }));
 
 import { extractRefs } from '../src/codebase-index/refs-extractor.js';
 
 beforeEach(() => {
-  execFileSyncMock.mockReset();
-  mkdirSyncMock.mockReset();
-  writeFileSyncMock.mockReset();
+  execFileBehavior.mockReset();
+  execFileMock.mockClear();
+  mkdirMock.mockReset().mockResolvedValue(undefined);
+  writeFileMock.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -29,7 +51,7 @@ describe('extractRefs language dispatch', () => {
     for (const lang of ['ts', 'tsx', 'js', 'jsx'] as const) {
       expect(await extractRefs({ file: 'a.ts', content: 'x', lang })).toEqual([]);
     }
-    expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(execFileBehavior).not.toHaveBeenCalled();
   });
 
   it('returns [] for unsupported languages', async () => {
@@ -39,12 +61,12 @@ describe('extractRefs language dispatch', () => {
 
 describe('extractRefs go', () => {
   it('parses go runner JSON output into Ref[]', async () => {
-    execFileSyncMock.mockReturnValue(
+    execFileBehavior.mockReturnValue(
       JSON.stringify([{ toName: 'fmt.Println', callType: 'call', line: 3 }]),
     );
     const refs = await extractRefs({ file: 'main.go', content: '', lang: 'go' });
     expect(refs).toEqual([{ fromId: 0, toName: 'fmt.Println', callType: 'call', line: 3 }]);
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+    expect(execFileBehavior).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining('refs.exe'),
       ['main.go'],
@@ -53,17 +75,17 @@ describe('extractRefs go', () => {
   });
 
   it('returns [] when the runner emits empty output', async () => {
-    execFileSyncMock.mockReturnValue('   ');
+    execFileBehavior.mockReturnValue('   ');
     expect(await extractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
   });
 
   it('returns [] when the runner output is not valid JSON', async () => {
-    execFileSyncMock.mockReturnValue('not json');
+    execFileBehavior.mockReturnValue('not json');
     expect(await extractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
   });
 
   it('returns [] when the runner throws', async () => {
-    execFileSyncMock.mockImplementation(() => {
+    execFileBehavior.mockImplementation(() => {
       throw new Error('go not installed');
     });
     expect(await extractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
@@ -72,7 +94,7 @@ describe('extractRefs go', () => {
   it('caches a failed compilation while retaining the go run fallback', async () => {
     vi.resetModules();
     const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
-    execFileSyncMock.mockImplementation((command: string, args: string[]) => {
+    execFileBehavior.mockImplementation((command: string, args: string[]) => {
       if (command === 'go' && args[0] === 'build') throw new Error('compiler unavailable');
       return '[]';
     });
@@ -80,17 +102,17 @@ describe('extractRefs go', () => {
     await freshExtractRefs({ file: 'first.go', content: '', lang: 'go' });
     await freshExtractRefs({ file: 'second.go', content: '', lang: 'go' });
 
-    const buildCalls = execFileSyncMock.mock.calls.filter(
+    const buildCalls = execFileBehavior.mock.calls.filter(
       ([command, args]) => command === 'go' && (args as string[])[0] === 'build',
     );
     expect(buildCalls).toHaveLength(1);
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+    expect(execFileBehavior).toHaveBeenNthCalledWith(
       2,
       'go',
       ['run', expect.stringContaining('refs.go'), 'first.go'],
       expect.any(Object),
     );
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+    expect(execFileBehavior).toHaveBeenNthCalledWith(
       3,
       'go',
       ['run', expect.stringContaining('refs.go'), 'second.go'],
@@ -101,18 +123,16 @@ describe('extractRefs go', () => {
   it('returns [] when Go helper initialization fails', async () => {
     vi.resetModules();
     const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
-    mkdirSyncMock.mockImplementation(() => {
-      throw new Error('temp directory unavailable');
-    });
+    mkdirMock.mockRejectedValue(new Error('temp directory unavailable'));
 
     expect(await freshExtractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
-    expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(execFileBehavior).not.toHaveBeenCalled();
   });
 });
 
 describe('extractRefs python', () => {
   it('parses python runner JSON output into Ref[]', async () => {
-    execFileSyncMock.mockReturnValue(
+    execFileBehavior.mockReturnValue(
       JSON.stringify([{ toName: 'os.path', callType: 'import', line: 1 }]),
     );
     const refs = await extractRefs({ file: 'a.py', content: '', lang: 'py' });
@@ -120,12 +140,12 @@ describe('extractRefs python', () => {
   });
 
   it('returns [] on empty python output', async () => {
-    execFileSyncMock.mockReturnValue('');
+    execFileBehavior.mockReturnValue('');
     expect(await extractRefs({ file: 'a.py', content: '', lang: 'py' })).toEqual([]);
   });
 
   it('returns [] when the python runner throws', async () => {
-    execFileSyncMock.mockImplementation(() => {
+    execFileBehavior.mockImplementation(() => {
       throw new Error('python missing');
     });
     expect(await extractRefs({ file: 'a.py', content: '', lang: 'py' })).toEqual([]);
@@ -134,11 +154,9 @@ describe('extractRefs python', () => {
   it('returns [] when Python helper initialization fails', async () => {
     vi.resetModules();
     const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
-    writeFileSyncMock.mockImplementation(() => {
-      throw new Error('temp script unavailable');
-    });
+    writeFileMock.mockRejectedValue(new Error('temp script unavailable'));
 
     expect(await freshExtractRefs({ file: 'a.py', content: '', lang: 'py' })).toEqual([]);
-    expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(execFileBehavior).not.toHaveBeenCalled();
   });
 });

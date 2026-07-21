@@ -1,11 +1,12 @@
-import type { WebSocket } from 'ws';
-import { describe, expect, it, vi } from 'vitest';
 import type { ResolvedProvider } from '@wrongstack/core';
-import { handleProviderRoute, type ProviderRouteHandlers } from '@wrongstack/webui-server';
 import {
+  handleProviderRoute,
+  type ProviderRouteHandlers,
   resolveProviderCatalogForModels,
   resolveProviderModelMetadata,
 } from '@wrongstack/webui-server';
+import { describe, expect, it, vi } from 'vitest';
+import type { WebSocket } from 'ws';
 
 function mockWs() {
   return {
@@ -15,7 +16,10 @@ function mockWs() {
 }
 
 function sentMessages(ws: ReturnType<typeof mockWs>) {
-  return ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { success?: boolean; message?: string } });
+  return ws.send.mock.calls.map(
+    ([raw]) =>
+      JSON.parse(String(raw)) as { type: string; payload: { success?: boolean; message?: string } },
+  );
 }
 
 function provider(id: string, modelIds: string[]): ResolvedProvider {
@@ -35,6 +39,7 @@ function routes(): ProviderRouteHandlers {
     listProviderModels: vi.fn(async () => undefined),
     switchModel: vi.fn(async () => undefined),
     refineModel: vi.fn(async () => undefined),
+    adoptDefaultProviderIfUnset: vi.fn(async () => undefined),
     providerHandlers: {
       loadConfigProviders: vi.fn(async () => ({})),
       handleKeyUpsert: vi.fn(async () => undefined),
@@ -46,6 +51,9 @@ function routes(): ProviderRouteHandlers {
       handleProviderUndoClear: vi.fn(async () => undefined),
       handleProviderUpdate: vi.fn(async () => undefined),
       handleProviderProbe: vi.fn(async () => undefined),
+      handleOAuthStart: vi.fn(async () => undefined),
+      handleOAuthCode: vi.fn(async () => undefined),
+      handleOAuthCancel: vi.fn(),
     } as never as ProviderRouteHandlers['providerHandlers'],
   };
 }
@@ -55,7 +63,9 @@ describe('handleProviderRoute malformed payload characterization', () => {
     const ws = mockWs();
     const deps = routes();
 
-    await expect(handleProviderRoute(ws, { type: 'sessions.list', payload: {} }, deps)).resolves.toBe(false);
+    await expect(
+      handleProviderRoute(ws, { type: 'sessions.list', payload: {} }, deps),
+    ).resolves.toBe(false);
 
     expect(ws.send).not.toHaveBeenCalled();
   });
@@ -109,6 +119,25 @@ describe('handleProviderRoute malformed payload characterization', () => {
     expect(deps.providerHandlers.handleProviderRemove).toHaveBeenCalledWith(ws, 'custom');
     expect(ws.send).not.toHaveBeenCalled();
   });
+
+  it('preserves the optional custom provider id for OAuth login', async () => {
+    const ws = mockWs();
+    const deps = routes();
+
+    await expect(
+      handleProviderRoute(
+        ws,
+        { type: 'auth.oauth.start', payload: { kind: 'chatgpt', providerId: 'custom-openai' } },
+        deps,
+      ),
+    ).resolves.toBe(true);
+
+    expect(deps.providerHandlers.handleOAuthStart).toHaveBeenCalledWith(
+      ws,
+      'chatgpt',
+      'custom-openai',
+    );
+  });
 });
 
 describe('resolveProviderCatalogForModels', () => {
@@ -119,11 +148,9 @@ describe('resolveProviderCatalogForModels', () => {
       return undefined;
     });
 
-    const resolved = await resolveProviderCatalogForModels(
-      { getProvider },
-      'omniroute',
-      { type: 'openai-compatible' },
-    );
+    const resolved = await resolveProviderCatalogForModels({ getProvider }, 'omniroute', {
+      type: 'openai-compatible',
+    });
 
     expect(resolved?.id).toBe('omniroute');
     expect(resolved?.models.map((m) => m.id)).toEqual(['omni/large', 'omni/small']);
@@ -137,11 +164,9 @@ describe('resolveProviderCatalogForModels', () => {
       return undefined;
     });
 
-    const resolved = await resolveProviderCatalogForModels(
-      { getProvider },
-      'custom-gateway',
-      { type: 'openai-compatible' },
-    );
+    const resolved = await resolveProviderCatalogForModels({ getProvider }, 'custom-gateway', {
+      type: 'openai-compatible',
+    });
 
     expect(resolved?.id).toBe('openai-compatible');
     expect(resolved?.models.map((m) => m.id)).toEqual(['generic']);
@@ -171,12 +196,9 @@ describe('resolveProviderModelMetadata', () => {
       return undefined;
     });
 
-    const resolved = await resolveProviderModelMetadata(
-      { getModel },
-      'omniroute',
-      'omni/large',
-      { type: 'openai-compatible' },
-    );
+    const resolved = await resolveProviderModelMetadata({ getModel }, 'omniroute', 'omni/large', {
+      type: 'openai-compatible',
+    });
 
     expect(resolved?.providerId).toBe('omniroute');
     expect(resolved?.capabilities.maxContext).toBe(262144);
@@ -196,12 +218,9 @@ describe('resolveProviderModelMetadata', () => {
       return undefined;
     });
 
-    const resolved = await resolveProviderModelMetadata(
-      { getModel },
-      'custom-gateway',
-      'generic',
-      { type: 'openai-compatible' },
-    );
+    const resolved = await resolveProviderModelMetadata({ getModel }, 'custom-gateway', 'generic', {
+      type: 'openai-compatible',
+    });
 
     expect(resolved?.providerId).toBe('openai-compatible');
     expect(resolved?.capabilities.maxContext).toBe(8192);

@@ -27,20 +27,8 @@ export type HqBrowserAuthResult = HqBrowserAuthContext | 'cookie' | undefined;
 // ── Security headers ───────────────────────────────────────────────────────
 
 /**
- * The HQ dashboard is a self-contained HTML document (`hq-dashboard-html.ts`)
- * that loads React + React Flow via dynamic `import()` from `esm.sh` CDN.
- * The inline `<script>` blocks define the full SPA logic, so `'unsafe-inline'`
- * is required — we cannot use hashes because the HTML template injects
- * variable source (tool-input summarizer, tool-diff viewer) at build time.
- *
- * CSP trade-offs:
- * - `script-src 'unsafe-inline'` — unavoidable given the single-file design;
- *   mitigations: the page is served on loopback only, and `connect-src` is
- *   locked to `'self'` so an injected inline script cannot exfiltrate data
- *   via WebSocket to an attacker-controlled server.
- * - CDN URLs are pinned to specific package@version paths rather than bare
- *   origin wildcards, limiting the blast radius if esm.sh is compromised.
- * - `cdn.jsdelivr.net` was previously allowed but is not loaded by HQ.
+ * The only featureful frontend is the packaged, same-origin React SPA.
+ * The missing-assets recovery document contains inline CSS but no script.
  */
 export function setHqSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -55,15 +43,10 @@ export function setHqSecurityHeaders(res: http.ServerResponse): void {
       "object-src 'none'",
       "frame-ancestors 'none'",
       "form-action 'self'",
-      // Inline scripts required (see comment above). CDN URLs are pinned to
-      // specific package@version paths — esm.sh redirects internally to
-      // version-locked subpaths so the pinned paths remain stable.
-      "script-src 'self' 'unsafe-inline' https://esm.sh/react@18.3.1 https://esm.sh/react-dom@18.3.1 https://esm.sh/reactflow@11.11.4 https://esm.sh/dagre@0.8.5",
-      "style-src 'self' 'unsafe-inline' https://esm.sh/reactflow@11.11.4",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' data:",
-      // Locked to same-origin: prevents inline scripts from opening
-      // WebSockets to attacker-controlled servers (data exfiltration).
       "connect-src 'self'",
     ].join('; '),
   );

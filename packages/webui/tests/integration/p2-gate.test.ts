@@ -16,12 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { resolveOnePlugin, resolvePluginEnablement } from '../../src/lib/plugin-enablement.js';
-import {
-  HOT_RELOAD_KEYS,
-  RESTART_REQUIRED_KEYS,
-  classifyReload,
-  diffConfigKeys,
-} from '../../../telegram/src/config-classifier.js';
+import { diffConfigKeys } from '../../../telegram/src/config-classifier.js';
 
 describe('P2.1 — WebUI toggle is a pure projection of canonical config.plugins', () => {
   it('renders every canonical plugin entry as a toggle row', () => {
@@ -75,33 +70,7 @@ describe('P2.1 — WebUI toggle is a pure projection of canonical config.plugins
   });
 });
 
-describe('P2.2 — Telegram config hot-reload classifier is diffusion-safe', () => {
-  it('classifies every key in HOT_RELOAD_KEYS as hot', () => {
-    for (const key of HOT_RELOAD_KEYS) {
-      expect(classifyReload(key)).toBe('hot');
-    }
-  });
-
-  it('classifies every key in RESTART_REQUIRED_KEYS as restart-required', () => {
-    for (const key of RESTART_REQUIRED_KEYS) {
-      expect(classifyReload(key)).toBe('restart-required');
-    }
-  });
-
-  it('the two key sets are disjoint so classification is order-independent', () => {
-    for (const key of HOT_RELOAD_KEYS) {
-      expect(RESTART_REQUIRED_KEYS.has(key)).toBe(false);
-    }
-  });
-
-  it('defaults unknown keys to restart-required so a new field cannot silently be hot', () => {
-    expect(
-      classifyReload(
-        'notARegisteredKey' as keyof typeof HOT_RELOAD_KEYS extends never ? never : never,
-      ),
-    ).toBe('restart-required');
-  });
-
+describe('P2.2 — Telegram config diff classifier is diffusion-safe', () => {
   it('flags a token change as restart-required (transport identity)', () => {
     const diff = diffConfigKeys({ botToken: 'A' } as never, { botToken: 'B' } as never);
     expect(diff).toEqual([{ key: 'botToken', classification: 'restart-required' }]);
@@ -137,17 +106,11 @@ describe('P2 Gate dependency-blocked evidence', () => {
   it('treats the dependency-independent P2.1+P2.2 surface as a stable contract', () => {
     // The two surfaces together cover:
     //   - canonical config.plugins  → effective enablement (P2.1, 5 tests)
-    //   - Telegram settings diff    → hot / restart-required (P2.2, 6 tests)
+    //   - Telegram settings diff    → hot / restart-required (P2.2, 4 tests)
     //   - combined cross-surface    (2 tests above)
-    // Total pinned here: 13 acceptance assertions. Locking them here
+    // Total pinned here: 11 acceptance assertions. Locking them here
     // means a regression in either surface blocks the gate signal
     // independent of whether the larger P2.3/4/6 work has landed.
-    const hot = HOT_RELOAD_KEYS.size;
-    const restart = RESTART_REQUIRED_KEYS.size;
-    expect(hot).toBeGreaterThan(0);
-    expect(restart).toBeGreaterThan(0);
-    // Canonical list sanity: both sets are non-empty and disjoint.
-    expect(hot + restart).toBeGreaterThan(4);
     // resolvePluginEnablement is a pure projection of canonical config:
     const out = resolvePluginEnablement(['telegram'], undefined);
     expect(out).toHaveLength(1);

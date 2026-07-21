@@ -1,0 +1,30 @@
+{
+  "request": {
+    "type": "diag.get"
+  },
+  "response": {
+    "type": "diag.get",
+    "payload": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "cwd": "/proj",
+      "sessionId": "sess-1",
+      "tools": {
+        "count": 2,
+        "names": ["read", "bash"]
+      },
+      "features": {
+        "memory": false,
+        "skills": false,
+        "modelsRegistry": false
+      },
+      "mode": "default",
+      "usage": {
+        "input": 100,
+        "output": 50
+      },
+      "messages": 2,
+      "todos": 1
+    }
+  }
+}

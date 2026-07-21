@@ -10,6 +10,11 @@ describe('package exports', () => {
     const mod = await import('../src/index.js');
     expect(mod.TechStackDetector).toBeDefined();
     expect(mod.defaultTechStackDetector).toBeDefined();
+    expect(mod.gatherFiles).toBeDefined();
+    expect(mod.extractJsonBlock).toBeDefined();
+    expect(mod.parseNodeDependencies).toBeDefined();
+    expect(mod.PackageAuditRunner).toBeDefined();
+    expect(mod.parsePackageAuditOutput).toBeDefined();
     expect(mod.SkillGenerator).toBeDefined();
     expect(mod.defaultSkillGenerator).toBeDefined();
     expect(mod.SecurityScanner).toBeDefined();
@@ -22,5 +27,6 @@ describe('package exports', () => {
     expect(mod.defaultOrchestrator).toBeDefined();
     expect(mod.securitySlashCommand).toBeDefined();
     expect(mod.createSecuritySlashCommand).toBeDefined();
+    expect(mod.runRedactionDiagnostic).toBeDefined();
   });
 });

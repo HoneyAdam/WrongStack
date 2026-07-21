@@ -12,17 +12,12 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SecurityScanner } from '../src/scanner.js';
-import type { GeneratedSkill, TechStackInfo, SecurityPattern } from '../src/types.js';
+import type { GeneratedSkill } from '../src/skill-generator.js';
+import type { TechStackInfo, SecurityPattern } from '../src/types.js';
 
 describe('SecurityScanner - edge coverage', () => {
-  let _scanner: SecurityScanner;
-
-  beforeEach(() => {
-    _scanner = new SecurityScanner();
-  });
-
   const createMockSkill = (patterns: SecurityPattern[]): GeneratedSkill => ({
     name: 'security-scanner-test',
     description: 'Test security scanner',
@@ -47,21 +42,27 @@ describe('SecurityScanner - edge coverage', () => {
 
   // ── matchesCategory: injection pattern-id branch ───────────────────────────
   it('matches patterns with injection id when includeInjection=true', async () => {
-    const s = new SecurityScanner({ includeInjection: true, includeSecrets: false, includeConfig: false });
+    const s = new SecurityScanner({
+      includeInjection: true,
+      includeSecrets: false,
+      includeConfig: false,
+    });
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-sc-inj-'));
     const testFile = path.join(tmpDir, 'code.ts');
     await fs.writeFile(testFile, 'eval(something);\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'eval-injection-test',
-      name: 'Eval Injection',
-      severity: 'critical',
-      description: 'Tests eval injection branch',
-      patterns: [/eval\s*\(/g],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Avoid eval',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'eval-injection-test',
+        name: 'Eval Injection',
+        severity: 'critical',
+        description: 'Tests eval injection branch',
+        patterns: [/eval\s*\(/g],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Avoid eval',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.length).toBeGreaterThan(0);
@@ -70,21 +71,27 @@ describe('SecurityScanner - edge coverage', () => {
 
   // ── matchesCategory: config pattern-id branch ─────────────────────────────
   it('matches patterns with config/tls/debug id when includeConfig=true', async () => {
-    const s = new SecurityScanner({ includeConfig: true, includeSecrets: false, includeInjection: false });
+    const s = new SecurityScanner({
+      includeConfig: true,
+      includeSecrets: false,
+      includeInjection: false,
+    });
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-sc-cfg-'));
     const testFile = path.join(tmpDir, 'settings.ts');
     await fs.writeFile(testFile, 'const debug = true;\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'debug-enabled-config',
-      name: 'Debug Enabled',
-      severity: 'medium',
-      description: 'Tests config branch',
-      patterns: [/debug\s*=\s*true/gi],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Disable debug',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'debug-enabled-config',
+        name: 'Debug Enabled',
+        severity: 'medium',
+        description: 'Tests config branch',
+        patterns: [/debug\s*=\s*true/gi],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Disable debug',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.length).toBeGreaterThan(0);
@@ -98,16 +105,18 @@ describe('SecurityScanner - edge coverage', () => {
     const testFile = path.join(tmpDir, 'deps.ts');
     await fs.writeFile(testFile, 'some dependency issue\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'dependency-unknown-package',
-      name: 'Unknown Package',
-      severity: 'high',
-      description: 'Unregistered dependency',
-      patterns: [/dependency issue/gi],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Vet the package',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'dependency-unknown-package',
+        name: 'Unknown Package',
+        severity: 'high',
+        description: 'Unregistered dependency',
+        patterns: [/dependency issue/gi],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Vet the package',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.some((f) => f.category === 'dependency')).toBe(true);
@@ -121,16 +130,18 @@ describe('SecurityScanner - edge coverage', () => {
     const testFile = path.join(tmpDir, 'thing.ts');
     await fs.writeFile(testFile, 'some random issue\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'unknown-category-thing',
-      name: 'Misc',
-      severity: 'low',
-      description: 'Fallback category',
-      patterns: [/random issue/gi],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Fix it',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'unknown-category-thing',
+        name: 'Misc',
+        severity: 'low',
+        description: 'Fallback category',
+        patterns: [/random issue/gi],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Fix it',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.some((f) => f.category === 'filesystem')).toBe(true);
@@ -182,16 +193,18 @@ describe('SecurityScanner - edge coverage', () => {
     // On Windows, just use a non-existent file via gatherFiles pointing at it
     await fs.writeFile(path.join(tmpDir, 'valid.ts'), 'const x = 1;\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'test',
-      name: 'Test',
-      severity: 'low',
-      description: 'Test',
-      patterns: [/x\s*=\s*1/],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Fix',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'test',
+        name: 'Test',
+        severity: 'low',
+        description: 'Test',
+        patterns: [/x\s*=\s*1/],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Fix',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     // Should at least not crash and valid.ts should be scanned
@@ -206,16 +219,18 @@ describe('SecurityScanner - edge coverage', () => {
     const testFile = path.join(tmpDir, 'creds.ts');
     await fs.writeFile(testFile, 'API_KEY = "abcdefghijklmnopqrst1234";\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'hardcoded-secret-in-config',
-      name: 'Hardcoded Secret',
-      severity: 'critical',
-      description: 'Secret in code',
-      patterns: [/(?:api[_-]?key)[^\w]*[=:]\s*["']([a-zA-Z0-9]{20,})["']/gi],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Use env vars',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'hardcoded-secret-in-config',
+        name: 'Hardcoded Secret',
+        severity: 'critical',
+        description: 'Secret in code',
+        patterns: [/(?:api[_-]?key)[^\w]*[=:]\s*["']([a-zA-Z0-9]{20,})["']/gi],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Use env vars',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     // Since includeSecrets is false and the pattern id contains 'secret',
@@ -232,16 +247,18 @@ describe('SecurityScanner - edge coverage', () => {
     await fs.writeFile(path.join(tmpDir, 'test.js'), 'password = "other";\n');
     await fs.writeFile(path.join(tmpDir, 'test.txt'), 'password = "txt";\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'password-check',
-      name: 'Password',
-      severity: 'critical',
-      description: 'Check passwords',
-      patterns: [/password\s*=\s*["'][^"']+["']/gi],
-      fileExtensions: ['.ts', '.js'],  // .txt excluded
-      falsePositiveMarkers: [],
-      remediation: 'Fix',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'password-check',
+        name: 'Password',
+        severity: 'critical',
+        description: 'Check passwords',
+        patterns: [/password\s*=\s*["'][^"']+["']/gi],
+        fileExtensions: ['.ts', '.js'], // .txt excluded
+        falsePositiveMarkers: [],
+        remediation: 'Fix',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     // .ts file should produce findings, .txt should not
@@ -263,16 +280,18 @@ describe('SecurityScanner - edge coverage', () => {
 
     // This test can only verify the exclude path logic indirectly
     // The scanner won't even attempt to read files in node_modules
-    const patterns: SecurityPattern[] = [{
-      id: 'test',
-      name: 'Test',
-      severity: 'low',
-      description: 'Test',
-      patterns: [/password/],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Fix',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'test',
+        name: 'Test',
+        severity: 'low',
+        description: 'Test',
+        patterns: [/password/],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Fix',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     const badFindings = result.findings.filter((f) => f.file.includes('node_modules'));
@@ -282,21 +301,27 @@ describe('SecurityScanner - edge coverage', () => {
 
   // ── tls pattern in matchesCategory (second branch of config) ───────────────
   it('matches config pattern with tls id', async () => {
-    const s = new SecurityScanner({ includeConfig: true, includeSecrets: false, includeInjection: false });
+    const s = new SecurityScanner({
+      includeConfig: true,
+      includeSecrets: false,
+      includeInjection: false,
+    });
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-sc-tls-'));
     const testFile = path.join(tmpDir, 'server.ts');
     await fs.writeFile(testFile, 'rejectUnauthorized = false;\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'insecure-tls-config',
-      name: 'Insecure TLS',
-      severity: 'high',
-      description: 'TLS misconfig',
-      patterns: [/rejectUnauthorized\s*=\s*false/g],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Enable TLS',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'insecure-tls-config',
+        name: 'Insecure TLS',
+        severity: 'high',
+        description: 'TLS misconfig',
+        patterns: [/rejectUnauthorized\s*=\s*false/g],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Enable TLS',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.length).toBeGreaterThan(0);
@@ -310,16 +335,18 @@ describe('SecurityScanner - edge coverage', () => {
     const testFile = path.join(tmpDir, 'config.ts');
     await fs.writeFile(testFile, 'const apiKey = process.env.API_KEY;\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'secret-hardcoded',
-      name: 'Secret',
-      severity: 'critical',
-      description: 'Secret detection',
-      patterns: [/(?:api[_-]?key)[^\w]*[=:]\s*["']([a-zA-Z0-9]{20,})["']/gi],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: ['process.env'],
-      remediation: 'Use env vars',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'secret-hardcoded',
+        name: 'Secret',
+        severity: 'critical',
+        description: 'Secret detection',
+        patterns: [/(?:api[_-]?key)[^\w]*[=:]\s*["']([a-zA-Z0-9]{20,})["']/gi],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: ['process.env'],
+        remediation: 'Use env vars',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     // The regex won't match 'process.env.API_KEY' since the regex requires
@@ -336,23 +363,23 @@ describe('SecurityScanner - edge coverage', () => {
     const testFile = path.join(tmpDir, 'secrets.ts');
     await fs.writeFile(testFile, 'const apiKey = "abcdefghijklmnopqrst1234";\n');
 
-    const patterns: SecurityPattern[] = [{
-      id: 'env-file-exposed',
-      name: 'Env Secret',
-      severity: 'critical',
-      description: 'Env file secret',
-      patterns: [/apiKey\s*=\s*["'][a-zA-Z0-9_]{20,}["']/g],
-      fileExtensions: ['.ts'],
-      falsePositiveMarkers: [],
-      remediation: 'Remove from env',
-    }];
+    const patterns: SecurityPattern[] = [
+      {
+        id: 'env-file-exposed',
+        name: 'Env Secret',
+        severity: 'critical',
+        description: 'Env file secret',
+        patterns: [/apiKey\s*=\s*["'][a-zA-Z0-9_]{20,}["']/g],
+        fileExtensions: ['.ts'],
+        falsePositiveMarkers: [],
+        remediation: 'Remove from env',
+      },
+    ];
     const skill = createMockSkill(patterns);
     const result = await s.scan(tmpDir, skill, createMockTechStack());
     expect(result.findings.length).toBeGreaterThan(0);
     // The pattern id 'env-file-exposed' contains 'env' which matchesCategory
-    // maps to secrets (includeSecrets=true), but getCategoryFromPattern
-    // doesn't have an 'env' mapping, so it falls through to 'filesystem'.
-    expect(result.findings[0].category).toBe('filesystem');
+    expect(result.findings[0]!.category).toBe('secrets');
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 });

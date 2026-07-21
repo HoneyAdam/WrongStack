@@ -4,7 +4,7 @@ import type { ProviderConfig } from '@wrongstack/core/types';
 import { loadConfigProviders, mutateConfigProviders } from '../provider-config-utils.js';
 
 // Re-export the provider-record transforms the webui handlers need, so
-// callers (ws-handlers/providers.ts) have a single import surface for
+// callers have a single import surface for
 // "webui provider config" instead of juggling this module *and*
 // ../provider-config-utils.js. The transforms themselves stay in the
 // broadly-shared provider-config-utils.js (auth-menu, slash-commands,

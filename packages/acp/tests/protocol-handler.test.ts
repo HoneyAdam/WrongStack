@@ -6,13 +6,14 @@
  * be exercised without spawning any real agent or subprocess.
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentServerTransport } from '../src/agent/stdio-transport.js';
+import packageJson from '../package.json' with { type: 'json' };
 import {
   ACPProtocolHandler,
-  WRONGSTACK_VERSION,
   type RunTurn,
   type RunTurnResult,
+  WRONGSTACK_VERSION,
 } from '../src/agent/protocol-handler.js';
+import type { AgentServerTransport } from '../src/agent/stdio-transport.js';
 
 interface FakeTransport {
   sent: unknown[];
@@ -44,10 +45,10 @@ const ABORTING_RUN_TURN: RunTurn = async (input) => {
   });
 };
 
-function makeHandler(opts: {
-  runTurn?: RunTurn;
-  defaultCwd?: string;
-} = {}): { handler: ACPProtocolHandler; transport: FakeTransport } {
+function makeHandler(opts: { runTurn?: RunTurn; defaultCwd?: string } = {}): {
+  handler: ACPProtocolHandler;
+  transport: FakeTransport;
+} {
   const transport = fakeTransport();
   const handler = new ACPProtocolHandler({
     transport: transport as never as AgentServerTransport,
@@ -58,6 +59,9 @@ function makeHandler(opts: {
 }
 
 describe('ACPProtocolHandler', () => {
+  it('reports the package version instead of a hand-maintained protocol constant', () => {
+    expect(WRONGSTACK_VERSION).toBe(packageJson.version);
+  });
   describe('initialization', () => {
     it('returns v1 capabilities with full session and auth support', async () => {
       const { handler, transport } = makeHandler();
@@ -137,7 +141,10 @@ describe('ACPProtocolHandler', () => {
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/proj' } });
 
       expect(transport.sent.length).toBe(2);
-      const note = transport.sent[0] as { method?: string; params?: { update?: { sessionUpdate?: string; modeId?: string } } };
+      const note = transport.sent[0] as {
+        method?: string;
+        params?: { update?: { sessionUpdate?: string; modeId?: string } };
+      };
       expect(note.method).toBe('session/update');
       expect(note.params?.update?.sessionUpdate).toBe('current_mode_update');
       expect(note.params?.update?.modeId).toBe('code');
@@ -151,9 +158,11 @@ describe('ACPProtocolHandler', () => {
     it('creates a distinct session and seeds it with the source history', async () => {
       const transport = fakeTransport();
       const histories = new Map<string, Array<{ sessionUpdate: string; content: unknown }>>();
-      const seedFor = vi.fn((sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => {
-        histories.set(sessionId, history);
-      });
+      const seedFor = vi.fn(
+        (sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => {
+          histories.set(sessionId, history);
+        },
+      );
       const save = vi.fn().mockResolvedValue(undefined);
       const handler = new ACPProtocolHandler({
         transport: transport as never as AgentServerTransport,
@@ -165,7 +174,8 @@ describe('ACPProtocolHandler', () => {
       });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/source' } });
-      const sourceId = (transport.sent.at(-1) as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sourceId = (transport.sent.at(-1) as { result?: { sessionId?: string } }).result
+        ?.sessionId!;
       histories.set(sourceId, [
         { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hello' } },
         { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'world' } },
@@ -206,12 +216,20 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
-      await handler.handleMessage({ id: 3, method: 'session/load', params: { sessionId, cwd: '/x' } });
+      await handler.handleMessage({
+        id: 3,
+        method: 'session/load',
+        params: { sessionId, cwd: '/x' },
+      });
       expect(transport.sent.length).toBeGreaterThanOrEqual(1);
-      const resp = transport.sent[transport.sent.length - 1] as { result?: { initialMode?: { currentModeId?: string } } };
+      const resp = transport.sent[transport.sent.length - 1] as {
+        result?: { initialMode?: { currentModeId?: string } };
+      };
       expect(resp.result?.initialMode?.currentModeId).toBe('code');
     });
 
@@ -219,7 +237,11 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       transport.sent.length = 0;
-      await handler.handleMessage({ id: 2, method: 'session/load', params: { sessionId: 'sess_nonexist', cwd: '/x' } });
+      await handler.handleMessage({
+        id: 2,
+        method: 'session/load',
+        params: { sessionId: 'sess_nonexist', cwd: '/x' },
+      });
       const resp = transport.sent[0] as { error?: { code: number } };
       expect(resp.error?.code).toBe(-32000);
     });
@@ -230,11 +252,19 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
-      await handler.handleMessage({ id: 3, method: 'session/resume', params: { sessionId, cwd: '/x' } });
-      const resp = transport.sent[transport.sent.length - 1] as { result?: { initialMode?: { currentModeId?: string } } };
+      await handler.handleMessage({
+        id: 3,
+        method: 'session/resume',
+        params: { sessionId, cwd: '/x' },
+      });
+      const resp = transport.sent[transport.sent.length - 1] as {
+        result?: { initialMode?: { currentModeId?: string } };
+      };
       expect(resp.result?.initialMode?.currentModeId).toBe('code');
     });
 
@@ -242,7 +272,11 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       transport.sent.length = 0;
-      await handler.handleMessage({ id: 2, method: 'session/resume', params: { sessionId: 'sess_nonexist', cwd: '/x' } });
+      await handler.handleMessage({
+        id: 2,
+        method: 'session/resume',
+        params: { sessionId: 'sess_nonexist', cwd: '/x' },
+      });
       const resp = transport.sent[0] as { error?: { code: number } };
       expect(resp.error?.code).toBe(-32000);
     });
@@ -253,7 +287,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({ id: 3, method: 'session/close', params: { sessionId } });
@@ -271,7 +307,11 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       transport.sent.length = 0;
-      await handler.handleMessage({ id: 2, method: 'session/close', params: { sessionId: 'sess_nonexist' } });
+      await handler.handleMessage({
+        id: 2,
+        method: 'session/close',
+        params: { sessionId: 'sess_nonexist' },
+      });
       const resp = transport.sent[0] as { error?: { code: number } };
       expect(resp.error?.code).toBe(-32000);
     });
@@ -282,7 +322,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({ id: 3, method: 'session/delete', params: { sessionId } });
@@ -317,7 +359,9 @@ describe('ACPProtocolHandler', () => {
 
       transport.sent.length = 0;
       await handler.handleMessage({ id: 3, method: 'session/new', params: { cwd: '/x' } });
-      const newResp = transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } };
+      const newResp = transport.sent[transport.sent.length - 1] as {
+        result?: { sessionId?: string };
+      };
       const newId = newResp.result?.sessionId;
       transport.sent.length = 0;
       await handler.handleMessage({ id: 4, method: 'session/list' });
@@ -331,7 +375,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({
@@ -339,7 +385,9 @@ describe('ACPProtocolHandler', () => {
         method: 'session/prompt',
         params: { sessionId, prompt: [{ type: 'text', text: 'hi' }] },
       });
-      const resp = transport.sent[transport.sent.length - 1] as { result?: { stopReason?: string } };
+      const resp = transport.sent[transport.sent.length - 1] as {
+        result?: { stopReason?: string };
+      };
       expect(resp.result?.stopReason).toBe('end_turn');
     });
 
@@ -358,7 +406,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler({ runTurn: streamingRunTurn });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({
@@ -381,7 +431,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler({ runTurn: ABORTING_RUN_TURN });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       // Kick off a turn without awaiting
@@ -396,7 +448,9 @@ describe('ACPProtocolHandler', () => {
       await handler.handleMessage({ method: 'session/cancel', params: { sessionId } });
       // Now wait for the turn to resolve
       await turnDone;
-      const resp = transport.sent[transport.sent.length - 1] as { result?: { stopReason?: string } };
+      const resp = transport.sent[transport.sent.length - 1] as {
+        result?: { stopReason?: string };
+      };
       expect(resp.result?.stopReason).toBe('cancelled');
     });
 
@@ -419,7 +473,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({
@@ -436,7 +492,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       await handler.handleMessage({
@@ -454,18 +512,26 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler({ runTurn: ABORTING_RUN_TURN });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       // Send session/cancel notification
-      const result = await handler.handleMessage({ method: 'session/cancel', params: { sessionId } });
+      const result = await handler.handleMessage({
+        method: 'session/cancel',
+        params: { sessionId },
+      });
       expect(result).toBe(false);
     });
 
     it('handles session/cancel for a non-existent session without error', async () => {
       const { handler } = makeHandler();
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
-      const result = await handler.handleMessage({ method: 'session/cancel', params: { sessionId: 'nonexistent' } });
+      const result = await handler.handleMessage({
+        method: 'session/cancel',
+        params: { sessionId: 'nonexistent' },
+      });
       expect(result).toBe(false);
     });
 
@@ -522,13 +588,20 @@ describe('ACPProtocolHandler', () => {
       });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
-      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result
+        ?.sessionId!;
       ft.sent.length = 0;
 
-      await handler.handleMessage({ id: 3, method: 'session/prompt', params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] } });
+      await handler.handleMessage({
+        id: 3,
+        method: 'session/prompt',
+        params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] },
+      });
 
       // The handler catches the throw and sends a JSON-RPC error response
-      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as { error?: { code?: number; message?: string; data?: unknown } } | undefined;
+      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as
+        | { error?: { code?: number; message?: string; data?: unknown } }
+        | undefined;
       // The runTurn throw hits the catch in handleRequest → errorToJsonRpc extracts
       // the code+message+data from the thrown object (line 1048 path)
       expect(errorResp?.error?.code).toBe(-32001);
@@ -548,13 +621,20 @@ describe('ACPProtocolHandler', () => {
       });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
-      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sid = (ft.sent[ft.sent.length - 1] as { result?: { sessionId?: string } }).result
+        ?.sessionId!;
       ft.sent.length = 0;
 
-      await handler.handleMessage({ id: 3, method: 'session/prompt', params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] } });
+      await handler.handleMessage({
+        id: 3,
+        method: 'session/prompt',
+        params: { sessionId: sid, prompt: [{ type: 'text', text: 'hi' }] },
+      });
 
       // Plain Error has no code property → maps to -32603 (line 1056 path)
-      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as { error?: { code?: number; message?: string } } | undefined;
+      const errorResp = ft.sent.find((m) => (m as { id?: number }).id === 3) as
+        | { error?: { code?: number; message?: string } }
+        | undefined;
       expect(errorResp?.error?.code).toBe(-32603);
       expect(errorResp?.error?.message).toBe('generic failure');
     });
@@ -576,7 +656,9 @@ describe('ACPProtocolHandler', () => {
       const { handler, transport } = makeHandler({ runTurn: ABORTING_RUN_TURN });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/x' } });
-      const sessionId = (transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (
+        transport.sent[transport.sent.length - 1] as { result?: { sessionId?: string } }
+      ).result?.sessionId!;
       transport.sent.length = 0;
 
       // Kick off a turn without awaiting
@@ -600,8 +682,13 @@ describe('ACPProtocolHandler', () => {
       const sent: unknown[] = [];
       const transport = {
         sent,
-        send: vi.fn(async (m: unknown) => { sent.push(m); }),
-        onMessage: (h: (m: unknown) => void) => { onMsg = h; return () => {}; },
+        send: vi.fn(async (m: unknown) => {
+          sent.push(m);
+        }),
+        onMessage: (h: (m: unknown) => void) => {
+          onMsg = h;
+          return () => {};
+        },
       };
 
       let observedOutcome: unknown;
@@ -624,12 +711,14 @@ describe('ACPProtocolHandler', () => {
       });
       await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
-      const sessionId = (sent[sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (sent[sent.length - 1] as { result?: { sessionId?: string } }).result
+        ?.sessionId!;
       sent.length = 0;
 
       // Kick off the turn without awaiting — it parks on requestPermission.
       const turnDone = handler.handleMessage({
-        id: 3, method: 'session/prompt',
+        id: 3,
+        method: 'session/prompt',
         params: { sessionId, prompt: [{ type: 'text', text: 'edit' }] },
       });
       await new Promise((r) => setImmediate(r));
@@ -642,7 +731,10 @@ describe('ACPProtocolHandler', () => {
       expect(req?.params?.toolCall).toMatchObject({ toolCallId: 'tc1' });
 
       // Simulate the client's response, routed via onMessage.
-      onMsg?.({ id: req!.id, result: { outcome: { outcome: 'selected', optionId: 'allow_once' } } });
+      onMsg?.({
+        id: req!.id,
+        result: { outcome: { outcome: 'selected', optionId: 'allow_once' } },
+      });
       await turnDone;
 
       expect(observedOutcome).toEqual({ outcome: 'selected', optionId: 'allow_once' });
@@ -653,8 +745,13 @@ describe('ACPProtocolHandler', () => {
       const sent: unknown[] = [];
       const transport = {
         sent,
-        send: vi.fn(async (m: unknown) => { sent.push(m); }),
-        onMessage: (h: (m: unknown) => void) => { onMsg = h; return () => {}; },
+        send: vi.fn(async (m: unknown) => {
+          sent.push(m);
+        }),
+        onMessage: (h: (m: unknown) => void) => {
+          onMsg = h;
+          return () => {};
+        },
       };
 
       let content: string | undefined;
@@ -671,22 +768,28 @@ describe('ACPProtocolHandler', () => {
         runTurn,
       });
       await handler.handleMessage({
-        id: 1, method: 'initialize',
-        params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true }, terminal: true } },
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: true }, terminal: true },
+        },
       });
       await handler.handleMessage({ id: 2, method: 'session/new', params: { cwd: '/test' } });
-      const sessionId = (sent[sent.length - 1] as { result?: { sessionId?: string } }).result?.sessionId!;
+      const sessionId = (sent[sent.length - 1] as { result?: { sessionId?: string } }).result
+        ?.sessionId!;
       sent.length = 0;
 
       const turnDone = handler.handleMessage({
-        id: 3, method: 'session/prompt',
+        id: 3,
+        method: 'session/prompt',
         params: { sessionId, prompt: [{ type: 'text', text: 'read it' }] },
       });
       await new Promise((r) => setImmediate(r));
 
-      const req = sent.find(
-        (m) => (m as { method?: string }).method === 'fs/read_text_file',
-      ) as { id: string; params?: { path?: string } } | undefined;
+      const req = sent.find((m) => (m as { method?: string }).method === 'fs/read_text_file') as
+        | { id: string; params?: { path?: string } }
+        | undefined;
       expect(req).toBeDefined();
       expect(req?.params?.path).toBe('/abs/a.ts');
       onMsg?.({ id: req!.id, result: { content: 'file body' } });

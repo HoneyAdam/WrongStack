@@ -86,8 +86,8 @@ function createMockContext(overrides: Partial<RuntimeOperationsContext> = {}): R
     getAgentBridge: () => agentBridge,
     broadcastState: vi.fn(),
     syncActiveWebuiView: vi.fn(),
-    configureApplicationMenu: vi.fn(),
     dispatchWebuiCommand: vi.fn(),
+    chooseProjectRoot: vi.fn(),
     ...overrides,
   };
 }

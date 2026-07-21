@@ -49,6 +49,11 @@ export function tokenize(text: string): string[] {
   )];
 }
 
+/** Canonical text key for memory deduplication and comparison. */
+export function normalizeTextKey(text: string): string {
+  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 export function normalizeTags(tags: string[] | undefined): string[] {
   return [...new Set((tags ?? []).map((tag) => tag.replace(/^#/, '').trim().toLowerCase()).filter(Boolean))];
 }

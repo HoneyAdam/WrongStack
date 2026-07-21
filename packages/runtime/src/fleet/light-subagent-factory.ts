@@ -62,6 +62,12 @@ export interface LightSubagentFactoryDeps {
   projectRoot: string;
   /** Default cwd when a SubagentConfig doesn't pin one (worktree path otherwise). */
   cwd?: string | undefined;
+  /**
+   * Test hook — overrides the fallback extension's `now()` so cooldown
+   * assertions don't depend on real wall-clock time. Production callers
+   * should leave this unset.
+   */
+  now?: (() => number) | undefined;
 }
 
 /**
@@ -215,14 +221,9 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     // provider attempt so WebUI edits/reordering affect active workers.
     agent.extensions.register(
       createFallbackModelExtension({
-        // Live config, but with `provider`/`model` pinned to THIS worker's
-        // assigned target. The extension reads those two fields as "the
-        // primary to prefer and restore to"; handing it the raw store handed
-        // it the LEADER's pair, so after any hop `beforeRun` restored the
-        // worker onto the leader's model and silently kept it there for the
-        // rest of the run — and `primaryTarget` injected the leader's model
-        // ahead of the worker's own `fallbackModels`. Everything else stays
-        // live so WebUI edits to chains/profiles still reach active workers.
+        // Pin provider/model to THIS worker's target so the extension restores
+        // to the worker, not the leader. Other fields stay live so WebUI edits
+        // to chains/profiles still reach active workers.
         getConfig: () =>
           ({ ...configStore.get(), provider: effProvider, model: effModel }) as Config,
         fallbackProfileManager,
@@ -234,6 +235,7 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
           subReasoningConfig = await resolveReasoningConfig(modelsRegistry, id, model);
         },
         events,
+        ...(deps.now ? { now: deps.now } : {}),
       }),
     );
 

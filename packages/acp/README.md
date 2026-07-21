@@ -9,6 +9,20 @@ WebSocket support plus an HTTP server transport. Some optional protocol surfaces
 are intentionally unavailable; see [COMPLIANCE.md](COMPLIANCE.md) for the tested
 surface and current limitations.
 
+## Public entry points
+
+| Import | Authority |
+|---|---|
+| `@wrongstack/acp` | WrongStack's v1 client/server implementation, integrations, and stable v1 contracts |
+| `@wrongstack/acp/client` | Client-only implementation surface |
+| `@wrongstack/acp/agent` | Server/agent-only implementation surface |
+| `@wrongstack/acp/v1` | WrongStack-owned stable v1 protocol contracts only |
+| `@wrongstack/acp/sdk` | Official `@agentclientprotocol/sdk` APIs and experimental transport helpers |
+| `@wrongstack/acp/legacy` | Deprecated pre-v1 draft envelope types; compatibility only |
+
+New code must not import legacy draft contracts from the package root. Use `/v1`
+for protocol types and `/sdk` only when intentionally adopting the upstream SDK.
+
 ## Compliance
 
 The package test suite includes client/server protocol tests and an in-process
@@ -65,11 +79,17 @@ await server.start();
 ### Using the Official SDK (for advanced use cases)
 
 ```typescript
-import { ACPSession, AcpServer, createWebSocketStream } from '@wrongstack/acp/sdk';
+import {
+  AcpServer,
+  AgentApp,
+  createHttpStream,
+  createWebSocketStream,
+} from '@wrongstack/acp/sdk';
 ```
 
 The `/sdk` entry point re-exports the official SDK's public high-level APIs, method
-constants, and experimental Node/WebSocket helpers alongside WrongStack's implementation.
+constants, and experimental HTTP/Node/WebSocket helpers. WrongStack's `ACPSession`
+is intentionally available from the package root or `/client`, not from `/sdk`.
 
 ## Architecture
 

@@ -119,7 +119,7 @@ describe('handleExportSkill', () => {
         return { href: '', download: '', click: clickSpy, style: {} } as never as HTMLAnchorElement;
       }
       return {} as never as HTMLElement;
-    });
+    }) as unknown as typeof document.createElement;
 
     const body = API_DESIGN_BODY;
     const blob = new Blob([body], { type: 'text/markdown' });
@@ -263,7 +263,7 @@ describe('handleExportAll', () => {
         return { href: '', download: '', click: clickSpy, style: {} } as never as HTMLAnchorElement;
       }
       return {} as never as HTMLElement;
-    });
+    }) as unknown as typeof document.createElement;
 
     const response = { zipBase64: '', skillCount: 0, error: 'Skills not enabled' };
 

@@ -135,13 +135,18 @@ describe('POSIX signal safety in tests', () => {
   });
 
   it('keeps WebUI shutdown self-signaling scoped to the current process', () => {
-    // The webui.shutdown case + its process.kill(self, SIGINT) live in
-    // message-dispatcher.ts after the Phase 1b god-module split, now under the
-    // extracted @wrongstack/webui-server package.
-    const file = path.join(repoRoot, 'packages/webui-server/src/server/message-dispatcher.ts');
-    const text = readFileSync(file, 'utf8');
+    // Routing and execution live in separate modules after the host-route
+    // extraction. Guard both ends so a shutdown request remains claimed and
+    // can only signal the current process.
+    const routeFile = path.join(repoRoot, 'packages/webui-server/src/server/host-routes.ts');
+    const dispatcherFile = path.join(
+      repoRoot,
+      'packages/webui-server/src/server/message-dispatcher.ts',
+    );
+    const routeText = readFileSync(routeFile, 'utf8');
+    const dispatcherText = readFileSync(dispatcherFile, 'utf8');
 
-    expect(text).toContain("case 'webui.shutdown'");
-    expect(text).toContain("process.kill(process.pid, 'SIGINT')");
+    expect(routeText).toContain("case 'webui.shutdown'");
+    expect(dispatcherText).toContain("process.kill(process.pid, 'SIGINT')");
   });
 });

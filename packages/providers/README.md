@@ -12,6 +12,12 @@ pnpm add @wrongstack/providers @wrongstack/core
 
 `@wrongstack/core` provides the shared `Provider` interface, message types, capabilities model, and tool format.
 
+## Provider definition authority
+
+Product identity, endpoint, environment-variable, model, usage, compatibility-policy, local-server, and setup-card metadata live in the typed `ProviderDefinition` registry. Runtime presets, factory tuning, CLI/WebUI local presets, the WebUI setup catalog, and the [generated provider catalog](./PROVIDER_CATALOG.md) are projections of that registry.
+
+After changing a definition, run `pnpm providers:catalog:write`. Release checks fail when either generated snapshot drifts.
+
 ## Supported wire families
 
 | Family | Class | Preset | Used by |

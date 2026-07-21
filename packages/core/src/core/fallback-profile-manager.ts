@@ -18,7 +18,7 @@
 
 import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 import type { Config, ProviderConfig } from '../types/config.js';
-import { parseModelRef } from './fallback-model.js';
+import { parseModelRef } from './model-ref.js';
 import { evaluateModelCalendar } from './model-availability-calendar.js';
 
 // ── Public types ────────────────────────────────────────────────────────────

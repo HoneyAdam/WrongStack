@@ -1,8 +1,8 @@
 /**
  * HQ static-serve — resolve and serve the built `@wrongstack/webui-hq/dist`
  * dashboard. Mirrors the pattern in `webui-server/static-serve.ts` but for
- * the HQ app. Falls back to the inline `HQ_HTML` when the dist is unbuilt so
- * HQ is always functional.
+ * the HQ app. Missing assets are reported to the caller, which serves a small
+ * diagnostic shell instead of maintaining a second dashboard implementation.
  *
  * @module hq-static-serve
  */
@@ -88,32 +88,59 @@ export interface ServeStaticResult {
   handled: boolean;
 }
 
+function isMissingPath(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+async function readRegularFile(filePath: string): Promise<Buffer | null> {
+  try {
+    const info = await fs.promises.stat(filePath);
+    if (!info.isFile()) return null;
+    return await fs.promises.readFile(filePath);
+  } catch (error) {
+    if (isMissingPath(error)) return null;
+    throw error;
+  }
+}
+
 /**
  * Serve a static file from the HQ dist for an HTTP request. Handles the SPA
  * fallback (unknown routes → index.html). Returns `{handled:false}` when the
- * dist is not available (caller should serve the inline fallback) or the
+ * dist is not available (caller should serve the diagnostic shell) or the
  * path doesn't match a static asset.
  */
-export function serveHqStatic(
+export async function serveHqStatic(
   _req: http.IncomingMessage,
   res: http.ServerResponse,
   urlPath: string,
   distDir: string,
-): ServeStaticResult {
+): Promise<ServeStaticResult> {
   // Normalize: `/` → index.html; otherwise decode + resolve.
   const relPath = urlPath === '/' || urlPath === '' ? '/index.html' : urlPath;
-  const filePath = path.join(distDir, decodeURIComponent(relPath));
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(relPath);
+  } catch {
+    return { handled: false };
+  }
+  const filePath = path.join(distDir, decodedPath);
 
   if (!isInsideDist(filePath, distDir)) {
     return { handled: false };
   }
 
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+  const data = await readRegularFile(filePath);
+  if (data === null) {
     // SPA fallback: serve index.html for client-side routes.
     const indexPath = path.join(distDir, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      const html = fs.readFileSync(indexPath, 'utf8');
-      res.writeHead(200, { 'Content-Type': MIME['.html']! });
+    const html = await readRegularFile(indexPath);
+    if (html !== null) {
+      res.writeHead(200, {
+        'Content-Type': MIME['.html']!,
+        'Cache-Control': 'no-cache',
+        'Content-Length': html.byteLength,
+      });
       res.end(html);
       return { handled: true };
     }
@@ -122,8 +149,16 @@ export function serveHqStatic(
 
   const ext = path.extname(filePath).toLowerCase();
   const mime = MIME[ext] ?? 'application/octet-stream';
-  const data = fs.readFileSync(filePath);
-  res.writeHead(200, { 'Content-Type': mime });
+  const cacheControl = decodedPath.startsWith('/assets/')
+    ? 'public, max-age=31536000, immutable'
+    : ext === '.html'
+      ? 'no-cache'
+      : 'public, max-age=3600';
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Cache-Control': cacheControl,
+    'Content-Length': data.byteLength,
+  });
   res.end(data);
   return { handled: true };
 }

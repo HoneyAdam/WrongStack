@@ -1,7 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const cp = vi.hoisted(() => ({ execFileSync: vi.fn() }));
-vi.mock('node:child_process', async (o) => ({ ...(await o()), execFileSync: cp.execFileSync }));
+const cp = vi.hoisted(() => {
+  const behavior = vi.fn();
+  const execFile = vi.fn(
+    (
+      bin: string,
+      args: string[],
+      options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      try {
+        callback(null, behavior(bin, args, options), '');
+      } catch (error) {
+        const failure = error as Error & { stderr?: string };
+        callback(failure, '', failure.stderr ?? '');
+      }
+      return {};
+    },
+  );
+  return { behavior, execFile };
+});
+vi.mock('node:child_process', async (o) => ({ ...(await o()), execFile: cp.execFile }));
 const fsm = vi.hoisted(() => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -14,6 +33,19 @@ vi.mock('node:fs', async (o) => ({
   readFileSync: fsm.readFileSync,
   readdirSync: fsm.readdirSync,
   writeFileSync: fsm.writeFileSync,
+}));
+vi.mock('node:fs/promises', async (o) => ({
+  ...(await o()),
+  access: vi.fn(async (p: string) => {
+    if (!fsm.existsSync(p)) throw new Error('ENOENT');
+  }),
+  readFile: vi.fn(async (p: string, encoding?: string) => fsm.readFileSync(p, encoding)),
+  readdir: vi.fn(async (p: string, options?: { withFileTypes?: boolean }) =>
+    fsm.readdirSync(p, options),
+  ),
+  writeFile: vi.fn(async (p: string, data: string, encoding?: string) => {
+    fsm.writeFileSync(p, data, encoding);
+  }),
 }));
 
 import semverPlugin, { determineBump, parseConventional } from '../src/semver-bump';
@@ -44,14 +76,15 @@ function setup(cfg: Record<string, unknown> = {}): { tools: Record<string, Tool>
 }
 
 beforeEach(() => {
-  cp.execFileSync.mockReset();
+  cp.behavior.mockReset();
+  cp.execFile.mockClear();
   fsm.existsSync.mockReset();
   fsm.readFileSync.mockReset();
   fsm.readdirSync.mockReset();
   fsm.writeFileSync.mockReset();
   gitHandler = () => '';
   // git via 'git'; the bump script via process.execPath.
-  cp.execFileSync.mockImplementation((bin: string, args: string[]) => {
+  cp.behavior.mockImplementation((bin: string, args: string[]) => {
     if (bin === 'git') return gitHandler(args);
     return ''; // bump script
   });
@@ -189,7 +222,7 @@ describe('semver_bump', () => {
     const res = await tools.semver_bump!.execute({ part: 'minor' });
     expect(res.ok).toBe(true);
     // node was invoked with the bump script
-    const calledNode = cp.execFileSync.mock.calls.some(([, a]) => Array.isArray(a) && a.includes('set'));
+    const calledNode = cp.behavior.mock.calls.some(([, a]) => Array.isArray(a) && a.includes('set'));
     expect(calledNode).toBe(true);
     expect(fsm.writeFileSync).not.toHaveBeenCalled();
   });
@@ -199,7 +232,7 @@ describe('semver_bump', () => {
       const s = String(p);
       return s.endsWith('package.json') || s.endsWith('bump-version.mjs');
     });
-    cp.execFileSync.mockImplementation((bin: string) => {
+    cp.behavior.mockImplementation((bin: string) => {
       if (bin !== 'git') throw new Error('script exploded');
       return '';
     });

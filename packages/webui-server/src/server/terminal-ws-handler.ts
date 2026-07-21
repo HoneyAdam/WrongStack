@@ -1,8 +1,10 @@
 import { spawn as spawnChild } from 'node:child_process';
 import { createRequire } from 'node:module';
 import type { Logger } from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
+import { buildChildEnv, toErrorMessage } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
+import { authorizeWebUIAction } from './privileged-actions.js';
 import type { WSServerMessage } from './types.js';
 
 /** Loose inbound shape — matches the server's internal WSClientMessage. */
@@ -35,6 +37,8 @@ type KillProcessTree = (pid: number) => void;
 
 /** Hard cap on concurrent PTYs per connected client — a runaway-spawn backstop. */
 const MAX_SESSIONS_PER_CLIENT = 8;
+/** Maximum characters accepted in a single terminal.input — a DoS backstop. */
+const MAX_INPUT_BYTES = 1 << 16; // 64 KiB
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const requireFromHere = createRequire(import.meta.url);
@@ -69,6 +73,7 @@ export class TerminalWebSocketHandler {
     private readonly logger: Logger,
     private readonly loadNodePty: LoadNodePty = defaultLoadNodePty,
     private readonly killProcessTree: KillProcessTree = defaultKillProcessTree,
+    private readonly trustBoundary: TrustBoundary = createCompatibilityTrustBoundary(),
   ) {}
 
   addClient(ws: WebSocket): void {
@@ -83,12 +88,16 @@ export class TerminalWebSocketHandler {
   }
 
   /** True if this message was a terminal.* message (handled here). */
-  handleMessage(ws: WebSocket, msg: IncomingMessage): boolean {
+  async handleMessage(ws: WebSocket, msg: IncomingMessage): Promise<boolean> {
     const p = (msg.payload ?? {}) as Record<string, unknown>;
     switch (msg.type) {
       case 'terminal.create':
         if (isStr(p.id))
-          this.create(ws, { id: p.id, cols: numOrUndef(p.cols), rows: numOrUndef(p.rows) });
+          await this.create(ws, {
+            id: p.id,
+            cols: numOrUndef(p.cols),
+            rows: numOrUndef(p.rows),
+          });
         return true;
       case 'terminal.input':
         if (isStr(p.id) && isStr(p.data)) this.input(ws, { id: p.id, data: p.data });
@@ -106,10 +115,10 @@ export class TerminalWebSocketHandler {
 
   // ── internals ───────────────────────────────────────────────────────────
 
-  private create(
+  private async create(
     ws: WebSocket,
     payload: { id: string; cols?: number | undefined; rows?: number | undefined },
-  ): void {
+  ): Promise<void> {
     const map = this.sessions.get(ws) ?? new Map<string, PtyProcess>();
     this.sessions.set(ws, map);
 
@@ -123,6 +132,29 @@ export class TerminalWebSocketHandler {
     }
 
     const shell = resolveTerminalShell();
+    const cwd = this.getCwd();
+    const authorization = await authorizeWebUIAction(
+      this.trustBoundary,
+      {
+        capability: 'process.spawn',
+        subject: {
+          kind: 'command',
+          id: shell,
+          attributes: { terminalId: payload.id },
+        },
+        risk: 'high',
+        cwd,
+        metadata: { transport: 'websocket' },
+      },
+      this.logger,
+    );
+    if (!authorization.allowed) {
+      this.logger.warn?.(`terminal.create denied (id=${payload.id}): ${authorization.reason}`);
+      const msg = `Integrated terminal denied: ${authorization.reason}`;
+      this.send(ws, { type: 'terminal.output', payload: { id: payload.id, data: `${msg}\r\n` } });
+      this.send(ws, { type: 'terminal.exit', payload: { id: payload.id, exitCode: -1 } });
+      return;
+    }
 
     const nodePty = this.loadNodePty();
     if (!nodePty) {
@@ -141,8 +173,8 @@ export class TerminalWebSocketHandler {
         name: 'xterm-color',
         cols: clampDim(payload.cols, DEFAULT_COLS),
         rows: clampDim(payload.rows, DEFAULT_ROWS),
-        cwd: this.getCwd(),
-        env: process.env,
+        cwd,
+        env: buildChildEnv(),
         ...windowsPtyOptions(),
       });
     } catch (err) {
@@ -154,6 +186,7 @@ export class TerminalWebSocketHandler {
     }
 
     map.set(payload.id, pty);
+    this.logger.info?.(`terminal.create spawned (id=${payload.id}, pid=${pty.pid ?? '?'}) in ${cwd}`);
 
     pty.onData((data) => {
       this.send(ws, { type: 'terminal.output', payload: { id: payload.id, data } });
@@ -169,7 +202,7 @@ export class TerminalWebSocketHandler {
 
   private input(ws: WebSocket, payload: { id: string; data: string }): void {
     const pty = this.sessions.get(ws)?.get(payload.id);
-    if (pty) pty.write(payload.data);
+    if (pty) pty.write(payload.data.slice(0, MAX_INPUT_BYTES));
   }
 
   private resize(ws: WebSocket, payload: { id: string; cols: number; rows: number }): void {

@@ -23,7 +23,7 @@
  * @public
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 import { withinProject } from '../runtime/index.js';
@@ -187,7 +187,7 @@ interface ScanResult {
   durationMs: number;
 }
 
-function scanPath(inputPath: string, cfg: SecurityHotspotConfig): ScanResult {
+async function scanPath(inputPath: string, cfg: SecurityHotspotConfig): Promise<ScanResult> {
   const start = Date.now();
   const root = process.cwd();
   const resolved = isAbsolute(inputPath) ? resolve(inputPath) : resolve(root, inputPath);
@@ -207,10 +207,10 @@ function scanPath(inputPath: string, cfg: SecurityHotspotConfig): ScanResult {
   const allFindings: Hotspot[] = [];
   const maxPerFile = Math.max(1, Math.floor(cfg.maxFindings / 2));
 
-  const scanFile = (filePath: string) => {
+  const scanFile = async (filePath: string) => {
     if (!isSourceFile(filePath, cfg.scanOnChange)) return;
     try {
-      const content = readFileSync(filePath, 'utf-8');
+      const content = await readFile(filePath, 'utf-8');
       filesScanned += 1;
       const findings = scanSource(content, maxPerFile);
       for (const f of findings) {
@@ -222,10 +222,10 @@ function scanPath(inputPath: string, cfg: SecurityHotspotConfig): ScanResult {
     }
   };
 
-  const walk = (dir: string) => {
+  const walk = async (dir: string): Promise<void> => {
     let entries: string[];
     try {
-      entries = readdirSync(dir);
+      entries = await readdir(dir);
     } catch {
       return;
     }
@@ -233,15 +233,20 @@ function scanPath(inputPath: string, cfg: SecurityHotspotConfig): ScanResult {
       if (allFindings.length >= cfg.maxFindings) return;
       const full = resolve(dir, entry);
       try {
-        const st = statSync(full);
+        const st = await stat(full);
         if (st.isDirectory()) {
           // Skip hidden directories and common dependency folders.
-          if (entry.startsWith('.') || entry === 'node_modules' || entry === 'dist' || entry === 'coverage') {
+          if (
+            entry.startsWith('.') ||
+            entry === 'node_modules' ||
+            entry === 'dist' ||
+            entry === 'coverage'
+          ) {
             continue;
           }
-          walk(full);
+          await walk(full);
         } else if (st.isFile()) {
-          scanFile(full);
+          await scanFile(full);
         }
       } catch {
         // best-effort
@@ -250,11 +255,11 @@ function scanPath(inputPath: string, cfg: SecurityHotspotConfig): ScanResult {
   };
 
   try {
-    const st = statSync(resolved);
+    const st = await stat(resolved);
     if (st.isDirectory()) {
-      walk(resolved);
+      await walk(resolved);
     } else if (st.isFile()) {
-      scanFile(resolved);
+      await scanFile(resolved);
     } else {
       return {
         path: inputPath,
@@ -344,13 +349,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['security-hotspot-scanner']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
 
       // Skip if the write/edit itself errored.
@@ -371,7 +376,7 @@ const plugin: Plugin = {
       }
 
       state.hookInvocationCount += 1;
-      const result = scanPath(sourcePath, cfg);
+      const result = await scanPath(sourcePath, cfg);
       state.scanCount += 1;
       state.fileScanCount += result.filesScanned;
 
@@ -441,7 +446,7 @@ const plugin: Plugin = {
       mutating: false,
       async execute(input: { path: string }) {
         if (!cfg.enabled) return { ok: false, error: 'security-hotspot-scanner is disabled' };
-        const result = scanPath(input.path, cfg);
+        const result = await scanPath(input.path, cfg);
         state.scanCount += 1;
         state.fileScanCount += result.filesScanned;
         state.findingCount += result.findings.length;

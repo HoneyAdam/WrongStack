@@ -31,8 +31,9 @@
  * @public
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
@@ -267,25 +268,29 @@ function extractExports(source: string): Set<string> {
 // Git / filesystem helpers
 // ---------------------------------------------------------------------------
 
-function readGitVersion(filePath: string): string | null {
+function readGitVersion(filePath: string): Promise<string | null> {
   const resolved = resolveToProjectRoot(filePath);
   const relPath = normalizePath(relative(process.cwd(), resolved));
-  try {
-    const out = execFileSync('git', ['show', `HEAD:${relPath}`], {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return out;
-  } catch {
-    return null;
-  }
+  return new Promise((resolveVersion) => {
+    execFile(
+      'git',
+      ['show', `HEAD:${relPath}`],
+      {
+        encoding: 'utf8',
+        cwd: process.cwd(),
+        windowsHide: true,
+        timeout: 5000,
+        maxBuffer: 5 * 1024 * 1024,
+      },
+      (error, stdout) => resolveVersion(error ? null : stdout),
+    );
+  });
 }
 
-function readCurrentFile(filePath: string): string | null {
+async function readCurrentFile(filePath: string): Promise<string | null> {
   try {
     const resolved = resolveToProjectRoot(filePath);
-    return readFileSync(resolved, 'utf-8');
+    return await readFile(resolved, 'utf8');
   } catch {
     return null;
   }
@@ -360,13 +365,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['api-compatibility-gate']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
 
       // Skip if the write/edit itself errored.
@@ -388,13 +393,13 @@ const plugin: Plugin = {
         return;
       }
 
-      const before = readGitVersion(filePath);
+      const before = await readGitVersion(filePath);
       if (before === null) {
         state.skippedCount += 1;
         return;
       }
 
-      const after = readCurrentFile(filePath);
+      const after = await readCurrentFile(filePath);
       if (after === null) {
         state.errorCount += 1;
         return;

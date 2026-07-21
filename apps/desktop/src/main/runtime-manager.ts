@@ -11,11 +11,18 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   atomicWrite,
+  buildChildEnv,
   projectSlug,
   resolveWstackPaths,
   toErrorMessage,
   wstackGlobalRoot,
 } from '@wrongstack/core/utils';
+import type { TrustBoundary } from '@wrongstack/core/security';
+import {
+  authorizeDesktopRuntimeStart,
+  authorizeDesktopRuntimeStop,
+  desktopCompatibilityTrustBoundary,
+} from './desktop-privileged-actions.js';
 import type {
   DesktopProjectEntry,
   DesktopRuntimeKind,
@@ -77,6 +84,12 @@ export class DesktopRuntimeManager extends EventEmitter {
   private activeRuntimeId: string | null = null;
   private restoring = false;
   private workspaceRestoreCompleted = false;
+
+  constructor(
+    private readonly trustBoundary: TrustBoundary = desktopCompatibilityTrustBoundary,
+  ) {
+    super();
+  }
 
   async init(): Promise<void> {
     const state = await this.loadDesktopState();
@@ -189,6 +202,11 @@ export class DesktopRuntimeManager extends EventEmitter {
     const touchRecent = options.touchRecent ?? kind === 'project';
     const forceNew = options.forceNew === true;
 
+    const authorization = await authorizeDesktopRuntimeStart(this.trustBoundary, resolved, kind);
+    if (!authorization.allowed) {
+      throw new Error(`Desktop runtime start denied: ${authorization.reason}`);
+    }
+
     if (!forceNew) {
       const existing = Array.from(this.runtimes.values()).find(
         (runtime) =>
@@ -276,7 +294,7 @@ export class DesktopRuntimeManager extends EventEmitter {
         {
           cwd: resolved,
           env: {
-            ...process.env,
+            ...buildChildEnv(),
             ELECTRON_RUN_AS_NODE: '1',
             WEBUI_STRICT_PORT: '1',
             WRONGSTACK_DESKTOP: '1',
@@ -360,6 +378,13 @@ export class DesktopRuntimeManager extends EventEmitter {
   }
 
   async closeRuntime(id: string): Promise<void> {
+    const runtime = this.runtimes.get(id);
+    if (runtime) {
+      const authorization = await authorizeDesktopRuntimeStop(this.trustBoundary, runtime);
+      if (!authorization.allowed) {
+        throw new Error(`Desktop runtime stop denied: ${authorization.reason}`);
+      }
+    }
     await this.closeRuntimeInternal(id, { persistWorkspace: true });
   }
 

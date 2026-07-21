@@ -3,30 +3,63 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SecurityScannerOrchestrator } from '../src/orchestrator.js';
-import { ProviderError } from '@wrongstack/core/types/provider.js';
-import type { Provider, Request, Response } from '@wrongstack/core/types/provider.js';
-import type { RetryPolicy } from '@wrongstack/core/types/retry-policy.js';
-import type { ErrorHandler } from '@wrongstack/core/types/error-handler.js';
+import { ProviderError } from '@wrongstack/core';
+import type { Provider, Request, Response } from '@wrongstack/core';
+import type { ErrorHandler, RetryPolicy } from '../src/_compat-types.js';
 
 const textResponse = (text: string): Response =>
-  ({ content: [{ type: 'text', text }], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }) as never as Response;
+  ({
+    content: [{ type: 'text', text }],
+    stopReason: 'end_turn',
+    usage: { inputTokens: 1, outputTokens: 1 },
+  }) as never as Response;
 
 const fakeProvider = (complete: Provider['complete']): Provider =>
-  ({ id: 'fake', capabilities: {} as never, stream: (async function* () {})() as never, complete }) as never as Provider;
+  ({
+    id: 'fake',
+    capabilities: {} as never,
+    stream: (async function* () {})() as never,
+    complete,
+  }) as never as Provider;
 
 const SKILL_JSON = JSON.stringify({
   name: 'custom-skill',
   description: 'desc',
   techStack: 'nodejs',
-  patterns: [{ id: 'p1', name: 'SQLi', severity: 'high', description: 'sql injection', fileExtensions: ['.ts'], remediation: 'parameterize' }],
+  patterns: [
+    {
+      id: 'p1',
+      name: 'SQLi',
+      severity: 'high',
+      description: 'sql injection',
+      fileExtensions: ['.ts'],
+      remediation: 'parameterize',
+    },
+  ],
   targetFiles: ['**/*.ts'],
   scanInstructions: 'scan it',
 });
 
 const FINDINGS_JSON = JSON.stringify([
-  { file: 'src/a.ts', line: 3, severity: 'critical', category: 'injection', title: 'Crit', description: 'd', snippet: 'evil()', remediation: 'fix' },
+  {
+    file: 'src/a.ts',
+    line: 3,
+    severity: 'critical',
+    category: 'injection',
+    title: 'Crit',
+    description: 'd',
+    snippet: 'evil()',
+    remediation: 'fix',
+  },
   { file: 'src/a.ts', severity: 'high', title: 'Hi', description: 'd', remediation: 'fix' },
-  { file: 'src/a.ts', severity: 'medium', category: 'config', title: 'Med', description: 'd', remediation: 'fix' },
+  {
+    file: 'src/a.ts',
+    severity: 'medium',
+    category: 'config',
+    title: 'Med',
+    description: 'd',
+    remediation: 'fix',
+  },
   { file: 'src/a.ts', severity: 'low', title: 'Lo', description: 'd', remediation: 'fix' },
 ]);
 
@@ -39,9 +72,15 @@ beforeEach(async () => {
   projectRoot = path.join(dir, 'proj');
   outputDir = path.join(dir, 'reports');
   await fs.mkdir(path.join(projectRoot, 'src'), { recursive: true });
-  await fs.writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'demo', dependencies: { express: '^4' } }));
+  await fs.writeFile(
+    path.join(projectRoot, 'package.json'),
+    JSON.stringify({ name: 'demo', dependencies: { express: '^4' } }),
+  );
   await fs.writeFile(path.join(projectRoot, 'README.md'), '# demo readme');
-  await fs.writeFile(path.join(projectRoot, 'src', 'a.ts'), `export const q = (id) => \`SELECT * WHERE id=\${id}\`;`);
+  await fs.writeFile(
+    path.join(projectRoot, 'src', 'a.ts'),
+    `export const q = (id) => \`SELECT * WHERE id=\${id}\`;`,
+  );
   // A skipped directory (node_modules) so gatherFilesRecursive exercises the skip branch.
   await fs.mkdir(path.join(projectRoot, 'node_modules'), { recursive: true });
   await fs.writeFile(path.join(projectRoot, 'node_modules', 'ignored.ts'), 'export {};');
@@ -56,7 +95,9 @@ afterEach(async () => {
 
 /** Replace the gitignore updater so tests never touch the real repo .gitignore. */
 function stubGitignore(orch: SecurityScannerOrchestrator, result?: unknown) {
-  const update = vi.fn().mockResolvedValue(result ?? { added: ['security-reports/'], existing: [], errors: [] });
+  const update = vi
+    .fn()
+    .mockResolvedValue(result ?? { added: ['security-reports/'], existing: [], errors: [] });
   (orch as never as { gitignoreUpdater: { update: typeof update } }).gitignoreUpdater = { update };
   return update;
 }
@@ -71,10 +112,19 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     const orch = new SecurityScannerOrchestrator();
     const update = stubGitignore(orch);
 
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir } });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+    });
 
     expect(res.generatedSkill.name).toBe('custom-skill');
-    expect(res.scanResult.summary).toMatchObject({ critical: 1, high: 1, medium: 1, low: 1, total: 4 });
+    expect(res.scanResult.summary).toMatchObject({
+      critical: 1,
+      high: 1,
+      medium: 1,
+      low: 1,
+      total: 4,
+    });
     // sorted by severity → critical first
     expect(res.scanResult.findings[0]?.severity).toBe('critical');
     expect(res.synthesizedReport).toContain('Security Report');
@@ -94,15 +144,17 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     const orch = new SecurityScannerOrchestrator();
     const update = stubGitignore(orch);
 
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+    });
     expect(res.gitignoreResult).toBeUndefined();
     expect(update).not.toHaveBeenCalled();
   });
 
   it('accepts a Context-shaped argument carrying provider + model', async () => {
-    const complete = vi
-      .fn<Provider['complete']>()
-      .mockResolvedValue(textResponse(`${SKILL_JSON}`));
+    const complete = vi.fn<Provider['complete']>().mockResolvedValue(textResponse(`${SKILL_JSON}`));
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
     // ctx with provider+model — model flows through to request.model
@@ -118,11 +170,23 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     // Override the detector so the stack carries dependencies (the real detector returns []).
     (orch as never as { detector: { detect: (r: string) => Promise<unknown> } }).detector = {
       detect: async () => ({
-        detectedStacks: [{ stack: 'nodejs', packageManager: 'npm', manifestFile: 'package.json', dependencies: [{ name: 'express', version: '4.0.0' }], projectPath: '' }],
+        detectedStacks: [
+          {
+            stack: 'nodejs',
+            packageManager: 'npm',
+            manifestFile: 'package.json',
+            dependencies: [{ name: 'express', version: '4.0.0' }],
+            projectPath: '',
+          },
+        ],
         isMonorepo: false,
       }),
     };
-    await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
+    await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+    });
     expect((complete.mock.calls[0]![0] as Request).messages[0]?.content).toContain('express@4.0.0');
   });
 
@@ -134,8 +198,15 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
     // Force the scan to target a non-existent file → readFile fails → empty batch → [].
-    (orch as never as { gatherFiles: () => Promise<string[]> }).gatherFiles = async () => [path.join(dir, 'does-not-exist.ts')];
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true, scanOptions: { depth: 'quick' } });
+    (orch as never as { gatherFiles: () => Promise<string[]> }).gatherFiles = async () => [
+      path.join(dir, 'does-not-exist.ts'),
+    ];
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+      scanOptions: { depth: 'quick' },
+    });
     expect(res.scanResult.summary.total).toBe(0);
   });
 
@@ -146,7 +217,12 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
       .mockResolvedValue(textResponse('[]'));
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true, scanOptions: { depth: 'quick' } });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+      scanOptions: { depth: 'quick' },
+    });
     // deep.ts (depth 3) is excluded by the quick maxDepth, src/a.ts (depth 1) is scanned.
     expect(res.scanResult.scannedFiles).toBeGreaterThan(0);
   });
@@ -155,7 +231,9 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     const empty = path.join(dir, 'empty');
     await fs.mkdir(empty, { recursive: true });
     const orch = new SecurityScannerOrchestrator();
-    await expect(orch.run(fakeProvider(vi.fn()), { projectRoot: empty })).rejects.toThrow(/No supported tech stack/);
+    await expect(orch.run(fakeProvider(vi.fn()), { projectRoot: empty })).rejects.toThrow(
+      /No supported tech stack/,
+    );
   });
 });
 
@@ -169,7 +247,11 @@ describe('SecurityScannerOrchestrator — LLM failure fallbacks', () => {
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
 
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+    });
     // basic report emoji branches for every severity
     expect(res.synthesizedReport).toContain('# Security Scan Report');
     expect(res.synthesizedReport).toContain('🔴');
@@ -181,7 +263,11 @@ describe('SecurityScannerOrchestrator — LLM failure fallbacks', () => {
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
 
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+    });
     expect(res.generatedSkill.metadata.confidence).toBe(0.5); // fallback skill
     expect(res.scanResult.summary.total).toBe(0);
     expect(res.synthesizedReport).toContain('# Security Scan Report'); // basic report, no findings
@@ -195,7 +281,11 @@ describe('SecurityScannerOrchestrator — LLM failure fallbacks', () => {
       .mockResolvedValueOnce(textResponse('# report'));
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
-    const res = await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
+    const res = await orch.run(fakeProvider(complete), {
+      projectRoot,
+      reportOptions: { outputDir },
+      skipGitignore: true,
+    });
     expect(res.generatedSkill.metadata.confidence).toBe(0.5);
   });
 });
@@ -210,30 +300,57 @@ describe('SecurityScannerOrchestrator.quickScan', () => {
   it('throws when no stack is detected', async () => {
     const empty = path.join(dir, 'empty2');
     await fs.mkdir(empty, { recursive: true });
-    await expect(new SecurityScannerOrchestrator().quickScan(empty)).rejects.toThrow(/No supported tech stack/);
+    await expect(new SecurityScannerOrchestrator().quickScan(empty)).rejects.toThrow(
+      /No supported tech stack/,
+    );
   });
 });
 
 describe('SecurityScannerOrchestrator.completeWithRetry (private)', () => {
-  const req: Request = { model: 'm', system: [{ type: 'text', text: 's' }], messages: [{ role: 'user', content: 'hi' }], maxTokens: 16 };
+  const req: Request = {
+    model: 'm',
+    system: [{ type: 'text', text: 's' }],
+    messages: [{ role: 'user', content: 'hi' }],
+    maxTokens: 16,
+  };
   const callRetry = (orch: SecurityScannerOrchestrator, provider: Provider, ac: AbortController) =>
-    (orch as never as { completeWithRetry: (p: Provider, r: Request, a: AbortController, n?: number) => Promise<Response> }).completeWithRetry(provider, req, ac);
+    (
+      orch as never as {
+        completeWithRetry: (
+          p: Provider,
+          r: Request,
+          a: AbortController,
+          n?: number,
+        ) => Promise<Response>;
+      }
+    ).completeWithRetry(provider, req, ac);
 
   it('rethrows immediately when the signal is already aborted', async () => {
     const ac = new AbortController();
     ac.abort();
     const provider = fakeProvider(vi.fn().mockRejectedValue(new Error('aborted')));
-    await expect(callRetry(new SecurityScannerOrchestrator(), provider, ac)).rejects.toThrow('aborted');
+    await expect(callRetry(new SecurityScannerOrchestrator(), provider, ac)).rejects.toThrow(
+      'aborted',
+    );
   });
 
   it('rethrows a non-retryable error when no retry policy is configured', async () => {
     const provider = fakeProvider(vi.fn().mockRejectedValue(new Error('plain failure')));
-    await expect(callRetry(new SecurityScannerOrchestrator(), provider, new AbortController())).rejects.toThrow('plain failure');
+    await expect(
+      callRetry(new SecurityScannerOrchestrator(), provider, new AbortController()),
+    ).rejects.toThrow('plain failure');
   });
 
   it('retries a ProviderError then succeeds, consulting the error handler', async () => {
-    const retryPolicy: RetryPolicy = { shouldRetry: vi.fn().mockReturnValue(true), delayMs: vi.fn().mockReturnValue(1), maxAttempts: vi.fn().mockReturnValue(3) } as never as RetryPolicy;
-    const errorHandler: ErrorHandler = { classify: vi.fn().mockReturnValue({ kind: 'overloaded', retryable: true }), recover: vi.fn() } as never as ErrorHandler;
+    const retryPolicy: RetryPolicy = {
+      shouldRetry: vi.fn().mockReturnValue(true),
+      delayMs: vi.fn().mockReturnValue(1),
+      maxAttempts: vi.fn().mockReturnValue(3),
+    } as never as RetryPolicy;
+    const errorHandler: ErrorHandler = {
+      classify: vi.fn().mockReturnValue({ kind: 'overloaded', retryable: true }),
+      recover: vi.fn(),
+    } as never as ErrorHandler;
     const complete = vi
       .fn<Provider['complete']>()
       .mockRejectedValueOnce(new ProviderError('overloaded', 529, true, 'fake'))
@@ -246,7 +363,11 @@ describe('SecurityScannerOrchestrator.completeWithRetry (private)', () => {
   });
 
   it('retries a network error (matched by regex) under a retry policy', async () => {
-    const retryPolicy: RetryPolicy = { shouldRetry: vi.fn().mockReturnValue(true), delayMs: vi.fn().mockReturnValue(1), maxAttempts: vi.fn().mockReturnValue(2) } as never as RetryPolicy;
+    const retryPolicy: RetryPolicy = {
+      shouldRetry: vi.fn().mockReturnValue(true),
+      delayMs: vi.fn().mockReturnValue(1),
+      maxAttempts: vi.fn().mockReturnValue(2),
+    } as never as RetryPolicy;
     const complete = vi
       .fn<Provider['complete']>()
       .mockRejectedValueOnce(new Error('ECONNRESET while fetching'))
@@ -257,15 +378,38 @@ describe('SecurityScannerOrchestrator.completeWithRetry (private)', () => {
   });
 
   it('stops retrying when the policy says not to', async () => {
-    const retryPolicy: RetryPolicy = { shouldRetry: vi.fn().mockReturnValue(false), delayMs: vi.fn().mockReturnValue(1), maxAttempts: vi.fn().mockReturnValue(1) } as never as RetryPolicy;
-    const provider = fakeProvider(vi.fn().mockRejectedValue(new ProviderError('boom', 500, true, 'fake')));
-    await expect(callRetry(new SecurityScannerOrchestrator(retryPolicy), provider, new AbortController())).rejects.toThrow('boom');
+    const retryPolicy: RetryPolicy = {
+      shouldRetry: vi.fn().mockReturnValue(false),
+      delayMs: vi.fn().mockReturnValue(1),
+      maxAttempts: vi.fn().mockReturnValue(1),
+    } as never as RetryPolicy;
+    const provider = fakeProvider(
+      vi.fn().mockRejectedValue(new ProviderError('boom', 500, true, 'fake')),
+    );
+    await expect(
+      callRetry(new SecurityScannerOrchestrator(retryPolicy), provider, new AbortController()),
+    ).rejects.toThrow('boom');
   });
 
   it('stops retrying when the error handler classifies the error as non-retryable', async () => {
-    const retryPolicy: RetryPolicy = { shouldRetry: vi.fn().mockReturnValue(true), delayMs: vi.fn().mockReturnValue(1), maxAttempts: vi.fn().mockReturnValue(3) } as never as RetryPolicy;
-    const errorHandler: ErrorHandler = { classify: vi.fn().mockReturnValue({ kind: 'auth', retryable: false }), recover: vi.fn() } as never as ErrorHandler;
-    const provider = fakeProvider(vi.fn().mockRejectedValue(new ProviderError('nope', 401, false, 'fake')));
-    await expect(callRetry(new SecurityScannerOrchestrator(retryPolicy, errorHandler), provider, new AbortController())).rejects.toThrow('nope');
+    const retryPolicy: RetryPolicy = {
+      shouldRetry: vi.fn().mockReturnValue(true),
+      delayMs: vi.fn().mockReturnValue(1),
+      maxAttempts: vi.fn().mockReturnValue(3),
+    } as never as RetryPolicy;
+    const errorHandler: ErrorHandler = {
+      classify: vi.fn().mockReturnValue({ kind: 'auth', retryable: false }),
+      recover: vi.fn(),
+    } as never as ErrorHandler;
+    const provider = fakeProvider(
+      vi.fn().mockRejectedValue(new ProviderError('nope', 401, false, 'fake')),
+    );
+    await expect(
+      callRetry(
+        new SecurityScannerOrchestrator(retryPolicy, errorHandler),
+        provider,
+        new AbortController(),
+      ),
+    ).rejects.toThrow('nope');
   });
 });

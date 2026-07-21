@@ -61,6 +61,11 @@ export {
 export { DefaultSessionReader } from './session-reader.js';
 export type { SessionReader, DefaultSessionReaderOptions } from '../types/session-reader.js';
 export {
+  scrubPersistedSessionData,
+  scrubPersistedSessionEvent,
+  scrubPersistedSessionSummary,
+} from './session-read-scrubber.js';
+export {
   AnnotationsStore,
   type Annotation,
   type AnnotationsStoreOptions,

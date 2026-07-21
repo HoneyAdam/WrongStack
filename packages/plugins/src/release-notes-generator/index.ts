@@ -22,7 +22,7 @@
  * @public
  */
 
-import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import type { Plugin } from '@wrongstack/core';
 import { runOptionalPluginLlm, stripOuterMarkdownFence } from '../runtime/llm.js';
 
@@ -125,17 +125,29 @@ function formatCommit(c: Commit, includeScope: boolean): string {
   return line;
 }
 
-const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: 'utf-8',
-  stdio: ['pipe', 'pipe', 'ignore'],
-  shell: false,
-};
+function runGit(args: string[], signal?: AbortSignal): Promise<string> {
+  return new Promise((resolveOutput, reject) => {
+    execFile(
+      'git',
+      args,
+      {
+        encoding: 'utf8',
+        shell: false,
+        windowsHide: true,
+        timeout: 10_000,
+        maxBuffer: 10 * 1024 * 1024,
+        signal,
+      },
+      (error, stdout) => (error ? reject(error) : resolveOutput(stdout)),
+    );
+  });
+}
 
-function resolveFromRef(defaultFrom: string, inputFrom?: string): string {
+async function resolveFromRef(defaultFrom: string, inputFrom?: string, signal?: AbortSignal): Promise<string> {
   if (inputFrom) return inputFrom;
   if (defaultFrom === 'latest-tag') {
     try {
-      return execFileSync('git', ['describe', '--tags', '--abbrev=0'], GIT_OPTIONS).trim();
+      return (await runGit(['describe', '--tags', '--abbrev=0'], signal)).trim();
     } catch {
       return '';
     }
@@ -143,11 +155,9 @@ function resolveFromRef(defaultFrom: string, inputFrom?: string): string {
   return defaultFrom;
 }
 
-function resolveCommit(ref: string): string {
-  const resolved = execFileSync(
-    'git',
-    ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`],
-    GIT_OPTIONS,
+async function resolveCommit(ref: string, signal?: AbortSignal): Promise<string> {
+  const resolved = (
+    await runGit(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], signal)
   ).trim();
   if (!/^[0-9a-f]{40,64}$/i.test(resolved)) {
     throw new Error(`git returned an invalid commit id for ref ${JSON.stringify(ref)}`);
@@ -155,13 +165,12 @@ function resolveCommit(ref: string): string {
   return resolved;
 }
 
-function getCommits(from: string, to: string): Commit[] {
-  const toCommit = resolveCommit(to);
-  const range = from ? `${resolveCommit(from)}..${toCommit}` : toCommit;
-  const output = execFileSync(
-    'git',
+async function getCommits(from: string, to: string, signal?: AbortSignal): Promise<Commit[]> {
+  const toCommit = await resolveCommit(to, signal);
+  const range = from ? `${await resolveCommit(from, signal)}..${toCommit}` : toCommit;
+  const output = await runGit(
     ['log', '--pretty=format:%H%x09%s', '--end-of-options', range],
-    GIT_OPTIONS,
+    signal,
   );
   if (!output.trim()) return [];
 
@@ -351,12 +360,12 @@ const plugin: Plugin = {
         execOpts?.signal?.throwIfAborted();
 
         const toRef = typeof input.to === 'string' ? input.to : 'HEAD';
-        const fromRef = resolveFromRef(cfg.defaultFrom, input.from);
+        const fromRef = await resolveFromRef(cfg.defaultFrom, input.from, execOpts?.signal);
 
         state.generateCount += 1;
         let commits: Commit[];
         try {
-          commits = getCommits(fromRef, toRef);
+          commits = await getCommits(fromRef, toRef, execOpts?.signal);
         } catch (err) {
           state.errorCount += 1;
           return { ok: false, error: String(err) };

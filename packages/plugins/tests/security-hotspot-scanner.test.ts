@@ -6,8 +6,25 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(),
 }));
 
+const promiseFs = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  readdir: vi.fn(),
+  stat: vi.fn(),
+}));
+vi.mock('node:fs/promises', () => ({
+  readFile: promiseFs.readFile,
+  readdir: promiseFs.readdir,
+  stat: promiseFs.stat,
+}));
+
 const { readFileSync, readdirSync, statSync } = await import('node:fs');
 const plugin = (await import('../src/security-hotspot-scanner')).default;
+
+promiseFs.readFile.mockImplementation(async (p: string, encoding?: BufferEncoding) =>
+  vi.mocked(readFileSync)(p, encoding ?? 'utf8'),
+);
+promiseFs.readdir.mockImplementation(async (p: string) => vi.mocked(readdirSync)(p));
+promiseFs.stat.mockImplementation(async (p: string) => vi.mocked(statSync)(p));
 
 interface MockApi {
   tools: { register: ReturnType<typeof vi.fn> };
@@ -47,10 +64,10 @@ function getRegisteredTool(api: MockApi, name: string): {
   return call[0] as { execute: (input: unknown) => Promise<unknown> };
 }
 
-function getHook(api: MockApi): (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void {
+function getHook(api: MockApi): (input: unknown) => Promise<{ decision?: string; reason?: string; additionalContext?: string } | void> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => { decision?: string; reason?: string; additionalContext?: string } | void;
+  return (call as unknown[])[2] as (input: unknown) => Promise<{ decision?: string; reason?: string; additionalContext?: string } | void>;
 }
 
 function mockFile(content: string, isDir = false) {
@@ -223,12 +240,12 @@ describe('security-hotspot-scanner plugin', () => {
     expect(result.findings.some((f) => f.type === 'hardcoded_http')).toBe(true);
   });
 
-  it('PostToolUse hook injects additionalContext for new hotspots', () => {
+  it('PostToolUse hook injects additionalContext for new hotspots', async () => {
     mockFile('const x = eval(userCode);');
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/new.js' },
       toolResult: { content: 'ok', isError: false },
@@ -238,12 +255,12 @@ describe('security-hotspot-scanner plugin', () => {
     expect(result?.additionalContext).toContain('new security hotspot');
   });
 
-  it('PostToolUse hook returns block decision when severity is block', () => {
+  it('PostToolUse hook returns block decision when severity is block', async () => {
     mockFile('element.innerHTML = payload;');
     const api = makeApi({ extensions: { 'security-hotspot-scanner': { enabled: true, severity: 'block' } } });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/xss.js' },
       toolResult: { content: 'ok', isError: false },
@@ -252,12 +269,12 @@ describe('security-hotspot-scanner plugin', () => {
     expect(result?.reason).toContain('unsafe_html');
   });
 
-  it('PostToolUse hook skips when the underlying tool errored', () => {
+  it('PostToolUse hook skips when the underlying tool errored', async () => {
     mockFile('eval(x);');
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/bad.js' },
       toolResult: { content: 'error', isError: true },
@@ -265,11 +282,11 @@ describe('security-hotspot-scanner plugin', () => {
     expect(result).toBeUndefined();
   });
 
-  it('PostToolUse hook skips non-source files by extension', () => {
+  it('PostToolUse hook skips non-source files by extension', async () => {
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'README.md' },
       toolResult: { content: 'ok', isError: false },
@@ -278,18 +295,18 @@ describe('security-hotspot-scanner plugin', () => {
     expect(readFileSync).not.toHaveBeenCalled();
   });
 
-  it('PostToolUse hook does not repeat the same hotspot', () => {
+  it('PostToolUse hook does not repeat the same hotspot', async () => {
     mockFile('eval(x);');
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const first = hook({
+    const first = await hook({
       toolName: 'write',
       toolInput: { path: 'src/bad.js' },
       toolResult: { content: 'ok', isError: false },
     });
     expect(first?.additionalContext).toContain('eval_call');
-    const second = hook({
+    const second = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/bad.js' },
       toolResult: { content: 'ok', isError: false },
@@ -302,7 +319,7 @@ describe('security-hotspot-scanner plugin', () => {
     const api = makeApi({ extensions: { 'security-hotspot-scanner': { enabled: false } } });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const hookResult = hook({
+    const hookResult = await hook({
       toolName: 'write',
       toolInput: { path: 'src/bad.js' },
       toolResult: { content: 'ok', isError: false },

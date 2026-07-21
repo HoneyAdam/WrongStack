@@ -8,7 +8,7 @@ import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { HQ_HTML, type HqServerHandle, startHqServer } from '../src/hq-server.js';
 import { createCliHqPublisher } from '../src/hq-publisher.js';
@@ -712,49 +712,15 @@ describe('HQ server', () => {
     expect(body.error.code).toBe('NOT_FOUND');
   });
 
-  it('HQ_HTML serves the React Flow fleet dashboard with a dependency-free fallback', () => {
-    // HQ_HTML is the single self-contained document served from `/`. It loads
-    // React + React Flow from a CDN and falls back to a dependency-free nested
-    // tree when offline. Assert the markup against the constant directly so the
-    // coverage is independent of network access at test time.
+  it('HQ_HTML is a diagnostic-only missing-assets recovery shell', () => {
     const html = HQ_HTML;
     expect(html.toLowerCase()).toContain('<!doctype html>');
     expect(html).toContain('WrongStack HQ');
-    // React Flow + React loaded from esm.sh, with the stylesheet.
-    expect(html).toContain('esm.sh/react@');
-    expect(html).toContain('esm.sh/reactflow@');
-    expect(html).toContain('reactflow@11.11.4/dist/style.css');
-    // The fleet spine: machine → project → terminal → agent.
-    expect(html).toContain('buildTree');
-    expect(html).toContain('buildGraph');
-    expect(html).toContain('FleetView');
-    expect(html).toContain('machineNode');
-    expect(html).toContain('termNode');
-    expect(html).toContain('agentNode');
-    // Client-only fallback: even before session telemetry arrives, HQ should
-    // still render connected TUI/REPL/WebUI clients under their project.
-    expect(html).toContain('snap && snap.clients');
-    expect(html).toContain("sessionId: 'client:'");
-    expect(html).toContain('waiting for session telemetry');
-    // Live data plane: WS + fleet/transcript endpoints.
-    expect(html).toContain('connectWs');
-    expect(html).toContain('/api/fleet');
-    expect(html).toContain('/api/sessions/');
-    expect(html).toContain('?full=1');
-    expect(html).toContain('session.transcript');
-    // Stat bar + tabs: Console (primary) · Map (React Flow) · Mailbox.
-    expect(html).toContain('Machines');
-    expect(html).toContain('Terminals');
-    expect(html).toContain('Agents');
-    expect(html).toContain('🛰️ Console');
-    expect(html).toContain('🧭 Map');
-    expect(html).toContain('📬 Mailbox');
-    // Console view: live fleet tree + agent cards + click-to-watch chat.
-    expect(html).toContain('FleetTree');
-    expect(html).toContain('AgentGrid');
-    expect(html).toContain('ChatView');
-    // Dependency-free offline fallback.
-    expect(html).toContain('renderFallback');
+    expect(html).toContain('data-hq-recovery-shell');
+    expect(html).toContain('@wrongstack/webui-hq');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('/api/fleet');
+    expect(html).not.toContain('/ws/browser');
   });
 
   it('surfaces fresh mailbox.snapshot data through /api/projects/:id (powers drawer auto-refresh)', async () => {
@@ -1798,6 +1764,38 @@ describe('HQ control plane (Phase 3)', () => {
     const body = (await postRes.json()) as { error: string };
     expect(body.error).toContain('control');
 
+    client.close();
+  });
+
+  it('routes valid control commands through the shared TrustBoundary', async () => {
+    const evaluate = vi.fn(async () => ({ kind: 'deny' as const, reason: 'maintenance window' }));
+    handle = await startOpenHqServer({ port: getPort(), trustBoundary: { evaluate } });
+    const client = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/client`);
+    await waitForOpen(client);
+    client.send(helloFrameControl('ctrl-policy', 'mach-policy', 'proj-policy'));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const response = await fetch(`http://127.0.0.1:${handle.port}/api/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: 'ctrl-policy',
+        type: 'abort',
+        payload: { target: 'leader' },
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain('maintenance window');
+    expect(evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: 'hq',
+        capability: 'hq.control.enqueue',
+        subject: expect.objectContaining({ kind: 'custom', id: 'abort' }),
+        risk: 'high',
+        scope: { projectId: 'proj-policy' },
+      }),
+    );
     client.close();
   });
 

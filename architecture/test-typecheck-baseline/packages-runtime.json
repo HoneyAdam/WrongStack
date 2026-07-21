@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "project": "packages/runtime",
+  "hashAlgorithm": "sha256-64bit",
+  "diagnostics": {
+    "8e28d0286a14302f": 1,
+    "1253691761cbeefe": 4,
+    "959c325b2ea0ee64": 1,
+    "c8cec912e5d9699a": 1,
+    "ee7b940f7b078501": 1,
+    "a913d45a0d9e14cd": 1,
+    "fa3c72d7499c9800": 1,
+    "f2c870162c11e8f8": 1,
+    "4cf40c0a5bcb4804": 1,
+    "abbe16a9579a8423": 1,
+    "e48f191f415d0fa0": 3,
+    "4622330f702c10b2": 1,
+    "5cd7e9da4694fb80": 5,
+    "6ce658904e69428f": 1,
+    "f84e9c9a27c9f912": 1,
+    "7d96b3714f26c55b": 2,
+    "33372189c914f0c5": 1
+  }
+}
+

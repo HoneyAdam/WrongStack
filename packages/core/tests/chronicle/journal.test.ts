@@ -132,6 +132,30 @@ describe('ChronicleJournal', () => {
     await expect(left.verify()).resolves.toMatchObject({ ok: true, entries: 2, lastSequence: 2 });
   });
 
+  it('invalidates cached state after another instance appends and rotates', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'wrongstack-chronicle-interleaved-'));
+    tempDirs.push(dir);
+    const filePath = path.join(dir, '2026-07-18.events.jsonl');
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    const options = {
+      filePath,
+      batchWindowMs: 0,
+      rotationWindowMs: Infinity,
+      maxPartitionSizeBytes: 1,
+    };
+    const left = new ChronicleJournal(options);
+    const right = new ChronicleJournal(options);
+
+    const first = await left.append({ eventType: 'left.first', ...context });
+    const second = await right.append({ eventType: 'right.second', ...context });
+    const third = await left.append({ eventType: 'left.third', ...context });
+
+    expect([first.sequence, second.sequence, third.sequence]).toEqual([1, 2, 3]);
+    expect(third.previousHash).toBe(second.hash);
+    expect(left.path).toContain('.00002.jsonl');
+    await expect(left.verify()).resolves.toMatchObject({ ok: true, entries: 3, lastSequence: 3 });
+  });
+
   it('detects post-hoc payload tampering', async () => {
     const journal = await makeJournal();
     const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');

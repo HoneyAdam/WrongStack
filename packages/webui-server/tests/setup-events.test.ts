@@ -6,7 +6,7 @@ import { setupEvents } from '@wrongstack/webui-server';
 describe('setupEvents session scoping', () => {
   it('only appends audit events for the active session', () => {
     const events = new EventBus();
-    const append = vi.fn(async () => {});
+    const append = vi.fn(async (_event: unknown) => {});
     const dispose = setupEvents({
       events,
       broadcast: () => {},
