@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import {
   type BrainAutoRisk,
   BrainDecisionLedger,
+  BrainTraceRecorder,
   BrainDecisionQueue,
   type BrainEscalationMode,
   BrainMonitor,
@@ -171,7 +172,12 @@ export function setupBrainAndOrchestration(
   let brainLedger: BrainDecisionLedger | undefined;
   const startLedger = (): void => {
     if (brainLedger) return;
-    brainLedger = new BrainDecisionLedger({ events, filePath: ledgerPath });
+    brainLedger = new BrainDecisionLedger({
+      events,
+      filePath: ledgerPath,
+      maxMemoryEntries: brainCfg?.ledger?.maxMemoryEntries,
+      interventionRetryWindowMs: brainCfg?.ledger?.interventionRetryWindowMs,
+    });
     void brainLedger.start();
   };
   if (ledgerEnabled) startLedger();
@@ -179,17 +185,42 @@ export function setupBrainAndOrchestration(
     void brainLedger?.stop();
   });
 
+  // ── Replay trace ─────────────────────────────────────────────────────────
+  // Per-decision record of HOW the ladder decided (tiers, every pool target
+  // including failures, council votes, tokens). Opt-in: enabling it is what
+  // permits production decision content on disk. Kept in its own file — the
+  // ledger's bounded ring powers the learning loop and must not be diluted
+  // by high-volume per-call rows.
+  const traceCfg = brainCfg?.trace;
+  let brainTrace: BrainTraceRecorder | undefined;
+  if (traceCfg?.enabled === true) {
+    brainTrace = new BrainTraceRecorder({
+      events,
+      filePath: traceCfg.path ?? join(wpaths.projectDir, 'brain-trace.jsonl'),
+      content: traceCfg.content,
+      maxOpenRecords: traceCfg.maxOpenRecords,
+    });
+    brainTrace.start();
+    teardownHandlers.push(() => {
+      void brainTrace?.stop();
+    });
+  }
+
   // Shared queue options object: BrainDecisionQueue keeps the REFERENCE, so
   // mutating timeoutMs in onApplied makes `/brain human-timeout` live. Do
   // not replace this with a defensive copy in the queue.
   const queueOpts = {
     timeoutMs: brainCfg?.humanTimeoutMs,
-    onTimeout: terminalPolicyDecision,
+    onTimeout: (request: Parameters<typeof terminalPolicyDecision>[0]) =>
+      terminalPolicyDecision(request, brainCfg?.terminalPolicy),
   };
   const brainQueue = new BrainDecisionQueue(events, queueOpts);
 
   const brainRuntime = createBrainRuntime({
     initialConfig: brainCfg,
+    // The tiers emit brain.llm_call / brain.council_* onto this bus; the
+    // recorder above is one subscriber, the settings surfaces are others.
+    events,
     defaultProviderId: config.provider,
     sessionProvider: () => provider,
     sessionModel: () => config.model,
@@ -257,8 +288,11 @@ export function setupBrainAndOrchestration(
   };
 
   const brain = new ObservableBrainArbiter(
-    new EscalationRoutingBrainArbiter(brainRuntime.arbiter, brainQueue, () =>
-      brainRuntime.getMode(),
+    new EscalationRoutingBrainArbiter(
+      brainRuntime.arbiter,
+      brainQueue,
+      () => brainRuntime.getMode(),
+      () => brainRuntime.getSnapshot().terminalPolicy,
     ),
     events,
   );
@@ -275,11 +309,17 @@ export function setupBrainAndOrchestration(
   const brainMonitor = new BrainMonitor({
     events,
     brain,
+    enabled: brainCfg?.monitor?.enabled,
+    policy: brainCfg?.monitor?.policy,
+    signals: brainCfg?.monitor?.signals,
     toolFailureStreak: brainCfg?.monitor?.toolFailureStreak,
     errorStormCount: brainCfg?.monitor?.errorStormCount,
+    errorStormWindowMs: brainCfg?.monitor?.errorStormWindowMs,
     stallMs: brainCfg?.monitor?.stallMs,
+    stallCheckIntervalMs: brainCfg?.monitor?.stallCheckIntervalMs,
     fileChurnThreshold: brainCfg?.monitor?.fileChurnThreshold,
     fileChurnWindowMs: brainCfg?.monitor?.fileChurnWindowMs,
+    fileEditTools: brainCfg?.monitor?.fileEditTools,
     cooldownMs: brainCfg?.monitor?.cooldownMs,
     sessionId: () => context.session?.id ?? session.id,
     // Filter out subagent events so the BrainMonitor only monitors the

@@ -191,8 +191,35 @@ describe('/brain slash command', () => {
           quorum: undefined,
           approval: undefined,
           judge: undefined,
+          perCallTimeoutMs: undefined,
+          maxConcurrency: undefined,
+          distinctness: 'none',
+          judgeMaxTokens: undefined,
+          seats: [],
         },
         ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/brain-ledger.jsonl' },
+        rules: [],
+        ruleErrors: [],
+        heuristics: {
+          lowRiskAutoAnswer: true,
+          blockedResolved: true,
+          deadlockSkip: true,
+          retryExhausted: true,
+          continuePing: true,
+          blockedResolvedMarkers: undefined,
+        },
+        llm: {
+          maxTokens: 200,
+          rejectUncertain: true,
+          minConfidence: 0,
+          denyIsTerminal: 'never',
+        },
+        trace: { enabled: false, content: 'full', path: undefined },
+        monitor: {},
+        terminalPolicy: 'conservative',
+        decisionLogMaxEntries: 20,
+        circuit: undefined,
+        cache: { enabled: false, ttlMs: 300_000, maxEntries: 200, hits: 0, misses: 0, size: 0 },
         poolLabels: [],
         councilLabels: [],
         usingSessionModel: true,
@@ -357,6 +384,215 @@ describe('/brain slash command', () => {
       const ctx = makeCtx();
       const result = await buildBrainCommand(ctx).run!('model prov/x');
       expect(result?.message).toMatch(/not available/);
+    });
+  });
+
+  describe('deterministic + quality subcommands', () => {
+    const makeRt = (over = {}) => {
+      const patches = [];
+      const snapshot = {
+        mode: 'headless',
+        maxAutoRisk: 'high',
+        models: [],
+        strategy: 'fallback',
+        decisionTimeoutMs: undefined,
+        humanTimeoutMs: undefined,
+        council: {
+          enabled: false,
+          configured: undefined,
+          minRisk: 'high',
+          voters: [],
+          quorum: undefined,
+          approval: undefined,
+          judge: undefined,
+          perCallTimeoutMs: undefined,
+          maxConcurrency: undefined,
+          distinctness: 'none',
+          judgeMaxTokens: undefined,
+          seats: [],
+        },
+        ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/l.jsonl' },
+        rules: [],
+        ruleErrors: [],
+        heuristics: {
+          lowRiskAutoAnswer: true,
+          blockedResolved: true,
+          deadlockSkip: true,
+          retryExhausted: true,
+          continuePing: true,
+          blockedResolvedMarkers: undefined,
+        },
+        llm: { maxTokens: 200, rejectUncertain: true, minConfidence: 0, denyIsTerminal: 'never' },
+        trace: { enabled: false, content: 'full', path: 'C:/x/brain-trace.jsonl' },
+        monitor: {},
+        terminalPolicy: 'conservative',
+        decisionLogMaxEntries: 20,
+        circuit: undefined,
+        cache: { enabled: false, ttlMs: 300_000, maxEntries: 200, hits: 0, misses: 0, size: 0 },
+        poolLabels: [],
+        councilLabels: [],
+        usingSessionModel: true,
+        ...over,
+      };
+      const runtime = {
+        arbiter: { decide: vi.fn() },
+        getMode: () => snapshot.mode,
+        getMaxAutoRisk: () => snapshot.maxAutoRisk,
+        getHumanTimeoutMs: () => snapshot.humanTimeoutMs,
+        getSnapshot: () => snapshot,
+        getConfig: () => ({}),
+        apply: (patch) => {
+          patches.push(patch);
+          return { snapshot, persisted: Promise.resolve({ ok: true }) };
+        },
+      };
+      return { runtime, patches, snapshot };
+    };
+
+    it('/brain heuristics lists every built-in pattern', async () => {
+      const { runtime } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime });
+      const res = await buildBrainCommand(ctx).run!('heuristics');
+      const msg = stripAnsi(res.message);
+      for (const name of ['lowrisk', 'blocked', 'deadlock', 'retry', 'continue']) {
+        expect(msg).toContain(name);
+      }
+    });
+
+    it('/brain heuristics <name> off maps onto the right config field', async () => {
+      const { runtime, patches } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime });
+      await buildBrainCommand(ctx).run!('heuristics deadlock off');
+      expect(patches).toEqual([{ heuristics: { deadlockSkip: false } }]);
+    });
+
+    it('/brain heuristics rejects an unknown name', async () => {
+      const { runtime, patches } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime });
+      const res = await buildBrainCommand(ctx).run!('heuristics bogus on');
+      expect(patches).toEqual([]);
+      expect(stripAnsi(res.message)).toContain('Usage:');
+    });
+
+    it('/brain llm shows the quality gate', async () => {
+      const { runtime } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime });
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('llm')).message);
+      expect(msg).toContain('maxTokens');
+      expect(msg).toContain('denyIsTerminal');
+    });
+
+    it('/brain llm setters build the expected patches', async () => {
+      const { runtime, patches } = makeRt();
+      const cmd = buildBrainCommand(makeCtx({ brainRuntime: runtime }));
+      await cmd.run!('llm maxtokens 512');
+      await cmd.run!('llm uncertain off');
+      await cmd.run!('llm confidence 0.7');
+      await cmd.run!('llm deny when-decided');
+      await cmd.run!('llm breaker 5 30000');
+      expect(patches).toEqual([
+        { llm: { maxTokens: 512 } },
+        { llm: { rejectUncertain: false } },
+        { llm: { minConfidence: 0.7 } },
+        { llm: { denyIsTerminal: 'when-decided' } },
+        { llm: { circuitBreaker: { failureThreshold: 5, cooldownMs: 30000 } } },
+      ]);
+    });
+
+    it('/brain llm breaker off disables the breaker', async () => {
+      const { runtime, patches } = makeRt();
+      await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('llm breaker off');
+      expect(patches).toEqual([{ llm: { circuitBreaker: { failureThreshold: 0 } } }]);
+    });
+
+    it('/brain trace on warns that content lands on disk', async () => {
+      const { runtime, patches } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime });
+      const res = await buildBrainCommand(ctx).run!('trace on');
+      expect(patches).toEqual([{ trace: { enabled: true } }]);
+      expect(stripAnsi(res.message)).toContain('disk');
+    });
+
+    it('/brain trace content validates the mode', async () => {
+      const { runtime, patches } = makeRt();
+      const cmd = buildBrainCommand(makeCtx({ brainRuntime: runtime }));
+      await cmd.run!('trace content redacted');
+      const bad = await cmd.run!('trace content loud');
+      expect(patches).toEqual([{ trace: { content: 'redacted' } }]);
+      expect(stripAnsi(bad.message)).toContain('Usage:');
+    });
+
+    it('/brain cache reports the hit rate', async () => {
+      const { runtime } = makeRt({
+        cache: { enabled: true, ttlMs: 1000, maxEntries: 10, hits: 3, misses: 1, size: 2 },
+      });
+      const msg = stripAnsi((await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('cache')).message);
+      expect(msg).toContain('75% hit rate');
+    });
+
+    it('/brain escalation validates the policy', async () => {
+      const { runtime, patches } = makeRt();
+      const cmd = buildBrainCommand(makeCtx({ brainRuntime: runtime }));
+      await cmd.run!('escalation deny-all');
+      await cmd.run!('escalation nonsense');
+      expect(patches).toEqual([{ terminalPolicy: 'deny-all' }]);
+    });
+
+    it('/brain monitor policy says the change is deferred to the next session', async () => {
+      const { runtime, patches } = makeRt();
+      const res = await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('monitor policy observe');
+      expect(patches).toEqual([{ monitor: { policy: 'observe' } }]);
+      expect(stripAnsi(res.message)).toContain('next session');
+    });
+
+    it('/brain rules surfaces compile errors alongside the table', async () => {
+      const { runtime } = makeRt({
+        rules: [{ id: 'ok', when: {}, then: { action: 'deny' } }],
+        ruleErrors: ['broken: invalid question pattern'],
+      });
+      const msg = stripAnsi((await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('rules')).message);
+      expect(msg).toContain('ok');
+      expect(msg).toContain('broken');
+    });
+
+    it('/brain rules clear empties the table', async () => {
+      const { runtime, patches } = makeRt();
+      await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('rules clear');
+      expect(patches).toEqual([{ rules: null }]);
+    });
+
+    it('/brain stats splits deterministic from model-backed decisions', async () => {
+      const { runtime } = makeRt();
+      const ctx = makeCtx({
+        brainRuntime: runtime,
+        getBrainLog: () => [
+          { at: 1, kind: 'answered', question: 'a', tier: 'rule' },
+          { at: 2, kind: 'answered', question: 'b', tier: 'heuristic' },
+          { at: 3, kind: 'answered', question: 'c', tier: 'llm' },
+        ],
+      });
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats')).message);
+      expect(msg).toContain('deterministic');
+      expect(msg).toContain('model-backed');
+      // 2 of 3 decided without a provider call.
+      expect(msg).toContain('67% of decided');
+    });
+
+    it('/brain stats copes with an empty log', async () => {
+      const { runtime } = makeRt();
+      const ctx = makeCtx({ brainRuntime: runtime, getBrainLog: () => [] });
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats')).message);
+      expect(msg).toContain('No decisions recorded');
+    });
+
+    it('lists the new subcommands in argsHint, help and the unknown-subcommand hint', async () => {
+      const cmd = buildBrainCommand(makeCtx());
+      for (const name of ['stats', 'rules', 'heuristics', 'llm', 'trace', 'cache', 'escalation', 'monitor']) {
+        expect(cmd.argsHint).toContain(name);
+        expect(cmd.help).toContain(name);
+      }
+      const res = await cmd.run!('definitely-not-a-subcommand');
+      expect(stripAnsi(res.message)).toContain('stats');
     });
   });
 });

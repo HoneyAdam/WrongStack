@@ -39,6 +39,19 @@ import type { SlashCommandContext } from './index.js';
 const RISK_LEVELS: ReadonlySet<string> = new Set(['off', 'low', 'medium', 'high', 'all']);
 const COUNCIL_RISKS: ReadonlySet<string> = new Set(['medium', 'high', 'critical']);
 const PERSONA_SHORTHANDS: ReadonlySet<string> = new Set(['executor', 'skeptic', 'auditor']);
+const HEURISTIC_FIELDS: Record<string, string> = {
+  lowrisk: 'lowRiskAutoAnswer',
+  blocked: 'blockedResolved',
+  deadlock: 'deadlockSkip',
+  retry: 'retryExhausted',
+  continue: 'continuePing',
+};
+const DENY_TERMINAL_VALUES = ['never', 'when-decided', 'always'];
+const TRACE_CONTENT_VALUES = ['none', 'redacted', 'full'];
+const TERMINAL_POLICY_VALUES = ['conservative', 'deny-all', 'continue-on-recommended'];
+const MONITOR_POLICY_VALUES = ['llm', 'steer', 'observe'];
+/** Tiers that reached a decision without any provider call. */
+const DETERMINISTIC_TIER_NAMES = ['rule', 'policy', 'heuristic', 'cache', 'ledger-guard', 'terminal'];
 
 function parseRefEntry(ref: string): { provider?: string; model: string } | null {
   const parsed = parseModelRef(ref);
@@ -95,7 +108,8 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'brain',
     category: 'Agent',
-    argsHint: '[status|risk|mode|model|models|strategy|timeout|human-timeout|council|ledger|ask|save]',
+    argsHint:
+      '[status|stats|risk|mode|model|models|strategy|timeout|human-timeout|council|ledger|rules|heuristics|llm|trace|cache|escalation|monitor|ask|save]',
     description:
       'Inspect and configure the Brain: risk ceiling, escalation mode, LLM pool, council, timeouts, ledger. Setters apply live and persist globally.',
     help: [
@@ -116,6 +130,20 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
       '  /brain council judge <ref|auto> | quorum <0..1> | approval <0..1>',
       '  /brain ledger [n]      Show the last n rows (default 15) of the persistent decision ledger',
       '  /brain ledger on|off | autodeny <n>',
+      '  /brain stats           Per-tier decision counts: how often the Brain actually calls a model',
+      '  /brain rules           List the deterministic rule table and any compile errors',
+      '  /brain rules clear     Remove all deterministic rules',
+      '  /brain heuristics                 Show the built-in pattern heuristics',
+      '  /brain heuristics <name> on|off   lowrisk|blocked|deadlock|retry|continue',
+      '  /brain llm                        Show the single-LLM quality gate',
+      '  /brain llm maxtokens <n|default> | uncertain on|off | confidence <0..1>',
+      '  /brain llm deny <never|when-decided|always>',
+      '  /brain llm breaker <n|off> [cooldownMs]   Skip a dead pool after n failures',
+      '  /brain trace on|off               Record a replayable per-decision JSONL trace',
+      '  /brain trace content <none|redacted|full>',
+      '  /brain cache on|off | ttl <ms> | max <n>   Replay repeated council/LLM verdicts',
+      '  /brain escalation <conservative|deny-all|continue-on-recommended>',
+      '  /brain monitor <on|off> | policy <llm|steer|observe>',
       '  /brain ask <question>  Consult the Brain directly for decision support',
       '  /brain save            Re-persist the current Brain settings',
       '',
@@ -548,7 +576,343 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
         return { message: msg };
       }
 
-      const msg = `Unknown subcommand: ${subcommand}. Use /brain, risk, mode, model, models, strategy, timeout, human-timeout, council, ledger, ask, or save (see /brain help).`;
+      if (subcommand === 'rules') {
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (!snapshot) {
+          const msg = 'The Brain runtime is not available in this session.';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        if ((rest[0] ?? '').toLowerCase() === 'clear') {
+          return applyPatch({ rules: null }, () => 'Brain deterministic rules cleared');
+        }
+        const lines = [color.bold('Brain deterministic rules')];
+        if (snapshot.rules.length === 0) {
+          lines.push(color.dim('  (none - every question goes to the policy/LLM ladder)'));
+          lines.push(color.dim('  Add rules under brain.rules in the active profile config.'));
+        } else {
+          for (const rule of snapshot.rules) {
+            const state = rule.enabled === false ? color.dim(' [disabled]') : '';
+            lines.push(`  ${color.cyan(rule.id)} -> ${rule.then.action}${state}`);
+            if (rule.description) lines.push(color.dim(`    ${rule.description}`));
+          }
+        }
+        for (const err of snapshot.ruleErrors) {
+          lines.push(color.dim(`  ! ${err}`));
+        }
+        const msg = lines.join('\n');
+        opts.renderer.write(msg);
+        return { message: msg };
+      }
+
+      if (subcommand === 'heuristics') {
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (!snapshot) {
+          const msg = 'The Brain runtime is not available in this session.';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        const name = (rest[0] ?? '').toLowerCase();
+        if (!name) {
+          const h = snapshot.heuristics;
+          const row = (label: string, on: boolean): string =>
+            `  ${label.padEnd(12)} ${on ? color.cyan('on') : color.dim('off')}`;
+          const lines = [
+            color.bold('Brain heuristics'),
+            row('lowrisk', h.lowRiskAutoAnswer),
+            row('blocked', h.blockedResolved),
+            row('deadlock', h.deadlockSkip),
+            row('retry', h.retryExhausted),
+            row('continue', h.continuePing),
+          ];
+          if (h.blockedResolvedMarkers?.length) {
+            lines.push(color.dim(`  markers: ${h.blockedResolvedMarkers.join(', ')}`));
+          }
+          const msg = lines.join('\n');
+          opts.renderer.write(msg);
+          return { message: msg };
+        }
+        const field = HEURISTIC_FIELDS[name];
+        const value = (rest[1] ?? '').toLowerCase();
+        if (!field || (value !== 'on' && value !== 'off')) {
+          const msg = 'Usage: /brain heuristics <lowrisk|blocked|deadlock|retry|continue> <on|off>';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        return applyPatch(
+          { heuristics: { [field]: value === 'on' } },
+          () => `Brain heuristic ${color.cyan(name)} set to ${color.cyan(value)}`,
+        );
+      }
+
+      if (subcommand === 'llm') {
+        const op = (rest[0] ?? '').toLowerCase();
+        if (!op) {
+          const snapshot = opts.brainRuntime?.getSnapshot();
+          if (!snapshot) {
+            const msg = 'The Brain runtime is not available in this session.';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          const l = snapshot.llm;
+          const msg = [
+            color.bold('Brain LLM quality gate'),
+            `  maxTokens       ${color.cyan(String(l.maxTokens))}`,
+            `  rejectUncertain ${l.rejectUncertain ? color.cyan('on') : color.dim('off')}`,
+            `  minConfidence   ${color.cyan(String(l.minConfidence))}${l.minConfidence === 0 ? color.dim(' (off)') : ''}`,
+            `  denyIsTerminal  ${color.cyan(l.denyIsTerminal)}`,
+            snapshot.circuit
+              ? `  circuit         ${color.cyan(snapshot.circuit.state)} (${snapshot.circuit.consecutiveFailures} consecutive failures)`
+              : color.dim('  circuit         disabled'),
+          ].join('\n');
+          opts.renderer.write(msg);
+          return { message: msg };
+        }
+        if (op === 'maxtokens') {
+          const raw = (rest[1] ?? '').toLowerCase();
+          if (!raw) {
+            const msg = 'Usage: /brain llm maxtokens <n|default>';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          return applyPatch(
+            { llm: raw === 'default' ? { maxTokens: undefined } : { maxTokens: Number(raw) } },
+            (s2) => `Brain LLM maxTokens set to ${color.cyan(String(s2.llm.maxTokens))}`,
+          );
+        }
+        if (op === 'uncertain') {
+          const value = (rest[1] ?? '').toLowerCase();
+          if (value !== 'on' && value !== 'off') {
+            const msg = 'Usage: /brain llm uncertain <on|off>';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          return applyPatch(
+            { llm: { rejectUncertain: value === 'on' } },
+            () => `Brain LLM uncertainty rejection ${color.cyan(value)}`,
+          );
+        }
+        if (op === 'confidence') {
+          return applyPatch(
+            { llm: { minConfidence: Number(rest[1]) } },
+            (s2) => `Brain LLM minConfidence set to ${color.cyan(String(s2.llm.minConfidence))}`,
+          );
+        }
+        if (op === 'deny') {
+          const value = (rest[1] ?? '').toLowerCase();
+          if (!DENY_TERMINAL_VALUES.includes(value)) {
+            const msg = 'Usage: /brain llm deny <never|when-decided|always>';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          return applyPatch(
+            { llm: { denyIsTerminal: value as 'never' | 'when-decided' | 'always' } },
+            () => `Brain LLM denyIsTerminal set to ${color.cyan(value)}`,
+          );
+        }
+        if (op === 'breaker') {
+          const raw = (rest[1] ?? '').toLowerCase();
+          if (!raw) {
+            const msg = 'Usage: /brain llm breaker <n|off> [cooldownMs]';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          const threshold = raw === 'off' ? 0 : Number(raw);
+          const cooldown = rest[2] ? Number(rest[2]) : undefined;
+          return applyPatch(
+            {
+              llm: {
+                circuitBreaker: {
+                  failureThreshold: threshold,
+                  ...(cooldown !== undefined ? { cooldownMs: cooldown } : {}),
+                },
+              },
+            },
+            () =>
+              threshold === 0
+                ? 'Brain LLM circuit breaker disabled'
+                : `Brain LLM circuit breaker opens after ${color.cyan(String(threshold))} consecutive failures`,
+          );
+        }
+        const msg = 'Usage: /brain llm [maxtokens|uncertain|confidence|deny|breaker] ...';
+        opts.renderer.writeWarning(msg);
+        return { message: msg };
+      }
+
+      if (subcommand === 'trace') {
+        const op = (rest[0] ?? '').toLowerCase();
+        if (op === 'on' || op === 'off') {
+          return applyPatch({ trace: { enabled: op === 'on' } }, (s2) =>
+            op === 'on'
+              ? `Brain replay trace ${color.cyan('on')}${s2.trace.path ? color.dim(` -> ${s2.trace.path}`) : ''} - records decision content to disk`
+              : `Brain replay trace ${color.cyan('off')}`,
+          );
+        }
+        if (op === 'content') {
+          const value = (rest[1] ?? '').toLowerCase();
+          if (!TRACE_CONTENT_VALUES.includes(value)) {
+            const msg = 'Usage: /brain trace content <none|redacted|full>';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          return applyPatch(
+            { trace: { content: value as 'none' | 'redacted' | 'full' } },
+            () => `Brain trace content set to ${color.cyan(value)}`,
+          );
+        }
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (!snapshot) {
+          const msg = 'The Brain runtime is not available in this session.';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        const msg = [
+          color.bold('Brain replay trace'),
+          `  enabled  ${snapshot.trace.enabled ? color.cyan('yes') : color.dim('no')}`,
+          `  content  ${color.cyan(snapshot.trace.content)}`,
+          snapshot.trace.path ? `  path     ${color.dim(snapshot.trace.path)}` : '',
+          color.dim('  Records tiers, every pool target (incl. failures), council votes and tokens.'),
+        ]
+          .filter(Boolean)
+          .join('\n');
+        opts.renderer.write(msg);
+        return { message: msg };
+      }
+
+      if (subcommand === 'cache') {
+        const op = (rest[0] ?? '').toLowerCase();
+        if (op === 'on' || op === 'off') {
+          return applyPatch(
+            { cache: { enabled: op === 'on' } },
+            () => `Brain decision cache ${color.cyan(op)}`,
+          );
+        }
+        if (op === 'ttl') {
+          return applyPatch(
+            { cache: { ttlMs: Number(rest[1]) } },
+            (s2) => `Brain cache TTL set to ${color.cyan(String(s2.cache.ttlMs))}ms`,
+          );
+        }
+        if (op === 'max') {
+          return applyPatch(
+            { cache: { maxEntries: Number(rest[1]) } },
+            (s2) => `Brain cache max entries set to ${color.cyan(String(s2.cache.maxEntries))}`,
+          );
+        }
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (!snapshot) {
+          const msg = 'The Brain runtime is not available in this session.';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        const c = snapshot.cache;
+        const total = c.hits + c.misses;
+        const rate = total > 0 ? color.dim(` (${Math.round((c.hits / total) * 100)}% hit rate)`) : '';
+        const msg = [
+          color.bold('Brain decision cache'),
+          `  enabled  ${c.enabled ? color.cyan('yes') : color.dim('no')}`,
+          `  ttl      ${color.cyan(String(c.ttlMs))}ms   max ${color.cyan(String(c.maxEntries))}`,
+          `  live     ${color.cyan(String(c.size))} entries, ${color.cyan(String(c.hits))} hit / ${String(c.misses)} miss${rate}`,
+          color.dim('  Only council/LLM verdicts are cached; a failed outcome evicts its entry.'),
+        ].join('\n');
+        opts.renderer.write(msg);
+        return { message: msg };
+      }
+
+      if (subcommand === 'escalation') {
+        const value = (rest[0] ?? '').toLowerCase();
+        if (!TERMINAL_POLICY_VALUES.includes(value)) {
+          const snapshot = opts.brainRuntime?.getSnapshot();
+          const current = snapshot ? color.cyan(snapshot.terminalPolicy) : color.dim('unknown');
+          const msg = `Brain escalation policy: ${current}\nUsage: /brain escalation <conservative|deny-all|continue-on-recommended>`;
+          opts.renderer.write(msg);
+          return { message: msg };
+        }
+        return applyPatch(
+          { terminalPolicy: value as 'conservative' | 'deny-all' | 'continue-on-recommended' },
+          () => `Brain escalation policy set to ${color.cyan(value)}`,
+        );
+      }
+
+      if (subcommand === 'monitor') {
+        const op = (rest[0] ?? '').toLowerCase();
+        const boot = color.dim('(applies on next session - the monitor is built at boot)');
+        if (op === 'on' || op === 'off') {
+          return applyPatch(
+            { monitor: { enabled: op === 'on' } },
+            () => `Brain monitor ${color.cyan(op)} ${boot}`,
+          );
+        }
+        if (op === 'policy') {
+          const value = (rest[1] ?? '').toLowerCase();
+          if (!MONITOR_POLICY_VALUES.includes(value)) {
+            const msg = 'Usage: /brain monitor policy <llm|steer|observe>';
+            opts.renderer.writeWarning(msg);
+            return { message: msg };
+          }
+          return applyPatch(
+            { monitor: { policy: value as 'llm' | 'steer' | 'observe' } },
+            () => `Brain monitor policy set to ${color.cyan(value)} ${boot}`,
+          );
+        }
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (!snapshot) {
+          const msg = 'The Brain runtime is not available in this session.';
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+        const m = snapshot.monitor;
+        const msg = [
+          color.bold('Brain monitor (self-activation)'),
+          `  enabled  ${m.enabled === false ? color.dim('no') : color.cyan('yes')}`,
+          `  policy   ${color.cyan(m.policy ?? 'llm')}`,
+          color.dim('  Signals: tool-failure streak, error storm, agent stall, file churn.'),
+          color.dim('  Changes apply on the next session - the monitor is constructed at boot.'),
+        ].join('\n');
+        opts.renderer.write(msg);
+        return { message: msg };
+      }
+
+      if (subcommand === 'stats') {
+        const log = opts.getBrainLog?.() ?? [];
+        const counts = new Map<string, number>();
+        for (const entry of log) {
+          const tier = (entry as { tier?: string }).tier ?? 'unattributed';
+          counts.set(tier, (counts.get(tier) ?? 0) + 1);
+        }
+        let free = 0;
+        let paid = 0;
+        for (const [tier, n] of counts) {
+          if (DETERMINISTIC_TIER_NAMES.includes(tier)) free += n;
+          else if (tier === 'llm' || tier === 'council') paid += n;
+        }
+        const lines = [color.bold('Brain decision tiers'), ''];
+        if (counts.size === 0) {
+          lines.push(color.dim('  No decisions recorded yet this session.'));
+        } else {
+          for (const [tier, n] of [...counts].sort((a, b) => b[1] - a[1])) {
+            lines.push(`  ${tier.padEnd(14)} ${color.cyan(String(n))}`);
+          }
+          const decided = free + paid;
+          const pct = decided > 0 ? color.dim(` (${Math.round((free / decided) * 100)}% of decided)`) : '';
+          lines.push('');
+          lines.push(`  ${'deterministic'.padEnd(14)} ${color.cyan(String(free))}${pct}`);
+          lines.push(`  ${'model-backed'.padEnd(14)} ${color.cyan(String(paid))}`);
+        }
+        const snapshot = opts.brainRuntime?.getSnapshot();
+        if (snapshot?.cache.enabled) {
+          lines.push('', color.dim(`  cache: ${snapshot.cache.hits} hit / ${snapshot.cache.misses} miss`));
+        }
+        if (snapshot?.circuit && snapshot.circuit.state !== 'closed') {
+          lines.push(color.dim(`  circuit: ${snapshot.circuit.state}`));
+        }
+        lines.push('', color.dim(`  Based on the last ${log.length} logged decision(s) of this session.`));
+        const msg = lines.join('\n');
+        opts.renderer.write(msg);
+        return { message: msg };
+      }
+
+      const msg = `Unknown subcommand: ${subcommand}. Use /brain, status, stats, risk, mode, model, models, strategy, timeout, human-timeout, council, ledger, rules, heuristics, llm, trace, cache, escalation, monitor, ask, or save (see /brain help).`;
       opts.renderer.writeWarning(msg);
       return { message: msg };
     },
