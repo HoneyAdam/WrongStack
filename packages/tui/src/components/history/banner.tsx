@@ -81,20 +81,20 @@ function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
   return brandMarkPinkRow(frame);
 }
 
-// The startup wordmark uses a compact 4×5 block face. Every glyph is four
-// columns wide and five rows tall, composing to 49 columns so the full mark
+// The startup wordmark uses a compact 5×5 block face. Every glyph is five
+// columns wide and five rows tall, composing to 59 columns so the full mark
 // fits comfortably inside an 80-column terminal while staying legible.
 const WORDMARK_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█  █', '█  █', '█  █', '█ ██', ' █ █']),
-  R: Object.freeze(['███ ', '█  █', '███ ', '█ █ ', '█  █']),
-  O: Object.freeze([' ██ ', '█  █', '█  █', '█  █', ' ██ ']),
-  N: Object.freeze(['█  █', '██ █', '█ ██', '█  █', '█  █']),
-  G: Object.freeze([' ███', '█   ', '█ ██', '█  █', ' ███']),
-  S: Object.freeze([' ███', '█   ', ' ██ ', '   █', '███ ']),
-  T: Object.freeze(['████', ' ██ ', ' ██ ', ' ██ ', ' ██ ']),
-  A: Object.freeze([' ██ ', '█  █', '████', '█  █', '█  █']),
-  C: Object.freeze([' ███', '█   ', '█   ', '█   ', ' ███']),
-  K: Object.freeze(['█  █', '█ █ ', '██  ', '█ █ ', '█  █']),
+  W: Object.freeze(['█   █', '█   █', '█ █ █', '██ ██', '█   █']),
+  R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
+  O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
+  N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
+  G: Object.freeze([' ████', '█    ', '█ ███', '█   █', ' ████']),
+  S: Object.freeze([' ████', '█    ', ' ███ ', '    █', '████ ']),
+  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ', '  █  ']),
+  A: Object.freeze([' ███ ', '█   █', '█████', '█   █', '█   █']),
+  C: Object.freeze([' ████', '█    ', '█    ', '█    ', ' ████']),
+  K: Object.freeze(['█   █', '█  █ ', '███  ', '█  █ ', '█   █']),
 });
 
 const WORDMARK = 'WRONGSTACK';
