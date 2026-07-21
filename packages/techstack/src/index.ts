@@ -69,7 +69,9 @@ export { DartAdapter, dartAdapter } from './adapters/dart.js';
 
 // ── Tier B adapters (§6) ────────────────────────────────────────────────
 export { MavenAdapter, mavenAdapter } from './adapters/maven.js';
+export { GradleAdapter, gradleAdapter } from './adapters/gradle.js';
 export { RubyAdapter, rubyAdapter } from './adapters/ruby.js';
+export { SwiftAdapter, swiftAdapter } from './adapters/swift.js';
 export { ElixirAdapter, elixirAdapter } from './adapters/elixir.js';
 
 // ── Tier C adapters (§6) ────────────────────────────────────────────────
@@ -79,22 +81,43 @@ export { CppAdapter, cppAdapter } from './adapters/cpp.js';
 export { diffSnapshots } from './snapshot-diff.js';
 export type { SnapshotDiff } from './snapshot-diff.js';
 
+// ── Cross-snapshot trend analysis ─────────────────────────────────────────
+export { renderTrendMarkdown, TrendStore } from './trend.js';
+export type { DependencyTrend, SnapshotSource, TrendReport } from './trend.js';
+
 // ── SBOM export (§9) ─────────────────────────────────────────────────────
 export { toSpdx, toCycloneDX } from './sbom.js';
 export type { CycloneDXBom, SpdxDocument } from './sbom.js';
 
 // ── Remediation planning (§9) ─────────────────────────────────────────────
-export { generateUpgradePlan, renderPlanMarkdown } from './remediation.js';
-export type { UpgradePlan, UpgradePlanItem } from './remediation.js';
+export {
+  applyPlan,
+  generateUpgradePlan,
+  renderPlanMarkdown,
+  toLanguagePackageInput,
+} from './remediation.js';
+export type {
+  ApplyPlanOptions,
+  ApplyPlanResult,
+  PackageOperation,
+  PackageOperationExecutor,
+  UpgradePlan,
+  UpgradePlanItem,
+} from './remediation.js';
 
 // ── Registry client (§5) ──────────────────────────────────────────────────
 export {
   clearRegistryCache,
+  invalidateRegistryCache,
   lookupRegistry,
   lookupRegistryBatch,
+  RegistryAuthError,
+  RegistryNetworkError,
+  RegistryNotFoundError,
+  RegistryRateLimitError,
   supportedRegistryEcosystems,
 } from './registry/client.js';
-export type { RegistryEntry } from './registry/client.js';
+export type { RegistryEntry, RegistryLookupOptions } from './registry/client.js';
 
 // ── OSV advisory client (§5) ──────────────────────────────────────────────
 export { queryOsvBatch, queryOsvSingle } from './advisory/osv.js';
@@ -102,11 +125,18 @@ export type { OsvAdvisory, OsvBatchResult } from './advisory/osv.js';
 
 // ── Native audit adapters (§6) ────────────────────────────────────────────
 export {
+  createAuditRunner,
   isNativeAuditAvailable,
   runNativeAudit,
   runNpmAudit,
 } from './advisory/native-audit.js';
-export type { NativeAdvisory, NativeAuditResult } from './advisory/native-audit.js';
+export type {
+  AuditCommandResult,
+  AuditCommandRunner,
+  ConfiguredAuditRunner,
+  NativeAdvisory,
+  NativeAuditResult,
+} from './advisory/native-audit.js';
 
 // ── Policy / status classification (§7) ───────────────────────────────────
 export {

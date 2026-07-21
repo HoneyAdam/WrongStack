@@ -109,6 +109,42 @@ describe('languagePackageTool', () => {
     ]);
   });
 
+  it('previews a dry run without spawning or recording a side effect', async () => {
+    await fs.writeFile(path.join(root, 'package.json'), '{}');
+    const ctx = context();
+    const result = await languagePackageTool.execute(
+      { operation: 'add', language: 'javascript', names: ['react@19.0.0'], dryRun: true },
+      ctx,
+      opts,
+    );
+    expect(result.status).toBe('passed');
+    expect(result.output).toMatch(/Dry run: npm install/);
+    expect(spawnMocks.spawnStream).not.toHaveBeenCalled();
+    expect(ctx.recordSideEffect).not.toHaveBeenCalled();
+  });
+
+  it('accepts pinned Python package identifiers for governed upgrades', async () => {
+    await fs.writeFile(path.join(root, 'requirements.txt'), 'requests==2.31.0\n');
+    const result = await languagePackageTool.execute(
+      { operation: 'add', language: 'python', names: ['requests==2.32.0'], dryRun: true },
+      context(),
+      opts,
+    );
+    expect(result.status).toBe('passed');
+    expect(result.output).toContain('requests==2.32.0');
+  });
+
+  it('translates a pinned NuGet package into a structured --version plan', async () => {
+    await fs.writeFile(path.join(root, 'app.csproj'), '<Project Sdk="Microsoft.NET.Sdk" />');
+    const result = await languagePackageTool.execute(
+      { operation: 'add', language: 'csharp', names: ['Serilog@4.2.0'], dryRun: true },
+      context(),
+      opts,
+    );
+    expect(result.status).toBe('passed');
+    expect(result.output).toContain('dotnet add package Serilog --version 4.2.0');
+  });
+
   it('rejects hostile package identifiers before spawning', async () => {
     await fs.writeFile(path.join(root, 'package.json'), '{}');
     await expect(

@@ -332,6 +332,7 @@ export function startHttpServer(opts: {
   getLlm?:
     | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
     | undefined;
+  executePackageOperation?: import('./techstack-handlers.js').TechStackHandlerDeps['executePackageOperation'];
   distDir?: string | undefined;
 }): import('node:http').Server {
   const httpServer = createHttpServer({
@@ -345,6 +346,7 @@ export function startHttpServer(opts: {
     onFleetPing: opts.onFleetPing,
     onTechStackEvent: opts.onTechStackEvent,
     getLlm: opts.getLlm,
+    executePackageOperation: opts.executePackageOperation,
     projectRoot: opts.projectRoot,
   });
   return httpServer;

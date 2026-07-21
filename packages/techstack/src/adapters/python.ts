@@ -16,22 +16,18 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
+import { parseTomlKeyValue } from './parse-utils.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 // ── Minimal TOML parser (line-based, sufficient for pyproject.toml) ───────
 
@@ -135,6 +131,22 @@ function parsePyprojectDeps(content: string): Array<{ name: string; constraint: 
         }
       }
     }
+
+    if (section.name === 'tool.poetry.dependencies' || section.name.startsWith('tool.poetry.group.')) {
+      const scope: DependencyScope = section.name === 'tool.poetry.dependencies'
+        ? 'runtime'
+        : 'development';
+      for (const raw of section.lines) {
+        const entry = parseTomlKeyValue(raw);
+        if (!entry) continue;
+        const name = entry.key;
+        if (!name || name.toLowerCase() === 'python') continue;
+        const rawValue = entry.value;
+        const inlineVersion = rawValue.match(/\bversion\s*=\s*["']([^"']+)["']/)?.[1];
+        const stringVersion = rawValue.match(/^["']([^"']+)["']/)?.[1];
+        deps.push({ name, constraint: inlineVersion ?? stringVersion, scope });
+      }
+    }
   }
 
   return deps;
@@ -179,7 +191,22 @@ function parseRequirementsLockVersions(content: string): Map<string, string> {
     const line = raw.trim();
     if (!line || line.startsWith('#') || line.startsWith('-')) continue;
     const match = line.match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*==\s*([^\s;]+)/);
-    if (match) versions.set(match[1]!, match[2]!);
+    if (match?.[1] && match[2]) versions.set(normalizePkgName(match[1]), match[2]);
+  }
+  return versions;
+}
+
+function parsePipfileLock(content: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  try {
+    const json = JSON.parse(content) as Record<string, Record<string, { version?: string }>>;
+    for (const section of ['default', 'develop']) {
+      for (const [name, entry] of Object.entries(json[section] ?? {})) {
+        if (entry.version?.startsWith('==')) versions.set(normalizePkgName(name), entry.version.slice(2));
+      }
+    }
+  } catch {
+    // Malformed lockfile.
   }
   return versions;
 }
@@ -228,9 +255,9 @@ export class PythonAdapter implements EcosystemAdapter {
     const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
-    const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || this.fileExists(join(root, 'pyproject.toml'));
-    const hasRequirements = workspace.manifests.some((m) => m.includes('requirements.txt')) || this.fileExists(join(root, 'requirements.txt'));
-    const hasPipfile = workspace.manifests.some((m) => m.includes('Pipfile')) || this.fileExists(join(root, 'Pipfile'));
+    const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || fileExists(join(root, 'pyproject.toml'));
+    const hasRequirements = workspace.manifests.some((m) => m.includes('requirements.txt')) || fileExists(join(root, 'requirements.txt'));
+    const hasPipfile = workspace.manifests.some((m) => m.includes('Pipfile')) || fileExists(join(root, 'Pipfile'));
 
     const lockfilePath = this.detectLockfile(root);
 
@@ -277,9 +304,14 @@ export class PythonAdapter implements EcosystemAdapter {
     }
 
     let lockEv: Evidence | undefined;
+    const lockVersions = new Map(reqLockVersions);
     if (lockfilePath) {
       try {
-        readFileSync(lockfilePath, 'utf-8');
+        const lockContent = readFileSync(lockfilePath, 'utf-8');
+        const parsed = lockfilePath.endsWith('poetry.lock') || lockfilePath.endsWith('uv.lock')
+          ? parsePoetryLock(lockContent)
+          : parsePipfileLock(lockContent);
+        for (const [name, version] of parsed) lockVersions.set(name, version);
         lockEv = lockfileEvidence(lockfilePath);
       } catch { /* ignore */ }
     }
@@ -290,7 +322,7 @@ export class PythonAdapter implements EcosystemAdapter {
       if (seen.has(dep.name)) continue;
       seen.add(dep.name);
 
-      const locked = reqLockVersions.get(dep.name) || undefined;
+      const locked = lockVersions.get(normalizePkgName(dep.name));
       const isRegistry = !dep.constraint || (!dep.constraint.startsWith('file:') && !dep.constraint.startsWith('git+') && !dep.constraint.startsWith('-e'));
 
       const purl = isRegistry && locked ? buildPurl({ type: 'python', name: dep.name, version: locked })
@@ -323,16 +355,33 @@ export class PythonAdapter implements EcosystemAdapter {
       });
     }
 
-    return observations;
-  }
+    if (options.includeTransitive && lockEv) {
+      for (const [name, locked] of lockVersions) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        observations.push({
+          id: `dep-${workspace.id}-${name}`,
+          workspaceId: workspace.id,
+          purl: buildPurl({ type: 'python', name, version: locked }),
+          ecosystem: 'python',
+          name,
+          sourceType: 'registry',
+          direct: false,
+          scope: 'transitive',
+          locked,
+          status: 'current',
+          evidence: [lockEv],
+        });
+      }
+    }
 
-  private fileExists(filePath: string): boolean {
-    try { readFileSync(filePath, 'utf-8'); return true; } catch { return false; }
+    return observations;
   }
 
   private detectLockfile(workspaceRoot: string): string | undefined {
     for (const file of ['Pipfile.lock', 'poetry.lock', 'uv.lock']) {
-      try { readFileSync(join(workspaceRoot, file), 'utf-8'); return join(workspaceRoot, file); } catch { /* not found */ }
+      const candidate = join(workspaceRoot, file);
+      if (fileExists(candidate)) return candidate;
     }
     return undefined;
   }

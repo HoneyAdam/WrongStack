@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type * as http from 'node:http';
 import type { Provider } from '@wrongstack/core';
 import type {
+  PackageOperation,
   Snapshot,
   TechStackEngine,
   TechStackJobKind,
@@ -55,6 +56,13 @@ export interface TechStackHandlerDeps {
    * server construction would go stale without anyone noticing.
    */
   getLlm?: (() => { provider: Provider; model: string } | undefined) | undefined;
+  /** Normal permission-governed bridge to the language_package tool. */
+  executePackageOperation?:
+    | ((
+        operation: PackageOperation,
+        workspace?: string,
+      ) => Promise<{ readonly detail?: string } | void>)
+    | undefined;
 }
 
 /**
@@ -182,10 +190,7 @@ export function handleTechStackInventory(
 }
 
 /** POST /api/techstack/analyze */
-export function handleTechStackAnalyze(
-  res: http.ServerResponse,
-  deps: TechStackHandlerDeps,
-): void {
+export function handleTechStackAnalyze(res: http.ServerResponse, deps: TechStackHandlerDeps): void {
   startJob(res, deps, 'analyze');
 }
 
@@ -300,4 +305,82 @@ export function handleTechStackReport(
     // No engine — fall back to raw JSON snapshot
     sendJson(res, 200, snapshot);
   }
+}
+
+/** GET /api/techstack/trends */
+export async function handleTechStackTrends(
+  res: http.ServerResponse,
+  deps: TechStackHandlerDeps,
+): Promise<void> {
+  try {
+    const { TrendStore } = await import('@wrongstack/techstack');
+    sendJson(res, 200, { trend: new TrendStore(deps.store).analyze(deps.projectId) });
+  } catch (error) {
+    sendJson(res, 500, { error: 'Trend analysis failed', detail: errorMessage(error) });
+  }
+}
+
+/** GET /api/techstack/remediation */
+export async function handleTechStackRemediationPlan(
+  res: http.ServerResponse,
+  deps: TechStackHandlerDeps,
+): Promise<void> {
+  const snapshot = deps.store.getSnapshot(deps.projectId);
+  if (!snapshot) {
+    sendJson(res, 404, { error: 'No TechStack snapshot is available' });
+    return;
+  }
+  const { applyPlan, generateUpgradePlan } = await import('@wrongstack/techstack');
+  const plan = generateUpgradePlan(snapshot);
+  sendJson(res, 200, { plan, preview: await applyPlan(plan) });
+}
+
+/** POST /api/techstack/remediation/apply */
+export async function handleTechStackRemediationApply(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  deps: TechStackHandlerDeps,
+): Promise<void> {
+  if (!deps.executePackageOperation) {
+    sendJson(res, 503, { error: 'Permission-governed package execution is unavailable' });
+    return;
+  }
+  let approvedItems: string[];
+  try {
+    let raw = '';
+    for await (const chunk of req) {
+      raw += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      if (Buffer.byteLength(raw) > 64 * 1024) throw new Error('Request body is too large');
+    }
+    const body = JSON.parse(raw || '{}') as { approvedItems?: unknown };
+    approvedItems = Array.isArray(body.approvedItems)
+      ? body.approvedItems.filter((value): value is string => typeof value === 'string')
+      : [];
+  } catch (error) {
+    sendJson(res, 400, { error: 'Invalid request body', detail: errorMessage(error) });
+    return;
+  }
+  if (approvedItems.length === 0) {
+    sendJson(res, 400, { error: 'approvedItems must explicitly identify at least one plan item' });
+    return;
+  }
+  const snapshot = deps.store.getSnapshot(deps.projectId);
+  if (!snapshot) {
+    sendJson(res, 404, { error: 'No TechStack snapshot is available' });
+    return;
+  }
+  const approved = new Set(approvedItems);
+  const executePackageOperation = deps.executePackageOperation;
+  const { applyPlan, generateUpgradePlan } = await import('@wrongstack/techstack');
+  const plan = generateUpgradePlan(snapshot);
+  const result = await applyPlan(plan, {
+    dryRun: false,
+    approve: (item) =>
+      approved.has(`${item.workspaceId}:${item.ecosystem}:${item.dependencyName}:${item.action}`),
+    execute: (operation) => {
+      const workspace = snapshot.workspaces.find((item) => item.id === operation.workspaceId);
+      return executePackageOperation(operation, workspace?.relativeRoot);
+    },
+  });
+  sendJson(res, 200, { plan, result });
 }

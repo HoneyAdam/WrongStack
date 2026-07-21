@@ -12,12 +12,16 @@ import { readFileSync } from 'node:fs';
 import type {
   DependencyObservation,
   DependencyScope,
-  Evidence,
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type { EcosystemAdapter, InventoryOptions } from './interface.js';
+import {
+  manifestEvidence,
+  type EcosystemAdapter,
+  type InventoryOptions,
+} from './interface.js';
 import { buildPurl } from '../registry/purl.js';
+import { xmlTagValue } from './parse-utils.js';
 
 interface MavenDependency {
   readonly groupId: string;
@@ -26,24 +30,58 @@ interface MavenDependency {
   readonly scope?: string | undefined;
 }
 
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
 /**
  * Minimal XML parser for `<dependency>` blocks inside pom.xml.
  * Does not handle inheritance/dependencyManagement — this is Tier B partial.
  */
 function parsePomDependencies(xml: string): MavenDependency[] {
   const deps: MavenDependency[] = [];
+  const properties = new Map<string, string>();
+  const propertiesBlock = /<properties>([\s\S]*?)<\/properties>/.exec(xml)?.[1] ?? '';
+  const propertyRegex = /<([A-Za-z0-9_.-]+)>\s*([^<]+?)\s*<\/\1>/g;
+  let propertyMatch: RegExpExecArray | null;
+  while ((propertyMatch = propertyRegex.exec(propertiesBlock)) !== null) {
+    const key = propertyMatch[1];
+    const value = propertyMatch[2];
+    if (key && value) properties.set(key, value.trim());
+  }
+  const parentBlock = /<parent>([\s\S]*?)<\/parent>/.exec(xml)?.[1];
+  if (parentBlock) {
+    const parentVersion = xmlTagValue(parentBlock, 'version');
+    const parentGroup = xmlTagValue(parentBlock, 'groupId');
+    if (parentVersion) {
+      properties.set('parent.version', parentVersion);
+      properties.set('project.parent.version', parentVersion);
+    }
+    if (parentGroup) {
+      properties.set('parent.groupId', parentGroup);
+      properties.set('project.parent.groupId', parentGroup);
+    }
+  }
+
+  const managed = new Map<string, string>();
+  const managementBlock = /<dependencyManagement>([\s\S]*?)<\/dependencyManagement>/.exec(xml)?.[1] ?? '';
+  const managementRegex = /<dependency>\s*([\s\S]*?)<\/dependency>/g;
+  let managementMatch: RegExpExecArray | null;
+  while ((managementMatch = managementRegex.exec(managementBlock)) !== null) {
+    const block = managementMatch[1];
+    if (!block) continue;
+    const groupId = xmlTagValue(block, 'groupId');
+    const artifactId = xmlTagValue(block, 'artifactId');
+    const version = xmlTagValue(block, 'version');
+    if (groupId && artifactId && version) managed.set(`${groupId}:${artifactId}`, version);
+  }
+
+  const directXml = xml.replace(/<dependencyManagement>[\s\S]*?<\/dependencyManagement>/g, '');
   const depRegex = /<dependency>\s*([\s\S]*?)<\/dependency>/g;
   let match: RegExpExecArray | null;
-  while ((match = depRegex.exec(xml)) !== null) {
+  while ((match = depRegex.exec(directXml)) !== null) {
     const block = match[1]!;
-    const groupId = block.match(/<groupId>([^<]+)<\/groupId>/)?.[1]?.trim();
-    const artifactId = block.match(/<artifactId>([^<]+)<\/artifactId>/)?.[1]?.trim();
-    const version = block.match(/<version>([^<]+)<\/version>/)?.[1]?.trim();
-    const scope = block.match(/<scope>([^<]+)<\/scope>/)?.[1]?.trim();
+    const groupId = xmlTagValue(block, 'groupId');
+    const artifactId = xmlTagValue(block, 'artifactId');
+    const rawVersion = xmlTagValue(block, 'version') ?? (groupId && artifactId ? managed.get(`${groupId}:${artifactId}`) : undefined);
+    const version = rawVersion?.replace(/\$\{([^}]+)\}/g, (_whole, key: string) => properties.get(key) ?? `\${${key}}`);
+    const scope = xmlTagValue(block, 'scope');
     if (groupId && artifactId) {
       deps.push({ groupId, artifactId, version, scope });
     }

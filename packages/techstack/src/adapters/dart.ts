@@ -16,22 +16,15 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 // ── Minimal YAML parser (line-based, sufficient for pubspec.yaml) ────────
 
@@ -82,6 +75,15 @@ function parsePubspecYaml(content: string): Map<string, Map<string, string>> {
       }
       const sec = sections.get(currentSection)!;
       sec.set(currentName, constraint);
+      continue;
+    }
+
+    if (currentName && line.startsWith('    ')) {
+      const sec = sections.get(currentSection);
+      if (!sec) continue;
+      if (/^sdk:\s*flutter\b/.test(trimmed)) sec.set(currentName, 'sdk:flutter');
+      else if (/^git:\s*/.test(trimmed)) sec.set(currentName, `git:${trimmed.slice(4).trim()}`);
+      else if (/^path:\s*/.test(trimmed)) sec.set(currentName, `path:${trimmed.slice(5).trim()}`);
     }
   }
 
@@ -150,7 +152,7 @@ export class DartAdapter implements EcosystemAdapter {
 
     // Find pubspec.yaml
     const pubspecPath = workspace.manifests.find((m) => m.includes('pubspec.yaml'))
-      || (this.fileExists(join(root, 'pubspec.yaml')) ? join(root, 'pubspec.yaml') : undefined);
+      || (fileExists(join(root, 'pubspec.yaml')) ? join(root, 'pubspec.yaml') : undefined);
     if (!pubspecPath) return [];
 
     let content: string;
@@ -193,7 +195,7 @@ export class DartAdapter implements EcosystemAdapter {
         seen.add(name);
 
         // Skip sdk dependencies (they are the Dart SDK itself)
-        if (constraint === '*' || constraint.startsWith('{')) continue;
+        if (constraint === '*' || constraint === 'sdk:flutter' || constraint.startsWith('{')) continue;
 
         const locked = lockVersions.get(name);
 
@@ -244,14 +246,6 @@ export class DartAdapter implements EcosystemAdapter {
     return observations;
   }
 
-  private fileExists(filePath: string): boolean {
-    try {
-      readFileSync(filePath, 'utf-8');
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 /**

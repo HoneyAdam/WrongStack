@@ -15,34 +15,81 @@
  * @see docs/specs/techstack-sdd.md §4.2, §6
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Boxes, Download, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   type TechStackDependency,
   type TechStackFinding,
   type TechStackSnapshot,
   useTechStackStore,
 } from '@/stores';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { DependencyDetail } from './DependencyDetail';
 import { DependencyTable } from './DependencyTable';
 import { FindingsPanel } from './FindingsPanel';
-import { type DependencySort, TechStackToolbar } from './TechStackToolbar';
 import { COVERAGE_META, MetricCard, needsAttention, statusMeta, versionDrift } from './shared';
+import { type DependencySort, TechStackToolbar } from './TechStackToolbar';
 
 interface SnapshotResponse {
   snapshot: TechStackSnapshot | null;
   stale: boolean;
 }
 
-type MainTab = 'dependencies' | 'findings' | 'workspaces';
+type MainTab = 'dependencies' | 'findings' | 'workspaces' | 'trends' | 'remediation';
+
+interface TechStackTrend {
+  snapshots: number;
+  vulnerabilityHalfLifeMs?: number;
+  points: ReadonlyArray<{
+    snapshotId: string;
+    createdAt: string;
+    dependencies: number;
+    outdated: number;
+    vulnerable: number;
+  }>;
+  dependencies: ReadonlyArray<{
+    key: string;
+    name: string;
+    ecosystem: string;
+    currentVersion?: string;
+    lockedVersionAgeMs: number;
+    versionChanges: number;
+  }>;
+}
+
+interface RemediationPlan {
+  warning: string;
+  summary: {
+    total: number;
+    patch: number;
+    minor: number;
+    major: number;
+    replace: number;
+    remove: number;
+    investigate: number;
+  };
+  items: ReadonlyArray<{
+    workspaceId: string;
+    dependencyName: string;
+    ecosystem: string;
+    action: string;
+    severity: string;
+    currentVersion?: string;
+    targetVersion?: string;
+    rationale: string;
+  }>;
+}
 
 const TABS: ReadonlyArray<{ id: MainTab; label: string }> = [
   { id: 'dependencies', label: 'Dependencies' },
   { id: 'findings', label: 'Findings' },
   { id: 'workspaces', label: 'Workspaces' },
+  { id: 'trends', label: 'Trends' },
+  { id: 'remediation', label: 'Remediation' },
 ];
+
+const AUTOMATED_REMEDIATION_ECOSYSTEMS = new Set(['npm', 'python', 'rust', 'go', 'php', 'dotnet']);
 
 export function TechStackView() {
   const snapshot = useTechStackStore((state) => state.snapshot);
@@ -63,6 +110,10 @@ export function TechStackView() {
     status: 'idle' | 'loading' | 'error';
     error: string | null;
   }>({ status: 'idle', error: null });
+  const [trend, setTrend] = useState<TechStackTrend | null>(null);
+  const [remediation, setRemediation] = useState<RemediationPlan | null>(null);
+  const [approvedDependencies, setApprovedDependencies] = useState<Set<string>>(new Set());
+  const [applying, setApplying] = useState(false);
 
   // ── Data ────────────────────────────────────────────────────────────────
 
@@ -110,9 +161,7 @@ export function TechStackView() {
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       useTechStackStore.getState().jobCancelled(job.id);
     } catch (cause) {
-      useTechStackStore.getState().setError(
-        cause instanceof Error ? cause.message : String(cause),
-      );
+      useTechStackStore.getState().setError(cause instanceof Error ? cause.message : String(cause));
     }
   }, []);
 
@@ -141,6 +190,47 @@ export function TechStackView() {
   useEffect(() => {
     void fetchSnapshot();
   }, [fetchSnapshot]);
+
+  useEffect(() => {
+    if (tab !== 'trends' && tab !== 'remediation') return;
+    const endpoint = tab === 'trends' ? 'trends' : 'remediation';
+    void fetch(`/api/techstack/${endpoint}`)
+      .then(async (response) => {
+        const body = (await response.json()) as {
+          trend?: TechStackTrend;
+          plan?: RemediationPlan;
+          error?: string;
+        };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        if (body.trend) setTrend(body.trend);
+        if (body.plan) setRemediation(body.plan);
+      })
+      .catch((cause) =>
+        useTechStackStore
+          .getState()
+          .setError(cause instanceof Error ? cause.message : String(cause)),
+      );
+  }, [tab, snapshot?.id]);
+
+  const applyRemediation = useCallback(async () => {
+    if (approvedDependencies.size === 0) return;
+    setApplying(true);
+    try {
+      const response = await fetch('/api/techstack/remediation/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approvedItems: [...approvedDependencies] }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      setApprovedDependencies(new Set());
+      await startJob('inventory');
+    } catch (cause) {
+      useTechStackStore.getState().setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setApplying(false);
+    }
+  }, [approvedDependencies, startJob]);
 
   // A new snapshot invalidates the ad-hoc deep-dive results — they were about
   // versions that may no longer be installed.
@@ -202,10 +292,7 @@ export function TechStackView() {
     ];
   }, [findings, deepDiveFindings, selected]);
 
-  const attentionCount = useMemo(
-    () => dependencies.filter(needsAttention).length,
-    [dependencies],
-  );
+  const attentionCount = useMemo(() => dependencies.filter(needsAttention).length, [dependencies]);
   const outdatedCount = useMemo(
     () => dependencies.filter((dep) => versionDrift(dep).majorsBehind > 0).length,
     [dependencies],
@@ -216,10 +303,7 @@ export function TechStackView() {
   );
 
   const hasFilters =
-    searchQuery.trim() !== '' ||
-    ecosystemFilter !== 'all' ||
-    statusFilter !== 'all' ||
-    directOnly;
+    searchQuery.trim() !== '' || ecosystemFilter !== 'all' || statusFilter !== 'all' || directOnly;
 
   const clearFilters = useCallback(() => {
     setSearchQuery('');
@@ -232,13 +316,10 @@ export function TechStackView() {
     activeJob && !['completed', 'failed', 'cancelled'].includes(activeJob.status),
   );
 
-  const selectDependencyById = useCallback(
-    (dependencyId: string) => {
-      setSelectedId(dependencyId);
-      setTab('dependencies');
-    },
-    [],
-  );
+  const selectDependencyById = useCallback((dependencyId: string) => {
+    setSelectedId(dependencyId);
+    setTab('dependencies');
+  }, []);
 
   // ── Render ──────────────────────────────────────────────────────────────
 
@@ -286,7 +367,12 @@ export function TechStackView() {
               Analyze
             </Button>
             {jobRunning && (
-              <Button variant="ghost" size="icon" onClick={() => void cancelJob()} aria-label="Cancel job">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void cancelJob()}
+                aria-label="Cancel job"
+              >
                 <X className="size-4" />
               </Button>
             )}
@@ -455,8 +541,120 @@ export function TechStackView() {
           )}
 
           {tab === 'workspaces' && <WorkspaceList snapshot={snapshot} />}
+          {tab === 'trends' && <TrendPanel trend={trend} />}
+          {tab === 'remediation' && (
+            <RemediationPanel
+              plan={remediation}
+              approved={approvedDependencies}
+              applying={applying}
+              onToggle={(key) =>
+                setApprovedDependencies((current) => {
+                  const next = new Set(current);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                })
+              }
+              onApply={() => void applyRemediation()}
+            />
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+function TrendPanel({ trend }: { trend: TechStackTrend | null }) {
+  if (!trend) return <LoadingState />;
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-3">
+      <p className="mb-3 text-xs text-muted-foreground">
+        {trend.snapshots} snapshots
+        {trend.vulnerabilityHalfLifeMs !== undefined
+          ? ` · vulnerability half-life ${(trend.vulnerabilityHalfLifeMs / 86_400_000).toFixed(1)} days`
+          : ''}
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {trend.points.map((point) => (
+          <div
+            key={point.snapshotId}
+            className="grid grid-cols-4 border border-border/70 bg-card/40 p-2 text-xs"
+          >
+            <span>{new Date(point.createdAt).toLocaleDateString()}</span>
+            <span>{point.dependencies} deps</span>
+            <span className="text-warning">{point.outdated} outdated</span>
+            <span className="text-destructive">{point.vulnerable} vulnerable</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RemediationPanel({
+  plan,
+  approved,
+  applying,
+  onToggle,
+  onApply,
+}: {
+  plan: RemediationPlan | null;
+  approved: ReadonlySet<string>;
+  applying: boolean;
+  onToggle: (name: string) => void;
+  onApply: () => void;
+}) {
+  if (!plan) return <LoadingState />;
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">{plan.warning}</p>
+        <Button size="sm" disabled={approved.size === 0 || applying} onClick={onApply}>
+          {applying && <Loader2 className="size-3.5 animate-spin" />}
+          Apply {approved.size > 0 ? approved.size : ''}
+        </Button>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {plan.items.map((item) => {
+          const key = `${item.workspaceId}:${item.ecosystem}:${item.dependencyName}:${item.action}`;
+          const manual =
+            item.action === 'replace' ||
+            item.action === 'investigate' ||
+            !AUTOMATED_REMEDIATION_ECOSYSTEMS.has(item.ecosystem);
+          return (
+            <label
+              key={key}
+              className={cn(
+                'flex gap-3 border border-border/70 bg-card/40 p-2.5',
+                manual ? 'cursor-not-allowed opacity-65' : 'cursor-pointer',
+              )}
+            >
+              <input
+                type="checkbox"
+                disabled={manual}
+                checked={approved.has(key)}
+                onChange={() => onToggle(key)}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block font-mono text-xs">
+                  {item.dependencyName} · {item.action}
+                </span>
+                <span className="block text-[10px] text-muted-foreground">
+                  {item.currentVersion ?? '?'} → {item.targetVersion ?? 'latest'} · {item.rationale}
+                </span>
+                {manual && (
+                  <span className="block text-[10px] text-warning">
+                    Requires a manual package choice.
+                  </span>
+                )}
+              </span>
+            </label>
+          );
+        })}
+        {plan.items.length === 0 && (
+          <p className="p-8 text-center text-xs text-muted-foreground">No remediation needed.</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   registerShutdown,
 } from './server-runtime.js';
 import { createPreContextServices } from './pre-context-services.js';
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
   createDefaultPipelines,
@@ -28,6 +29,7 @@ import {
 } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
+import { type PackageOperation, toLanguagePackageInput } from '@wrongstack/techstack';
 import {
   ensureSessionShell,
 } from '@wrongstack/tools';
@@ -238,6 +240,7 @@ export async function startWebUI(
     autoCompactor,
     agent,
     permissionPolicy,
+    toolExecutor,
     pipelines,
     brain,
     brainSettings,
@@ -304,6 +307,56 @@ export async function startWebUI(
       context.provider && context.model
         ? { provider: context.provider, model: context.model }
         : undefined,
+    executePackageOperation: async (operation: PackageOperation, workspace?: string) => {
+      const input = toLanguagePackageInput(operation, workspace);
+      const use = {
+        type: 'tool_use' as const,
+        id: `techstack-remediation-${randomUUID()}`,
+        name: 'language_package',
+        input: { ...input },
+      };
+      const execute = async () => {
+        const { outputs } = await toolExecutor.executeBatch([use], context, 'sequential');
+        const output = outputs[0];
+        if (!output) throw new Error('language_package returned no result');
+        return output;
+      };
+      let output = await execute();
+      if (output.result.type === 'tool_confirm_pending') {
+        const pending = output.result;
+        const confirmTool = output.tool;
+        if (!confirmTool) throw new Error('Permission confirmation is missing its tool');
+        if (events.listenerCount('tool.confirm_needed') === 0) {
+          throw new Error('No permission confirmation surface is connected');
+        }
+        const decision = await new Promise<'yes' | 'no' | 'always' | 'deny'>((resolve) => {
+          events.emit('tool.confirm_needed', {
+            sessionId: context.session.id,
+            tool: confirmTool,
+            input: pending.input,
+            toolUseId: pending.toolUseId,
+            suggestedPattern: pending.suggestedPattern,
+            decisionSource: pending.decisionSource,
+            riskTier: pending.riskTier,
+            boundaryReason: pending.boundaryReason,
+            resolve,
+          });
+        });
+        const rule = { tool: 'language_package', pattern: pending.suggestedPattern };
+        if (decision === 'always') await permissionPolicy.trust(rule);
+        else if (decision === 'yes') permissionPolicy.allowOnce(rule);
+        else if (decision === 'deny') await permissionPolicy.deny(rule);
+        else permissionPolicy.denyOnce(rule);
+        if (decision === 'deny' || decision === 'no')
+          throw new Error('Package operation was denied');
+        output = await execute();
+      }
+      if (output.result.type === 'tool_confirm_pending') {
+        throw new Error('Package operation still requires confirmation');
+      }
+      if (output.result.is_error) throw new Error(output.result.content);
+      return { detail: output.result.content };
+    },
     distDir: opts.distDir,
   });
 

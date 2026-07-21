@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
-// Mock spawnSync so we can feed JSON output to the parsers without requiring
+// Mock execFile so we can feed JSON output to the parsers without requiring
 // the actual audit tools to be installed on the machine.
 vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 // Mock existsSync for pip-audit requirements file detection
@@ -13,21 +13,23 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...actual, existsSync: vi.fn(() => false) };
 });
 
-const mockedSpawn = vi.mocked(spawnSync);
+const mockedExec = vi.mocked(execFile);
 
 function mockResult(stdout: string, status = 0, stderr = ''): void {
-  mockedSpawn.mockReturnValue({
-    stdout,
-    stderr,
-    status,
-    pid: 1,
-    output: [null, stdout, stderr],
-    signal: null,
-  } as ReturnType<typeof spawnSync>);
+  mockedExec.mockImplementationOnce(((
+    _command: string,
+    _args: string[],
+    _options: unknown,
+    callback: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    const error = status === 0 ? null : Object.assign(new Error(stderr), { code: status });
+    callback(error, stdout, stderr);
+    return {};
+  }) as never);
 }
 
 beforeEach(() => {
-  mockedSpawn.mockReset();
+  mockedExec.mockReset();
 });
 
 // ── npm audit ─────────────────────────────────────────────────────────
@@ -47,7 +49,7 @@ describe('runNpmAudit', () => {
         metadata: { vulnerabilities: 1, totalDependencies: 100 },
       }),
     );
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('lodash');
     expect(result.advisories[0]!.severity).toBe('high');
@@ -67,7 +69,7 @@ describe('runNpmAudit', () => {
         },
       }),
     );
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(0);
   });
 
@@ -80,21 +82,21 @@ describe('runNpmAudit', () => {
         },
       }),
     );
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(0);
   });
 
   it('handles no vulnerabilities (status 0)', async () => {
     const { runNpmAudit } = await import('../../src/advisory/native-audit.js');
     mockResult(JSON.stringify({ vulnerabilities: {} }));
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(0);
   });
 
   it('handles error exit codes', async () => {
     const { runNpmAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('', 2, 'error');
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(0);
     expect(result.evidence.detail).toContain('code 2');
   });
@@ -102,7 +104,7 @@ describe('runNpmAudit', () => {
   it('handles malformed JSON', async () => {
     const { runNpmAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('not json', 0);
-    const result = runNpmAudit('/fake');
+    const result = await runNpmAudit('/fake');
     expect(result.advisories).toHaveLength(0);
     expect(result.evidence.detail).toContain('Failed to parse');
   });
@@ -124,7 +126,7 @@ describe('runPipAudit', () => {
         },
       ]),
     );
-    const result = runPipAudit('/fake');
+    const result = await runPipAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('requests');
     expect(result.advisories[0]!.severity).toBe('high');
@@ -134,7 +136,7 @@ describe('runPipAudit', () => {
   it('handles pip-audit error exit', async () => {
     const { runPipAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('', 1, 'pip-audit failed');
-    const result = runPipAudit('/fake');
+    const result = await runPipAudit('/fake');
     expect(result.advisories).toHaveLength(0);
     expect(result.evidence.detail).toContain('code 1');
   });
@@ -162,7 +164,7 @@ describe('runCargoAudit', () => {
         },
       }),
     );
-    const result = runCargoAudit('/fake');
+    const result = await runCargoAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('openssl');
     expect(result.advisories[0]!.severity).toBe('critical');
@@ -172,7 +174,7 @@ describe('runCargoAudit', () => {
   it('handles cargo audit error exit', async () => {
     const { runCargoAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('', 1, 'error');
-    const result = runCargoAudit('/fake');
+    const result = await runCargoAudit('/fake');
     expect(result.advisories).toHaveLength(0);
     expect(result.evidence.detail).toContain('code 1');
   });
@@ -196,7 +198,7 @@ describe('runGoVulncheck', () => {
         ],
       }),
     );
-    const result = runGoVulncheck('/fake');
+    const result = await runGoVulncheck('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('golang.org/x/crypto');
     expect(result.advisories[0]!.severity).toBe('high');
@@ -206,7 +208,7 @@ describe('runGoVulncheck', () => {
   it('handles status 1 (no vulns)', async () => {
     const { runGoVulncheck } = await import('../../src/advisory/native-audit.js');
     mockResult('', 1);
-    const result = runGoVulncheck('/fake');
+    const result = await runGoVulncheck('/fake');
     expect(result.advisories).toHaveLength(0);
     expect(result.evidence.detail).toContain('no vulnerabilities');
   });
@@ -231,7 +233,7 @@ describe('runComposerAudit', () => {
         },
       }),
     );
-    const result = runComposerAudit('/fake');
+    const result = await runComposerAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('vendor/pkg');
     expect(result.advisories[0]!.severity).toBe('high');
@@ -241,7 +243,7 @@ describe('runComposerAudit', () => {
   it('handles composer audit error exit', async () => {
     const { runComposerAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('', 1, 'error');
-    const result = runComposerAudit('/fake');
+    const result = await runComposerAudit('/fake');
     expect(result.advisories).toHaveLength(0);
   });
 });
@@ -264,7 +266,7 @@ describe('runDotnetAudit', () => {
         ],
       }),
     );
-    const result = runDotnetAudit('/fake');
+    const result = await runDotnetAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('Newtonsoft.Json');
     expect(result.advisories[0]!.severity).toBe('high');
@@ -282,7 +284,7 @@ describe('runDotnetAudit', () => {
         },
       }),
     );
-    const result = runDotnetAudit('/fake');
+    const result = await runDotnetAudit('/fake');
     expect(result.advisories).toHaveLength(1);
     expect(result.advisories[0]!.packageName).toBe('Serilog');
     expect(result.advisories[0]!.severity).toBe('medium');
@@ -291,7 +293,7 @@ describe('runDotnetAudit', () => {
   it('handles dotnet audit error exit', async () => {
     const { runDotnetAudit } = await import('../../src/advisory/native-audit.js');
     mockResult('', 1, 'error');
-    const result = runDotnetAudit('/fake');
+    const result = await runDotnetAudit('/fake');
     expect(result.advisories).toHaveLength(0);
   });
 });
@@ -302,33 +304,68 @@ describe('runNativeAudit dispatch', () => {
   it('dispatches to the correct tool for each ecosystem', async () => {
     const { runNativeAudit } = await import('../../src/advisory/native-audit.js');
     mockResult(JSON.stringify({ vulnerabilities: {} }));
-    runNativeAudit('npm', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('npm', ['audit', '--json'], expect.anything());
+    await runNativeAudit('npm', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'npm',
+      ['audit', '--json'],
+      expect.anything(),
+      expect.any(Function),
+    );
 
-    mockedSpawn.mockClear();
-    runNativeAudit('python', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('pip-audit', expect.arrayContaining(['audit']), expect.anything());
+    mockedExec.mockClear();
+    mockResult(JSON.stringify([]));
+    await runNativeAudit('python', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'pip-audit',
+      expect.arrayContaining(['audit']),
+      expect.anything(),
+      expect.any(Function),
+    );
 
-    mockedSpawn.mockClear();
-    runNativeAudit('rust', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('cargo', expect.arrayContaining(['audit']), expect.anything());
+    mockedExec.mockClear();
+    mockResult(JSON.stringify({ vulnerabilities: { list: [] } }));
+    await runNativeAudit('rust', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'cargo',
+      expect.arrayContaining(['audit']),
+      expect.anything(),
+      expect.any(Function),
+    );
 
-    mockedSpawn.mockClear();
-    runNativeAudit('go', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('govulncheck', expect.anything(), expect.anything());
+    mockedExec.mockClear();
+    mockResult(JSON.stringify({ vulns: [] }));
+    await runNativeAudit('go', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'govulncheck',
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
+    );
 
-    mockedSpawn.mockClear();
-    runNativeAudit('php', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('composer', expect.anything(), expect.anything());
+    mockedExec.mockClear();
+    mockResult(JSON.stringify({ advisories: {} }));
+    await runNativeAudit('php', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'composer',
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
+    );
 
-    mockedSpawn.mockClear();
-    runNativeAudit('dotnet', '/fake');
-    expect(mockedSpawn).toHaveBeenCalledWith('dotnet', expect.anything(), expect.anything());
+    mockedExec.mockClear();
+    mockResult(JSON.stringify({ vulnerabilities: [] }));
+    await runNativeAudit('dotnet', '/fake');
+    expect(mockedExec).toHaveBeenCalledWith(
+      'dotnet',
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
+    );
   });
 
   it('returns an empty result for unsupported ecosystems', async () => {
     const { runNativeAudit } = await import('../../src/advisory/native-audit.js');
-    const result = runNativeAudit('dart' as never, '/fake');
+    const result = await runNativeAudit('dart' as never, '/fake');
     expect(result.advisories).toEqual([]);
     expect(result.evidence.detail).toContain('No native audit tool');
   });
@@ -340,12 +377,12 @@ describe('isNativeAuditAvailable', () => {
   it('returns true when the tool exits 0', async () => {
     const { isNativeAuditAvailable } = await import('../../src/advisory/native-audit.js');
     mockResult('1.0.0', 0);
-    expect(isNativeAuditAvailable('npm')).toBe(true);
+    await expect(isNativeAuditAvailable('npm')).resolves.toBe(true);
   });
 
   it('returns false when the tool is not installed', async () => {
     const { isNativeAuditAvailable } = await import('../../src/advisory/native-audit.js');
     mockResult('', 127);
-    expect(isNativeAuditAvailable('python')).toBe(false);
+    await expect(isNativeAuditAvailable('python')).resolves.toBe(false);
   });
 });

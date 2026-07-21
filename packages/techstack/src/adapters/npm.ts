@@ -19,11 +19,14 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  lockfileEvidence,
+  manifestEvidence,
+  resolveIn,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Lockfile types ───────────────────────────────────────────────────────
@@ -211,26 +214,29 @@ function parseNpmLockVersions(lockContent: string): Map<string, string> {
   return versions;
 }
 
-/**
- * Create a manifest evidence entry.
- */
-function manifestEvidence(path: string): Evidence {
-  return {
-    kind: 'manifest',
-    source: path,
-    retrievedAt: new Date().toISOString(),
-  };
-}
-
-/**
- * Create a lockfile evidence entry.
- */
-function lockfileEvidence(path: string): Evidence {
-  return {
-    kind: 'lockfile',
-    source: path,
-    retrievedAt: new Date().toISOString(),
-  };
+function parsePnpmAllVersions(lockContent: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  let inPackages = false;
+  for (const raw of lockContent.split(/\r?\n/)) {
+    if (!/^\s/.test(raw)) {
+      inPackages = raw.startsWith('packages:') || raw.startsWith('snapshots:');
+      continue;
+    }
+    if (!inPackages) continue;
+    const indent = raw.length - raw.trimStart().length;
+    if (indent !== 2) continue;
+    const trimmed = raw.trim();
+    const separator = trimmed.indexOf(':');
+    if (separator < 0) continue;
+    const key = unquote(trimmed.slice(0, separator));
+    const clean = stripPeerSuffix(key);
+    const splitAt = clean.lastIndexOf('@');
+    if (splitAt <= 0) continue;
+    const name = clean.slice(0, splitAt);
+    const version = clean.slice(splitAt + 1);
+    if (name && /^\d/.test(version) && !versions.has(name)) versions.set(name, version);
+  }
+  return versions;
 }
 
 /**
@@ -312,6 +318,7 @@ export class NpmAdapter implements EcosystemAdapter {
     // Read lockfile for resolved versions
     const lockInfo = detectLockfile(root, options.projectRoot);
     const resolvedVersions = new Map<string, string>();
+    const allLockVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     if (lockInfo.kind === 'pnpm') {
       try {
@@ -322,6 +329,7 @@ export class NpmAdapter implements EcosystemAdapter {
           relative(dirname(lockInfo.path), root).split(/[/\\]/).filter(Boolean).join('/') || '.';
         const parsed = parsePnpmImporterVersions(lockContent, importerPath);
         for (const [k, v] of parsed) resolvedVersions.set(k, v);
+        for (const [k, v] of parsePnpmAllVersions(lockContent)) allLockVersions.set(k, v);
         if (parsed.size > 0) lockEv = lockfileEvidence(lockInfo.path);
       } catch {
         // ignore
@@ -331,6 +339,7 @@ export class NpmAdapter implements EcosystemAdapter {
         const lockContent = readFileSync(lockInfo.path, 'utf-8');
         const parsed = parseNpmLockVersions(lockContent);
         for (const [k, v] of parsed) resolvedVersions.set(k, v);
+        for (const [k, v] of parsed) allLockVersions.set(k, v);
         lockEv = lockfileEvidence(lockInfo.path);
       } catch {
         // ignore
@@ -378,7 +387,11 @@ export class NpmAdapter implements EcosystemAdapter {
           ...(purl ? { purl } : {}),
           ecosystem: 'npm' as const,
           name,
-          sourceType: isRegistry ? 'registry' : status === 'local_path' ? 'path' : 'git',
+          sourceType: isRegistry
+            ? 'registry'
+            : status === 'local_path'
+              ? 'path'
+              : 'git',
           direct: true,
           scope,
           requested,
@@ -389,8 +402,25 @@ export class NpmAdapter implements EcosystemAdapter {
       }
     }
 
-    // Parse transitive dependencies from lockfile if requested
-    // (Phase 1 enhancement: includeTransitive option)
+    if (options.includeTransitive && lockEv) {
+      for (const [name, locked] of allLockVersions) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        observations.push({
+          id: `dep-${workspace.id}-${name}`,
+          workspaceId: workspace.id,
+          purl: buildPurl({ type: 'npm', name, version: locked }),
+          ecosystem: 'npm',
+          name,
+          sourceType: 'registry',
+          direct: false,
+          scope: 'transitive',
+          locked,
+          status: 'current',
+          evidence: [lockEv],
+        });
+      }
+    }
 
     return observations;
   }

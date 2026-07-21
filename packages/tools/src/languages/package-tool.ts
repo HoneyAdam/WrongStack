@@ -10,7 +10,7 @@ import type {
   LanguageProfileId,
 } from './types.js';
 
-interface LanguagePackageInput {
+export interface LanguagePackageInput {
   operation: 'install' | 'add' | 'remove' | 'update' | 'audit' | 'outdated';
   cwd?: string | undefined;
   language?: LanguageProfileId | undefined;
@@ -21,7 +21,7 @@ interface LanguagePackageInput {
   allowScripts?: boolean | undefined;
 }
 
-interface LanguagePackageToolOutput {
+export interface LanguagePackageToolOutput {
   status: 'passed' | 'failed' | 'unavailable' | 'cancelled' | 'timed_out';
   language?: LanguageProfileId | undefined;
   workspace?: string | undefined;
@@ -169,7 +169,6 @@ export const languagePackageTool: Tool<LanguagePackageInput, LanguagePackageTool
     const operationOptions = {
       ...(input.names ? { packages: input.names } : {}),
       ...(input.scope ? { packageScope: input.scope } : {}),
-      ...(input.dryRun !== undefined ? { allowScripts: input.dryRun } : { allowScripts: false }),
       ...(input.allowScripts !== undefined ? { allowScripts: input.allowScripts } : {}),
     };
     const planResult = await planLanguageOperation({
@@ -195,6 +194,25 @@ export const languagePackageTool: Tool<LanguagePackageInput, LanguagePackageTool
           lockfilesChanged: [],
           output: reason,
           error: reason,
+        },
+      };
+      return;
+    }
+    if (input.dryRun) {
+      yield {
+        type: 'final',
+        output: {
+          status: 'passed',
+          language: planResult.workspace.language,
+          workspace: planResult.workspace.root,
+          operation: planResult.plan.operation,
+          mutations: [],
+          vulnerabilities: [],
+          outdated: [],
+          manifestsChanged: [],
+          lockfilesChanged: [],
+          output:
+            `Dry run: ${planResult.plan.command ?? 'internal'} ${planResult.plan.args.join(' ')}`.trim(),
         },
       };
       return;

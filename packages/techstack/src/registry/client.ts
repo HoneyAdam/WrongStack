@@ -8,9 +8,7 @@
  * @see docs/specs/techstack-sdd.md §5, §6
  */
 
-import { get as httpsGet, type RequestOptions } from 'node:https';
-import type { IncomingMessage } from 'node:http';
-import { get as httpGet } from 'node:http';
+import { parseJsonResponse, requestWithRetry } from './http-fetch.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -38,8 +36,6 @@ export interface HostConcurrency {
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CONCURRENCY_PER_HOST = 3;
-const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 1000;
 
 // ── In-memory cache ────────────────────────────────────────────────────────
 
@@ -105,79 +101,6 @@ function releaseHostSlot(host: string): void {
       next();
     }
   }
-}
-
-// ── Backoff helper ─────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function computeBackoff(attempt: number, statusCode: number): number {
-  const base = statusCode === 429 ? BASE_BACKOFF_MS * 2 : BASE_BACKOFF_MS;
-  return base * Math.pow(2, attempt) + Math.random() * 500;
-}
-
-// ── HTTPS/HTTP fetch wrapper ───────────────────────────────────────────────
-
-interface FetchResponse {
-  readonly statusCode: number;
-  readonly headers: Record<string, string | string[] | undefined>;
-  readonly body: string;
-  readonly isFromCache: boolean;
-}
-
-function httpsFetch(
-  hostname: string,
-  path: string,
-  etag?: string,
-  signal?: AbortSignal,
-): Promise<FetchResponse> {
-  return new Promise((resolve, reject) => {
-    const options: RequestOptions = {
-      hostname,
-      path,
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'WrongStack-TechStack/1.0',
-        ...(etag ? { 'If-None-Match': etag } : {}),
-      },
-      signal,
-      timeout: 15000,
-    };
-
-    const mod = hostname === 'localhost' || hostname === '127.0.0.1' ? httpGet : httpsGet;
-
-    const req = mod(options, (res: IncomingMessage) => {
-      const statusCode = res.statusCode ?? 0;
-      const responseHeaders = res.headers as Record<string, string | string[] | undefined>;
-
-      let body = '';
-      res.on('data', (chunk: string) => {
-        body += chunk;
-      });
-      res.on('end', () => {
-        resolve({
-          statusCode,
-          headers: responseHeaders,
-          body,
-          isFromCache: false,
-        });
-      });
-    });
-
-    req.on('error', (err: Error) => {
-      reject(err);
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error(`Request timeout for ${hostname}${path}`));
-    });
-
-    req.end();
-  });
 }
 
 // ── Registry metadata response parser ──────────────────────────────────────
@@ -382,11 +305,41 @@ const ECOSYSTEM_FETCHERS: Readonly<Record<string, EcosystemFetcher>> = {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
+export class RegistryNotFoundError extends Error {
+  constructor(readonly statusCode: number, readonly packageName: string) {
+    super(`Registry package not found or inaccessible (${statusCode}): ${packageName}`);
+    this.name = 'RegistryNotFoundError';
+  }
+}
+
+export class RegistryAuthError extends Error {
+  constructor(readonly statusCode: number, readonly packageName: string) {
+    super(`Registry authorization failed (${statusCode}): ${packageName}`);
+    this.name = 'RegistryAuthError';
+  }
+}
+
+export class RegistryRateLimitError extends Error {
+  constructor(readonly statusCode: number, readonly host: string) {
+    super(`Registry ${host} returned ${statusCode} after 3 attempts`);
+    this.name = 'RegistryRateLimitError';
+  }
+}
+
+export class RegistryNetworkError extends Error {
+  constructor(message: string, override readonly cause?: Error | undefined) {
+    super(message);
+    this.name = 'RegistryNetworkError';
+  }
+}
+
 export interface RegistryLookupOptions {
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal | undefined;
   /** Bypass cache and force a fresh lookup. */
   readonly force?: boolean | undefined;
+  /** Throw classified 401/403/404 errors instead of the compatibility `undefined`. */
+  readonly strictErrors?: boolean | undefined;
 }
 
 /**
@@ -421,62 +374,54 @@ export async function lookupRegistry(
     const existingEntry = registryCache.get(cacheKey);
     const etag = existingEntry?.etag;
 
-    let lastError: Error | undefined;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      try {
-        const response = await httpsFetch(fetcher.host, path, etag, options.signal);
-
-        // 304 Not Modified — use cached data and extend TTL
-        if (response.statusCode === 304 && existingEntry) {
-          setCache(cacheKey, existingEntry.data, existingEntry.etag, DEFAULT_TTL_MS);
-          return existingEntry.data;
-        }
-
-        // 401/403/404 — private or unresolved package
-        if (response.statusCode === 401 || response.statusCode === 403 || response.statusCode === 404) {
-          return undefined;
-        }
-
-        // 429/5xx — retry with backoff
-        if (response.statusCode === 429 || response.statusCode >= 500) {
-          if (attempt < MAX_RETRIES - 1) {
-            const backoff = computeBackoff(attempt, response.statusCode);
-            await sleep(backoff);
-            continue;
-          }
-          throw new Error(`Registry ${fetcher.host} returned ${response.statusCode} after ${MAX_RETRIES} attempts`);
-        }
-
-        // Success (2xx)
-        let json: Record<string, unknown>;
-        try {
-          json = JSON.parse(response.body) as Record<string, unknown>;
-        } catch {
-          throw new Error(`Invalid JSON response from ${fetcher.host}${path}`);
-        }
-
-        const parsed = fetcher.parser(json, name, ecosystem);
-        if (!parsed) {
-          // Parser returned nothing — package exists but no metadata
-          return undefined;
-        }
-
-        // Cache with ETag
-        const responseEtag = response.headers['etag'] as string | undefined;
-        setCache(cacheKey, parsed, responseEtag, DEFAULT_TTL_MS);
-
-        return parsed;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt < MAX_RETRIES - 1) {
-          const isRateLimit = err instanceof Error && err.message.includes('429');
-          const backoff = computeBackoff(attempt, isRateLimit ? 429 : 500);
-          await sleep(backoff);
-        }
-      }
+    let response;
+    try {
+      response = await requestWithRetry({
+        hostname: fetcher.host,
+        path,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'WrongStack-TechStack/1.0',
+          ...(etag ? { 'If-None-Match': etag } : {}),
+        },
+        signal: options.signal,
+        timeoutMs: 15_000,
+        maxAttempts: 3,
+      });
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      const cause = error instanceof Error ? error : new Error(String(error));
+      throw new RegistryNetworkError(cause.message, cause);
     }
 
-    throw lastError ?? new Error(`Failed to look up ${ecosystem}:${name}`);
+    if (response.statusCode === 304 && existingEntry) {
+      setCache(cacheKey, existingEntry.data, existingEntry.etag, DEFAULT_TTL_MS);
+      return existingEntry.data;
+    }
+    if (response.statusCode === 401 || response.statusCode === 404) {
+      if (options.strictErrors) throw new RegistryNotFoundError(response.statusCode, name);
+      return undefined;
+    }
+    if (response.statusCode === 403) {
+      if (options.strictErrors) throw new RegistryAuthError(response.statusCode, name);
+      return undefined;
+    }
+    if (response.statusCode === 429) {
+      throw new RegistryRateLimitError(response.statusCode, fetcher.host);
+    }
+    if (response.statusCode >= 500) {
+      throw new RegistryNetworkError(`Registry ${fetcher.host} returned ${response.statusCode} after 3 attempts`);
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new RegistryNetworkError(`Unexpected registry response ${response.statusCode} from ${fetcher.host}`);
+    }
+
+    const json = parseJsonResponse<Record<string, unknown>>(response, `${fetcher.host}${path}`);
+    const parsed = fetcher.parser(json, name, ecosystem);
+    if (!parsed) return undefined;
+    const responseEtag = Array.isArray(response.headers.etag) ? response.headers.etag[0] : response.headers.etag;
+    setCache(cacheKey, parsed, responseEtag, DEFAULT_TTL_MS);
+    return parsed;
   } finally {
     releaseHostSlot(fetcher.host);
   }
@@ -526,4 +471,18 @@ export function supportedRegistryEcosystems(): string[] {
 export function clearRegistryCache(): void {
   registryCache.clear();
   hostConcurrency.clear();
+}
+
+/** Invalidate one ecosystem batch without evicting unrelated registry data. */
+export function invalidateRegistryCache(ecosystem: string, names?: readonly string[]): number {
+  const fetcher = ECOSYSTEM_FETCHERS[ecosystem];
+  if (!fetcher) return 0;
+  const keys = names
+    ? names.map((name) => getCacheKey(fetcher.host, fetcher.path(name)))
+    : [...registryCache.keys()].filter((key) => key.startsWith(fetcher.host));
+  let removed = 0;
+  for (const key of keys) {
+    if (registryCache.delete(key)) removed++;
+  }
+  return removed;
 }

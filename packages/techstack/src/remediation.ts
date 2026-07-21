@@ -8,6 +8,7 @@
  * @see docs/specs/techstack-sdd.md §2 (R25), §9
  */
 
+import type { LanguagePackageInput, LanguageProfileId } from '@wrongstack/tools';
 import type { DependencyObservation, Finding, Snapshot } from './types.js';
 
 export interface UpgradePlanItem {
@@ -38,6 +39,88 @@ export interface UpgradePlan {
     readonly investigate: number;
   };
   readonly warning: string;
+}
+
+export interface PackageOperation {
+  readonly ecosystem: string;
+  readonly workspaceId: string;
+  readonly dependencyName: string;
+  readonly action: UpgradePlanItem['action'];
+  readonly targetVersion?: string | undefined;
+}
+
+const LANGUAGE_BY_ECOSYSTEM: Readonly<Partial<Record<string, LanguageProfileId>>> = {
+  python: 'python',
+  rust: 'rust',
+  go: 'go',
+  php: 'php',
+  dotnet: 'csharp',
+};
+
+const EXECUTABLE_ECOSYSTEMS = new Set(['npm', ...Object.keys(LANGUAGE_BY_ECOSYSTEM)]);
+
+function versionedPackageName(operation: PackageOperation): string {
+  const version = operation.targetVersion;
+  if (!version) return operation.dependencyName;
+  switch (operation.ecosystem) {
+    case 'python':
+      return `${operation.dependencyName}==${version}`;
+    case 'php':
+      return `${operation.dependencyName}:${version}`;
+    default:
+      return `${operation.dependencyName}@${version}`;
+  }
+}
+
+/** Convert a remediation item into the structured safe package-tool input. */
+export function toLanguagePackageInput(
+  operation: PackageOperation,
+  workspace?: string,
+): LanguagePackageInput {
+  if (operation.action === 'replace' || operation.action === 'investigate') {
+    throw new Error(`${operation.action} requires a manual package choice`);
+  }
+  if (!EXECUTABLE_ECOSYSTEMS.has(operation.ecosystem)) {
+    throw new Error(`Automated remediation is not supported for ${operation.ecosystem}`);
+  }
+  const language = LANGUAGE_BY_ECOSYSTEM[operation.ecosystem];
+  const base = {
+    ...(workspace ? { workspace } : {}),
+    ...(language ? { language } : {}),
+    allowScripts: false,
+  };
+  if (operation.action === 'remove') {
+    if (operation.ecosystem === 'go') {
+      return { ...base, operation: 'add', names: [`${operation.dependencyName}@none`] };
+    }
+    return { ...base, operation: 'remove', names: [operation.dependencyName] };
+  }
+  return { ...base, operation: 'add', names: [versionedPackageName(operation)] };
+}
+
+export type PackageOperationExecutor = (
+  operation: PackageOperation,
+) => Promise<{ readonly detail?: string | undefined } | void>;
+
+export interface ApplyPlanOptions {
+  /** Defaults to true. Set false only after explicit user approval. */
+  readonly dryRun?: boolean | undefined;
+  /** Permission gate evaluated independently for every plan item. */
+  readonly approve?:
+    | ((item: UpgradePlanItem, index: number) => boolean | Promise<boolean>)
+    | undefined;
+  /** Structured language-package executor; shell command strings are never run here. */
+  readonly execute?: PackageOperationExecutor | undefined;
+  readonly signal?: AbortSignal | undefined;
+}
+
+export interface ApplyPlanResult {
+  readonly dryRun: boolean;
+  readonly items: ReadonlyArray<{
+    readonly dependencyName: string;
+    readonly status: 'planned' | 'skipped' | 'applied' | 'failed';
+    readonly detail?: string | undefined;
+  }>;
 }
 
 /**
@@ -184,10 +267,15 @@ export function renderPlanMarkdown(plan: UpgradePlan): string {
   lines.push('## Items', '');
   for (const item of plan.items) {
     const icon =
-      item.severity === 'critical' ? '🔴' :
-      item.severity === 'high' ? '🟠' :
-      item.severity === 'medium' ? '🟡' :
-      item.severity === 'low' ? '🔵' : 'ℹ️';
+      item.severity === 'critical'
+        ? '🔴'
+        : item.severity === 'high'
+          ? '🟠'
+          : item.severity === 'medium'
+            ? '🟡'
+            : item.severity === 'low'
+              ? '🔵'
+              : 'ℹ️';
 
     lines.push(`### ${icon} ${item.dependencyName} (${item.ecosystem})`, '');
     lines.push(`- **Action:** ${item.action}`);
@@ -203,4 +291,56 @@ export function renderPlanMarkdown(plan: UpgradePlan): string {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Apply explicitly approved remediation items through a structured,
+ * permission-gated package executor. The safe default is a dry run.
+ */
+export async function applyPlan(
+  plan: UpgradePlan,
+  options: ApplyPlanOptions = {},
+): Promise<ApplyPlanResult> {
+  const dryRun = options.dryRun !== false;
+  const execute = options.execute;
+  if (!dryRun && !execute) throw new Error('An execute strategy is required when dryRun is false');
+  const results: ApplyPlanResult['items'][number][] = [];
+  for (const [index, item] of plan.items.entries()) {
+    if (options.signal?.aborted) throw new DOMException('Remediation cancelled', 'AbortError');
+    if (dryRun) {
+      results.push({ dependencyName: item.dependencyName, status: 'planned' });
+      continue;
+    }
+    const approved = options.approve ? await options.approve(item, index) : false;
+    if (!approved) {
+      results.push({
+        dependencyName: item.dependencyName,
+        status: 'skipped',
+        detail: 'Not approved',
+      });
+      continue;
+    }
+    try {
+      if (!execute) throw new Error('An execute strategy is required when dryRun is false');
+      const response = await execute({
+        ecosystem: item.ecosystem,
+        workspaceId: item.workspaceId,
+        dependencyName: item.dependencyName,
+        action: item.action,
+        ...(item.targetVersion ? { targetVersion: item.targetVersion } : {}),
+      });
+      results.push({
+        dependencyName: item.dependencyName,
+        status: 'applied',
+        ...(response?.detail ? { detail: response.detail } : {}),
+      });
+    } catch (error) {
+      results.push({
+        dependencyName: item.dependencyName,
+        status: 'failed',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { dryRun, items: results };
 }

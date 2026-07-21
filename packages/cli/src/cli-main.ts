@@ -1147,6 +1147,28 @@ export async function main(argv: string[]): Promise<number> {
   const slashCmds = buildBuiltinSlashCommands({
     registry: slashRegistry,
     toolRegistry,
+    executeTool: async (name, input, commandContext) => {
+      const tool = toolRegistry.get(name);
+      if (!tool) throw new Error(`Tool "${name}" is not registered in this session.`);
+      const use = {
+        type: 'tool_use' as const,
+        id: `slash-${name}-${Date.now()}`,
+        name,
+        input,
+      };
+      const { outputs } = await agent.toolExecutor.executeBatch(
+        [use],
+        commandContext,
+        'sequential',
+      );
+      const output = outputs[0];
+      if (!output) throw new Error(`Tool "${name}" returned no result.`);
+      if (output.result.type === 'tool_confirm_pending') {
+        throw new Error(`Tool "${name}" still requires interactive confirmation.`);
+      }
+      if (output.result.is_error) throw new Error(output.result.content);
+      return { detail: output.result.content };
+    },
     paths: wpaths,
     compactor: container.resolve(TOKENS.Compactor),
     sessionStore,

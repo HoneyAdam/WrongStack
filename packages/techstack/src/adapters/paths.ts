@@ -15,8 +15,9 @@
  * @see docs/specs/techstack-sdd.md §3.2
  */
 
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { Workspace } from '../types.js';
+import type { Evidence, Workspace } from '../types.js';
 import type { InventoryOptions } from './interface.js';
 
 /**
@@ -42,4 +43,19 @@ export function workspaceRoot(workspace: Workspace, options: InventoryOptions): 
  */
 export function resolveIn(root: string, candidate: string): string {
   return resolve(root, candidate);
+}
+
+/** Create portable manifest evidence with a single consistent timestamp shape. */
+export function manifestEvidence(path: string): Evidence {
+  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
+}
+
+/** Create portable lockfile evidence with a single consistent timestamp shape. */
+export function lockfileEvidence(path: string): Evidence {
+  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
+}
+
+/** Lightweight existence check shared by adapters that probe fallback paths. */
+export function fileExists(filePath: string): boolean {
+  return existsSync(filePath);
 }

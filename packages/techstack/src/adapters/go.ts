@@ -15,22 +15,18 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  resolveIn,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 function cleanGoVersion(v: string): string {
   return v.replace(/^v/i, '');
@@ -104,6 +100,31 @@ function parseGoMod(content: string): GoRequireStmt[] {
   return deps;
 }
 
+function parseGoReplacements(content: string): Map<string, 'path' | 'git'> {
+  const replacements = new Map<string, 'path' | 'git'>();
+  let inBlock = false;
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (line === 'replace (') {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock && line === ')') {
+      inBlock = false;
+      continue;
+    }
+    const candidate = inBlock ? line : line.startsWith('replace ') ? line.slice(8).trim() : '';
+    const match = candidate.match(/^(\S+)(?:\s+v\S+)?\s+=>\s+(\S+)/);
+    if (!match) continue;
+    const modulePath = match[1];
+    const target = match[2];
+    if (!modulePath || !target) continue;
+    const local = target.startsWith('.') || target.startsWith('/') || /^[A-Za-z]:[\\/]/.test(target);
+    replacements.set(modulePath, local ? 'path' : 'git');
+  }
+  return replacements;
+}
+
 /**
  * Parse go.sum to extract resolved versions.
  * Format: module_path version h1:hash
@@ -121,7 +142,8 @@ function parseGoSum(content: string): Map<string, string> {
       const version = cleanGoVersion(m[2]!);
       // Only set if not already set (first occurrence wins)
       if (!versions.has(modulePath)) {
-        // Skip pseudo-versions like v0.0.0-20240701012345-abcdef
+        // Pseudo-versions are exact immutable module revisions and are valid
+        // locked versions, so retain them like any other go.sum entry.
         versions.set(modulePath, version);
       }
     }
@@ -156,7 +178,7 @@ export class GoAdapter implements EcosystemAdapter {
 
     // Find go.mod
     const goModPath = workspace.manifests.find((m) => m.includes('go.mod'))
-      || (this.fileExists(resolveIn(root, 'go.mod')) ? 'go.mod' : undefined);
+      || (fileExists(resolveIn(root, 'go.mod')) ? 'go.mod' : undefined);
     if (!goModPath) return [];
 
     const fullManifestPath = resolveIn(root, goModPath);
@@ -171,6 +193,7 @@ export class GoAdapter implements EcosystemAdapter {
 
     // Parse go.mod
     const requires = parseGoMod(goModContent);
+    const replacements = parseGoReplacements(goModContent);
     const modName = parseGoModuleName(goModContent);
 
     // Parse go.sum for locked versions
@@ -200,10 +223,13 @@ export class GoAdapter implements EcosystemAdapter {
 
       // Resolve locked version
       const locked = lockVersions.get(req.modulePath) || req.version;
+      const replacement = replacements.get(req.modulePath);
 
       // Go module paths work like: github.com/gorilla/mux
       // Build PURL with full module path as name
-      const purl = buildPurl({ type: 'go', name: req.modulePath, version: locked });
+      const purl = replacement
+        ? undefined
+        : buildPurl({ type: 'go', name: req.modulePath, version: locked });
 
       const evidence: Evidence[] = [manifestEv];
       if (lockEv && lockVersions.has(req.modulePath)) evidence.push(lockEv);
@@ -211,15 +237,19 @@ export class GoAdapter implements EcosystemAdapter {
       observations.push({
         id: `dep-${workspace.id}-${req.modulePath}`,
         workspaceId: workspace.id,
-        purl,
+        ...(purl ? { purl } : {}),
         ecosystem: 'go',
         name: req.modulePath,
-        sourceType: 'registry',
+        sourceType: replacement ?? 'registry',
         direct,
         scope,
         requested: req.version,
         ...(locked ? { locked } : {}),
-        status: 'current',
+        status: replacement === 'path'
+          ? 'local_path'
+          : replacement === 'git'
+            ? 'git_dependency'
+            : 'current',
         evidence,
       });
     }
@@ -227,14 +257,6 @@ export class GoAdapter implements EcosystemAdapter {
     return observations;
   }
 
-  private fileExists(filePath: string): boolean {
-    try {
-      readFileSync(filePath, 'utf-8');
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 /**

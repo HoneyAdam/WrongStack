@@ -3,8 +3,95 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { type Tool, ToolRegistry } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildTechStackCommand } from '../src/slash-commands/techstack.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
+import { buildTechStackCommand } from '../src/slash-commands/techstack.js';
+
+const techstackMocks = vi.hoisted(() => ({ close: vi.fn() }));
+vi.mock('@wrongstack/techstack', () => {
+  const snapshot = {
+    id: 'snapshot-1',
+    projectId: 'project',
+    targetRoot: '/project',
+    fingerprint: 'fingerprint',
+    createdAt: '2026-07-21T00:00:00.000Z',
+    adapterVersion: 'test',
+    coverage: 'full',
+    workspaces: [{ id: 'workspace-1', relativeRoot: '.', ecosystem: 'npm' }],
+    dependencies: [
+      {
+        id: 'dependency-1',
+        workspaceId: 'workspace-1',
+        ecosystem: 'npm',
+        name: 'react',
+        locked: '18.0.0',
+        latestStable: '19.0.0',
+      },
+    ],
+    findings: [
+      {
+        dependencyId: 'dependency-1',
+        action: 'upgrade_major',
+        severity: 'medium',
+        rationale: 'upgrade',
+      },
+    ],
+  };
+  return {
+    TechStackStore: class {
+      close = techstackMocks.close;
+    },
+    TechStackEngine: class {
+      async analyze() {
+        return { snapshot };
+      }
+      async inventory() {
+        return snapshot;
+      }
+    },
+    generateUpgradePlan: () => ({
+      snapshotId: 'snapshot-1',
+      generatedAt: '2026-07-21T00:00:00.000Z',
+      warning: 'review',
+      summary: { total: 1, patch: 0, minor: 0, major: 1, replace: 0, remove: 0, investigate: 0 },
+      items: [
+        {
+          dependencyName: 'react',
+          ecosystem: 'npm',
+          workspaceId: 'workspace-1',
+          currentVersion: '18.0.0',
+          targetVersion: '19.0.0',
+          action: 'upgrade_major',
+          severity: 'medium',
+          rationale: 'upgrade',
+        },
+      ],
+    }),
+    renderPlanMarkdown: () => '# TechStack Remediation Plan\nreact 18 → 19',
+    toLanguagePackageInput: () => ({
+      operation: 'add',
+      workspace: '.',
+      names: ['react@19.0.0'],
+      allowScripts: false,
+    }),
+    applyPlan: async (
+      plan: { items: Array<Record<string, unknown>> },
+      options: {
+        approve: (item: Record<string, unknown>) => boolean;
+        execute: (operation: Record<string, unknown>) => Promise<unknown>;
+      },
+    ) => ({
+      dryRun: false,
+      items: await Promise.all(
+        plan.items.map(async (item) => {
+          if (!options.approve(item))
+            return { dependencyName: item.dependencyName, status: 'skipped' };
+          await options.execute(item);
+          return { dependencyName: item.dependencyName, status: 'applied' };
+        }),
+      ),
+    }),
+  };
+});
 
 type SlashResult = { message?: string; runText?: string; metadata?: Record<string, unknown> };
 
@@ -65,7 +152,11 @@ describe('/techstack', () => {
     await fs.rm(projectRoot, { recursive: true, force: true });
   });
 
-  function rig(opts: { withFetch: boolean; onSpawnAndWait?: SlashCommandContext['onSpawnAndWait'] }) {
+  function rig(opts: {
+    withFetch: boolean;
+    onSpawnAndWait?: SlashCommandContext['onSpawnAndWait'];
+    executeTool?: SlashCommandContext['executeTool'];
+  }) {
     const renderer = new FakeRenderer();
     const toolRegistry = new ToolRegistry();
     if (opts.withFetch) toolRegistry.register(fetchToolStub());
@@ -75,8 +166,9 @@ describe('/techstack', () => {
       cwd: projectRoot,
       projectRoot,
       ...(opts.onSpawnAndWait ? { onSpawnAndWait: opts.onSpawnAndWait } : {}),
+      ...(opts.executeTool ? { executeTool: opts.executeTool } : {}),
     } satisfies Pick<SlashCommandContext, 'toolRegistry' | 'renderer' | 'cwd' | 'projectRoot'> &
-      Partial<Pick<SlashCommandContext, 'onSpawnAndWait'>>;
+      Partial<Pick<SlashCommandContext, 'onSpawnAndWait' | 'executeTool'>>;
     return { renderer, command: buildTechStackCommand(ctx as SlashCommandContext) };
   }
 
@@ -96,9 +188,7 @@ describe('/techstack', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const [, passedOpts] = spawn.mock.calls[0]!;
     expect(passedOpts).toBeDefined();
-    expect(passedOpts.tools).toEqual(
-      expect.arrayContaining(['read', 'fetch', 'write']),
-    );
+    expect(passedOpts.tools).toEqual(expect.arrayContaining(['read', 'fetch', 'write']));
     // Shell tools must NOT be granted.
     expect(passedOpts.tools).not.toContain('bash');
     expect(passedOpts.tools).not.toContain('exec');
@@ -113,5 +203,29 @@ describe('/techstack', () => {
     const { command } = rig({ withFetch: true });
     const res = expectSlashResult(await command.run('', {} as never));
     expect(res.message).toMatch(/multi-agent is not enabled/i);
+  });
+
+  it('renders a structured remediation plan without spawning a subagent', async () => {
+    const spawn = vi.fn(async () => 'unused');
+    const { command } = rig({ withFetch: false, onSpawnAndWait: spawn });
+    const result = expectSlashResult(
+      await command.run('--plan', { signal: new AbortController().signal } as never),
+    );
+    expect(result.message).toContain('TechStack Remediation Plan');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('applies through the governed language_package bridge', async () => {
+    const executeTool = vi.fn(async () => ({ detail: 'updated' }));
+    const { command } = rig({ withFetch: false, executeTool });
+    const result = expectSlashResult(
+      await command.run('--apply', { signal: new AbortController().signal } as never),
+    );
+    expect(executeTool).toHaveBeenCalledWith(
+      'language_package',
+      expect.objectContaining({ operation: 'add', names: ['react@19.0.0'], allowScripts: false }),
+      expect.anything(),
+    );
+    expect(result.message).toMatch(/1 applied, 0 failed/);
   });
 });

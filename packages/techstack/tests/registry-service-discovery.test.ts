@@ -5,7 +5,7 @@ import {
   workspaceId,
   computeFingerprint,
 } from '../src/discovery/index.js';
-import { parseNpmPackument, supportedRegistryEcosystems, clearRegistryCache } from '../src/registry/client.js';
+import { parseNpmPackument, supportedRegistryEcosystems, clearRegistryCache, invalidateRegistryCache } from '../src/registry/client.js';
 import type { Snapshot, DependencyObservation, Finding, Workspace } from '../src/types.js';
 import { TechStackEngine } from '../src/service.js';
 
@@ -141,6 +141,13 @@ describe('supportedRegistryEcosystems', () => {
 describe('clearRegistryCache', () => {
   it('does not throw', () => {
     expect(() => clearRegistryCache()).not.toThrow();
+  });
+});
+
+describe('invalidateRegistryCache', () => {
+  it('is scoped and safe for empty or unsupported ecosystems', () => {
+    expect(invalidateRegistryCache('npm', ['not-cached'])).toBe(0);
+    expect(invalidateRegistryCache('unsupported')).toBe(0);
   });
 });
 

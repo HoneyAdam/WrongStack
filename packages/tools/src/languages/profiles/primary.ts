@@ -154,6 +154,22 @@ function typescriptProfile(): LanguageProfile {
           network: true,
         });
       },
+      'package-remove': async (ctx) => {
+        const names = packageNames(ctx);
+        if (names.length === 0)
+          return unavailable(ctx, 'package-remove', 'At least one package name is required.');
+        const manager = ctx.workspace.packageManager ?? 'npm';
+        const args =
+          manager === 'npm'
+            ? ['uninstall', '--ignore-scripts', ...names]
+            : ['remove', '--ignore-scripts', ...names];
+        return processPlan(ctx, 'package-remove', manager, args, {
+          parser: 'package-text',
+          reason: `Remove validated packages with ${manager} and lifecycle scripts disabled.`,
+          mutating: true,
+          network: true,
+        });
+      },
       'package-audit': async (ctx) => {
         const manager = ctx.workspace.packageManager ?? 'npm';
         return processPlan(ctx, 'package-audit', manager, ['audit', '--json'], {
@@ -651,15 +667,32 @@ const csharpProfile: LanguageProfile = {
       }),
     'package-add': async (ctx) => {
       const names = packageNames(ctx);
+      const [spec] = names;
+      const versionAt = spec?.lastIndexOf('@') ?? -1;
+      const packageName = versionAt > 0 ? spec?.slice(0, versionAt) : spec;
+      const packageVersion = versionAt > 0 ? spec?.slice(versionAt + 1) : undefined;
       return names.length === 0
         ? unavailable(ctx, 'package-add', 'At least one NuGet package is required.')
-        : processPlan(ctx, 'package-add', 'dotnet', ['add', 'package', ...names], {
-            parser: 'dotnet-package',
-            reason: 'Add validated NuGet packages.',
-            mutating: true,
-            network: true,
-            executesProjectCode: true,
-          });
+        : names.length > 1
+          ? unavailable(ctx, 'package-add', 'NuGet package changes run one package at a time.')
+          : processPlan(
+              ctx,
+              'package-add',
+              'dotnet',
+              [
+                'add',
+                'package',
+                packageName ?? '',
+                ...(packageVersion ? ['--version', packageVersion] : []),
+              ],
+              {
+                parser: 'dotnet-package',
+                reason: 'Add validated NuGet packages.',
+                mutating: true,
+                network: true,
+                executesProjectCode: true,
+              },
+            );
     },
     'package-remove': async (ctx) => {
       const names = packageNames(ctx);

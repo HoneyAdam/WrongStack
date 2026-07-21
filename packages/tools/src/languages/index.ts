@@ -12,7 +12,11 @@ export {
   executePackagePlan,
 } from './execute.js';
 export { languageTool } from './execute-tool.js';
-export { languagePackageTool } from './package-tool.js';
+export {
+  type LanguagePackageInput,
+  type LanguagePackageToolOutput,
+  languagePackageTool,
+} from './package-tool.js';
 export { planLanguageOperation, validateCommandPlan } from './plan.js';
 export { ADDITIONAL_LANGUAGE_PROFILES } from './profiles/additional.js';
 export { PRIMARY_LANGUAGE_PROFILES } from './profiles/primary.js';

@@ -15,6 +15,14 @@ import type {
   Workspace,
 } from '../types.js';
 
+export {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  resolveIn,
+  workspaceRoot,
+} from './paths.js';
+
 /**
  * Options passed to inventory() controlling what data the adapter collects.
  */

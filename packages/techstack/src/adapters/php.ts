@@ -16,22 +16,17 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 // ── composer.json types ────────────────────────────────────────────────────
 
@@ -104,7 +99,7 @@ export class PhpAdapter implements EcosystemAdapter {
 
     // Find composer.json
     const composerJsonPath = workspace.manifests.find((m) => m.includes('composer.json'))
-      || (this.fileExists(join(root, 'composer.json')) ? join(root, 'composer.json') : undefined);
+      || (fileExists(join(root, 'composer.json')) ? join(root, 'composer.json') : undefined);
     if (!composerJsonPath) return [];
 
     let content: string;
@@ -182,14 +177,6 @@ export class PhpAdapter implements EcosystemAdapter {
     return observations;
   }
 
-  private fileExists(filePath: string): boolean {
-    try {
-      readFileSync(filePath, 'utf-8');
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 /**

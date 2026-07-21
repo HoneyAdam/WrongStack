@@ -8,9 +8,8 @@
  * @see https://osv.dev/docs/
  */
 
-import { get as httpsGet, type RequestOptions } from 'node:https';
-import type { IncomingMessage } from 'node:http';
 import type { Evidence } from '../types.js';
+import { parseJsonResponse, requestWithRetry } from '../registry/http-fetch.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -67,8 +66,6 @@ export interface OsvBatchResult {
 const OSV_API_BASE = 'api.osv.dev';
 const OSV_QUERY_BATCH_PATH = '/v1/querybatch';
 const MAX_BATCH_SIZE = 500;
-const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 1000;
 
 // ── Severity mapping ───────────────────────────────────────────────────────
 
@@ -101,54 +98,6 @@ function mapSeverity(
   return 'info';
 }
 
-// ── HTTP client ────────────────────────────────────────────────────────────
-
-function osvPostRequest(body: string, signal?: AbortSignal): Promise<{ statusCode: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const options: RequestOptions = {
-      hostname: OSV_API_BASE,
-      path: OSV_QUERY_BATCH_PATH,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body).toString(),
-        'User-Agent': 'WrongStack-TechStack/1.0',
-      },
-      signal,
-      timeout: 30000,
-    };
-
-    const req = httpsGet(options, (res: IncomingMessage) => {
-      const statusCode = res.statusCode ?? 0;
-      let responseBody = '';
-      res.on('data', (chunk: string) => {
-        responseBody += chunk;
-      });
-      res.on('end', () => {
-        resolve({ statusCode, body: responseBody });
-      });
-    });
-
-    req.on('error', (err: Error) => {
-      reject(err);
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('OSV API request timeout'));
-    });
-
-    req.write(body);
-    req.end();
-  });
-}
-
-// ── Sleep helper ───────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // ── Core function ──────────────────────────────────────────────────────────
 
 /**
@@ -175,8 +124,6 @@ export async function queryOsvBatch(
     batches.push(purls.slice(i, i + MAX_BATCH_SIZE));
   }
 
-  let lastError: Error | undefined;
-
   for (const batch of batches) {
     const requestBody: OsvQueryBatchRequest = {
       queries: batch.map((purl) => ({
@@ -186,67 +133,38 @@ export async function queryOsvBatch(
 
     const jsonBody = JSON.stringify(requestBody);
 
-    let success = false;
-    for (let attempt = 0; attempt < MAX_RETRIES && !success; attempt++) {
-      try {
-        const response = await osvPostRequest(jsonBody, options.signal);
-
-        if (response.statusCode === 200) {
-          const result = JSON.parse(response.body) as OsvQueryBatchResponse;
-
-          if (result.results && Array.isArray(result.results)) {
-            for (let i = 0; i < result.results.length; i++) {
-              const purl = batch[i];
-              if (!purl) continue;
-
-              const vulns = result.results[i]?.vulns;
-              if (!vulns || vulns.length === 0) continue;
-
-              const parsed: OsvAdvisory[] = [];
-              for (const vuln of vulns) {
-                // Determine severity
-                const dbSpecific = vuln.database_specific;
-                const affectedDbSpecific = vuln.affected?.[0]?.database_specific;
-                const severitySource = dbSpecific?.severity ?? affectedDbSpecific?.severity;
-
-                parsed.push({
-                  id: vuln.id,
-                  summary: vuln.summary ?? vuln.details ?? 'No summary available',
-                  severity: mapSeverity(vuln.severity, severitySource),
-                  aliases: vuln.aliases ?? [],
-                });
-              }
-
-              advisories.set(purl, parsed);
-            }
-          }
-
-          success = true;
-        } else if (response.statusCode === 429 || response.statusCode >= 500) {
-          // Rate limited or server error — retry with backoff
-          if (attempt < MAX_RETRIES - 1) {
-            const backoff = BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 500;
-            await sleep(backoff);
-          } else {
-            throw new Error(`OSV API returned ${response.statusCode} after ${MAX_RETRIES} attempts: ${response.body}`);
-          }
-        } else {
-          // Other error — don't retry
-          throw new Error(`OSV API returned ${response.statusCode}: ${response.body}`);
-        }
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt < MAX_RETRIES - 1) {
-          const backoff = BASE_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 500;
-          await sleep(backoff);
-        }
-      }
+    const response = await requestWithRetry({
+      hostname: OSV_API_BASE,
+      path: OSV_QUERY_BATCH_PATH,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(jsonBody).toString(),
+        'User-Agent': 'WrongStack-TechStack/1.0',
+      },
+      body: jsonBody,
+      signal: options.signal,
+      timeoutMs: 30_000,
+      maxAttempts: 3,
+    });
+    if (response.statusCode !== 200) {
+      throw new Error(`OSV API returned ${response.statusCode}: ${response.body}`);
     }
-
-    if (!success && lastError) {
-      // If a batch completely fails, we still have partial results from
-      // earlier batches
-      throw lastError;
+    const result = parseJsonResponse<OsvQueryBatchResponse>(response, 'api.osv.dev/v1/querybatch');
+    for (let i = 0; i < result.results.length; i++) {
+      const purl = batch[i];
+      if (!purl) continue;
+      const vulns = result.results[i]?.vulns;
+      if (!vulns || vulns.length === 0) continue;
+      advisories.set(purl, vulns.map((vuln) => ({
+        id: vuln.id,
+        summary: vuln.summary ?? vuln.details ?? 'No summary available',
+        severity: mapSeverity(
+          vuln.severity,
+          vuln.database_specific?.severity ?? vuln.affected?.[0]?.database_specific?.severity,
+        ),
+        aliases: vuln.aliases ?? [],
+      })));
     }
   }
 

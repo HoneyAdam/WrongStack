@@ -20,6 +20,10 @@ import type {
 export interface SlashCommandContext {
   registry: SlashCommandRegistry;
   toolRegistry: ToolRegistry;
+  /** Run one tool through the active ToolExecutor and its permission policy. */
+  executeTool?:
+    | ((name: string, input: Record<string, unknown>, ctx: Context) => Promise<{ detail: string }>)
+    | undefined;
   /** Resolved path helpers — use instead of constructing paths inline.
    *  Optional for unit tests that don't exercise commands requiring paths. */
   paths?: WstackPaths | undefined;

@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { EcosystemId, Workspace, Coverage } from '../types.js';
+import type { EcosystemId, Coverage } from '../types.js';
 
 /**
  * Raw workspace shape returned by detectLanguageWorkspaces().
@@ -27,29 +27,8 @@ export interface RawWorkspace {
   readonly supportedOperations?: readonly string[] | undefined;
 }
 
-/**
- * Discover all workspaces in a target project root.
- *
- * Delegates to detectLanguageWorkspaces() and maps each result to a
- * TechStack Workspace, normalizing the ecosystem identifier, computing
- * coverage, and attaching evidence.
- *
- * The caller (the inventory engine) is responsible for:
- * - Calling this with the *target* project root (never WrongStack's own root).
- * - Threading the AbortSignal through.
- */
-export async function discoverWorkspaces(
-  _projectRoot: string,
-  _signal?: AbortSignal,
-): Promise<readonly Workspace[]> {
-  // Phase 1: delegate to detectLanguageWorkspaces() from @wrongstack/tools.
-  // The import is deferred to avoid a hard dependency at module-load time —
-  // the tools package is a workspace dep but the function may not exist yet
-  // in the exact shape we expect during early development.
-  //
-  // For now we return an empty array; Phase 1 wires this to the real detector.
-  return [];
-}
+/** @deprecated Import from `discovery/workspace.js`; retained for compatibility. */
+export { discoverWorkspaces } from './workspace.js';
 
 /**
  * Map a raw language string to our EcosystemId.

@@ -15,27 +15,37 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type { EcosystemAdapter, InventoryOptions } from './interface.js';
+import {
+  lockfileEvidence,
+  manifestEvidence,
+  type EcosystemAdapter,
+  type InventoryOptions,
+} from './interface.js';
 import { buildPurl } from '../registry/purl.js';
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 /**
  * Parse mix.exs `defp deps do` block for `{:name, "version"}` tuples.
  */
-function parseMixExsDeps(content: string): Array<{ name: string; version?: string | undefined }> {
-  const deps: Array<{ name: string; version?: string | undefined }> = [];
+function parseMixExsDeps(content: string): Array<{
+  name: string;
+  version?: string | undefined;
+  sourceType: 'registry' | 'git' | 'path';
+}> {
+  const deps: Array<{
+    name: string;
+    version?: string | undefined;
+    sourceType: 'registry' | 'git' | 'path';
+  }> = [];
   // Match: {:name, "version"} or {:name, "~> x.y"} or {:name, github: "..."} or {:name, path: "..."}
-  const depRegex = /\{:(\w+),\s*["']([^"']+)["']\}/g;
+  const depRegex = /\{:(\w+),\s*([^}]+)\}/g;
   let match: RegExpExecArray | null;
   while ((match = depRegex.exec(content)) !== null) {
-    deps.push({ name: match[1]!, version: match[2] });
+    const name = match[1];
+    const value = match[2];
+    if (!name || !value) continue;
+    const version = /^\s*["']([^"']+)["']/.exec(value)?.[1];
+    const sourceType = /\bgit:/.test(value) ? 'git' : /\bpath:/.test(value) ? 'path' : 'registry';
+    deps.push({ name, version, sourceType });
   }
   return deps;
 }
@@ -46,7 +56,7 @@ function parseMixExsDeps(content: string): Array<{ name: string; version?: strin
  */
 function parseMixLock(content: string): Map<string, string> {
   const versions = new Map<string, string>();
-  const lockRegex = /\{:"(\w+)",\s*hex: "[^"]*",\s*"([^"]+)"/g;
+  const lockRegex = /["']([\w-]+)["']\s*=>\s*\{:hex,\s*:[\w-]+,\s*["']([^"']+)["']/g;
   let match: RegExpExecArray | null;
   while ((match = lockRegex.exec(content)) !== null) {
     versions.set(match[1]!, match[2]!);
@@ -96,9 +106,11 @@ export class ElixirAdapter implements EcosystemAdapter {
 
       const locked = lockVersions.get(dep.name);
       const version = locked ?? dep.version;
-      const purl = version
+      const purl = dep.sourceType === 'registry' && version
         ? buildPurl({ type: 'hex', name: dep.name, version })
-        : buildPurl({ type: 'hex', name: dep.name });
+        : dep.sourceType === 'registry'
+          ? buildPurl({ type: 'hex', name: dep.name })
+          : undefined;
 
       const evidence: Evidence[] = [manifestEv];
       if (lockEv && locked) evidence.push(lockEv);
@@ -106,15 +118,19 @@ export class ElixirAdapter implements EcosystemAdapter {
       observations.push({
         id: `dep-${workspace.id}-${dep.name}`,
         workspaceId: workspace.id,
-        purl,
+        ...(purl ? { purl } : {}),
         ecosystem: 'elixir',
         name: dep.name,
-        sourceType: 'registry',
+        sourceType: dep.sourceType,
         direct: true,
         scope: 'runtime' as DependencyScope,
         ...(dep.version ? { requested: dep.version } : {}),
         ...(locked ? { locked } : {}),
-        status: 'current',
+        status: dep.sourceType === 'git'
+          ? 'git_dependency'
+          : dep.sourceType === 'path'
+            ? 'local_path'
+            : 'current',
         evidence,
       });
     }

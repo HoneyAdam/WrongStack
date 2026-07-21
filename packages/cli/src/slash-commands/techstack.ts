@@ -2,8 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Context, SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import type { SlashCommandContext } from './index.js';
 
 /**
  * Discover all `package.json` files in the project (root + workspace packages).
@@ -176,14 +176,16 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Inspect',
     aliases: ['tech', 'deps'],
     description:
-        'Scan all project dependencies, verify versions against the npm registry, and produce a techstack report. Also triggers the TechStack inventory engine when the WebUI server is active.',
-    argsHint: '[--json] [--init] [--scan]',
+      'Scan all project dependencies, verify versions against the npm registry, and produce a techstack report. Also triggers the TechStack inventory engine when the WebUI server is active.',
+    argsHint: '[--json] [--init] [--scan] [--plan] [--apply]',
     help: [
-        'Usage:',
-        '  /techstack              Scan dependencies + write techstack.md report',
-        '  /techstack --json       Write techstack.json instead of markdown',
-        '  /techstack --init       Init-mode scan (compares scaffolded vs latest)',
-        '  /techstack --scan       Run deterministic inventory only (no subagent)',
+      'Usage:',
+      '  /techstack              Scan dependencies + write techstack.md report',
+      '  /techstack --json       Write techstack.json instead of markdown',
+      '  /techstack --init       Init-mode scan (compares scaffolded vs latest)',
+      '  /techstack --scan       Run deterministic inventory only (no subagent)',
+      '  /techstack --plan       Analyze and preview a structured remediation plan',
+      '  /techstack --apply      Apply approved plan items through language_package',
       '',
       'Spawns a subagent that:',
       '  1. Reads every package.json in the project',
@@ -196,9 +198,68 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
     ].join('\n'),
     async run(args: string, _ctx: Context) {
       const trimmed = args.trim().toLowerCase();
-      const outputFormat = /\b(--json|-j)\b/.test(trimmed) ? 'json' : 'md';
-      const isInit = /\b(--init|-i)\b/.test(trimmed);
-      const isScanOnly = /\b(--scan|-s)\b/.test(trimmed);
+      const flags = new Set(trimmed.split(/\s+/).filter(Boolean));
+      const outputFormat = flags.has('--json') || flags.has('-j') ? 'json' : 'md';
+      const isInit = flags.has('--init') || flags.has('-i');
+      const isScanOnly = flags.has('--scan') || flags.has('-s');
+      const isPlan = flags.has('--plan');
+      const isApply = flags.has('--apply');
+
+      if (isPlan || isApply) {
+        let store: import('@wrongstack/techstack').TechStackStore | undefined;
+        try {
+          const {
+            applyPlan,
+            generateUpgradePlan,
+            renderPlanMarkdown,
+            TechStackEngine,
+            TechStackStore,
+            toLanguagePackageInput,
+          } = await import('@wrongstack/techstack');
+          const projectSlug = opts.projectRoot.replace(/[^a-zA-Z0-9_-]/g, '_');
+          store = new TechStackStore({ projectSlug });
+          const engine = new TechStackEngine(store);
+          const { snapshot } = await engine.analyze(opts.projectRoot, {
+            targetRoot: opts.projectRoot,
+            requestedBy: 'cli',
+            online: true,
+          });
+          const plan = generateUpgradePlan(snapshot);
+          if (!isApply) return { message: renderPlanMarkdown(plan) };
+          if (!opts.executeTool) {
+            return {
+              message: 'TechStack apply unavailable: governed tool execution is not wired.',
+            };
+          }
+          const result = await applyPlan(plan, {
+            dryRun: false,
+            approve: (item) =>
+              item.action !== 'replace' &&
+              item.action !== 'investigate' &&
+              ['npm', 'python', 'rust', 'go', 'php', 'dotnet'].includes(item.ecosystem),
+            signal: _ctx.signal,
+            execute: async (operation) => {
+              const workspace = snapshot.workspaces.find(
+                (item) => item.id === operation.workspaceId,
+              );
+              const input = toLanguagePackageInput(operation, workspace?.relativeRoot);
+              return opts.executeTool?.('language_package', { ...input }, _ctx);
+            },
+          });
+          const applied = result.items.filter((item) => item.status === 'applied').length;
+          const failed = result.items.filter((item) => item.status === 'failed').length;
+          const skipped = result.items.filter((item) => item.status === 'skipped').length;
+          return {
+            message: `TechStack remediation finished: ${applied} applied, ${failed} failed, ${skipped} skipped.`,
+          };
+        } catch (err) {
+          const msg = `TechStack remediation failed: ${toErrorMessage(err)}`;
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        } finally {
+          store?.close();
+        }
+      }
 
       // ── Compatibility shim: deterministic inventory via TechStack engine ──
       // Runs the engine's inventory directly — no subagent, no network.
@@ -232,9 +293,7 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
           );
         }
       } catch (err) {
-        discoveryNote = color.red(
-          `Could not scan for package files: ${toErrorMessage(err)}`,
-        );
+        discoveryNote = color.red(`Could not scan for package files: ${toErrorMessage(err)}`);
       }
 
       const task = buildTechStackTask({
@@ -264,8 +323,7 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
             'token saving) and re-run /techstack.',
         );
         return {
-          message:
-            'techstack aborted: `fetch` tool unavailable in the current token-saving tier.',
+          message: 'techstack aborted: `fetch` tool unavailable in the current token-saving tier.',
         };
       }
 

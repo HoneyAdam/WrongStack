@@ -15,22 +15,15 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  lockfileEvidence,
+  manifestEvidence,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
+import { parseXmlAttributes, xmlTagValue } from './parse-utils.js';
 
 // ── Minimal XML parser for .csproj ────────────────────────────────────────
 
@@ -51,12 +44,15 @@ interface CsprojPackageRef {
  */
 function parseCsproj(content: string): CsprojPackageRef[] {
   const refs: CsprojPackageRef[] = [];
-  // Match: <PackageReference Include="Name" Version="ver" ... />
-  const regex = /<PackageReference\s+Include\s*=\s*"([^"]+)"\s*(?:Version\s*=\s*"([^"]*)")?\s*\/?\s*>/g;
+  const regex = /<PackageReference\b([^>]*?)(?:\/>|>([\s\S]*?)<\/PackageReference>)/gi;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
-    const name = match[1]!;
-    const version = match[2] || undefined;
+    const attributes = match[1] ?? '';
+    const body = match[2] ?? '';
+    const parsedAttributes = parseXmlAttributes(attributes);
+    const name = parsedAttributes.get('Include');
+    if (!name) continue;
+    const version = parsedAttributes.get('Version') ?? xmlTagValue(body, 'Version');
     refs.push({ name, version });
   }
   return refs;

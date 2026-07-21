@@ -15,22 +15,19 @@ import type {
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type {
-  EcosystemAdapter,
-  InventoryOptions,
+import {
+  fileExists,
+  lockfileEvidence,
+  manifestEvidence,
+  resolveIn,
+  workspaceRoot,
+  type EcosystemAdapter,
+  type InventoryOptions,
 } from './interface.js';
-import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
+import { parseTomlKeyValue } from './parse-utils.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
-
-function lockfileEvidence(path: string): Evidence {
-  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
-}
 
 // ── Minimal TOML parser (line-based, sufficient for Cargo.toml + Cargo.lock) ──
 
@@ -60,50 +57,47 @@ function parseTomlSections(content: string): TomlSection[] {
 }
 
 /**
- * Parse a key = value pair from a TOML line.
- * Handles: key = "string", key = { inline = "table" }
- * Returns undefined for lines that are continuations of inline tables.
- */
-function parseTomlKeyValue(line: string): { key: string; value: string } | undefined {
-  const trimmed = line.trim();
-  // Skip inline table continuation lines that start with a key
-  if (trimmed.startsWith('#')) return undefined;
-  const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*(.+)$/);
-  if (!match) return undefined;
-  return { key: match[1]!, value: match[2]!.trim() };
-}
-
-/**
  * Extract simple string key-value pairs from a TOML section.
  * Returns { name, version } for entries like `serde = "1.0"` or `serde = { version = "1.0", ... }`.
  * Handles both simple and inline-table formats.
  */
-function extractTomlDeps(sectionLines: string[]): Array<{ name: string; version: string | undefined }> {
-  const deps: Array<{ name: string; version: string | undefined }> = [];
+function extractTomlDeps(sectionLines: string[]): Array<{
+  name: string;
+  version: string | undefined;
+  sourceType: 'registry' | 'path' | 'git';
+}> {
+  const deps: Array<{
+    name: string;
+    version: string | undefined;
+    sourceType: 'registry' | 'path' | 'git';
+  }> = [];
   for (const raw of sectionLines) {
     const line = raw.trim();
     if (line.startsWith('#') || line === '') continue;
+    const entry = parseTomlKeyValue(line);
+    if (!entry) continue;
 
     // Check if it's an inline table: serde = { version = "1.0", features = [...] }
-    const tableMatch = line.match(/^([a-zA-Z0-9_-]+)\s*=\s*\{\s*(.*?)\s*\}$/);
+    const tableMatch = entry.value.match(/^\{\s*(.*?)\s*\}$/);
     if (tableMatch) {
-      const name = tableMatch[1]!;
-      const inner = tableMatch[2]!;
+      const name = entry.key;
+      const inner = tableMatch[1];
+      if (inner === undefined) continue;
       const versionMatch = inner.match(/version\s*=\s*"([^"]+)"/);
-      deps.push({ name, version: versionMatch ? versionMatch[1]! : undefined });
+      const sourceType = /\bgit\s*=/.test(inner) ? 'git' : /\bpath\s*=/.test(inner) ? 'path' : 'registry';
+      deps.push({ name, version: versionMatch?.[1], sourceType });
       continue;
     }
 
     // Simple key = "value"
-    const simpleMatch = line.match(/^([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"$/);
+    const simpleMatch = entry.value.match(/^"([^"]*)"$/);
     if (simpleMatch) {
-      deps.push({ name: simpleMatch[1]!, version: simpleMatch[2]! || undefined });
+      deps.push({ name: entry.key, version: simpleMatch[1] || undefined, sourceType: 'registry' });
       continue;
     }
 
     // Try partial inline table (may span lines)
-    const partialMatch = parseTomlKeyValue(line);
-    if (partialMatch && !partialMatch.value.startsWith('{') && !partialMatch.value.startsWith('"')) {
+    if (!entry.value.startsWith('{') && !entry.value.startsWith('"')) {
       // Might be a path or git dep: serde = { path = "../foo" }
       // Ignore these for now
     }
@@ -186,7 +180,7 @@ export class RustAdapter implements EcosystemAdapter {
 
     // Find manifests
     const cargoTomlPath = workspace.manifests.find((m) => m.includes('Cargo.toml'))
-      || (this.fileExists(resolveIn(root, 'Cargo.toml')) ? 'Cargo.toml' : undefined);
+      || (fileExists(resolveIn(root, 'Cargo.toml')) ? 'Cargo.toml' : undefined);
 
     if (!cargoTomlPath) return [];
 
@@ -239,11 +233,7 @@ export class RustAdapter implements EcosystemAdapter {
         seen.add(dep.name);
 
         const locked = lockVersions.get(dep.name) || dep.version;
-        const isRegistry = !dep.version || (
-          !dep.version.startsWith('path=') &&
-          !dep.version.startsWith('git=') &&
-          !dep.version.startsWith('../')
-        );
+        const isRegistry = dep.sourceType === 'registry';
 
         const purl = isRegistry && locked
           ? buildPurl({ type: 'rust', name: dep.name, version: locked })
@@ -254,11 +244,10 @@ export class RustAdapter implements EcosystemAdapter {
         const evidence: Evidence[] = [manifestEv];
         if (lockEv && locked && lockVersions.has(dep.name)) evidence.push(lockEv);
 
-        const status: DependencyObservation['status'] =
-          dep.version && (dep.version.startsWith('path=') || dep.version.startsWith('git='))
-            ? dep.version.startsWith('git=')
-              ? 'git_dependency'
-              : 'local_path'
+        const status: DependencyObservation['status'] = dep.sourceType === 'git'
+          ? 'git_dependency'
+          : dep.sourceType === 'path'
+            ? 'local_path'
             : 'current';
 
         observations.push({
@@ -267,7 +256,7 @@ export class RustAdapter implements EcosystemAdapter {
           ...(purl ? { purl } : {}),
           ecosystem: 'rust',
           name: dep.name,
-          sourceType: isRegistry ? 'registry' : status === 'local_path' ? 'path' : 'git',
+          sourceType: dep.sourceType,
           direct: true,
           scope,
           ...(dep.version ? { requested: dep.version } : {}),
@@ -278,17 +267,29 @@ export class RustAdapter implements EcosystemAdapter {
       }
     }
 
+    if (options.includeTransitive && lockEv) {
+      for (const [name, locked] of lockVersions) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        observations.push({
+          id: `dep-${workspace.id}-${name}`,
+          workspaceId: workspace.id,
+          purl: buildPurl({ type: 'rust', name, version: locked }),
+          ecosystem: 'rust',
+          name,
+          sourceType: 'registry',
+          direct: false,
+          scope: 'transitive',
+          locked,
+          status: 'current',
+          evidence: [lockEv],
+        });
+      }
+    }
+
     return observations;
   }
 
-  private fileExists(filePath: string): boolean {
-    try {
-      readFileSync(filePath, 'utf-8');
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }
 
 /**

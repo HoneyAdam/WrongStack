@@ -17,6 +17,7 @@ const MAX_ARGUMENT_LENGTH = 4_096;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:@[a-z0-9*+._~^<>=|-]+)?$/i;
 const COMPOSER_PACKAGE_RE = /^[a-z0-9_.-]+\/[a-z0-9_.-]+(?::[a-z0-9*+._~^<>=|-]+)?$/i;
 const GO_MODULE_RE = /^(?:[a-z0-9.-]+\.)+[a-z0-9.-]+\/[a-z0-9._~+/@-]+$/i;
+const PYTHON_PACKAGE_RE = /^[a-z0-9._-]+(?:\[[a-z0-9._,-]+\])?==[a-z0-9*+._!~-]+$/i;
 
 export async function planLanguageOperation(
   options: PlanLanguageOptions,
@@ -269,7 +270,8 @@ function validateOperationOptions(
     if (
       !PACKAGE_NAME_RE.test(value) &&
       !COMPOSER_PACKAGE_RE.test(value) &&
-      !GO_MODULE_RE.test(value)
+      !GO_MODULE_RE.test(value) &&
+      !PYTHON_PACKAGE_RE.test(value)
     ) {
       throw new Error(`Invalid package identifier "${value}"`);
     }

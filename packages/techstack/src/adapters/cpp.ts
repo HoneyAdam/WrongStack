@@ -10,16 +10,15 @@
 import { readFileSync } from 'node:fs';
 import type {
   DependencyObservation,
-  Evidence,
   EcosystemId,
   Workspace,
 } from '../types.js';
-import type { EcosystemAdapter, InventoryOptions } from './interface.js';
+import {
+  manifestEvidence,
+  type EcosystemAdapter,
+  type InventoryOptions,
+} from './interface.js';
 import { buildPurl } from '../registry/purl.js';
-
-function manifestEvidence(path: string): Evidence {
-  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
-}
 
 /**
  * Parse conanfile.txt `[requires]` section.

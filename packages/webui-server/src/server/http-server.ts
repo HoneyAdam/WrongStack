@@ -59,8 +59,11 @@ import {
   handleTechStackDependencyResearch,
   handleTechStackInventory,
   handleTechStackJobStatus,
+  handleTechStackRemediationApply,
+  handleTechStackRemediationPlan,
   handleTechStackReport,
   handleTechStackSnapshot,
+  handleTechStackTrends,
   type TechStackEvent,
 } from './techstack-handlers.js';
 import { extractTokenFromCookie, isLoopbackBind, tokenMatches } from './ws-auth.js';
@@ -128,6 +131,8 @@ export interface CreateHttpServerOptions {
   getLlm?:
     | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
     | undefined;
+  /** Permission-governed language_package bridge for approved remediation. */
+  executePackageOperation?: import('./techstack-handlers.js').TechStackHandlerDeps['executePackageOperation'];
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -588,6 +593,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
             runningJobs: runtime.runningJobs,
             emit: opts.onTechStackEvent,
             getLlm: opts.getLlm,
+            executePackageOperation: opts.executePackageOperation,
           };
           if (url.pathname === '/api/techstack/snapshot' && req.method === 'GET') {
             handleTechStackSnapshot(res, deps);
@@ -599,6 +605,18 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           }
           if (url.pathname === '/api/techstack/analyze' && req.method === 'POST') {
             handleTechStackAnalyze(res, deps);
+            return;
+          }
+          if (url.pathname === '/api/techstack/trends' && req.method === 'GET') {
+            await handleTechStackTrends(res, deps);
+            return;
+          }
+          if (url.pathname === '/api/techstack/remediation' && req.method === 'GET') {
+            await handleTechStackRemediationPlan(res, deps);
+            return;
+          }
+          if (url.pathname === '/api/techstack/remediation/apply' && req.method === 'POST') {
+            await handleTechStackRemediationApply(req, res, deps);
             return;
           }
           const cancelMatch = /^\/api\/techstack\/jobs\/([^/]+)\/cancel$/.exec(url.pathname);

@@ -29,7 +29,20 @@ function pythonProfile(): LanguageProfile {
     ]),
     ignoredDirectories: IGNORES,
     packageManagers: Object.freeze(['pip', 'poetry', 'pipenv', 'uv']),
-    executables: Object.freeze(['python', 'python3', 'ruff', 'black', 'pytest', 'mypy', 'pyright']),
+    executables: Object.freeze([
+      'python',
+      'python3',
+      'pip',
+      'pip3',
+      'poetry',
+      'pipenv',
+      'uv',
+      'ruff',
+      'black',
+      'pytest',
+      'mypy',
+      'pyright',
+    ]),
     operations: Object.freeze({
       syntax: async (ctx) => {
         const py = ctx.options.target ? 'python3' : 'python3';
@@ -101,6 +114,16 @@ function pythonProfile(): LanguageProfile {
               network: true,
             });
       },
+      'package-remove': async (ctx) => {
+        const names = packageNames(ctx);
+        return names.length === 0
+          ? unavailable(ctx, 'package-remove', 'At least one package name is required.')
+          : processPlan(ctx, 'package-remove', 'pip', ['uninstall', '--yes', ...names], {
+              parser: 'package-text',
+              reason: 'Remove validated Python packages.',
+              mutating: true,
+            });
+      },
       'package-audit': async (ctx) =>
         processPlan(ctx, 'package-audit', 'pip', ['audit'], {
           parser: 'pip-audit',
@@ -169,9 +192,7 @@ function javaProfile(): LanguageProfile {
         const isGradle = hasGradleEvidence(ctx);
         const runner = isGradle ? await gradleRunner(ctx) : 'mvn';
         const args = isGradle ? ['compileJava'] : ['compile', '-q'];
-        const reason = isGradle
-          ? 'Compile the Gradle project.'
-          : 'Compile the Maven project.';
+        const reason = isGradle ? 'Compile the Gradle project.' : 'Compile the Maven project.';
         return processPlan(ctx, 'semantic', runner, args, {
           parser: isGradle ? 'gradle' : 'maven',
           reason,
