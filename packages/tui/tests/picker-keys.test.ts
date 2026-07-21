@@ -31,7 +31,7 @@ function key(overrides: Partial<KeyEvent> = {}): KeyEvent {
 
 function baseState(overrides: Partial<State> | Record<string, unknown> = {}): State {
   return {
-    authPanel: { open: false },
+    authPanel: { open: false } as never,
     modelPicker: {
       open: false,
       step: 'provider',
@@ -47,13 +47,13 @@ function baseState(overrides: Partial<State> | Record<string, unknown> = {}): St
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
     promptPicker: { open: false, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, thinkingWordEditing: false, thinkingWordDraft: '', filter: '' },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, thinkingWordEditing: false, thinkingWordDraft: '', filter: '' } as never,
     pluginPicker: { open: false, items: [], selected: 0, busy: false },
     mcpPicker: { open: false, items: [], selected: 0, busy: false },
     toolsPicker: { open: false, items: [], selected: 0, busy: false, filter: undefined },
     helpPanel: { open: false, entries: [], selected: 0, filter: '' },
     brainPanel: { open: false, riskLevel: 'off', log: [], selected: 0, row: 0, busy: false, hint: undefined, view: 'log', settings: undefined },
-    shadowPanel: { open: false },
+    shadowPanel: { open: false } as never,
     fKeyPicker: { open: false, selected: 0 },
     picker: { open: false, query: '', matches: [], selected: 0 },
     slashPicker: { open: false, query: '', matches: [], selected: 0 },

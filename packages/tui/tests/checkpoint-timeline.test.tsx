@@ -18,7 +18,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Session Rewind');
@@ -33,7 +33,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('↑/↓ navigate');
@@ -50,7 +50,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No checkpoints in this session.');
@@ -65,7 +65,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('[0]');
@@ -84,7 +84,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Only one ▸ should be visible
@@ -101,7 +101,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('3 files');
@@ -116,7 +116,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('1 file');
@@ -131,7 +131,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Should not show "0 files"
@@ -148,7 +148,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Long previews may wrap across lines in the terminal box
@@ -165,7 +165,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Last checkpoint should be selected
@@ -184,7 +184,7 @@ describe('CheckpointTimeline', () => {
         onSelect,
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     stdin.write('\x1b[B');
     await new Promise((resolve) => setImmediate(resolve));
@@ -201,7 +201,7 @@ describe('CheckpointTimeline', () => {
         onSelect,
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     stdin.write('\x1b[B');
     await new Promise((resolve) => setImmediate(resolve));
@@ -218,7 +218,7 @@ describe('CheckpointTimeline', () => {
         onSelect,
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     stdin.write('\x1b[A');
     await new Promise((resolve) => setImmediate(resolve));
@@ -235,7 +235,7 @@ describe('CheckpointTimeline', () => {
         onSelect,
         onConfirm: vi.fn(),
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     stdin.write('\x1b[A');
     await new Promise((resolve) => setImmediate(resolve));
@@ -252,7 +252,7 @@ describe('CheckpointTimeline', () => {
         onSelect: vi.fn(),
         onConfirm,
         onClose: vi.fn(),
-      }),
+      } as never),
     );
     stdin.write('\r');
     await new Promise((resolve) => setImmediate(resolve));

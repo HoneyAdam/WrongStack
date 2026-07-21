@@ -5,7 +5,7 @@ import { initial } from './reducer.test.js';
 describe('reducer — last branches', () => {
   // ── confirmQueue (not confirm field) ─────────────────────────────
   it('confirmOpen adds to queue, confirmClose shifts', () => {
-    const s = reducer(initial(), { type: 'confirmOpen', info: { text: 'Sure?' } as never });
+    const s = reducer(initial(), { type: 'confirmOpen', info: { text: 'Sure?' } as never as never });
     expect(s.confirmQueue).toHaveLength(1);
     expect(s.confirmQueue[0]).toEqual({ text: 'Sure?' });
     const r = reducer(s, { type: 'confirmClose' });
@@ -14,7 +14,7 @@ describe('reducer — last branches', () => {
 
   // ── clearConfirm uses action.info ────────────────────────────────
   it('clearConfirmOpen/SetValue/Close', () => {
-    const open = reducer(initial(), { type: 'clearConfirmOpen', info: { text: 'Clear?' } });
+    const open = reducer(initial(), { type: 'clearConfirmOpen', info: { text: 'Clear?' } as never });
     expect(open.clearConfirm).toEqual({ text: 'Clear?' });
     const val = reducer(open, { type: 'clearConfirmSetValue', value: 'yes' });
     expect(val.clearConfirm?.value).toBe('yes');
@@ -23,14 +23,14 @@ describe('reducer — last branches', () => {
 
   // ── exitConfirm uses action.info ─────────────────────────────────
   it('exitConfirmOpen/Close', () => {
-    const open = reducer(initial(), { type: 'exitConfirmOpen', info: { reason: 'exit' } });
+    const open = reducer(initial(), { type: 'exitConfirmOpen', info: { reason: 'exit' } as never });
     expect(open.exitConfirm).toEqual({ reason: 'exit' });
     expect(reducer(open, { type: 'exitConfirmClose' }).exitConfirm).toBeNull();
   });
 
   // ── slashConfirm uses action.info ────────────────────────────────
   it('slashConfirmOpen/Close', () => {
-    const open = reducer(initial(), { type: 'slashConfirmOpen', info: { cmd: '/test' } });
+    const open = reducer(initial(), { type: 'slashConfirmOpen', info: { cmd: '/test' } as never });
     expect(open.slashConfirm).toEqual({ cmd: '/test' });
     expect(reducer(open, { type: 'slashConfirmClose' }).slashConfirm).toBeNull();
   });

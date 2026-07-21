@@ -626,7 +626,7 @@ describe('renderHealthReport — queue-health partitioning', () => {
 
 // ── /kanban audit — Kanban Cleaner projection ──────────────────────────────
 
-import type { KanbanAuditSummary } from '@wrongstack/kanban';
+import type { KanbanBoardSummary as KanbanAuditSummary } from '@wrongstack/kanban';
 
 function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSummary {
   const issues = overrides.issues ?? [
@@ -647,8 +647,8 @@ function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSumm
       message: 'Add a description',
     },
   ];
-  const errorCount = issues.filter((i: { severity: string }) => i.severity === 'error').length;
-  const warningCount = issues.filter((i: { severity: string }) => i.severity === 'warning').length;
+  const errorCount = issues.filter((i: { severity: string; taskId?: string }) => i.severity === 'error').length;
+  const warningCount = issues.filter((i: { severity: string; taskId?: string }) => i.severity === 'warning').length;
   return {
     generatedAt: '2026-07-18T12:00:00.000Z',
     boardIds: ['b-1'],
@@ -660,7 +660,7 @@ function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSumm
     lastDispatchedAt: undefined,
     lastStaleRecoveredAt: undefined,
     issues,
-    affectedTaskCount: new Set(issues.map((i: { severity: string }) => i.taskId)).size,
+    affectedTaskCount: new Set(issues.map((i: { severity: string; taskId?: string }) => i.taskId)).size,
     ...overrides,
   };
 }

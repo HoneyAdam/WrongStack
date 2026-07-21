@@ -151,7 +151,7 @@ describe('useWorkingDirChip', () => {
   it('handles undefined workingDir from context', () => {
     let result: string | undefined = 'should-change';
     function Harness(): React.ReactElement {
-      result = useWorkingDirChip(makeContext({ workingDir: undefined }), '/project');
+      result = useWorkingDirChip(makeContext({ workingDir: undefined as never }), '/project');
       return React.createElement(Text, null, 'test');
     }
     render(React.createElement(Harness));

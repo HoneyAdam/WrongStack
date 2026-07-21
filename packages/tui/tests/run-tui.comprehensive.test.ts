@@ -158,11 +158,11 @@ describe('RunTuiOptions type', () => {
 describe('AutonomyStage type re-export', () => {
   it('is a string literal union type that can hold any valid stage', () => {
     const stages: AutonomyStage[] = [
-      'off',
-      'suggest',
-      'auto',
-      'eternal',
-      'eternal-parallel',
+      'off' as const,
+      'suggest' as const,
+      'auto' as const,
+      'eternal' as const,
+      'eternal-parallel' as const,
     ];
     expect(stages).toHaveLength(5);
     expect(stages[0]).toBe('off');

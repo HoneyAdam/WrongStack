@@ -50,7 +50,7 @@ describe('SddBoardOverlay', () => {
 
   it('shows failed count when > 0', () => {
     const snap = { ...snapshot, progress: { ...snapshot.progress, failed: 1 } };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('✗1');
     view.unmount();
@@ -58,7 +58,7 @@ describe('SddBoardOverlay', () => {
 
   it('shows empty state when no tasks', () => {
     const snap = { ...snapshot, tasks: [], columns: [], progress: { total: 0, completed: 0, inProgress: 0, failed: 0, percentComplete: 0 } };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('No active SDD run');
     view.unmount();
@@ -69,7 +69,7 @@ describe('SddBoardOverlay', () => {
       ...snapshot,
       diagnostics: { deadlockChains: [{ blocked: 't2', blockedBy: ['t1'] }] },
     };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Deadlock');
     view.unmount();
@@ -123,7 +123,7 @@ describe('SddBoardOverlay', () => {
       ...snapshot, tasks, columns: cols,
       progress: { total: tasks.length, completed: 0, inProgress: 0, failed: 0, percentComplete: 0 },
     };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     for (const s of statuses) {
       expect(frame).toContain(`Task ${s.displayStatus}`);

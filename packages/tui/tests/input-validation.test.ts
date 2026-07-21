@@ -300,7 +300,7 @@ describe('validateAction', () => {
   });
 
   it('rejects actions with deeply nested payload', () => {
-    const deep: Record<string, unknown> = { type: 'setBuffer', buffer: 'hi', cursor: 0 };
+    const deep: Record<string, unknown> & { type: string } = { type: 'setBuffer', buffer: 'hi', cursor: 0 };
     let cur = deep;
     for (let i = 0; i < 12; i++) {
       cur.next = { buffer: 'deep', cursor: 0 };

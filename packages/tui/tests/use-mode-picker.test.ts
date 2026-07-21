@@ -33,7 +33,7 @@ describe('buildModePickerOptions', () => {
   });
 
   it('handles empty modes array', () => {
-    const result: GetModesResult = { modes: [] as never, activeId: null };
+    const result: GetModesResult = { modes: [] as never as never, activeId: null };
     expect(buildModePickerOptions(result)).toEqual([]);
   });
 });

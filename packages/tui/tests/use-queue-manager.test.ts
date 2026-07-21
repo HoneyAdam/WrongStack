@@ -53,7 +53,7 @@ interface HarnessRefs {
 function buildHarness(): HarnessRefs {
   const state = { queue: [] } as unknown as State;
   return {
-    queueStore: undefined,
+    queueStore: undefined as never,
     onQueueChange: vi.fn(),
     slashRegistry: makeRegistry(),
     stateRef: { current: state },

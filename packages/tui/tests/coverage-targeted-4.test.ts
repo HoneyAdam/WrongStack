@@ -221,7 +221,7 @@ describe('queue-slash.ts — delete edge cases', () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
     handleQueueCommand('del 1', {
-      getQueue: () => [{ id: 1, displayText: 'msg', text: 'msg', priority: 'normal', sendMode: 'queue' }],
+      getQueue: () => [{ id: 1, displayText: 'msg', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
     });
@@ -233,8 +233,8 @@ describe('queue-slash.ts — delete edge cases', () => {
     let deletedPositions: number[] = [];
     handleQueueCommand('delete 1 1 2', {
       getQueue: () => [
-        { id: 1, displayText: 'a', text: 'a', priority: 'normal', sendMode: 'queue' },
-        { id: 2, displayText: 'b', text: 'b', priority: 'normal', sendMode: 'queue' },
+        { id: 1, displayText: 'a', priority: 'normal', sendMode: 'queue' },
+        { id: 2, displayText: 'b', priority: 'normal', sendMode: 'queue' },
       ],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
@@ -247,7 +247,7 @@ describe('queue-slash.ts — delete edge cases', () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let called = false;
     handleQueueCommand('rm 1', {
-      getQueue: () => [{ id: 1, displayText: 'm', text: 'm', priority: 'normal', sendMode: 'queue' }],
+      getQueue: () => [{ id: 1, displayText: 'm', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: () => { called = true; },
     });
