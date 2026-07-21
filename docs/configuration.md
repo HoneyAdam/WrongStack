@@ -776,6 +776,65 @@ of a broader rule.
 ```
 
 Actions: `answer` (needs `optionId` or `text`), `deny`, `escalate`, `defer`.
+
+#### Why an unconfigured rule table changes nothing
+
+Run `pnpm brain:workload` to see it. The report replays the real Brain call
+sites through a live tier chain and counts **attempted provider calls**:
+
+```
+Default configuration (no brain.rules)
+  12 decisions: 0 free (0%), 12 reached a model
+```
+
+Every real call site — director budget extensions, goal-completion verdicts,
+merge-conflict resolution, all four BrainMonitor signals, all four fleet
+supervisor signals — carries options and is at `medium` risk or above. That
+combination defeats both built-in fast paths by design: `quickDecide` refuses
+option-bearing requests (options are a structured choice, not a keyword
+guess), and the low-risk policy path requires `risk: "low"`, which nothing in
+the catalogue uses.
+
+So the deterministic tier is a MECHANISM, not a default saving. It pays off
+only once you tell it which of your questions do not need a model:
+
+```jsonc
+{
+  "brain": {
+    "rules": [
+      {
+        "id": "monitor-steer-on-signal",
+        "when": { "source": "system", "offersOption": "steer", "maxRisk": "medium" },
+        "then": { "action": "answer", "optionId": "steer" }
+      },
+      {
+        "id": "fleet-defer-to-recommended",
+        "when": { "source": "system", "offersOption": "act", "maxRisk": "medium" },
+        "then": { "action": "answer", "optionId": "act" }
+      }
+    ]
+  }
+}
+```
+
+```
+With that rule pack
+  12 decisions: 8 free (67%), 4 reached a model
+```
+
+The four that still reach a model are the ones that should: extending a
+budget, declaring a goal complete (twice) and resolving merge conflicts are
+judgement calls, not pattern matches.
+
+This pack is deliberately NOT a built-in default — `monitor-steer-on-signal`
+always steers and `fleet-defer-to-recommended` can spawn or terminate
+subagents. Both are reasonable for an unattended fleet and wrong for a
+supervised one, so the choice stays yours. `brain.monitor.policy: "steer"`
+achieves the first one without a rule.
+An `answer` naming an option the request does not offer fails **open** — it
+defers instead of inventing an option id. A `context` pattern never matches
+when there is no context to inspect. An invalid regex disables only its own
+rule and is reported through `/brain rules`.
 An `answer` naming an option the request does not offer fails **open** — it
 defers instead of inventing an option id. A `context` pattern never matches
 when there is no context to inspect. An invalid regex disables only its own
