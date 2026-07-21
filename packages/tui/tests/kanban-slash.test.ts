@@ -65,8 +65,8 @@ function task(
 function summary(
   id: string,
   title: string,
-  extras: Partial<KanbanBoardSummary> = {},
-): KanbanBoardSummary {
+  extras: Partial<KanbanAuditSummary> = {},
+): KanbanAuditSummary {
   return {
     id,
     title,
@@ -626,9 +626,9 @@ describe('renderHealthReport — queue-health partitioning', () => {
 
 // ── /kanban audit — Kanban Cleaner projection ──────────────────────────────
 
-import type { KanbanBoardSummary } from '@wrongstack/kanban';
+import type { KanbanAuditSummary } from '@wrongstack/kanban';
 
-function makeAudit(overrides: Partial<KanbanBoardSummary> = {}): KanbanBoardSummary {
+function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSummary {
   const issues = overrides.issues ?? [
     {
       id: 'i-err',
