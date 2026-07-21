@@ -42,7 +42,7 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     withTraceId: () => ({}) as MemoryStore,
 
     // ── SuperMemory duck-type methods ──
-    stats: undefined, async () => {
+    stats: async () => {
       const total = memories.length;
       const byStatus: Record<string, number> = {
         active: 0,
