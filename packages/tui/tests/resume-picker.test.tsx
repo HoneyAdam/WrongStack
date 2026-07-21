@@ -47,7 +47,7 @@ describe('ResumePicker', () => {
         sessions: sampleSessions,
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Resume Session');
@@ -60,7 +60,7 @@ describe('ResumePicker', () => {
         sessions: sampleSessions,
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('↑/↓ navigate');
@@ -74,7 +74,7 @@ describe('ResumePicker', () => {
         sessions: sampleSessions,
         selected: 0,
         busy: true,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Resuming selected session');
@@ -87,7 +87,7 @@ describe('ResumePicker', () => {
         sessions: [],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No sessions found.');
@@ -100,7 +100,7 @@ describe('ResumePicker', () => {
         sessions: [],
         selected: 0,
         busy: true,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Should show busy message instead of "No sessions found."
@@ -114,7 +114,7 @@ describe('ResumePicker', () => {
         sessions: sampleSessions,
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('sess_01J');
@@ -129,7 +129,7 @@ describe('ResumePicker', () => {
         sessions: [sampleSessions[0]],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('✓');
@@ -142,7 +142,7 @@ describe('ResumePicker', () => {
         sessions: [sampleSessions[1]],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('⚠');
@@ -155,7 +155,7 @@ describe('ResumePicker', () => {
         sessions: [sampleSessions[2]],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('✗');
@@ -179,7 +179,7 @@ describe('ResumePicker', () => {
         sessions: [timeoutSession],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('⏱');
@@ -192,7 +192,7 @@ describe('ResumePicker', () => {
         sessions: [sampleSessions[0]],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Token count uses toLocaleString() which is locale-dependent
@@ -209,7 +209,7 @@ describe('ResumePicker', () => {
         sessions: [sampleSessions[1]],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('2 err');
@@ -233,7 +233,7 @@ describe('ResumePicker', () => {
         sessions: [longTitleSession],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('…');
@@ -250,7 +250,7 @@ describe('ResumePicker', () => {
         sessions: [currentSession],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('(current)');
@@ -264,7 +264,7 @@ describe('ResumePicker', () => {
         selected: 0,
         busy: false,
         error: 'Failed to load sessions',
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Failed to load sessions');
@@ -278,7 +278,7 @@ describe('ResumePicker', () => {
         selected: 0,
         busy: false,
         hint: 'Only showing last 10 sessions',
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Only showing last 10 sessions');
@@ -302,7 +302,7 @@ describe('ResumePicker', () => {
         sessions: [noToolSession],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Should show token count without tool/iter counts
@@ -327,7 +327,7 @@ describe('ResumePicker', () => {
         sessions: [unknownSession],
         selected: 0,
         busy: false,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     // Unknown outcome gets two spaces as badge (the else branch)

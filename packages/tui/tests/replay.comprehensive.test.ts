@@ -8,7 +8,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'provider_retry', ts: '2026-01-01T00:00:00Z',
         attempt: 2, delayMs: 1500, status: 429, description: 'rate limited',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'warn' });
@@ -20,7 +20,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'provider_retry', ts: '2026-01-01T00:00:00Z',
         attempt: 1, delayMs: 500, status: undefined, description: 'timeout',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect((entries[0] as { text: string }).text).not.toContain('HTTP');
@@ -33,7 +33,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'provider_error', ts: '2026-01-01T00:00:00Z',
         description: 'server error', status: 503, retryable: true,
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'error' });
@@ -46,7 +46,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'provider_error', ts: '2026-01-01T00:00:00Z',
         description: 'auth failure', status: undefined, retryable: false,
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       const text = (entries[0] as { text: string }).text;
@@ -60,7 +60,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'checkpoint', ts: '2026-01-01T00:00:00Z',
         promptIndex: 5, promptPreview: 'Implement feature X',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'info' });
@@ -74,7 +74,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'mode_changed', ts: '2026-01-01T00:00:00Z',
         from: 'default', to: 'code',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'info' });
@@ -87,7 +87,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'skill_activated', ts: '2026-01-01T00:00:00Z',
         skillName: 'bug-hunter',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect((entries[0] as { text: string }).text).toContain('bug-hunter');
@@ -97,7 +97,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'skill_deactivated', ts: '2026-01-01T00:00:00Z',
         skillName: 'security-scanner',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect((entries[0] as { text: string }).text).toContain('security-scanner');
@@ -109,7 +109,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'message_truncated', ts: '2026-01-01T00:00:00Z',
         before: 5000, after: 2000,
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'warn' });
@@ -120,7 +120,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'message_truncated', ts: '2026-01-01T00:00:00Z',
         before: 1000, after: 3000,
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect((entries[0] as { text: string }).text).toContain('truncated at 3000');
@@ -132,7 +132,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'agent_stopped', ts: '2026-01-01T00:00:00Z',
         agentId: 'agent_abcdef12', role: 'bug-hunter',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'subagent', agentLabel: 'agent_ab', icon: '⊘' });
@@ -144,7 +144,7 @@ describe('replaySessionEvents — additional coverage', () => {
       const events: SessionEvent[] = [{
         type: 'agent_error', ts: '2026-01-01T00:00:00Z',
         agentId: 'agent_abcdef12', role: 'bug-hunter', error: longError,
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ kind: 'subagent', agentLabel: 'agent_ab', icon: '✗' });
@@ -159,7 +159,7 @@ describe('replaySessionEvents — additional coverage', () => {
         type: 'compaction', ts: '2026-01-01T00:00:00Z',
         before: 100000, after: 50000, level: 'hard',
         reductions: [{ phase: 'tool', saved: 25000 }, { phase: 'history', saved: 25000 }],
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(1);
       const text = (entries[0] as { text: string }).text;
@@ -173,7 +173,7 @@ describe('replaySessionEvents — additional coverage', () => {
     it('skips user_input with only whitespace', () => {
       const events: SessionEvent[] = [{
         type: 'user_input', ts: '2026-01-01T00:00:00Z', content: '   ',
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(0);
     });
@@ -181,7 +181,7 @@ describe('replaySessionEvents — additional coverage', () => {
     it('skips user_input with empty content array', () => {
       const events: SessionEvent[] = [{
         type: 'user_input', ts: '2026-01-01T00:00:00Z', content: [],
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(0);
     });
@@ -193,7 +193,7 @@ describe('replaySessionEvents — additional coverage', () => {
         type: 'llm_response', ts: '2026-01-01T00:00:00Z',
         content: [{ type: 'text', text: '   ' }],
         stopReason: 'end_turn', usage: { input: 0, output: 0 },
-      }];
+      }] as never;
       const entries = replaySessionEvents(events, 1);
       expect(entries).toHaveLength(0);
     });
@@ -210,7 +210,7 @@ describe('replaySessionEvents — additional coverage', () => {
 
     for (const type of internalTypes) {
       it(`skips ${type} events silently`, () => {
-        const events: SessionEvent[] = [{ type, ts: '2026-01-01T00:00:00Z' } as SessionEvent];
+        const events: SessionEvent[] = [{ type, ts: '2026-01-01T00:00:00Z' } as SessionEvent] as never;
         const entries = replaySessionEvents(events, 1);
         expect(entries).toHaveLength(0);
       });
@@ -281,7 +281,7 @@ describe('replaySessionMessages — additional coverage', () => {
         name: 'read', id: 'tu-1', durationMs: 15, outputSize: 100, ok: true,
         outputBytes: 100, outputTokens: 25, outputLines: 5,
       },
-    ];
+    ] as never;
     const entries = replaySessionMessages(messages, events, 1);
     expect(entries).toHaveLength(2); // assistant + tool
     expect(entries[1]).toMatchObject({
@@ -304,7 +304,7 @@ describe('replaySessionMessages — additional coverage', () => {
         type: 'tool_call_end', ts: '2026-01-01T00:00:00Z',
         name: 'read', id: 'tu-99', durationMs: 10, ok: true,
       },
-    ];
+    ] as never;
     const entries = replaySessionMessages(messages, events, 1);
     expect(entries).toHaveLength(2); // user + tool
     const toolEntry = entries[1]!;
@@ -335,7 +335,7 @@ describe('replaySessionMessages — additional coverage', () => {
     ];
     const events: SessionEvent[] = [
       { type: 'mode_changed', ts: '2026-01-01T00:00:02Z', from: 'default', to: 'code' },
-    ];
+    ] as never;
     const entries = replaySessionMessages(messages, events, 1);
     expect(entries.map((e) => e.kind)).toEqual(['user', 'info', 'assistant']);
     expect((entries[1] as { text: string }).text).toContain('code');

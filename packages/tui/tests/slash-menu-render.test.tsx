@@ -8,7 +8,7 @@ function command(overrides: Partial<SlashCommandMatch> = {}): SlashCommandMatch 
   return {
     name: '/help',
     description: 'Show help.',
-    category: 'General',
+    category: 'General' as never,
     ...overrides,
   };
 }

@@ -18,7 +18,7 @@ describe('DesignPicker', () => {
     expect(frame).toContain('Design Studio · pick a kit');
     expect(frame).toContain('stack:web');
     unmount();
-  });
+  } as never);
 
   it('highlights the selected kit with inverse styling', () => {
     const { lastFrame, unmount } = render(
@@ -30,7 +30,7 @@ describe('DesignPicker', () => {
     // Stack should show react-native
     expect(frame).toContain('stack:react-native');
     unmount();
-  });
+  } as never);
 
   it('shows empty state when no kits are installed', () => {
     const { lastFrame, unmount } = render(
@@ -39,7 +39,7 @@ describe('DesignPicker', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No design kits installed.');
     unmount();
-  });
+  } as never);
 
   it('renders all kit names and aesthetics', () => {
     const { lastFrame, unmount } = render(
@@ -52,7 +52,7 @@ describe('DesignPicker', () => {
     expect(frame).toContain('Clean, modern');
     expect(frame).toContain('Bold high-contrast');
     unmount();
-  });
+  } as never);
 
   it('shows the › prefix only on the selected kit', () => {
     const { lastFrame, unmount } = render(
@@ -64,7 +64,7 @@ describe('DesignPicker', () => {
     const prefixCount = (frame.match(/›/g) ?? []).length;
     expect(prefixCount).toBe(1);
     unmount();
-  });
+  } as never);
 
   it('renders correctly with empty aesthetic strings', () => {
     const { lastFrame, unmount } = render(
@@ -72,7 +72,7 @@ describe('DesignPicker', () => {
         kits: [{ id: 'custom', aesthetic: '' }],
         selected: 0,
         stack: 'web',
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('custom');
@@ -86,7 +86,7 @@ describe('DesignPicker', () => {
         kits: [{ id: longId, aesthetic: 'test' }],
         selected: 0,
         stack: 'web',
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain(longId);
