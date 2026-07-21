@@ -423,14 +423,14 @@ describe('usePickerKeys — model and mode flows', () => {
       }),
     );
 
-    // Wheel > 0 means scroll up → delta -1
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
-    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: -1 });
-
-    host.dispatch.mockClear();
     // Wheel < 0 means scroll down → delta 1
     runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: -1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: 1 });
+
+    host.dispatch.mockClear();
+    // Wheel > 0 means scroll up → delta -1
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: -1 });
   });
 
   it('handles model picker with purpose pick on Enter', () => {
