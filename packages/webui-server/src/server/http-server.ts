@@ -216,7 +216,7 @@ function cspSourceFromUrl(rawUrl: string): string | undefined {
  *   `CompileError: call to WebAssembly.instantiate() blocked by CSP`
  *   `Error: \`runSync\` finished async. Use \`run\` instead`
  */
-const EXTRA_SCRIPT_SOURCES: readonly string[] = ["'wasm-unsafe-eval'"];
+const EXTRA_SCRIPT_SOURCES: readonly string[] = ["'wasm-unsafe-eval'", "'unsafe-inline'"];
 
 /**
  * Build the Content-Security-Policy value for the WebUI.

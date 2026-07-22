@@ -113,24 +113,19 @@ describe('buildCspHeader', () => {
     expect(csp).not.toContain('https://wrongstack.example.com');
   });
 
-  it('keeps script-src strict — no unsafe-inline and no per-extension hashes', () => {
+  it('allows unsafe-inline in script-src for browser-extension compatibility', () => {
     // The WrongStack frontend is a Vite build that ships zero inline scripts,
-    // so `script-src` stays `'self' 'wasm-unsafe-eval'` only. Browser-extension
-    // inline injections (reported from `content.js:…`) are harmless console
-    // noise that blocks the extension, never the app — and their sha256 hashes
-    // are per-extension + change on every update, so we deliberately do NOT
-    // allow-list them here.
+    // but browser extensions (password managers, dark-mode readers) inject
+    // inline <script> tags. `'unsafe-inline'` stops the console noise.
     const csp = buildCspHeader();
     expect(csp).not.toMatch(/'sha256-/);
-    // `style-src` keeps `'unsafe-inline'` for React's runtime style mutations,
-    // so assert against the script directive only.
     const scriptSrc = csp
       .split(';')
       .map((s) => s.trim())
       .find((s) => s.startsWith('script-src'));
     expect(scriptSrc).toBeDefined();
-    expect(scriptSrc).not.toMatch(/'unsafe-inline'/);
-    expect(scriptSrc).toBe("script-src 'self' 'wasm-unsafe-eval'");
+    expect(scriptSrc).toMatch(/'unsafe-inline'/);
+    expect(scriptSrc).toBe("script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'");
   });
 });
 
