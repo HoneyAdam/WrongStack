@@ -31,13 +31,13 @@
  * in the `runTui()` options literal below. Do NOT grow this file.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { attachTodosCheckpoint } from '@wrongstack/core/storage';
 import { type CascadeAgentKind, CHIMERA_REVIEW_PROMPT, type ChimeraCascadeNeededPayload, type ChimeraReviewCompletePayload, type ChimeraReviewNeededPayload, DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core/plugin';
-import { type CoordinatorEvent } from '@wrongstack/core/coordination';
-import { type FleetChatVerbosity, type SubagentConfig, type TokenSavingTier } from '@wrongstack/core/types';
+import { type CoordinatorEvent, isMailboxLeader } from '@wrongstack/core/coordination';
+import { type FleetChatVerbosity, type StopReason, type SubagentConfig, type TokenSavingTier } from '@wrongstack/core/types';
 import { fallbackProfileChain, setQueuedMessagesSnapshot } from '@wrongstack/core/agent';
 import { mergeCustomModelDefs } from '@wrongstack/core/utils';
 import { normalizeTokenSavingTier } from '@wrongstack/core/types';
@@ -364,6 +364,23 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
   // Without this, the fire-and-forget IIFE appends to a session whose handle is already closed.
   let pendingChimeraWork: Promise<void> | undefined;
 
+  // ── Grapheme-safe truncation ────────────────────────────────────
+  // Plain .slice() operates on UTF-16 code units and can split a
+  // surrogate pair (e.g. 🦂 → \uD83E\uDD82), producing an invalid
+  // substring.  This helper iterates by code point so every truncated
+  // result is well-formed.  When available, Intl.Segmenter would be
+  // even more precise (handles combining sequences); the code-point
+  // approach covers >99% of practical cases without overhead.
+  function truncateAtCodePointBoundary(text: string, maxCodeUnits: number): string {
+    if (text.length <= maxCodeUnits) return text;
+    let result = '';
+    for (const ch of text) {
+      if (result.length + ch.length > maxCodeUnits) break;
+      result += ch;
+    }
+    return result;
+  }
+
   // ── Chimera post-session review: spawns subagent on chimera.review_needed ──
   events.onPattern('chimera.review_needed', (_event, payload) => {
     const p = payload as ChimeraReviewNeededPayload;
@@ -507,7 +524,6 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         };
 
         const subagentId = await dir.spawn(cfg);
-        const { randomUUID } = await import('node:crypto');
         const taskId = randomUUID();
         await dir.assign({
           id: taskId,
@@ -568,7 +584,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             type: 'llm_response',
             ts: new Date().toISOString(),
             content: [{ type: 'text', text: reviewText }],
-            stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
+            stopReason: 'end_turn' as StopReason,
             usage: { input: 0, output: 0 },
           });
 
@@ -578,50 +594,298 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           // depend on p.config.autoFix:
           //
           //   off  → type:result  — leader sees it, waits for user command
-          //   ask  → type:ask     — leader prompts user for permission
+          //   ask  → type:ask     — leader prompted for permission; runtime
+          //                         polls for a reply with 30s timeout;
+          //                         on timeout/rejection falls back to off
           //   auto → type:result  — plus spawn a fix subagent immediately
+          //
+          // Cascade (security-scanner, bug-hunter) agents NEVER send
+          // mailbox messages. Their results are appended directly to the
+          // session transcript — the canonical delivery path for cascade
+          // output.
           const autoFix =
             (agent.ctx.meta['chimeraAutoFix'] as string | undefined) ?? p.config.autoFix ?? 'off';
-          const mailboxType = autoFix === 'ask' ? 'ask' : 'result';
+          const isAskMode = autoFix === 'ask';
+          const mailboxType = isAskMode ? 'ask' : 'result';
           const subject =
-            autoFix === 'ask'
+            isAskMode
               ? `🦂 Chimera review — ${p.files.length} file(s) changed. Shall I fix the findings?`
               : `🦂 Chimera review — ${p.files.length} file(s) changed`;
 
-          try {
-            await mailbox.send({
-              from: 'chimera-review',
-              to: 'leader',
-              type: mailboxType,
-              audience: 'leaders',
-              subject,
-              body:
-                reviewText.length > 8000
-                  ? reviewText.slice(0, 8000) +
-                    '\n\n…(truncated, full report in session transcript)'
-                  : reviewText,
-              priority: 'normal',
-            });
-          } catch (mailErr) {
-            console.error(
+          let leaderApproved = false;
+          let askMailMsgId: string | undefined;
+
+          // ── Best-effort leader presence check ─────────────────────
+          // Before sending (ask mode only — polling depends on a live
+          // leader), check whether any leader agent is currently online.
+          // The mailbox message is still sent either way, but the warning
+          // helps operators understand that delivery is deferred.
+          // Agent status includes an `online` boolean (heartbeat within
+          // threshold) — use that instead of a hand-rolled window.
+          let leaderOnline = false;
+          if (isAskMode) {
+            try {
+              const onlineAgents = await mailbox.getOnlineAgents();
+              leaderOnline = onlineAgents.some(
+                (a) => a.online && isMailboxLeader(a.agentId, a.role),
+              );
+            } catch (leaderCheckErr) {
+              // should not happen; defensive
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  event: 'execution.chimera_leader_check_failed',
+                  message: leaderCheckErr instanceof Error ? leaderCheckErr.message : String(leaderCheckErr),
+                  timestamp: new Date().toISOString(),
+                }),
+              );
+            }
+            if (!leaderOnline) {
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  event: 'execution.chimera_mailbox_leader_offline',
+                  message: `Leader not online — mailbox ${mailboxType} from chimera-review to leader will be delivered when leader reconnects`,
+                  fileCount: p.files.length,
+                  autoFix,
+                  timestamp: new Date().toISOString(),
+                }),
+              );
+            }
+          } else {
+            // Auto mode: leader presence check is intentionally skipped —
+            // the mailbox message is delivered regardless; the leader reads
+            // it when they reconnect. Emit a debug log so operators have
+            // the offline-deferred signal visible in the session transcript.
+            console.warn(
               JSON.stringify({
-                level: 'error',
-                event: 'execution.chimera_mailbox_failed',
-                message: mailErr instanceof Error ? mailErr.message : String(mailErr),
+                level: 'debug',
+                event: 'execution.chimera_auto_no_presence_check',
+                message: 'Auto mode: leader presence not checked — mailbox message delivered regardless',
+                fileCount: p.files.length,
+                autoFix,
                 timestamp: new Date().toISOString(),
               }),
             );
           }
 
-          // auto mode: spawn a fix subagent with the review + file list
-          if (autoFix === 'auto' && reviewText.length > 0) {
+          try {
+            // Build mailbox body with a directive prefix that tells the
+            // leader to act on the chimera result proatively (not just
+            // read it). The leader sees this via [MAILBOX] injection.
+            const directive = isAskMode
+              ? 'LEADER ACTION REQUIRED: The Chimera review below found issues. Reply with "yes" to auto-fix, or "no" to skip (30s timeout).'
+              : 'LEADER ACTION REQUIRED: The Chimera review below found issues. Read the report and fix any Critical or High findings automatically using the edit tool. Verify with typecheck and linter.';
+            const reviewBody = reviewText.length > 7500
+              ? truncateAtCodePointBoundary(reviewText, 7500) + '\n\n…(truncated, full report in session transcript)'
+              : reviewText;
+            const body = `${directive}\n\n${reviewBody}`;
+
+            const mailMsg = await mailbox.send({
+              from: 'chimera-review',
+              to: 'leader',
+              type: mailboxType,
+              audience: 'leaders',
+              subject,
+              body,
+              priority: 'normal',
+            });
+            if (!mailMsg?.id) throw new Error('mailbox.send returned no message id');
+            askMailMsgId = mailMsg.id;
+
+            // ── ask mode: poll for leader reply with bounded timeout ──
+            if (isAskMode) {
+              const rawTimeout = (agent.ctx.meta['chimeraAskTimeoutMs'] as number | undefined) ?? 30_000;
+              const ASK_TIMEOUT_MS = Number.isFinite(rawTimeout) ? Math.max(0, rawTimeout) : 30_000;
+              const rawPoll = (agent.ctx.meta['chimeraPollIntervalMs'] as number | undefined) ?? 2_000;
+              const POLL_INTERVAL_MS = Number.isFinite(rawPoll) ? Math.max(0, rawPoll) : 2_000;
+              const abortSignal: AbortSignal | undefined =
+                agent.ctx.meta['chimeraAbortSignal'] as AbortSignal | undefined;
+              const askStartTime = Date.now();
+
+              let repliesFound = false;
+              let nonLeaderReplyCount = 0;
+
+              // Recursive async poll: each iteration yields control to the
+              // event loop via setTimeout + await, so mailbox writes, HTTP
+              // handlers, and UI repaints are not starved during the 30s
+              // approval window.
+              //
+              // NOTE: Deadline is checked in pollNext only, not before
+              // the query here.  If we checked first, a reply arriving
+              // during the sleep interval that crosses the deadline
+              // boundary would be silently missed — pollForReply would
+              // bail without the final query.  Always query, then let
+              // pollNext decide whether to schedule another tick.
+              const pollForReply = async (): Promise<void> => {
+                // Poll using replyTo UUID only — NO `to` filter because the
+                // leader's reply is addressed to `chimera-review@<sessionId>`
+                // (session-qualified), not bare `chimera-review`. The
+                // cryptographically-random replyTo is sufficient scoping.
+                const replies = await mailbox.query({
+                  replyTo: askMailMsgId,
+                  limit: 5,
+                });
+
+                if (replies.length > 0) {
+                  repliesFound = true;
+                  const firstReply = replies[0];
+                  if (!firstReply) return pollNext(); // should not happen
+
+                  // Post-query sender validation: accept only replies whose
+                  // sender base id is 'leader' AND whose audience is not
+                  // 'leaders' (a leader-only message should not be visible
+                  // to chimera-review, a non-leader agent). This prevents
+                  // cascade replies, system messages, or stale replies from
+                  // a prior session that happen to share the replyTo UUID
+                  // from being misclassified by the approval/denial regex.
+                  const replyFromBase = firstReply.from.split('@')[0] ?? firstReply.from;
+                  if (replyFromBase !== 'leader' || firstReply.audience === 'leaders') {
+                    nonLeaderReplyCount++;
+                    if (nonLeaderReplyCount >= 5) {
+                      console.warn(
+                        JSON.stringify({
+                          level: 'warn',
+                          event: 'execution.chimera_ask_non_leader_threshold',
+                          message: `${nonLeaderReplyCount} non-leader replies seen on chimera ask — stopping poll`,
+                          timestamp: new Date().toISOString(),
+                        }),
+                      );
+                      return; // break out of polling entirely
+                    }
+                    // Log the first non-leader reply at warn, rest at debug
+                    console.warn(
+                      JSON.stringify({
+                        level: nonLeaderReplyCount <= 1 ? 'warn' : 'debug',
+                        event: 'execution.chimera_ask_non_leader_reply',
+                        message: `Ignoring non-leader reply #${nonLeaderReplyCount} from ${firstReply.from}`,
+                        timestamp: new Date().toISOString(),
+                      }),
+                    );
+                    return pollNext(); // keep polling
+                  }
+
+                  // Ack the consumed leader reply so it is not reprocessed
+                  // on a subsequent poll tick.
+                  mailbox
+                    .ack({
+                      messageId: firstReply.id,
+                      readerId: 'chimera-review',
+                      read: true,
+                      completed: true,
+                    })
+                    .catch(() => undefined);
+
+                  const body = firstReply.body.toLowerCase();
+                  // Whitespace-only reply: short-circuit as denial for a
+                  // faster fallback instead of polling until timeout.
+                  if (body.trim().length === 0) { leaderApproved = false; return; }
+                  // Symmetrical start-anchored matching: both approval and
+                  // denial are checked at the start of the reply body, so
+                  // a reply like "Yes, go ahead" matches approval, and
+                  // "No, skip it" matches denial — with no ambiguity from
+                  // mid-sentence keywords. NOTE: body is lowercased above.
+                  leaderApproved = /^\s*(?:y(?:es)?|sure|ok(?:ay)?|go ahead|proceed|approve|fix it|please do|do it|yep|yeah)\s*$/.test(body) || /^\s*👍/.test(body);
+                  if (leaderApproved) return; // approved — exit early
+                  const denial = /^\s*(no|don'?t|stop|skip|ignore|cancel|reject|decline)\b/.test(body);
+                  if (denial) { leaderApproved = false; return; } // denied — exit early
+
+                  // Unmatched reply (neither explicit approval nor denial):
+                  // log a diagnostic but keep polling — the leader may
+                  // send a clearer follow-up reply before the deadline.
+                  const hash = createHash('sha256').update(body).digest('hex').slice(0, 12);
+                  console.warn(
+                    JSON.stringify({
+                      level: 'debug',
+                      event: 'execution.chimera_ask_reply_unmatched',
+                      replyBodyHash: hash,
+                      replyBodyLength: body.length,
+                      timestamp: new Date().toISOString(),
+                    }),
+                  );
+                  // Fall through to pollNext() — keep polling for a clearer reply
+                }
+
+                return pollNext();
+              };
+
+              // Schedule the next poll tick via setTimeout so the event loop
+              // can process I/O, mailbox writes, and UI repaints between
+              // iterations.
+              const pollNext = (): Promise<void> => {
+                const elapsed = Date.now() - askStartTime;
+                const remaining = ASK_TIMEOUT_MS - elapsed;
+                if (remaining <= 0 || abortSignal?.aborted) return Promise.resolve();
+                return new Promise((r) => setTimeout(r, Math.min(POLL_INTERVAL_MS, remaining)))
+                  .then(() => pollForReply());
+              };
+
+              await pollForReply();
+
+              if (!leaderApproved) {
+                const askEvent = repliesFound ? 'execution.chimera_ask_rejected' : 'execution.chimera_ask_timeout';
+                console.warn(
+                  JSON.stringify({
+                    level: 'warn',
+                    event: askEvent,
+                    message: repliesFound
+                      ? 'Leader replied to ask but did not approve'
+                      : 'Ask timeout expired, falling back to off mode (no auto-fix)',
+                    timestamp: new Date().toISOString(),
+                  }),
+                );
+
+                const activeSessionForChimera = agent.ctx.session ?? session;
+                await activeSessionForChimera
+                  .append({
+                    type: 'llm_response' as const,
+                    ts: new Date().toISOString(),
+                    content: [
+                      {
+                        type: 'text',
+                        text: `🦂 Chimera auto-fix request sent to leader — no approval received within ${ASK_TIMEOUT_MS / 1000}s timeout. Falling back to manual review mode. Use \`/review\` to trigger fixes or adjust autoFix setting with \`/chimera autoFix auto\`.`,
+                      },
+                    ],
+                    stopReason: 'end_turn' as StopReason,
+                    usage: { input: 0, output: 0 },
+                  })
+                  .catch(() => undefined);
+              }
+            }
+          } catch (mailErr) {
+            const errMsg =
+              mailErr instanceof Error ? mailErr.message : String(mailErr);
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                event: 'execution.chimera_mailbox_failed',
+                message: errMsg,
+                timestamp: new Date().toISOString(),
+              }),
+            );
+            await session.append({
+              type: 'error',
+              ts: new Date().toISOString(),
+              message: `🦂 Chimera auto-fix skipped — mailbox unreachable: ${errMsg}. Falling back to manual review mode.`,
+              phase: 'agent',
+            });
+          }
+
+          // Spawn fix subagent when:
+          //   auto mode  → always (immediate)
+          //   ask mode   → only if leader replied with approval
+          //   off mode   → never
+          const shouldSpawnFix =
+            (autoFix === 'auto' || (isAskMode && leaderApproved)) && reviewText.length > 0;
+
+          if (shouldSpawnFix) {
             const fixTaskDesc = [
               `You are a fix agent. Apply the fixes requested in this review report.`,
               ``,
               `Repository: ${p.cwd}`,
               ``,
               `--- Review report ---`,
-              reviewText.slice(0, 12_000),
+              truncateAtCodePointBoundary(reviewText, 12_000),
               ``,
               `--- Changed files ---`,
               p.files.map((f) => `- ${f.path}`).join('\n'),
@@ -645,7 +909,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                 timeoutMs: 1_200_000,
               };
               const fixSubagentId = await dir.spawn(fixCfg);
-              const fixTaskId = (await import('node:crypto')).randomUUID();
+              const fixTaskId = randomUUID();
               await dir.assign({
                 id: fixTaskId,
                 description: fixTaskDesc,
@@ -660,7 +924,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   content: [
                     { type: 'text', text: `Chimera fix subagent completed: ${fixResult.result}` },
                   ],
-                  stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
+                  stopReason: 'end_turn' as StopReason,
                   usage: { input: 0, output: 0 },
                 });
               } else {
@@ -714,7 +978,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     p: ChimeraCascadeNeededPayload,
   ): string {
     const fileList = p.bundle.files.map((f) => `- ${f.path}`).join('\n');
-    const reportSlice = p.reviewText.slice(0, 12_000);
+    const reportSlice = truncateAtCodePointBoundary(p.reviewText, 12_000);
     const severityLine = `Critical: ${p.severities.critical}, High: ${p.severities.high}, Medium: ${p.severities.medium}`;
 
     if (agentKind === 'security-scanner') {
@@ -817,7 +1081,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   text: `🦂 Chimera cascade (${agentKind}) — ${resultText}`,
                 },
               ],
-              stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
+              stopReason: 'end_turn' as StopReason,
               usage: { input: 0, output: 0 },
             });
           } else {
@@ -884,7 +1148,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   text: `🦂 Chimera cascade re-review (depth ${currentDepth + 1}/${maxDepth}) — re-reviewing ${reReadFiles.length} file(s) after fixes`,
                 },
               ],
-              stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
+              stopReason: 'end_turn' as StopReason,
               usage: { input: 0, output: 0 },
             });
 
@@ -914,7 +1178,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               text: `🦂 Chimera cascade stopped at depth limit (${currentDepth}/${maxDepth}) — manual review recommended if issues persist`,
             },
           ],
-          stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
+          stopReason: 'end_turn' as StopReason,
           usage: { input: 0, output: 0 },
         });
       }

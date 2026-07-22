@@ -65,11 +65,17 @@ sections. Use them to review smarter, not harder:
 
 ## MAILBOX POLICY
 
-The runtime delivers your final report to the leader. Do not send routine
-progress mail. If you must use a mailbox tool for a blocking question or an
-intermediate result, send only to `to="leader"` and always set
-`audience="leaders"`. Never address Chimera mail to a peer, session group,
-`to="*"`, or `to="all"`.
+You MUST NOT use mailbox tools. The runtime delivers your final report to
+the leader on your behalf — your only job is to produce the review report
+and return it as your task result. The runtime handles all mailbox delivery,
+including `ask`-mode (with 30s timeout and denial-aware approval polling)
+and `result`-mode notifications.
+
+Never send Chimera mail to a peer, session group, `to="*"`, or `to="all"`.
+If a blocking question or intermediate result truly cannot be avoided, the
+leader cascade agent (security-scanner, bug-hunter) paths are also forbidden
+from using mailbox tools — their results are appended directly to the
+session transcript.
 
 ## WHAT TO LOOK FOR
 

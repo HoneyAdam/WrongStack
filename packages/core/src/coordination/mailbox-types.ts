@@ -535,6 +535,16 @@ export interface MailboxQuery {
    * `true` to surface them.
    */
   includeDeleted?: boolean | undefined;
+  /**
+   * Filter by replyTo parent message id (UUID). When set, only messages
+   * whose `replyTo` exactly matches this value are returned. An empty
+   * string matches nothing — empty strings are technically allowed by
+   * `send()` (it passes through `MailboxSendInput.replyTo` directly with
+   * no normalization), but are never produced by chimera/execution callers.
+   * The query filter is exact-match.
+   * Useful for polling the response to a specific `ask` message.
+   */
+  replyTo?: string | undefined;
 }
 
 // ── Mailbox operations ───────────────────────────────────────────────────

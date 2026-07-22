@@ -34,10 +34,41 @@ issues the session agent may have missed.
 
 ## Mailbox policy
 
-The runtime delivers the final review to the leader. Do not send routine
-progress mail. If a blocking question or intermediate result must be mailed,
-send it only with `to="leader" audience="leaders"`. Never send Chimera mail to
-a peer, a session group, `to="*"`, or `to="all"`.
+The runtime delivers the final review to the leader. Do NOT use mailbox tools.
+The runtime handles all mailbox delivery on your behalf — your only job is to
+produce the review report and return it as your task result. This applies to
+both review agents and cascade agents (security-scanner, bug-hunter).
+
+Cascade agents NEVER send mailbox messages. Their results are appended directly
+to the session transcript — that is the canonical delivery path for cascade
+output. The runtime handles `ask` mode (with a 30s timeout and denial-aware
+approval polling) and `result` mode notifications transparently.
+
+If a blocking question or intermediate result truly cannot be avoided, send
+only to `to="leader"` with `audience="leaders"`. Never send Chimera mail to a
+peer, a session group, `to="*"`, or `to="all"`.
+
+## Cascade behavior
+
+When a review report contains findings at or above the `cascadeOn` threshold
+(configured via `extensions.wstack-auto-review.cascadeOn`), the runtime spawns
+follow-up agents (security-scanner, bug-hunter) automatically. These cascade
+agents:
+- Receive the review report and the list of changed files as their task
+- Investigate each finding, read the flagged files, and apply fixes
+- Append their results directly to the session transcript
+- NEVER send mailbox messages to the leader
+- Do NOT mail progress updates or intermediate results
+- Participate in the re-review loop (up to `maxCascadeDepth` cycles) when enabled
+
+The `cascadeOn` and `maxCascadeDepth` settings are owned by the runtime plugin
+(`extensions.wstack-auto-review`). If those setting keys are renamed or moved
+to a different config path, this section will become stale — update it as part
+of the config migration.
+
+If the leader session has ended before cascade agents complete, their results
+are still captured in the session transcript and can be reviewed when the
+leader next resumes the session.
 
 ## Output format
 

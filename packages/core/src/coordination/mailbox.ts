@@ -162,6 +162,10 @@ export class DefaultMailbox implements Mailbox {
       if (order !== null && (order[msg.priority as keyof typeof order] ?? 1) < minPriorityRank)
         return false;
       if (q.since !== undefined && msg.timestamp <= q.since) return false;
+      // Default behavior: soft-deleted messages are hidden unless the
+      // caller explicitly opts in via `includeDeleted: true`.
+      if (!q.includeDeleted && msg.deletedAt !== undefined) return false;
+      if (q.replyTo && msg.replyTo !== q.replyTo) return false;
       return true;
     };
 
