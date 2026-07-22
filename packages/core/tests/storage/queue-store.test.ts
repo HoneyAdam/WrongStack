@@ -79,6 +79,12 @@ vi.mock('node:fs/promises', async () => {
 
 import * as fsp from 'node:fs/promises';
 
+const readFileMock = vi.mocked(fsp.readFile);
+const statMock = vi.mocked(fsp.stat);
+const writeFileMock = vi.mocked(fsp.writeFile);
+const unlinkMock = vi.mocked(fsp.unlink);
+const accessMock = vi.mocked(fsp.access);
+
 async function mktmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-queue-'));
 }
@@ -87,11 +93,11 @@ describe('QueueStore', () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mktmp();
-    fsp.readFile.mockReset();
-    fsp.stat.mockReset();
-    fsp.writeFile.mockReset();
-    fsp.unlink.mockReset();
-    fsp.access.mockReset();
+    readFileMock.mockReset();
+    statMock.mockReset();
+    writeFileMock.mockReset();
+    unlinkMock.mockReset();
+    accessMock.mockReset();
   });
   afterEach(async () => {
     await fsp.rm(dir, { recursive: true, force: true });
@@ -185,10 +191,10 @@ describe('QueueStore', () => {
 
   it('rejects an oversized queue file before readFile allocates it', async () => {
     const store = new QueueStore({ dir });
-    fsp.stat.mockResolvedValueOnce({ size: QUEUE_MAX_BYTES + 1 } as never);
-    const readsBefore = fsp.readFile.mock.calls.length;
+    statMock.mockResolvedValueOnce({ size: QUEUE_MAX_BYTES + 1 } as never);
+    const readsBefore = readFileMock.mock.calls.length;
     expect(await store.read()).toEqual([]);
-    expect(fsp.readFile.mock.calls.length).toBe(readsBefore);
+    expect(readFileMock.mock.calls.length).toBe(readsBefore);
   });
 
   // ── storage.* event tests ─────────────────────────────────────────────────
@@ -247,8 +253,8 @@ describe('QueueStore', () => {
   it('emits storage.error when read() encounters a disk I/O error', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
-    fsp.stat.mockResolvedValueOnce({ size: 1 } as never);
-    fsp.readFile.mockRejectedValueOnce(
+    statMock.mockResolvedValueOnce({ size: 1 } as never);
+    readFileMock.mockRejectedValueOnce(
       Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
     );
     const out = await store.read();
@@ -281,7 +287,7 @@ describe('QueueStore', () => {
   it('emits storage.error when write() encounters a disk I/O error', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
-    fsp.writeFile.mockRejectedValueOnce(
+    writeFileMock.mockRejectedValueOnce(
       Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
     );
     await store.write([{ displayText: 'hello', blocks: [{ type: 'text', text: 'hello' }] }]);
