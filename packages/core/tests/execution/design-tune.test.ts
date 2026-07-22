@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSemanticTune } from '../../src/execution/design-tune';
+import { resolveSemanticTune } from '../../src/execution/design-tune.js';
 
 describe('resolveSemanticTune', () => {
   it('radius keyword → full radius ramp override', () => {

@@ -603,7 +603,7 @@
         "export { createSkillsPlugin } from '../plugins/skills-plugin.js';",
         "export { createSyncPlugin } from '../plugins/sync-plugin.js';",
         "export { diffPluginConfig, type PluginConfigChange, type PluginConfigSource, type ResolvePluginConfigInput, type ResolvedPluginConfig, redactPluginConfig, resolvePluginConfig, resolvePluginManifestConfig, validatePluginConfigMetadata, } from './config.js';",
-        "export { type CascadeAgentKind, CHIMERA_REVIEW_PROMPT, createChimeraPlugin, type ChimeraCascadeNeededPayload, type ChimeraReviewCompletePayload, type ChimeraReviewNeededPayload, } from '../plugins/chimera-plugin.js';"
+        "export { type CascadeAgentKind, CHIMERA_REVIEW_PROMPT, createChimeraPlugin, type ChimeraCascadeNeededPayload, type ChimeraReviewCompletePayload, type ChimeraReviewNeededPayload, type ReviewContextBundle, } from '../plugins/chimera-plugin.js';"
       ]
     },
     {
@@ -1056,7 +1056,7 @@
       "classification": "agent-domain contract",
       "intendedOwner": "Core plugin API",
       "sourceFiles": 4,
-      "sourceLines": 1511
+      "sourceLines": 1512
     },
     {
       "directory": "plugins",

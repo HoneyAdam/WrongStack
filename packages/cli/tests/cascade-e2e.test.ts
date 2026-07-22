@@ -16,7 +16,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { EventBus } from '@wrongstack/core/kernel';
 import { createAutoReviewPlugin } from '@wrongstack/core/plugin';
 import type { ChimeraCascadeNeededPayload, ChimeraReviewCompletePayload } from '@wrongstack/core/plugin';
-import type { ReviewContextBundle } from '@wrongstack/core';
+import type { ReviewContextBundle } from '@wrongstack/core/plugin';
 
 // ── A Critical review report with a security finding (SQL injection) ──
 // Matches the chimera-review.md report format that parseReviewSeverity expects.

@@ -4,8 +4,8 @@
   "rootImportFiles": 0,
   "bySpecifier": {
     "@wrongstack/core/agent": {
-      "files": 188,
-      "typeOnly": 152,
+      "files": 190,
+      "typeOnly": 154,
       "runtimeOrMixed": 53
     },
     "@wrongstack/core/agent-catalog": {
@@ -19,8 +19,8 @@
       "runtimeOrMixed": 3
     },
     "@wrongstack/core/coordination": {
-      "files": 117,
-      "typeOnly": 56,
+      "files": 118,
+      "typeOnly": 57,
       "runtimeOrMixed": 126
     },
     "@wrongstack/core/coordination/agent-subagent-runner.js": {
@@ -89,8 +89,8 @@
       "runtimeOrMixed": 15
     },
     "@wrongstack/core/notifications": {
-      "files": 5,
-      "typeOnly": 3,
+      "files": 6,
+      "typeOnly": 4,
       "runtimeOrMixed": 2
     },
     "@wrongstack/core/observability": {
@@ -100,12 +100,12 @@
     },
     "@wrongstack/core/plugin": {
       "files": 16,
-      "typeOnly": 11,
+      "typeOnly": 12,
       "runtimeOrMixed": 12
     },
     "@wrongstack/core/registry": {
-      "files": 82,
-      "typeOnly": 39,
+      "files": 84,
+      "typeOnly": 41,
       "runtimeOrMixed": 44
     },
     "@wrongstack/core/replay": {
@@ -139,8 +139,8 @@
       "runtimeOrMixed": 3
     },
     "@wrongstack/core/types": {
-      "files": 701,
-      "typeOnly": 691,
+      "files": 696,
+      "typeOnly": 686,
       "runtimeOrMixed": 193
     },
     "@wrongstack/core/types/multi-agent.js": {
@@ -692,6 +692,12 @@
     },
     {
       "specifier": "@wrongstack/core/agent",
+      "file": "packages/cli/tests/slash-worktree.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
       "file": "packages/cli/tests/webui-server/setup-events.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -749,6 +755,12 @@
       "file": "packages/runtime/tests/container.test.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
+      "file": "packages/runtime/tests/light-subagent-factory.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/agent",
@@ -1955,6 +1967,12 @@
       "file": "packages/tui/tests/agents-monitor.test.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 2
+    },
+    {
+      "specifier": "@wrongstack/core/coordination",
+      "file": "packages/tui/tests/use-exit-command.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/coordination",
@@ -4388,6 +4406,12 @@
     },
     {
       "specifier": "@wrongstack/core/notifications",
+      "file": "packages/plugins/tests/webhook-channel.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/notifications",
       "file": "packages/telegram/src/notification-channel.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -4455,7 +4479,7 @@
     {
       "specifier": "@wrongstack/core/plugin",
       "file": "packages/cli/tests/cascade-e2e.test.ts",
-      "typeOnly": 1,
+      "typeOnly": 2,
       "runtimeOrMixed": 1
     },
     {
@@ -4973,6 +4997,18 @@
       "file": "packages/tui/tests/helpers/app-journey-harness.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/registry",
+      "file": "packages/tui/tests/use-exit-command.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/registry",
+      "file": "packages/tui/tests/use-queue-manager.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/registry",
@@ -5780,12 +5816,6 @@
     },
     {
       "specifier": "@wrongstack/core/storage",
-      "file": "packages/cli/tests/chimera-session-close.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/storage",
       "file": "packages/cli/tests/hq-mailbox-actions.test.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
@@ -5969,6 +5999,12 @@
       "file": "packages/tui/tests/use-input-history-persistence.test.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 2
+    },
+    {
+      "specifier": "@wrongstack/core/storage",
+      "file": "packages/tui/tests/use-queue-manager.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/storage",
@@ -7472,7 +7508,7 @@
     },
     {
       "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/tests/cascade-e2e.test.ts",
+      "file": "packages/cli/tests/chimera-session-close.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },
@@ -7658,12 +7694,6 @@
     },
     {
       "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/tests/slash-brain.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
       "file": "packages/cli/tests/slash-commands.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -7706,18 +7736,6 @@
     },
     {
       "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/tests/slash-supervisor.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/tests/slash-tasks.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
       "file": "packages/cli/tests/slash-techstack.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -7725,12 +7743,6 @@
     {
       "specifier": "@wrongstack/core/types",
       "file": "packages/cli/tests/slash-tool.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/tests/slash-worktree.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },
@@ -8439,12 +8451,6 @@
     {
       "specifier": "@wrongstack/core/types",
       "file": "packages/plugins/src/type-gate/index.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/plugins/tests/webhook-channel.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },

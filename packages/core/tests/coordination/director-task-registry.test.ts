@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DirectorTaskRegistry } from '../../src/coordination/director/director-task-registry.js';
+import type { DirectorStateCheckpoint } from '../../src/storage/director-state.js';
 import type { TaskResult, TaskSpec } from '../../src/types/multi-agent.js';
 
 function result(taskId: string, status: TaskResult['status'] = 'success'): TaskResult {
@@ -16,7 +17,7 @@ function setup(workComplete = false) {
     coordinator,
     stateCheckpoint: {
       recordTaskAssigned: vi.fn(),
-    } as never,
+    } as unknown as DirectorStateCheckpoint,
     isWorkComplete: vi.fn(() => workComplete),
     addTaskToManifest: vi.fn(),
     recordPendingTask: vi.fn(),

@@ -36,7 +36,7 @@ describe('tool Kanban boundary integration', () => {
       currentKanbanBoardId: board.id,
       currentKanbanTaskId: task.id,
       meta: {},
-    } as Context;
+    } as unknown as Context;
     const writeTool = { name: 'write', capabilities: ['fs.write'] } as Tool;
     const bashTool = { name: 'bash', capabilities: ['shell.arbitrary'] } as Tool;
     const planTool = { name: 'plan', capabilities: ['fs.write'] } as Tool;
