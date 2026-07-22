@@ -4,8 +4,8 @@
   "rootImportFiles": 0,
   "bySpecifier": {
     "@wrongstack/core/agent": {
-      "files": 187,
-      "typeOnly": 151,
+      "files": 188,
+      "typeOnly": 152,
       "runtimeOrMixed": 53
     },
     "@wrongstack/core/agent-catalog": {
@@ -139,8 +139,8 @@
       "runtimeOrMixed": 3
     },
     "@wrongstack/core/types": {
-      "files": 700,
-      "typeOnly": 690,
+      "files": 701,
+      "typeOnly": 691,
       "runtimeOrMixed": 193
     },
     "@wrongstack/core/types/multi-agent.js": {
@@ -509,6 +509,12 @@
       "file": "packages/cli/src/wiring/sdd-handlers.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
+      "file": "packages/cli/src/wiring/security-command.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/agent",
@@ -7348,6 +7354,12 @@
       "specifier": "@wrongstack/core/types",
       "file": "packages/cli/src/wiring/runtime-picker-deps.ts",
       "typeOnly": 2,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/cli/src/wiring/security-command.ts",
+      "typeOnly": 1,
       "runtimeOrMixed": 0
     },
     {

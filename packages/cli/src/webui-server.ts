@@ -65,14 +65,6 @@ import {
   type BrainHandlerContext,
   buildSddWizardDeps,
   buildWebUIAccessUrl,
-  type BrainHandlerContext,
-  createEmbeddedMessageRouter,
-  createEmbeddedProviderOperations,
-  type EmbeddedAgentConfigContext,
-  type EmbeddedConversationContext,
-  type EmbeddedProjectContext,
-  type EmbeddedProviderContext,
-  type EmbeddedSessionContext,
   type CustomModeStore,
   createCustomModeStore,
   createEmbeddedMessageRouter,
@@ -114,7 +106,6 @@ import {
 } from './webui-server/connection-handler.js';
 import { createCliKanbanHostRoutes } from './webui-server/kanban-host-adapter.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
-import { createCliKanbanHostRoutes } from './webui-server/kanban-host-adapter.js';
 import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
   announceWebuiReady,

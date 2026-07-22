@@ -526,7 +526,6 @@ export function buildRoutes(
           metadata: { transport: 'websocket' },
         },
         deps.logger,
-        { projectRoot: state.getProjectRoot() },
       );
       if (!authorization.allowed) {
         sendResult(ws, false, `Shell action denied: ${authorization.reason}`);
