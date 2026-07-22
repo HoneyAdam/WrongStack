@@ -14,6 +14,7 @@ import type {
 } from '../types/session-reader.js';
 import { expectDefined } from '../utils/expect-defined.js';
 import { compileUserRegex } from '../utils/regex-guard.js';
+import { expectDefined } from '../utils/expect-defined.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 import {
   scrubPersistedSessionData,

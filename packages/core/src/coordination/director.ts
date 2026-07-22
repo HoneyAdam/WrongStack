@@ -13,6 +13,7 @@ import type {
   TaskResult,
   TaskSpec,
 } from '../types/multi-agent.js';
+import { type DirectorFleetHost, spawn as fleetSpawn } from './fleet-spawn.js';
 import type { SessionWriter } from '../types/session.js';
 import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';

@@ -45,6 +45,13 @@ export function createPrefsRouteHandlers(
   };
 }
 
+export function createPrefsRouteHandlers(ctx: PrefsHandlerContext): PrefsRouteHandlers {
+  return {
+    getPrefs: async (ws) => handlePrefsGet(ctx, ws),
+    updatePrefs: async (ws, payload) => handlePrefsUpdate(ctx, ws, payload),
+  };
+}
+
 /**
  * Chain-of-responsibility dispatcher for the `prefs.*` WS message family.
  * Returns `true` if the message was handled by this layer (so the caller's

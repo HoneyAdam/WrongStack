@@ -43,6 +43,7 @@ export {
   createSuperMemoryTurnMiddleware,
   overlapCoefficient,
   type SuperMemoryTurnMiddlewareOptions,
+  tokenize,
 } from './middleware/turn-memory.js';
 export {
   ancestorPaths,
