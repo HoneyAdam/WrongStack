@@ -359,7 +359,11 @@ describe('makeMailboxTool', () => {
 
     // Create tool inline AFTER messages are written — guarantees closure sees the set mailbox
     const tool = makeMailboxTool({ resolveMailbox: () => mailbox, agentId: 'agent-b' });
-    const result = await tool.execute({ action: 'check' }, mockCtx() as any);
+    const result = await tool.execute(
+      { action: 'check' },
+      mockCtx() as any,
+      { signal: new AbortController().signal },
+    );
     expect(result.ok).toBe(true);
     expect(result.count).toBe(2);
     // check auto-acks. Read receipts are recorded under the PROCESS-UNIQUE
@@ -1033,7 +1037,7 @@ describe('recipient "all" normalizes to the broadcast address', () => {
     });
     // Body must be the full review payload, NOT truncated to 60 chars
     // (the subject field is the truncated slice — body stays verbatim).
-    expect(got.messages[0].body).toBe('please look at src/auth/*.ts when convenient');
+    expect(got.messages[0]?.body).toBe('please look at src/auth/*.ts when convenient');
   });
 
   it('mail_send honors an explicit type="review" and surfaces it through mail_inbox', async () => {
@@ -1063,7 +1067,7 @@ describe('recipient "all" normalizes to the broadcast address', () => {
 
     const got = await inbox.execute({}, ctxB as never);
     expect(got.count).toBe(1);
-    expect(got.messages[0].type).toBe('review');
+    expect(got.messages[0]?.type).toBe('review');
   });
 
   it('mail_inbox distinguishes review-typed messages from other actionable types', async () => {

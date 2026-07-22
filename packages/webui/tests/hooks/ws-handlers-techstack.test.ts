@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { WS_HANDLERS } from '../../src/hooks/ws-handlers';
 import { useTechStackStore } from '../../src/stores/techstack-store';
+import type { WSServerMessage } from '../../src/types';
 
 const SAMPLE_SNAPSHOT = {
   id: 'snap-1',
@@ -15,7 +16,7 @@ const SAMPLE_SNAPSHOT = {
   adapterVersion: '0.1.0',
 };
 
-function dispatch(type: string, payload: unknown): void {
+function dispatch(type: WSServerMessage['type'], payload: unknown): void {
   WS_HANDLERS[type]?.({ type, payload } as never);
 }
 

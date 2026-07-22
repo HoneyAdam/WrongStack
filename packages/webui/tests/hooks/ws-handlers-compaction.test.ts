@@ -15,8 +15,9 @@ vi.mock('@/components/Toaster', () => ({
 
 import { WS_HANDLERS } from '../../src/hooks/ws-handlers';
 import { useChatStore } from '../../src/stores/chat-store';
+import type { WSServerMessage } from '../../src/types';
 
-function fire(type: string, payload: Record<string, unknown>) {
+function fire(type: WSServerMessage['type'], payload: Record<string, unknown>) {
   WS_HANDLERS[type]?.({ type, payload } as never);
 }
 

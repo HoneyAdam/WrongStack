@@ -31,7 +31,7 @@ function createMockReq(body: unknown, method = 'POST'): IncomingMessage {
   return req;
 }
 
-function createMockRes(): ServerResponse {
+function createMockRes(): ServerResponse & { body?: string | undefined } {
   const res = {
     statusCode: 0,
     headers: {} as Record<string, string | number | string[]>,

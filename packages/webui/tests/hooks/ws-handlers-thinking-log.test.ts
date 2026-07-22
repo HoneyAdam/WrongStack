@@ -9,8 +9,9 @@ import { streamCoalescer } from '../../src/lib/stream-coalescer';
 import { WS_HANDLERS, handleError } from '../../src/hooks/ws-handlers';
 import { useChatStore } from '../../src/stores/chat-store';
 import { useSessionStore } from '../../src/stores/session-store';
+import type { WSServerMessage } from '../../src/types';
 
-function fire(type: string, payload: Record<string, unknown>) {
+function fire(type: WSServerMessage['type'], payload: Record<string, unknown>) {
   WS_HANDLERS[type]?.({ type, payload } as never);
 }
 

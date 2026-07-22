@@ -86,7 +86,7 @@ describe('tool Kanban boundary integration', () => {
       projectRoot: worktreeRoot,
       workingDir: worktreeRoot,
       meta: { kanban: { boardId: board.id, taskId: task.id, projectRoot: policyRoot } },
-    } as Context;
+    } as unknown as Context;
     const writeTool = { name: 'write', capabilities: ['fs.write'] } as Tool;
 
     await expect(

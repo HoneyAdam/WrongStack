@@ -23,7 +23,7 @@ describe('useWsHandlers', () => {
     renderHook(() =>
       useWsHandlers({
         'session.start': h1,
-        'text_delta': h2,
+        'provider.text_delta': h2,
       }),
     );
 
@@ -31,7 +31,7 @@ describe('useWsHandlers', () => {
     // A stable WRAPPER is registered (not the concrete handler) so the
     // dispatch always reads the latest map from the ref.
     expect(onSpy).toHaveBeenCalledWith('session.start', expect.any(Function));
-    expect(onSpy).toHaveBeenCalledWith('text_delta', expect.any(Function));
+    expect(onSpy).toHaveBeenCalledWith('provider.text_delta', expect.any(Function));
 
     const wrapper = onSpy.mock.calls.find((c) => c[0] === 'session.start')?.[1] as (
       msg: unknown,
@@ -64,7 +64,7 @@ describe('useWsHandlers', () => {
     onSpy.mockImplementationOnce(() => off2);
 
     const { unmount } = renderHook(() =>
-      useWsHandlers({ 'session.start': vi.fn(), 'text_delta': vi.fn() }),
+      useWsHandlers({ 'session.start': vi.fn(), 'provider.text_delta': vi.fn() }),
     );
 
     unmount();
@@ -77,18 +77,18 @@ describe('useWsHandlers', () => {
     renderHook(() =>
       useWsHandlers({
         'session.start': h,
-        'text_delta': undefined,
+        'provider.text_delta': undefined,
       }),
     );
 
     // Both keys get wrappers: the map value can flip undefined → fn on a
     // later render without re-subscribing (the wrapper reads the ref).
     expect(onSpy).toHaveBeenCalledTimes(2);
-    const wrapper = onSpy.mock.calls.find((c) => c[0] === 'text_delta')?.[1] as (
+    const wrapper = onSpy.mock.calls.find((c) => c[0] === 'provider.text_delta')?.[1] as (
       msg: unknown,
     ) => void;
     // Dispatching to the undefined slot is a safe no-op.
-    expect(() => wrapper({ type: 'text_delta', payload: {} })).not.toThrow();
+    expect(() => wrapper({ type: 'provider.text_delta', payload: {} })).not.toThrow();
     expect(h).not.toHaveBeenCalled();
   });
 

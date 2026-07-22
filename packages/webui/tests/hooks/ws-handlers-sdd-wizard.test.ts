@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { WS_HANDLERS } from '../../src/hooks/ws-handlers';
 import { useSddWizardStore } from '../../src/stores/sdd-wizard-store';
+import type { WSServerMessage } from '../../src/types';
 
 /** Dispatch a server→client message through the real WS_HANDLERS map. */
-function dispatch(type: string, payload: unknown) {
+function dispatch(type: WSServerMessage['type'], payload: unknown) {
   WS_HANDLERS[type]?.({ type, payload } as never);
 }
 

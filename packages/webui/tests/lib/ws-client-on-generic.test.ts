@@ -54,7 +54,7 @@ describe('WrongStackWebSocketClient.on — generic type narrowing', () => {
   it('off() mirrors on() — both overloads unregister cleanly', () => {
     const client = makeClient();
 
-    const handler = (msg: { type: 'tool.executed'; payload: never }) => {
+    const handler = (msg: Extract<WSServerMessage, { type: 'tool.executed' }>) => {
       void msg;
     };
     // Both the literal-key and string overloads of off() should be callable.
