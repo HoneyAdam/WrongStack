@@ -17,6 +17,8 @@ function handlers(): MailboxRouteHandlers {
     agents: vi.fn(),
     clear: vi.fn(),
     purge: vi.fn(),
+    send: vi.fn(),
+    compact: vi.fn(),
   };
 }
 

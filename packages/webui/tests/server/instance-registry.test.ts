@@ -24,6 +24,7 @@ function record(over: Partial<WebUIInstanceRecord> = {}): WebUIInstanceRecord {
     startedAt: '2026-01-01T00:00:00.000Z',
     url: 'http://127.0.0.1:3456',
     ...over,
+    surface: over.surface ?? 'webui',
   };
 }
 

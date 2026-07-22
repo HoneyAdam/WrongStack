@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const makeCtx = (cwd = '/fake') =>
-  ({ cwd, tools: [], projectRoot: cwd }) as Parameters<typeof gitTool.execute>[1];
+  ({ cwd, tools: [], projectRoot: cwd }) as unknown as Parameters<typeof gitTool.execute>[1];
 const makeOpts = () => ({ signal: new AbortController().signal });
 
 describe('gitTool', () => {
@@ -88,7 +88,7 @@ describe('gitTool — shared-worktree commit warning', () => {
   }
 
   const ctxFor = () =>
-    ({ cwd: repo, tools: [], projectRoot: repo, session: { id: 'mine' } }) as Parameters<
+    ({ cwd: repo, tools: [], projectRoot: repo, session: { id: 'mine' } }) as unknown as Parameters<
       typeof gitTool.execute
     >[1];
 
