@@ -1,4 +1,6 @@
-import type { Director, SlashCommand, SlashCommandRegistry } from '@wrongstack/core/types';
+import type { Director } from '@wrongstack/core/coordination';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { render } from 'ink-testing-library';
 import React, { act, StrictMode, useState } from 'react';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';

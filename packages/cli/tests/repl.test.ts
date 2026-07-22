@@ -1,5 +1,5 @@
-import type { Agent, Context, TodoItem } from '@wrongstack/core/agent';
-import type { AttachmentStore, RunResult, TokenCounter } from '@wrongstack/core/types';
+import type { Agent, Context, RunResult, TodoItem } from '@wrongstack/core/agent';
+import type { AttachmentStore, TokenCounter } from '@wrongstack/core/types';
 import type { SlashCommandRegistry } from '@wrongstack/core/registry';
 import { AgentError } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';

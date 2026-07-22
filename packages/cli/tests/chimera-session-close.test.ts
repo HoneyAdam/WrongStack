@@ -14,7 +14,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { EventBus } from '@wrongstack/core/kernel';
-import type { SessionWriter, SessionEvent } from '@wrongstack/core/storage';
+import type { SessionEvent, SessionWriter } from '@wrongstack/core/types';
 
 interface ChimeraReviewNeededPayload {
   files: Array<{ path: string; status: string }>;

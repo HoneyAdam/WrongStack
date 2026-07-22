@@ -4,8 +4,7 @@
  * ports; the registry is populated per-test and cleared after.
  */
 import { EventBus } from '@wrongstack/core/kernel';
-import { FleetBus, FleetSupervisor } from '@wrongstack/core/coordination';
-import type { BrainDecision } from '@wrongstack/core/types';
+import { type BrainDecision, FleetBus, FleetSupervisor } from '@wrongstack/core/coordination';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setActiveFleetSupervisor } from '../src/fleet/supervisor-registry.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

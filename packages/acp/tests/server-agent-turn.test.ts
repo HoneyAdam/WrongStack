@@ -100,11 +100,11 @@ describe('makeACPServerAgentTurn', () => {
     });
     const signal = new AbortController().signal;
     await turn(
-      { sessionId: 'bounded', cwd: '/test', prompt: [{ type: 'text', text: 'first' }], signal },
+      { sessionId: 'bounded', prompt: [{ type: 'text', text: 'first' }], signal },
       () => {},
     );
     await turn(
-      { sessionId: 'bounded', cwd: '/test', prompt: [{ type: 'text', text: 'second' }], signal },
+      { sessionId: 'bounded', prompt: [{ type: 'text', text: 'second' }], signal },
       () => {},
     );
     expect(turn.replay('bounded')).toEqual([

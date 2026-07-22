@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { NotificationMessage } from '@wrongstack/core/types';
+import type { NotificationMessage } from '@wrongstack/core/notifications';
 import { WebhookNotificationChannel } from '../src/notify-hub/webhook-channel.js';
 
 // ---------------------------------------------------------------------------

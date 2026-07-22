@@ -1,10 +1,12 @@
-import type { SlashCommandContext } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
-import type { TokenCounter, ToolRegistry } from '../src/slash-commands/index.js';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommandContext, TokenCounter, ToolRegistry } from '../src/slash-commands/index.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
 import { buildWorktreeCommand } from '../src/slash-commands/worktree.js';
 
-function ctx(extra: object = {}): SlashCommandContext {
+type TestCommandContext = SlashCommandContext & Context;
+
+function ctx(extra: object = {}): TestCommandContext {
   return {
     session: { id: 's1' },
     toolRegistry: { list: () => [] } as unknown as ToolRegistry,
@@ -14,9 +16,9 @@ function ctx(extra: object = {}): SlashCommandContext {
       writeError: () => {},
       writeInfo: () => {},
       projectRoot: '/tmp',
-    } as SlashCommandContext['renderer'],
+    } as unknown as SlashCommandContext['renderer'],
     tokenCounter: { total: () => ({ input: 0, output: 0 }) } as TokenCounter,
-    events: { on: () => {} } as SlashCommandContext['events'],
+    events: { on: () => {} } as unknown as SlashCommandContext['events'],
     projectRoot: '/tmp',
     cwd: '/tmp',
     messages: [],
@@ -26,14 +28,14 @@ function ctx(extra: object = {}): SlashCommandContext {
     systemPrompt: [],
     model: 'test',
     meta: {},
-    reader: { readFile: async () => null } as SlashCommandContext['reader'],
+    reader: { readFile: async () => null } as unknown as SlashCommandContext['reader'],
     state: {
       replaceMessages: vi.fn(),
       replaceTodos: vi.fn(),
       deleteMeta: vi.fn(),
     },
     ...extra,
-  } as never as SlashCommandContext;
+  } as unknown as TestCommandContext;
 }
 
 describe('buildWorktreeCommand', () => {
