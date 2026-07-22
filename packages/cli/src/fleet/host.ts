@@ -19,6 +19,7 @@ import {
   type Container,
   Context,
   createDefaultPipelines,
+  installDesignStudioMiddleware,
   DEFAULT_MAX_FLEET_SPAWNS,
   DEFAULT_SUBAGENT_BASELINE,
   dispatchAgent,
@@ -1171,6 +1172,15 @@ export class MultiAgentHost {
           });
         },
       });
+
+      // Design Studio — install the SAME per-turn UI-intent detection + kit-menu
+      // injection + auto-verify-on-write that the leader has, so a frontend task
+      // delegated to this subagent still commits to the active kit (restored
+      // from `.design/active.json` via shared projectRoot) and gets nudged on
+      // off-palette drift. Without this, roster/fleet agents lost the design
+      // direction entirely the moment work was delegated. `prepend`-based, so
+      // ordering vs. ModelRuntimeSettings above is handled by the installer.
+      installDesignStudioMiddleware({ pipelines, ctx });
 
       // Proactive auto-compaction — subagents shrink on the warn/soft/hard
       // thresholds (and get the last-resort emergency trim) like the leader,

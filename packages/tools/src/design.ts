@@ -9,7 +9,9 @@ import {
   materializeTokens,
   recordKitChoice,
   recordOverrides,
+  resolveSemanticTune,
   runDesignVerify,
+  type SemanticTune,
   setActiveKit,
   setDesignOverrides,
 } from '@wrongstack/core';
@@ -46,11 +48,13 @@ async function resolveReal(p: string): Promise<string> {
 }
 
 interface DesignInput {
-  action?: 'list' | 'use' | 'foundations' | 'set' | 'materialize' | 'verify' | undefined;
+  action?: 'list' | 'use' | 'foundations' | 'set' | 'tune' | 'materialize' | 'verify' | undefined;
   kit?: string | undefined;
   stack?: string | undefined;
   /** action "set" / "use": token overrides, e.g. { primary: "oklch(...)", "dark.bg": "#111" }. */
   set?: Overrides | undefined;
+  /** action "tune": high-level knobs, e.g. { radius:"lg", density:"compact", font:"Space Grotesk" }. */
+  tune?: SemanticTune | undefined;
   /** action "materialize": output path (project-relative); defaults per stack. */
   out?: string | undefined;
   /** action "materialize": overwrite an existing file. */
@@ -112,10 +116,11 @@ export const designTool: Tool<DesignInput, DesignOutput> = {
     properties: {
       action: {
         type: 'string',
-        enum: ['list', 'use', 'foundations', 'set', 'materialize', 'verify'],
+        enum: ['list', 'use', 'foundations', 'set', 'tune', 'materialize', 'verify'],
         description:
           'list = menu; use = load+pin a kit; foundations = baseline; set = override colors/tokens; ' +
-          'materialize = write tokens to a theme file; verify = scan UI for off-palette colors. Default: list.',
+          'tune = high-level knobs (radius/density/font/motion); materialize = write tokens to a theme ' +
+          'file; verify = scan UI for token drift. Default: list.',
       },
       kit: {
         type: 'string',
@@ -132,6 +137,19 @@ export const designTool: Tool<DesignInput, DesignOutput> = {
           'Token overrides for "set"/"use": { "primary": "oklch(…)", "dark.bg": "#111" }. Bare key = ' +
           'both themes; "light."/"dark." prefix = that theme only. Empty value clears an override.',
         additionalProperties: { type: 'string' },
+      },
+      tune: {
+        type: 'object',
+        description:
+          'High-level knobs for "tune": { "radius": "lg", "density": "compact", "font": "Space Grotesk", ' +
+          '"motion": "snappy" }. radius = none|sm|md|lg|xl|full or a base length; density = ' +
+          'compact|cozy|comfortable; motion = snappy|smooth|none. Resolved to concrete token overrides.',
+        properties: {
+          radius: { type: 'string' },
+          density: { type: 'string' },
+          font: { type: 'string' },
+          motion: { type: 'string' },
+        },
       },
       out: {
         type: 'string',
@@ -232,6 +250,33 @@ export const designTool: Tool<DesignInput, DesignOutput> = {
             .map(([k, v]) => `${k}=${v}`)
             .join(', ')}\n` +
           'These win over kit tokens. Run `design {action:"materialize"}` to write them to a theme file.',
+      };
+    }
+
+    if (action === 'tune') {
+      const patch = resolveSemanticTune(input.tune ?? {});
+      if (Object.keys(patch).length === 0) {
+        return {
+          action,
+          output:
+            'No recognized knobs. Pass tune:{ radius:"lg", density:"compact", font:"…", motion:"snappy" }.',
+        };
+      }
+      const merged = await recordOverrides(ctx.projectRoot, patch, new Date().toISOString());
+      if (!merged) {
+        return {
+          action,
+          output: 'No active kit. Pick one first: `design {action:"use", kit:"<id>"}`.',
+        };
+      }
+      setDesignOverrides(ctx, merged);
+      return {
+        action,
+        output:
+          `Tuned. Resolved ${Object.keys(patch).length} token override(s): ${Object.entries(patch)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(', ')}\n` +
+          'Run `design {action:"materialize"}` to write the tuned tokens to your theme file.',
       };
     }
 

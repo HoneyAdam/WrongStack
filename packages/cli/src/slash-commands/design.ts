@@ -12,10 +12,12 @@ import {
   loadActiveKit,
   materializeTokens,
   recordOverrides,
+  resolveSemanticTune,
+  type SemanticTune,
   setActiveKit,
   setDesignOverrides,
 } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 /** Parse `key=value key2=value2` override pairs from slash args. */
 function parseOverridePairs(tokens: string[]): Record<string, string> {
@@ -52,12 +54,16 @@ export function buildDesignCommand(opts: SlashCommandContext): SlashCommand {
       '  /design off                Clear the active kit',
       '  /design foundations        Print the mandatory responsive/a11y/theming/motion baseline',
       '  /design set <k=v> …        Override kit colors/tokens (e.g. primary=oklch(62% 0.2 25) dark.bg=#111)',
+      '  /design tune <k=v> …       High-level knobs (radius=lg density=compact font="Space Grotesk" motion=snappy)',
+      '  /design swap <kit-id> [stack]  Switch to a different kit, dropping the old kit overrides',
       '  /design materialize [stack] [path]  Write the active kit tokens to a real theme file',
-      '  /design verify             Scan UI files for off-palette colors',
+      '  /design verify             Scan UI files for token drift (color/radius/spacing)',
       '',
       'Examples:',
       '  /design minimal-clarity web',
       '  /design set primary=oklch(62% 0.2 25)',
+      '  /design tune radius=lg density=compact',
+      '  /design swap neo-brutalist web',
       '  /design materialize web src/styles/tokens.css',
     ].join('\n'),
     async run(args, ctx) {
@@ -105,6 +111,51 @@ export function buildDesignCommand(opts: SlashCommandContext): SlashCommand {
           .map(([k, v]) => `${k}=${v}`)
           .join(', ');
         return { message: color.green(`Overrides set: ${list || '(none)'}`) };
+      }
+
+      if (sub === 'tune') {
+        const pairs = parseOverridePairs(tokens.slice(1));
+        const tune: SemanticTune = {
+          radius: pairs['radius'],
+          density: pairs['density'],
+          font: pairs['font'],
+          motion: pairs['motion'],
+        };
+        const patch = resolveSemanticTune(tune);
+        if (Object.keys(patch).length === 0) {
+          return { message: 'Usage: /design tune radius=lg density=compact font="…" motion=snappy' };
+        }
+        const merged = await recordOverrides(opts.projectRoot, patch, new Date().toISOString());
+        if (!merged) {
+          return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+        }
+        if (ctx) setDesignOverrides(ctx, merged);
+        const list = Object.entries(patch)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', ');
+        return {
+          message: color.green(`Tuned (${Object.keys(patch).length} tokens): ${list}`),
+        };
+      }
+
+      if (sub === 'swap') {
+        const target = tokens[1]?.toLowerCase();
+        if (!target) return { message: 'Usage: /design swap <kit-id> [stack]' };
+        const kit = await loader.find(target);
+        if (!kit) {
+          const menu = await loader.menuText();
+          return { message: `Unknown kit "${target}".\n\n${menu}` };
+        }
+        const stackArg = tokens[2]?.toLowerCase();
+        const stack = stackArg && isDesignStack(stackArg) ? stackArg : undefined;
+        // Fresh switch: drop the prior kit's overrides before pinning the new one.
+        await clearPersistedActiveKit(opts.projectRoot);
+        if (ctx) setActiveKit(ctx, kit.id, stack, {});
+        return {
+          message: color.green(`Swapped to design kit "${kit.name}" (${kit.id}). Old overrides dropped.`),
+          runText: `design use ${kit.id}${stack ? ` --stack ${stack}` : ''}`,
+          metadata: { designKit: kit.id, ...(stack ? { designStack: stack } : {}) },
+        };
       }
 
       if (sub === 'materialize') {

@@ -1032,6 +1032,33 @@ export interface WSDesignSet {
   };
 }
 
+export interface WSDesignTune {
+  type: 'design.tune';
+  payload: {
+    ok: boolean;
+    /** The concrete token overrides the knobs resolved to. */
+    resolved?: Record<string, string> | undefined;
+    overrides?: Record<string, string> | undefined;
+    error?: string | undefined;
+  };
+}
+
+export interface WSDesignSwap {
+  type: 'design.swap';
+  payload: {
+    ok: boolean;
+    kit?: string | undefined;
+    name?: string | undefined;
+    aesthetic?: string | undefined;
+    stack?: string | undefined;
+    body?: string | undefined;
+    overrides?: Record<string, string> | undefined;
+    light?: Record<string, string> | undefined;
+    dark?: Record<string, string> | undefined;
+    error?: string | undefined;
+  };
+}
+
 export interface WSDesignMaterialize {
   type: 'design.materialize';
   payload: {
@@ -2296,6 +2323,21 @@ export type WSClientMessageCore =
   | { type: 'design.state' }
   | { type: 'design.set'; payload: { overrides: Record<string, string> } }
   | {
+      type: 'design.tune';
+      payload: {
+        tune: {
+          radius?: string | undefined;
+          density?: string | undefined;
+          font?: string | undefined;
+          motion?: string | undefined;
+        };
+      };
+    }
+  | {
+      type: 'design.swap';
+      payload: { kit: string; stack?: string | undefined };
+    }
+  | {
       type: 'design.materialize';
       payload?: { stack?: string | undefined; out?: string | undefined } | undefined;
     }
@@ -2418,6 +2460,8 @@ export type WSServerMessage =
   | WSDesignUse
   | WSDesignState
   | WSDesignSet
+  | WSDesignTune
+  | WSDesignSwap
   | WSDesignMaterialize
   | WSDesignVerify
   | WSSkillsInstalled

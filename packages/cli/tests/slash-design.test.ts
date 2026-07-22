@@ -44,4 +44,26 @@ describe('/design slash command', () => {
     const res = await cmd.run('foundations', makeCtx());
     expect(res?.runText).toBe('design foundations');
   });
+
+  it('swaps to a different kit and pins it fresh', async () => {
+    const cmd = buildDesignCommand(opts);
+    const ctx = makeCtx();
+    const res = await cmd.run('swap linear-dark web', ctx);
+    expect(res?.runText).toBe('design use linear-dark --stack web');
+    expect(res?.message).toMatch(/Swapped/i);
+    expect((ctx.meta.designStudio as any)?.activeKit).toBe('linear-dark');
+    expect((ctx.meta.designStudio as any)?.overrides).toEqual({});
+  });
+
+  it('tune with unknown knobs shows usage', async () => {
+    const cmd = buildDesignCommand(opts);
+    const res = await cmd.run('tune radius=bogus', makeCtx());
+    expect(res?.message).toMatch(/Usage: \/design tune/);
+  });
+
+  it('tune without an active kit reports so', async () => {
+    const cmd = buildDesignCommand(opts);
+    const res = await cmd.run('tune radius=lg', makeCtx());
+    expect(res?.message).toMatch(/No active kit/i);
+  });
 });

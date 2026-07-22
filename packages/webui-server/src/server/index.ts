@@ -72,6 +72,8 @@ export {
   handleDesignMaterialize,
   handleDesignSet,
   handleDesignState,
+  handleDesignSwap,
+  handleDesignTune,
   handleDesignUse,
   handleDesignVerify,
 } from './design-handlers.js';

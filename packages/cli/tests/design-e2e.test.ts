@@ -46,6 +46,12 @@ describe('Design Studio — end-to-end (built packages)', () => {
       const tokens = await loader.readTokens(e.id);
       const themed = tokens?.light ?? tokens?.dark;
       expect(themed, `${e.id} tokens`).toBeTruthy();
+      // Foundations merge guarantees every kit resolves a full scale set, not
+      // just colors — radius/spacing/type/motion are always present.
+      expect(themed?.['radius-md'], `${e.id} radius-md`).toBeTruthy();
+      expect(themed?.['space-4'], `${e.id} space-4`).toBeTruthy();
+      expect(themed?.['text-base'], `${e.id} text-base`).toBeTruthy();
+      expect(themed?.['duration-base'], `${e.id} duration-base`).toBeTruthy();
     }
   });
 
@@ -124,6 +130,10 @@ describe('Design Studio — end-to-end (built packages)', () => {
     expect(css).toContain(':root');
     expect(css).toContain('@theme inline');
     expect(css).toContain('--primary: oklch(62.79% 0.2577 29.23)'); // override won
+    // Scales materialize too (foundations-merged): radius/spacing drive utilities.
+    expect(css).toContain('@theme {');
+    expect(css).toMatch(/--radius-md:/);
+    expect(css).toMatch(/--spacing-4:/);
 
     // Verify: an off-palette file is flagged; the materialized vars are clean.
     await fs.writeFile(path.join(root, 'bad.css'), '.x { color: #123456; background: #abcdef; }');

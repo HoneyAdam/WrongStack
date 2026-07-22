@@ -167,6 +167,7 @@ export {
   resolveBundledDesignKitsDir,
 } from '../execution/design-kit-loader.js';
 export {
+  classifyTokenValue,
   colorToHex,
   isColorToken,
   oklchToHex,
@@ -177,11 +178,17 @@ export {
   materializeTokens,
 } from '../execution/design-materialize.js';
 export {
+  type DesignAxis,
   type DesignVerifyReport,
   type DesignViolation,
   runDesignVerify,
   verifyFiles,
 } from '../execution/design-verify.js';
+export {
+  resolveSemanticTune,
+  SEMANTIC_TUNE_KNOBS,
+  type SemanticTune,
+} from '../execution/design-tune.js';
 export {
   _resetDesignRulesCache,
   applyTokenOverrides,

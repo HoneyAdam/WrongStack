@@ -100,12 +100,16 @@ export function applyTokenOverrides<T extends { light?: Record<string, string> |
   const light = { ...(tokens.light ?? {}) };
   const dark = { ...(tokens.dark ?? {}) };
   for (const [key, val] of Object.entries(overrides)) {
+    // Only a `light.`/`dark.` prefix is theme-scoping. Any other dotted key
+    // (or a bare key) is a LITERAL token name applied to both themes — so
+    // kebab-scale names never collide, and a stray `foo.bar` isn't silently
+    // dropped (the old code matched `dot > 0` but only acted on light/dark).
     const dot = key.indexOf('.');
-    if (dot > 0) {
-      const theme = key.slice(0, dot);
-      const tok = key.slice(dot + 1);
-      if (theme === 'light') light[tok] = val;
-      else if (theme === 'dark') dark[tok] = val;
+    const theme = dot > 0 ? key.slice(0, dot) : '';
+    if (theme === 'light') {
+      light[key.slice(dot + 1)] = val;
+    } else if (theme === 'dark') {
+      dark[key.slice(dot + 1)] = val;
     } else {
       light[key] = val;
       dark[key] = val;

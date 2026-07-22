@@ -12,6 +12,8 @@ export const CLIENT_KNOWLEDGE_MESSAGE_TYPES = [
   'design.materialize',
   'design.set',
   'design.state',
+  'design.swap',
+  'design.tune',
   'design.use',
   'design.verify',
   'memory.list',

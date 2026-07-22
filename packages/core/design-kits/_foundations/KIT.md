@@ -49,6 +49,44 @@ active. They are not optional and not stylistic — they are correctness.
 - Skeletons/optimistic states over spinners for known shapes.
 - Ship empty, loading, and error states for every data view — not just the happy path.
 
+## Component recipes (token-driven, kit-agnostic)
+These reference the SAME token utilities every kit materializes, so a single
+recipe adapts to whichever kit is active (colors, radius, spacing, shadow, and
+fonts all flow from `design materialize`). Never hardcode hex/`oklch()`, generic
+`bg-blue-500`, or arbitrary `rounded-[7px]` / `p-[13px]` — those bypass the kit.
+
+**Web (Tailwind v4 utilities → resolve to the kit's `@theme`):**
+```tsx
+// Button — primary / ghost. rounded-lg, shadow-2, p-* all follow the kit.
+<button className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-bg shadow-2 transition-colors duration-[var(--duration-fast)] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+  Save
+</button>
+<button className="rounded-lg border border-border bg-surface px-4 py-2 text-sm text-fg hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring">
+  Cancel
+</button>
+
+// Card — surface + hairline border + kit radius/elevation.
+<article className="rounded-xl border border-border bg-surface p-6 shadow-2">
+  <h3 className="text-lg font-semibold text-fg">Title</h3>
+  <p className="mt-2 text-sm text-muted">Body copy in the kit's body font.</p>
+</article>
+
+// Input — labelled, focus-ring, kit radius.
+<label className="flex flex-col gap-1 text-sm">
+  <span className="font-medium text-fg">Email</span>
+  <input className="rounded-md border border-border bg-bg px-3 py-2 text-fg placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+</label>
+
+// Badge — accent pill.
+<span className="inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-bg">New</span>
+```
+
+**Native**: same idea via the materialized theme — `AppColorsLight/Dark` for
+colors and `AppScale`/`scale` for `radiusMd`/`space4`/etc. (Flutter
+`Theme.of(context)` + `AppScale.radiusMd`, SwiftUI `Color`/`AppScale`, Compose
+`MaterialTheme.colorScheme` + `AppScale`, RN NativeWind `bg-primary rounded-lg`).
+Every value comes from the kit — no literals.
+
 ## Stack: web
 - React 19 + TypeScript, Tailwind v4 (`@theme` + OKLCH custom properties), shadcn/ui
   primitives (data-slot, `sonner` for toasts), Motion for animation.

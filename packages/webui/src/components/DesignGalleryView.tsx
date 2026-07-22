@@ -58,10 +58,12 @@ function KitPreview({ t, label }: { t: Tokens; label: string }) {
   const primary = t.primary ?? '#3b82f6';
   const accent = t.accent ?? primary;
   const border = t.border ?? muted;
-  const radius = t.radius ?? '0.5rem';
-  const fontSans = t.fontSans ?? 'system-ui, sans-serif';
-  const fontDisplay = t.fontDisplay ?? fontSans;
-  const shadow = t.shadow && t.shadow !== 'none' ? t.shadow : undefined;
+  // Prefer kebab-scale tokens (which tuning writes) over legacy bare keys so the
+  // preview reflects `design tune radius=…`, density, and font changes live.
+  const radius = t['radius-md'] ?? t.radius ?? '0.5rem';
+  const fontSans = t['font-sans'] ?? t.fontSans ?? 'system-ui, sans-serif';
+  const fontDisplay = t['font-display'] ?? t.fontDisplay ?? fontSans;
+  const shadow = t['shadow-2'] ?? (t.shadow && t.shadow !== 'none' ? t.shadow : undefined);
 
   return (
     <div style={{ background: bg, color: fg, fontFamily: fontSans }} className="flex min-w-0 flex-col gap-2 overflow-hidden p-3">
@@ -171,6 +173,55 @@ function ColorEditor({
   );
 }
 
+/** High-level knob editor for the active kit — sends `design.tune`. */
+function TuneEditor({ onTune }: { onTune: (tune: Record<string, string>) => void }) {
+  const [font, setFont] = useState('');
+  const Row = ({ label, knob, values }: { label: string; knob: string; values: string[] }) => (
+    <div className="flex items-center gap-1.5">
+      <span className="w-16 shrink-0 text-[9px] uppercase text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {values.map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onTune({ [knob]: v })}
+            className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] hover:bg-primary hover:text-primary-foreground"
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/30 p-2">
+      <span className="text-[10px] font-semibold uppercase text-muted-foreground">Tune</span>
+      <Row label="Radius" knob="radius" values={['none', 'sm', 'md', 'lg', 'xl', 'full']} />
+      <Row label="Density" knob="density" values={['compact', 'cozy', 'comfortable']} />
+      <Row label="Motion" knob="motion" values={['snappy', 'smooth', 'none']} />
+      <div className="flex items-center gap-1.5">
+        <span className="w-16 shrink-0 text-[9px] uppercase text-muted-foreground">Font</span>
+        <input
+          value={font}
+          onChange={(e) => setFont(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && font.trim()) onTune({ font: font.trim() });
+          }}
+          placeholder="Space Grotesk…"
+          className="h-6 min-w-0 flex-1 rounded border border-border/60 bg-background/70 px-1.5 text-[10px]"
+        />
+        <button
+          type="button"
+          onClick={() => font.trim() && onTune({ font: font.trim() })}
+          className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] hover:bg-muted"
+        >
+          Set
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DesignGalleryView({ className }: { className?: string }) {
   const { client } = useWebSocket();
   const { t } = useAppTranslation();
@@ -202,6 +253,23 @@ export function DesignGalleryView({ className }: { className?: string }) {
       const p = (msg as { payload?: { ok?: boolean; overrides?: Tokens } }).payload;
       if (p?.ok && p.overrides) setOverrides(p.overrides);
     };
+    const onTune = (msg: unknown) => {
+      const p = (msg as { payload?: { ok?: boolean; overrides?: Tokens; error?: string } }).payload;
+      if (p?.ok && p.overrides) {
+        setOverrides(p.overrides);
+        setStatus('Tuned');
+      } else if (p?.error) {
+        setStatus(`Tune failed: ${p.error}`);
+      }
+    };
+    const onSwap = (msg: unknown) => {
+      const p = (msg as { payload?: { ok?: boolean; kit?: string; overrides?: Tokens } }).payload;
+      if (p?.ok && p.kit) {
+        setActiveKit(p.kit);
+        setOverrides(p.overrides ?? {});
+        setStatus(`Swapped to ${p.kit}`);
+      }
+    };
     const onMat = (msg: unknown) => {
       const p = (msg as { payload?: { ok?: boolean; path?: string; error?: string } }).payload;
       setStatus(p?.ok ? i18n.t('activity:design.wrote', { path: p.path }) : i18n.t('activity:design.materializeFailed', { error: p?.error ?? 'error' }));
@@ -232,6 +300,8 @@ export function DesignGalleryView({ className }: { className?: string }) {
     client.on('design.list', onList);
     client.on('design.use', onUse);
     client.on('design.set', onSet);
+    client.on('design.tune', onTune);
+    client.on('design.swap', onSwap);
     client.on('design.materialize', onMat);
     client.on('design.verify', onVer);
     client.send({ type: 'design.list' });
@@ -239,6 +309,8 @@ export function DesignGalleryView({ className }: { className?: string }) {
       client.off('design.list', onList);
       client.off('design.use', onUse);
       client.off('design.set', onSet);
+      client.off('design.tune', onTune);
+      client.off('design.swap', onSwap);
       client.off('design.materialize', onMat);
       client.off('design.verify', onVer);
     };
@@ -255,6 +327,12 @@ export function DesignGalleryView({ className }: { className?: string }) {
       setOverrides((prev) => ({ ...prev, [key]: hex }));
       client?.send({ type: 'design.set', payload: { overrides: { [key]: hex } } });
     },
+    [client],
+  );
+
+  // Send high-level knobs; resolved overrides return via `design.tune`.
+  const tuneKit = useCallback(
+    (tune: Record<string, string>) => client?.send({ type: 'design.tune', payload: { tune } }),
     [client],
   );
 
@@ -411,6 +489,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
                     </span>
                   </div>
                   {isActive && <ColorEditor kit={kit} overrides={ov} onSet={setOverride} />}
+                  {isActive && <TuneEditor onTune={tuneKit} />}
                 </div>
               </div>
             );

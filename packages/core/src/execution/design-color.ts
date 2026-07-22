@@ -132,3 +132,42 @@ export function colorToHex(value: string): string | null {
 export function isColorToken(value: string): boolean {
   return colorToHex(value) !== null;
 }
+
+// ── Value classification (color / length / duration / …) ─────────────────────
+
+const LENGTH_RE = /^-?\d*\.?\d+(?:px|rem|em|%|vw|vh|vmin|vmax|ch|pt)$/i;
+const DURATION_RE = /^-?\d*\.?\d+(?:ms|s)$/i;
+const NUMBER_RE = /^-?\d*\.?\d+$/;
+const GRADIENT_RE = /\b(?:linear|radial|conic)-gradient\s*\(/i;
+// A box-shadow-ish value: two+ offset lengths (the first is often a unitless
+// `0`), optionally `inset`, usually with a trailing color. Colors and single
+// lengths are caught earlier by classify, so this only sees multi-part values.
+const OFFSET = String.raw`(?:0|-?\d*\.?\d+(?:px|rem|em))`;
+const SHADOW_RE = new RegExp(String.raw`(?:^|,)\s*(?:inset\s+)?${OFFSET}\s+${OFFSET}`, 'i');
+
+/**
+ * Classify a design-token string into the axis it drives, so materialize/verify
+ * can branch beyond colors. Order matters: colors first (an `oklch()` is not a
+ * gradient), then single-unit forms, then multi-part shadow, then font stacks.
+ *
+ * A font-family is inferred structurally (a comma-separated list, or a single
+ * quoted/multi-word/known-generic name) rather than by a token-name allowlist,
+ * so custom fonts classify correctly.
+ */
+export function classifyTokenValue(value: string): import('../types/design-kit.js').TokenValueKind {
+  const v = value.trim();
+  if (!v) return 'raw';
+  if (isColorToken(v)) return 'color';
+  if (GRADIENT_RE.test(v)) return 'gradient';
+  if (LENGTH_RE.test(v)) return 'length';
+  if (DURATION_RE.test(v)) return 'duration';
+  if (NUMBER_RE.test(v)) return 'number';
+  if (SHADOW_RE.test(v)) return 'shadow';
+  // Font stack: has a comma (list), or looks like a family name.
+  const GENERIC_FONTS =
+    /\b(sans-serif|serif|monospace|system-ui|ui-sans-serif|ui-monospace|ui-serif|cursive|fantasy|emoji)\b/i;
+  if (v.includes(',') || GENERIC_FONTS.test(v) || /^["']?[A-Za-z][\w '-]*["']?$/.test(v)) {
+    return 'font';
+  }
+  return 'raw';
+}
