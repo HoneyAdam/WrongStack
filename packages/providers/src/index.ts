@@ -1,15 +1,17 @@
-import { CODEX_MODELS, ConfigError, expectDefined } from '@wrongstack/core';
+import { CODEX_MODELS } from '@wrongstack/core/models';
+import type { ProviderFactory } from '@wrongstack/core/registry';
+import { ConfigError } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import type {
   Logger,
   ModelsRegistry,
   Provider,
   ProviderApiKey,
   ProviderConfig,
-  ProviderFactory,
   ResolvedProvider,
   WireFamily,
-} from '@wrongstack/core';
-import { ERROR_CODES, WrongStackError } from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { ERROR_CODES, WrongStackError } from '@wrongstack/core/types';
 import { capabilitiesFor } from './capabilities.js';
 import { AnthropicProvider } from './anthropic.js';
 import { AnthropicOAuthProvider } from './anthropic-oauth.js';

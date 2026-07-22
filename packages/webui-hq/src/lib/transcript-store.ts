@@ -21,7 +21,7 @@
  *
  * @module lib/transcript-store
  */
-import type { HqTranscriptEntry } from '@wrongstack/core';
+import type { HqTranscriptEntry } from '@wrongstack/core/hq';
 
 export interface TranscriptState {
   entries: HqTranscriptEntry[];

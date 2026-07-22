@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Config, SecretVault } from '@wrongstack/core';
+import type { Config, SecretVault } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hasAnyAuthRecord } from '../src/first-run-auth-gate.js';
 

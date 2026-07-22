@@ -8,8 +8,8 @@ import * as fs from 'node:fs/promises';
 import type * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { HqEventEnvelope, HqPersistence, HqTranscriptEntry } from '@wrongstack/core';
-import { resolveHqDataDir } from '@wrongstack/core';
+import type { HqEventEnvelope, HqPersistence, HqTranscriptEntry } from '@wrongstack/core/hq';
+import { resolveHqDataDir } from '@wrongstack/core/hq';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -82,9 +82,8 @@ export async function readLocalSubagentTranscript(
   subagentId: string,
 ): Promise<HqTranscriptEntry[] | null> {
   try {
-    const { SessionRegistry, resolveWstackPaths, sessionScopedPath } = await import(
-      '@wrongstack/core'
-    );
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
+    const { resolveWstackPaths, sessionScopedPath } = await import('@wrongstack/core/utils');
     const globalRoot = path.dirname(resolveHqDataDir());
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId).catch(() => null);

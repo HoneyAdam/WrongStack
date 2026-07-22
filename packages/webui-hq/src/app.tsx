@@ -3,7 +3,7 @@
  * Offline React app, no CDN. The WebSocket transport is wired in main.tsx.
  */
 
-import type { HqSnapshot } from '@wrongstack/core';
+import type { HqSnapshot } from '@wrongstack/core/hq';
 import {
   Activity,
   BellRing,

@@ -59,6 +59,23 @@ function makeHandler(opts: { runTurn?: RunTurn; defaultCwd?: string } = {}): {
 }
 
 describe('ACPProtocolHandler', () => {
+  it('rejects session creation after the active-session cap', async () => {
+    const transport = fakeTransport();
+    const handler = new ACPProtocolHandler({
+      transport: transport as never as AgentServerTransport,
+      defaultCwd: '/test',
+      runTurn: PASSON_RUN_TURN,
+      maxSessions: 1,
+    });
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: {} });
+    await handler.handleMessage({ id: 3, method: 'session/new', params: {} });
+    expect(transport.sent.at(-1)).toMatchObject({
+      id: 3,
+      error: { message: 'active session limit reached (1)' },
+    });
+  });
+
   it('reports the package version instead of a hand-maintained protocol constant', () => {
     expect(WRONGSTACK_VERSION).toBe(packageJson.version);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createCliSecurityCommand } from '../src/wiring/security-command.js';
+import { createCliSecurityCommand } from '../src/slash-commands/security.js';
 
 describe('CLI security command adapter', () => {
   it('forwards the active host provider and scan options to the package command', async () => {

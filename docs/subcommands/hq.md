@@ -237,11 +237,13 @@ write outside projects HQ already knows about.
 POST /api/mailbox-send
 {
   "sessionId": "<session id>",   // OR "projectId": "<project slug>"
-  "type": "steer",               // steer | btw | queue | broadcast
+  "type": "result",              // note | ask | assign | steer | btw | queue
+                                    // broadcast | status | result | review
   "to": "leader",                // agent address (default "leader"); ignored for broadcast
   "subject": "HQ prompt",
   "body": "continue please",
-  "priority": "high"
+  "priority": "high",
+  "audience": "leaders"         // all (default) | leaders
 }
 ```
 
@@ -250,8 +252,8 @@ Responses:
 
 | Status | Meaning |
 |---|---|
-| `202` | Delivered. Body: `{ delivered: true, messageId, to, type }` (`type` is the emitted mailbox type — e.g. `queue` → `note`). |
-| `400` | Missing `type`/`body`, missing both `sessionId` and `projectId`, or an unrecognized/non-mailbox type. |
+| `202` | Delivered. Body: `{ delivered: true, messageId, to, type, audience }` (`type` is the emitted mailbox type — e.g. `queue` → `note`). |
+| `400` | Missing `type`/`body`, missing both `sessionId` and `projectId`, an invalid `audience`, or an unrecognized/non-mailbox type. |
 | `401` | Missing/invalid browser token (token mode). |
 | `403` | Token lacks `control.enqueue`. |
 | `404` | Target project mailbox could not be resolved from the registry. |

@@ -67,3 +67,60 @@ describe('materializeTokens', () => {
     expect(r.path).toBe('a/b/theme.css');
   });
 });
+
+const scaleTokens: DesignKitTokens = {
+  light: {
+    primary: 'oklch(62.79% 0.2577 29.23)',
+    'radius-md': '0.5rem',
+    'space-4': '1rem',
+    'text-base': '1rem',
+    'font-sans': 'Inter, sans-serif',
+    'shadow-1': '0 1px 2px oklch(0% 0 0 / 0.06)',
+    'duration-fast': '120ms',
+  },
+  dark: {
+    primary: 'oklch(62.79% 0.2577 29.23)',
+    'radius-md': '0.5rem',
+    'space-4': '1rem',
+    'text-base': '1rem',
+    'font-sans': 'Inter, sans-serif',
+    'shadow-1': '0 1px 2px oklch(0% 0 0 / 0.4)', // flips
+    'duration-fast': '120ms',
+  },
+};
+
+describe('materializeTokens — scale axes', () => {
+  it('web → maps scales onto Tailwind v4 @theme namespaces + flips shadows', () => {
+    const r = materializeTokens({ tokens: scaleTokens, stack: 'web', kitId: 'scale' });
+    // Scale tokens are NOT in the raw :root loop (they drive @theme utilities).
+    expect(r.content).toContain('@theme {');
+    expect(r.content).toContain('--radius-md: 0.5rem;');
+    expect(r.content).toContain('--spacing-4: 1rem;'); // space-* → --spacing-*
+    expect(r.content).toContain('--text-base: 1rem;');
+    expect(r.content).toContain('--font-sans: Inter, sans-serif;');
+    // Shadow differs light/dark → a .dark override of the same @theme var.
+    expect(r.content).toMatch(/\.dark \{\n\s*--shadow-1: 0 1px 2px oklch\(0% 0 0 \/ 0\.4\);/);
+    // Colors still use the inline indirection.
+    expect(r.content).toContain('--color-primary: var(--primary);');
+  });
+
+  it('react-native → numeric scale export (rem→px, ms)', () => {
+    const r = materializeTokens({ tokens: scaleTokens, stack: 'react-native', kitId: 'scale' });
+    expect(r.content).toContain('export const scale');
+    expect(r.content).toContain('"radiusMd": 8'); // 0.5rem → 8px
+    expect(r.content).toContain('"space4": 16');
+    expect(r.content).toContain('"durationFast": 120');
+    // Scale keys are not duplicated into the color theme object.
+    expect(r.content).not.toContain('"radius-md"');
+  });
+
+  it('flutter/swiftui/compose → AppScale numeric constants', () => {
+    const dart = materializeTokens({ tokens: scaleTokens, stack: 'flutter', kitId: 'scale' });
+    expect(dart.content).toContain('class AppScale');
+    expect(dart.content).toContain('static const double radiusMd = 8;');
+    const swift = materializeTokens({ tokens: scaleTokens, stack: 'swiftui', kitId: 'scale' });
+    expect(swift.content).toContain('static let radiusMd: CGFloat = 8');
+    const kt = materializeTokens({ tokens: scaleTokens, stack: 'compose', kitId: 'scale' });
+    expect(kt.content).toContain('val RadiusMd = 8f');
+  });
+});

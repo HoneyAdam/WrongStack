@@ -50,13 +50,11 @@
 //     call site in main(). The unit test exercises the
 //     helper with fakes that satisfy the local interfaces.
 
-import {
-  DefaultSystemPromptBuilder,
-  makeAutonomyPromptContributor,
-  sessionScopedPath,
-  type TokenSavingTier,
-} from '@wrongstack/core';
-import type { AutonomyMode } from '../slash-commands/autonomy.js';
+import { DefaultSystemPromptBuilder } from '@wrongstack/core/agent';
+import { makeAutonomyPromptContributor } from '@wrongstack/core/execution';
+import { type TokenSavingTier } from '@wrongstack/core/types';
+import { sessionScopedPath } from '@wrongstack/core/utils';
+import type { AutonomyMode } from '../services/autonomy-mode.js';
 
 export interface MutableRef<T> {
   current: T | undefined;

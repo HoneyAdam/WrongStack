@@ -1,4 +1,4 @@
-import type { SessionEvent, Message } from '@wrongstack/core';
+import type { SessionEvent, Message } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { replaySessionEvents, replaySessionMessages } from '../src/components/history/replay.js';
 

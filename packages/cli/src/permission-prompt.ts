@@ -1,5 +1,5 @@
-import type { InputReader, Tool } from '@wrongstack/core';
-import { color, truncate, writeOut } from '@wrongstack/core';
+import type { InputReader, Tool } from '@wrongstack/core/types';
+import { color, truncate, writeOut } from '@wrongstack/core/utils';
 import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
 

@@ -17,7 +17,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { compileGlob } from '@wrongstack/core';
+import { compileGlob } from '@wrongstack/core/utils';
 
 export type IgnoreMatcher = (relPath: string, isDir: boolean) => boolean;
 

@@ -120,6 +120,40 @@ describe('L1-A: ctx.state is the single source of reactive truth', () => {
     );
   });
 
+  it('bounds pending journal work and collapses pressure into a snapshot', async () => {
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const session = {
+      ...fakeSession,
+      append: vi.fn(async () => firstWrite),
+    } satisfies SessionWriter;
+    const ctx = new Context({
+      systemPrompt: [{ type: 'text', text: 'sys' }],
+      provider: fakeProvider,
+      session,
+      signal: new AbortController().signal,
+      tokenCounter: new DefaultTokenCounter(),
+      cwd: '/cwd',
+      projectRoot: '/root',
+      model: 'm',
+    });
+
+    for (let index = 0; index < 400; index += 1) {
+      ctx.state.appendMessage({ role: 'user', content: `message ${index}` });
+    }
+
+    const pending = Reflect.get(ctx, '_conversationJournalQueue') as Array<{
+      event: { type: string };
+    }>;
+    expect(pending.length).toBeLessThanOrEqual(256);
+    expect(pending.some(({ event }) => event.type === 'messages_replaced')).toBe(true);
+
+    releaseFirstWrite?.();
+    await ctx.flushConversationJournal();
+  });
+
   it('appendMessage via ctx.state fires onChange', () => {
     const ctx = mkContext();
     const changes: StateChange[] = [];

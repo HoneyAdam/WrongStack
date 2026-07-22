@@ -1,19 +1,12 @@
 import * as fs from 'node:fs/promises';
-import type { Config, Context, SlashCommand } from '@wrongstack/core';
-import {
-  atomicWrite,
-  type ContextBreakdown,
-  type ContextWindowPolicy,
-  type SystemBlockSource,
-  color,
-  formatContextWindowModeList,
-  getContextBreakdown,
-  getContextWindowMode,
-  repairToolUseAdjacency,
-  resolveContextWindowPolicy,
-} from '@wrongstack/core';
+import type { Config, SlashCommand } from '@wrongstack/core/types';
+import type { Context } from '@wrongstack/core/agent';
+import { atomicWrite, type ContextBreakdown, color, getContextBreakdown, repairToolUseAdjacency } from '@wrongstack/core/utils';
+import { formatContextWindowModeList, getContextWindowMode, resolveContextWindowPolicy } from '@wrongstack/core/types';
+import { type ContextWindowPolicy } from '@wrongstack/core/types';
+import { type SystemBlockSource } from '@wrongstack/core/agent';
 import { countToolResults, countToolUses, countTurnPairs, estimateTokens } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 export function buildContextCommand(opts: SlashCommandContext): SlashCommand {

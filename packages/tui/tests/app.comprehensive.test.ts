@@ -317,7 +317,14 @@ describe('reducer', () => {
       const state = {
         ...emptyState(),
         entries: [
-          { kind: 'banner' as const, id: 0, model: 'old', provider: 'old' },
+          {
+            kind: 'banner' as const,
+            id: 0,
+            version: 'test',
+            cwd: '/test/project',
+            model: 'old',
+            provider: 'old',
+          },
           { kind: 'user' as const, id: 1, text: 'hello' },
         ],
         historyGen: 5,
@@ -335,7 +342,16 @@ describe('reducer', () => {
     it('clears all in-flight state alongside history', () => {
       const state = {
         ...emptyState(),
-        entries: [{ kind: 'banner' as const, id: 0, model: 'm', provider: 'p' }],
+        entries: [
+          {
+            kind: 'banner' as const,
+            id: 0,
+            version: 'test',
+            cwd: '/test/project',
+            model: 'm',
+            provider: 'p',
+          },
+        ],
         streamingText: 'stale stream',
         toolStream: { toolUseId: 't1', name: 'bash', text: 'x', startedAt: 1 },
         status: 'running' as const,

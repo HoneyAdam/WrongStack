@@ -1,10 +1,6 @@
-import {
-  readBundledInstructionText,
-  renderInstructionTemplate,
-  type Config,
-  type OneShotOrchestrator,
-  type Provider,
-} from '@wrongstack/core';
+import { readBundledInstructionText, renderInstructionTemplate } from '@wrongstack/core/utils';
+import { type Config, type Provider } from '@wrongstack/core/types';
+import { type OneShotOrchestrator } from '@wrongstack/core/execution';
 
 /**
  * Result of refining a user's raw goal into a clear, actionable mission.

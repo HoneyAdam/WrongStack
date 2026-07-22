@@ -1,4 +1,4 @@
-import type { MemoryScope, Tool } from '@wrongstack/core';
+import type { MemoryScope, Tool } from '@wrongstack/core/types';
 import type { SuperMemoryServiceLike } from '../service-contract.js';
 import type {
   FindMemoriesForFileResponse,

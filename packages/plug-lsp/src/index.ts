@@ -1,5 +1,5 @@
-import { expectDefined } from '@wrongstack/core';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import { autoDiscoverServers } from './auto-discover.js';
 import { PLUGIN_NAME, plugLspConfigSchema, readPlugLSPConfig } from './config.js';
 import { DocumentTracker } from './document-tracker.js';

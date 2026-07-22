@@ -45,7 +45,7 @@ export interface CompactorOptions {
 /**
  * Default tools config values shared across CLI and WebUI.
  * Import this instead of hardcoding to avoid cross-surface inconsistencies.
- * These mirror the values in BEHAVIOR_DEFAULTS (config-loader.ts).
+ * These mirror the values in CONFIG_BEHAVIOR_DEFAULTS (config-loader.ts).
  *
  * @deprecated Import from '../types/default-config.js' instead.
  *             This re-export exists for backward compatibility.

@@ -5,7 +5,7 @@
  * from. Built from the shared buildFleetTopology output so it always agrees
  * with the map.
  */
-import type { HqSnapshot } from '@wrongstack/core';
+import type { HqSnapshot } from '@wrongstack/core/hq';
 import { Bot, ChevronRight, FolderGit2, MonitorSmartphone, SquareTerminal } from 'lucide-react';
 import type React from 'react';
 import { useMemo, useState } from 'react';

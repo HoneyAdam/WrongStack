@@ -8,11 +8,11 @@ const resolveSessionLoggingConfig = vi.fn().mockReturnValue({
   auditLevel: 'full',
   sampling: {},
 });
-vi.mock('@wrongstack/core', () => ({
-  recordFileAction,
+vi.mock('@wrongstack/core/storage', () => ({
   createSessionEventBridge,
   resolveSessionLoggingConfig,
 }));
+vi.mock('@wrongstack/core/coordination', () => ({ recordFileAction }));
 
 const { wireSessionEvents } = await import('../src/session-event-wiring.js');
 

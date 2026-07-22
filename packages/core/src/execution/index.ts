@@ -179,3 +179,18 @@ export {
 } from './strategy-compactor.js';
 export { ToolExecutor } from './tool-executor.js';
 export { OneShotOrchestrator } from './one-shot-llm.js';
+export {
+  buildRefinerContextSections,
+  DEFAULT_REFINER_RETRY_FEEDBACK,
+  enhanceUserPrompt,
+  gatedEnhancerReasoning,
+  type EnhanceFailureKind,
+  normalizedEqual,
+  recentTextTurns,
+  shouldEnhance,
+} from './prompt-enhancer.js';
+export {
+  nextEnhanceTimeout,
+  resolveConfiguredRefinerRef,
+  resolveEnhanceFallbackRef,
+} from './enhance-recovery.js';

@@ -1,5 +1,6 @@
 import * as https from 'node:https';
-import { ConfigError, type HttpDispatcher } from '@wrongstack/core';
+import { ConfigError } from '@wrongstack/core/types';
+import type { HttpDispatcher } from '@wrongstack/core/utils';
 import {
   authorizationHeaderForToken,
   canonicalMcpResource,

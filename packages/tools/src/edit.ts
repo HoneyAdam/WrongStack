@@ -1,13 +1,13 @@
 import * as fs from 'node:fs/promises';
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import {
   atomicWrite,
   detectNewlineStyle,
   normalizeToLf,
-  ToolValidationError,
   toStyle,
   unifiedDiff,
-} from '@wrongstack/core';
+} from '@wrongstack/core/utils';
+import { ToolValidationError } from '@wrongstack/core/types';
 import {
   adjustIndent,
   findLadderMatches,

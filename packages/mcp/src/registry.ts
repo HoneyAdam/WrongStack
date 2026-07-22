@@ -1,5 +1,7 @@
-import type { EventBus, Logger, MCPServerConfig, Tool, ToolRegistry } from '@wrongstack/core';
-import { expectDefined } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { ToolRegistry } from '@wrongstack/core/registry';
+import type { Logger, MCPServerConfig, Tool } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import type { MCPAuthorizationProvider } from './authorization.js';
 import type {
   MCPAuthorizationManager,

@@ -1,4 +1,4 @@
-import type { DistributiveOmit, Message, SessionEvent } from '@wrongstack/core';
+import type { DistributiveOmit, Message, SessionEvent } from '@wrongstack/core/types';
 import type { HistoryEntry } from './types.js';
 
 /**

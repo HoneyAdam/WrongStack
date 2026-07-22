@@ -1,5 +1,5 @@
-import type { ContentBlock, Renderer, TextBlock, ToolResultRenderMode } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { ContentBlock, Renderer, TextBlock, ToolResultRenderMode } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { renderDiff } from './diff-renderer.js';
 import { theme } from './theme.js';
 

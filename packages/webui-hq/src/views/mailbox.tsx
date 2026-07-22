@@ -19,7 +19,7 @@ import type {
   HqEventEnvelope,
   HqMailboxEventPayload,
   HqMailboxMessageSummary,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useBackfilledEvents } from '../lib/use-backfilled-events.js';

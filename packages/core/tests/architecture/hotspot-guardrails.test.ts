@@ -98,8 +98,7 @@ async function loadSlashCommandImportExceptions(): Promise<Set<string>> {
   const exception = document.exceptions?.find(
     (item) => item.id === 'ARCH-SLASH-IMPORT-01' && item.kind === 'slash-command-import',
   );
-  if (!exception?.members) throw new Error('ARCH-SLASH-IMPORT-01 is missing from architecture/exceptions.json');
-  return new Set(exception.members);
+  return new Set(exception?.members ?? []);
 }
 
 function extractSlashCommandImports(text: string): string[] {

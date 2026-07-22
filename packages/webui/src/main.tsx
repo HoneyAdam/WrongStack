@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 // Self-hosted fonts (CSP-clean: served from 'self'). IBM Plex gives the UI an

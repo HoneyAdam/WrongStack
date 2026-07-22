@@ -34,9 +34,10 @@ import { bindReplayToContainer } from './wiring/replay.js';
 import { setOAuthTokenPersister } from '@wrongstack/providers';
 import { mutateConfigProviders, normalizeKeys, writeKeysBack } from './provider-config-utils.js';
 import { activeProfileConfigPath } from './profile-config-path.js';
-import { TOKENS } from '@wrongstack/core';
+import { TOKENS } from '@wrongstack/core/kernel';
 
-import type { EventBus, ConfigStore } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { ConfigStore } from '@wrongstack/core/types';
 import type { BootContext } from './boot.js';
 
 // ── Context type ──────────────────────────────────────────────────────────

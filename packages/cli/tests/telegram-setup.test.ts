@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultSecretVault } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core/security';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildTelegramSetupCommand } from '../src/slash-commands/telegram-setup.js';
 

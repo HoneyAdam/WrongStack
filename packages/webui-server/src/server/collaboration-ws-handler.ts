@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import type { CollaborationBus, ConsumedInjectionInfo, EventBus, Logger } from '@wrongstack/core';
+import type { CollaborationBus, ConsumedInjectionInfo } from '@wrongstack/core/coordination';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
 import type { AnnotationsStore, SessionReader } from '@wrongstack/core/storage';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
@@ -8,6 +10,7 @@ import type {
   WSCollabState,
   WSServerMessage,
 } from './types.js';
+import { sendSerialized } from './ws-utils.js';
 
 /** How many historical events to replay to a late-joining observer. */
 const REPLAY_LIMIT = 50;
@@ -643,7 +646,7 @@ export class CollaborationWebSocketHandler {
     if (!bucket) return;
     for (const p of bucket) {
       try {
-        if (p.ws.readyState === 1) p.ws.send(data);
+        sendSerialized(p.ws, data);
       } catch (err) {
         this.logger.debug?.(
           `collab broadcast failed: ${
@@ -656,7 +659,7 @@ export class CollaborationWebSocketHandler {
 
   private send(ws: WebSocket, msg: WSServerMessage): void {
     try {
-      if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+      sendSerialized(ws, JSON.stringify(msg));
     } catch {
       /* client gone */
     }

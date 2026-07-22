@@ -6,17 +6,17 @@ import type { ConfigLoader, ConfigStore } from '../types/config.js';
 import type { ErrorHandler } from '../types/error-handler.js';
 import type { InputReader } from '../types/input-reader.js';
 import type { Logger } from '../types/logger.js';
-import type { MemoryStore } from '../types/memory.js';
+import type { MemoryPort } from '../types/memory.js';
 import type { ModeStore } from '../types/mode.js';
 import type { ModelsRegistry } from '../types/models-registry.js';
 import type { PathResolver } from '../types/path-resolver.js';
 import type { PermissionPolicy } from '../types/permission.js';
+import type { PromptLoader } from '../types/prompt.js';
 import type { ProviderRunner } from '../types/provider-runner.js';
 import type { Renderer } from '../types/renderer.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type { SessionStore } from '../types/session.js';
-import type { PromptLoader } from '../types/prompt.js';
 import type { SkillLoader } from '../types/skill.js';
 import type { SystemPromptBuilder } from '../types/system-prompt.js';
 import type { TokenCounter } from '../types/token-counter.js';
@@ -40,7 +40,17 @@ export const TOKENS = {
   Logger: t<Logger>('Logger'),
   TokenCounter: t<TokenCounter>('TokenCounter'),
   SessionStore: t<SessionStore>('SessionStore'),
-  MemoryStore: t<MemoryStore>('MemoryStore'),
+  /**
+   * @deprecated Token name retained for compatibility.
+   * The resolved value IS a `MemoryPort`, NOT the legacy `MemoryStore` interface.
+   * Callers that cast or destructure as `MemoryStore` will lose `getCapability`,
+   * `health`, `dispose`, and the narrowed `withTraceId(): MemoryPort` return type.
+   * Port implementations are opaque — query optional features via `getCapability`.
+   * Use `TOKENS.MemoryPort` instead.
+   */
+  MemoryStore: t<MemoryPort>('MemoryStore'),
+  /** Production memory backend. Use instead of the deprecated `MemoryStore` token. */
+  MemoryPort: t<MemoryPort>('MemoryPort'),
   PermissionPolicy: t<PermissionPolicy>('PermissionPolicy'),
   Compactor: t<Compactor>('Compactor'),
   PathResolver: t<PathResolver>('PathResolver'),

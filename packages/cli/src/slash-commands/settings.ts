@@ -1,10 +1,13 @@
-import type { FleetChatVerbosity, SlashCommand } from '@wrongstack/core';
-import { color, noOpVault, resolveFleetChatVerbosity } from '@wrongstack/core';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { noOpVault } from '@wrongstack/core/security';
+import { resolveFleetChatVerbosity } from '@wrongstack/core/types';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { deriveFsAccessPair, persistAutonomySetting, persistConfigSetting } from '../settings-menu.js';
 import { formatDelay } from '../utils/delay-format.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**

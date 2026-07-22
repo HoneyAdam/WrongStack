@@ -199,6 +199,17 @@ describe('WS message dispatcher routing (Issue #31 PR 0)', () => {
     expect(updatePrefs).toHaveBeenCalledWith(ws, { yolo: true });
   });
 
+  it('handlePrefsRoute: routes config.doctor with the apply flag', async () => {
+    const doctorConfig = vi.fn();
+    const out = await handlePrefsRoute(
+      ws,
+      { type: 'config.doctor', payload: { apply: true } },
+      { getPrefs: vi.fn(), updatePrefs: vi.fn(), doctorConfig },
+    );
+    expect(out).toBe(true);
+    expect(doctorConfig).toHaveBeenCalledWith(ws, true);
+  });
+
   it('handlePrefsRoute: returns false for foreign message type', async () => {
     const out = await handlePrefsRoute(ws, { type: FOREIGN }, {
       getPrefs: vi.fn(),

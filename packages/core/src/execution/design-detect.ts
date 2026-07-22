@@ -232,14 +232,16 @@ export function makeDesignVerifyToolCallMiddleware(): Middleware<ToolCallPipelin
 
         const top = report.violations
           .slice(0, 5)
-          .map((v) => `  L${v.line}: ${v.snippet} — ${v.reason}`)
+          .map((v) => `  L${v.line}: [${v.axis ?? 'color'}] ${v.snippet} — ${v.reason}`)
           .join('\n');
         const more =
           report.violations.length > 5 ? `\n  …and ${report.violations.length - 5} more` : '';
+        // Summarize which axes drifted (color / radius / spacing / …).
+        const axes = [...new Set(report.violations.map((v) => v.axis ?? 'color'))].join(', ');
         out.result.content +=
           `\n\n⚠️ Design Studio (kit "${state.activeKit}"): ${report.violations.length} ` +
-          `off-palette color(s) in ${rel}. Use the kit's tokens (or the materialized CSS ` +
-          `vars / token utilities) instead:\n${top}${more}`;
+          `design-token issue(s) [${axes}] in ${rel}. Use the kit's scale tokens (or the ` +
+          `materialized CSS vars / utilities) instead:\n${top}${more}`;
       } catch {
         // best-effort — never break a tool result
       }

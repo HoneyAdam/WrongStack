@@ -1,18 +1,11 @@
 import * as fs from 'node:fs/promises';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import {
-  atomicWrite,
-  color,
-  ConfigError,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-  normalizeModelRef,
-  noOpVault,
-  parseModelRef,
-  type SlashCommand,
-  smartDefaultFallbackChain,
-} from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { atomicWrite, color } from '@wrongstack/core/utils';
+import { ConfigError, type SlashCommand } from '@wrongstack/core/types';
+import { smartDefaultFallbackChain } from '@wrongstack/core/agent';
+import { decryptConfigSecrets, encryptConfigSecrets, noOpVault } from '@wrongstack/core/security';
+import { normalizeModelRef, parseModelRef } from '@wrongstack/core/agent';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /**

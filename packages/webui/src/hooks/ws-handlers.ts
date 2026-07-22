@@ -85,6 +85,53 @@ export function handleMemoryList(msg: WSServerMessage) {
   });
 }
 
+export function handleConfigDoctorResult(msg: WSServerMessage) {
+  const p = msg.payload as {
+    success: boolean;
+    applied: boolean;
+    changed: boolean;
+    changes: Array<{ path: string; action: 'added' | 'replaced' }>;
+    configPath: string;
+    backupPath?: string | undefined;
+    error?: string | undefined;
+  };
+  const chat = useChatStore.getState();
+  if (!p.success) {
+    chat.addMessage({
+      role: 'assistant',
+      content: `❌ **Config Doctor failed**\n\n${p.error ?? 'Unknown config error.'}`,
+      isError: true,
+    });
+    return;
+  }
+  if (!p.changed) {
+    chat.addMessage({
+      role: 'assistant',
+      content: `✅ **Config Doctor** — active profile config is healthy.\n\n\`${p.configPath}\``,
+    });
+    return;
+  }
+
+  const visible = p.changes.slice(0, 40);
+  const lines = [
+    p.applied
+      ? `✅ **Config Doctor** — repaired ${p.changes.length} field(s).`
+      : `🩺 **Config Doctor** — found ${p.changes.length} repairable field(s).`,
+    '',
+    ...visible.map(
+      (change) =>
+        `- \`${change.path}\` — ${change.action === 'added' ? 'missing default' : 'invalid shape; default required'}`,
+    ),
+  ];
+  if (p.changes.length > visible.length) {
+    lines.push(`- _…and ${p.changes.length - visible.length} more_`);
+  }
+  lines.push('', `Config: \`${p.configPath}\``);
+  if (p.applied && p.backupPath) lines.push(`Backup: \`${p.backupPath}\``);
+  if (!p.applied) lines.push('', 'Run `/doctor fix` to apply these repairs.');
+  chat.addMessage({ role: 'assistant', content: lines.join('\n') });
+}
+
 // ── SuperMemory response handlers ─────────────────────────────────────
 
 export function handleMemorySuperList(msg: WSServerMessage) {
@@ -490,6 +537,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     ...miscHandlerMap,
     ...coordinatorHandlerMap,
     ...techStackHandlerMap,
+    'config.doctor.result': handleConfigDoctorResult,
     'session.start': (msg: WSServerMessage) => {
       handleSessionStart(msg);
       queryMailbox();

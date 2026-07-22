@@ -24,10 +24,16 @@ import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
 import { ToolCapabilities } from '../security/capabilities.js';
 import { GlobalMailbox } from './global-mailbox.js';
-import { normalizeRecipient } from './mailbox-types.js';
-import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
+import { isMailboxMessageVisibleTo, normalizeRecipient } from './mailbox-types.js';
+import type {
+  Mailbox,
+  MailboxAudience,
+  MailboxMessage,
+  MailboxMessageType,
+} from './mailbox-types.js';
 import { resolveSendType } from './mailbox-message-codec.js';
 import {
+  applyMailboxSendPolicy,
   defaultResolveProjectDir,
   resolveMailboxIdentity,
   type MailboxResolver,
@@ -101,7 +107,8 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       'assign/steer with to="*" is rejected (ambiguous). control is rejected (runtime-reserved).' +
       '\n\n' +
       'Type determines dispatch: steer renders first, control is out-of-band, ' +
-      'actionable types show "Action required" footer.',
+      'actionable types show "Action required" footer. Set audience="leaders" for ' +
+      'mail that subagents must not consume.',
     usageHint: 'mail_send to="<id>" type="review" body="please skim <file>"',
     category: 'Coordination',
     permission: 'auto',
@@ -127,6 +134,11 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
             'Informational: note/status/broadcast/control.',
         },
         priority: { type: 'string', enum: ['low', 'normal', 'high'] },
+        audience: {
+          type: 'string',
+          enum: ['all', 'leaders'],
+          description: 'Delivery audience. "leaders" hides the mail from subagent inboxes and agent-loop injection.',
+        },
         replyTo: { type: 'string', description: 'Message id this replies to.' },
       },
       required: ['to', 'subject', 'body'],
@@ -139,23 +151,29 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       if (!rawTo || !subject || body === undefined || body === null) {
         return { ok: false, error: '"to", "subject" and "body" are required.' };
       }
+      const audience = i.audience as MailboxAudience | undefined;
+      if (audience !== undefined && audience !== 'all' && audience !== 'leaders') {
+        return { ok: false, error: '"audience" must be "all" or "leaders".' };
+      }
       const mb = resolveMailbox(ctx);
       const identity = await register(mb, ctx);
       // Normalize after identity resolution because "@session" needs the
       // sender's full session id to produce a canonical recipient.
-      const to = normalizeRecipient(rawTo, identity.sessionId);
+      const requestedTo = normalizeRecipient(rawTo, identity.sessionId);
+      const delivery = applyMailboxSendPolicy(ctx, identity, requestedTo, audience);
       // Use the canonical resolveSendType helper for type selection +
       // cross-field validation. This enforces:
       //   - default: broadcast when to is "*" or "@session", otherwise note
       //   - rejection: control (runtime-reserved), assign/steer to "*" (ambiguous)
       const resolvedType = resolveSendType(
         i.type as MailboxMessageType | undefined,
-        to,
+        delivery.to,
       );
       const msg = await mb.send({
         from: identity.callerId,
-        to,
+        to: delivery.to,
         type: resolvedType,
+        audience: delivery.audience,
         subject,
         body,
         priority: (i.priority as 'low' | 'normal' | 'high' | undefined) ?? 'normal',
@@ -182,7 +200,8 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
       'Git worktree and mark it read. Covers mail ' +
       'addressed to you directly, to your base name (e.g. "leader"), to your current session, ' +
       'and project broadcasts ("*"). ' +
-      'Urgent steer/btw mail is already injected automatically — use this to catch up on ' +
+      'Fresh eligible mail is already injected for one model evaluation and then removed ' +
+      'from raw conversation context — use this to catch up on ' +
       'notes, questions, handoffs, results, and review requests (type="review" — passive ' +
       'asks where no reply is required). Best called after a long stretch of tool work. ' +
       'Set completed=true to finish every returned message in the same call.',
@@ -224,7 +243,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
       const batches = await Promise.all(
         targets.map((to) =>
           mb
-            .query({ to, unreadBy: identity.callerId, limit })
+            .query({ to, unreadBy: identity.callerId, readerRole: identity.role, limit })
             .catch(() => [] as MailboxMessage[]),
         ),
       );
@@ -233,6 +252,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
         .flat()
         .filter((m) => {
           if (seen.has(m.id) || m.from === identity.callerId) return false;
+          if (!isMailboxMessageVisibleTo(m, identity.callerId, identity.role)) return false;
           seen.add(m.id);
           return true;
         })
@@ -261,6 +281,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
           from: m.from,
           to: m.to,
           type: m.type,
+          audience: m.audience ?? 'all',
           subject: m.subject,
           body: m.body.length > 2000 ? `${m.body.slice(0, 2000)}… [truncated]` : m.body,
           timestamp: m.timestamp,

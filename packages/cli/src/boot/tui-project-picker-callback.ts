@@ -9,7 +9,8 @@
  * Reads mutable state (projectRoot, wpaths) from TuiRuntimeState.
  */
 import * as path from 'node:path';
-import { type Director, color } from '@wrongstack/core';
+import { type Director } from '@wrongstack/core/coordination';
+import { color } from '@wrongstack/core/utils';
 import type { TerminalRenderer } from '../renderer.js';
 import type { TuiRuntimeState } from './tui-runtime-state.js';
 import type { ProjectSwitchContext } from './tui-project-switch.js';
@@ -60,7 +61,7 @@ export async function onProjectSelect(
       return;
     }
 
-    const { loadManifest, saveManifest } = await import('../slash-commands/project-utils.js');
+    const { loadManifest, saveManifest } = await import('../services/project-manifest.js');
     const manifest = await loadManifest(state.wpaths.globalConfig);
     const project = manifest.projects.find((p) => p.slug === slug);
     if (!project) return;

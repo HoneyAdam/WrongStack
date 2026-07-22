@@ -1,9 +1,5 @@
-import {
-  GlobalMailbox,
-  HQ_AUTH_FILE_VERSION,
-  HQ_PROTOCOL_VERSION,
-  writeHqAuthFile,
-} from '@wrongstack/core';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
+import { HQ_AUTH_FILE_VERSION, HQ_PROTOCOL_VERSION, writeHqAuthFile } from '@wrongstack/core/hq';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as os from 'node:os';
@@ -1835,7 +1831,7 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
     projectSlug: string,
     projectRoot: string,
   ): Promise<() => Promise<void>> {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     const registry = new SessionRegistry(globalRoot);
     await registry.register({
       sessionId,
@@ -1903,6 +1899,23 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects an unknown mailbox audience instead of widening it to all agents', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+    const res = await fetch(`http://127.0.0.1:${handle.port}/api/mailbox-send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'any-session',
+        type: 'steer',
+        body: 'private context',
+        audience: 'workers',
+      }),
+    });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: 'audience must be all or leaders' });
+  });
+
   it('returns 404 when the target project mailbox cannot be resolved', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });
@@ -1937,15 +1950,22 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
         }),
       });
       expect(res.status).toBe(202);
-      const body = (await res.json()) as { delivered: boolean; messageId?: string; to: string; type: string };
+      const body = (await res.json()) as {
+        delivered: boolean;
+        messageId?: string;
+        to: string;
+        type: string;
+        audience: string;
+      };
       expect(body.delivered).toBe(true);
       expect(body.messageId).toBeTruthy();
       expect(body.to).toBe('leader');
       expect(body.type).toBe('steer');
+      expect(body.audience).toBe('all');
 
       // The message must be readable from the SAME project mailbox the server
       // resolved — proving the write landed with zero connected clients.
-      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
       const projectDir = resolveProjectDir(projectRoot, globalRoot);
       const mailbox = new GlobalMailbox(projectDir);
       const msgs = await mailbox.query({ to: 'leader' });
@@ -1978,11 +1998,56 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
       // queue is delivered as a plain `note` mailbox message.
       expect(body.type).toBe('note');
 
-      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
       const mailbox = new GlobalMailbox(resolveProjectDir(projectRoot, globalRoot));
       const msgs = await mailbox.query({ to: 'leader' });
       const found = msgs.find((m) => m.body === 'later task');
       expect(found?.type).toBe('note');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('delivers result mail with a leaders-only audience', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const globalRoot = globalRootForData(dataDir);
+    const projectRoot = path.join(dataDir, 'mb-project-result');
+    await fs.mkdir(projectRoot, { recursive: true });
+    const cleanup = await seedSession(
+      globalRoot,
+      'sess-mb-result',
+      'mb-project-result',
+      projectRoot,
+    );
+    try {
+      const res = await fetch(`http://127.0.0.1:${handle.port}/api/mailbox-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'sess-mb-result',
+          type: 'result',
+          to: 'leader',
+          audience: 'leaders',
+          body: 'review complete',
+        }),
+      });
+      expect(res.status).toBe(202);
+      await expect(res.json()).resolves.toMatchObject({
+        delivered: true,
+        to: 'leader',
+        type: 'result',
+        audience: 'leaders',
+      });
+
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
+      const mailbox = new GlobalMailbox(resolveProjectDir(projectRoot, globalRoot));
+      const messages = await mailbox.query({ to: 'leader' });
+      expect(messages.find((message) => message.body === 'review complete')).toMatchObject({
+        type: 'result',
+        audience: 'leaders',
+      });
     } finally {
       await cleanup();
     }

@@ -1,10 +1,7 @@
-import type {
-  BrainArbiter,
-  BrainConfigPatch,
-  BrainConfigSnapshot,
-  BrainDecisionRequest,
-  BrainRuntime,
-} from '@wrongstack/core';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
+import type { BrainConfigPatch, BrainRuntime } from '@wrongstack/core/execution';
+import type { BrainConfigSnapshot } from '@wrongstack/core/execution';
+import type { BrainDecisionRequest } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildBrainCommand } from '../src/slash-commands/brain.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

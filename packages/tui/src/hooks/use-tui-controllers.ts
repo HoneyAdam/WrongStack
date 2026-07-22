@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { FleetChatVerbosity } from '@wrongstack/core';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
 import type { Action } from '../app-reducer.js';
 
 export interface FleetStreamController {

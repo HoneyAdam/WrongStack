@@ -1,4 +1,4 @@
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import {
   TelegramApiClient,
   TelegramBotApiError,

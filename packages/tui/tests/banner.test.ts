@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
-import { bannerGradientColor, brandMarkPinkRow } from '../src/components/history/banner.js';
+import { bannerGradientColor, brandMarkPinkRow, WORDMARK_LINES } from '../src/components/history/banner.js';
 import { Banner, shortenPath } from '../src/components/history.js';
 
 // ── ANSI / OSC 8 stripping ──
@@ -133,12 +133,10 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // The wordmark uses a compact 5×5 block face (59 columns wide). Assert the
-    // full first and last rendered rows so the entire mark — not just a prefix —
-    // is covered. Rows 0 and 4 end in a block (no trailing space), so they are
-    // robust against the centering padding Ink adds around the wordmark.
-    expect(frame).toContain('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █');
-    expect(frame).toContain('██ ██ █   █  ███  █   █  ████ ████    █   █   █  ████ █   █');
+    // The wordmark packs a clear 5×7 bitmap into four terminal rows. Upper
+    // and lower half blocks preserve vertical detail without fragmenting the
+    // strokes or doubling the banner height.
+    expect(frame).toContain(WORDMARK_LINES[0]);
     expect(frame).toContain('BUILT ON THE WRONG STACK. SHIPPED ANYWAY.');
     expect(frame).toContain('anthropic › claude-test');
     expect(frame).toContain('•••• XYZ');
@@ -220,7 +218,7 @@ describe('<Banner />', () => {
     unmount();
 
     expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
-    expect(frame.includes('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █')).toBe(termWidth >= 65);
+    expect(frame.includes(WORDMARK_LINES[0] ?? '')).toBe(termWidth >= 65);
   });
 });
 
@@ -231,6 +229,23 @@ describe('banner brand gradient', () => {
     expect(colors[0]?.toUpperCase()).toBe('#FD9F02');
     expect(colors.at(-1)?.toUpperCase()).toBe('#FE2E5F');
     expect(new Set(colors)).toHaveLength(colors.length);
+  });
+});
+
+describe('packed 5×7 wordmark', () => {
+  it('packs the bitmap into four uniform 59-column terminal rows', () => {
+    expect(WORDMARK_LINES).toHaveLength(4);
+    expect(WORDMARK_LINES.every((line) => line.length === 59)).toBe(true);
+    expect(WORDMARK_LINES.join('')).toMatch(/^[▀▄█ ]+$/u);
+  });
+
+  it('keeps strongly defined caps, crossbars, and baselines', () => {
+    expect(WORDMARK_LINES).toEqual([
+      '█   █ █▀▀▀▄ ▄▀▀▀▄ █▄  █ ▄▀▀▀▄ ▄▀▀▀▀ ▀▀█▀▀ ▄▀▀▀▄ ▄▀▀▀▀ █  ▄▀',
+      '█ ▄ █ █▄▄▄▀ █   █ █▀▄ █ █ ▄▄▄ ▀▄▄▄    █   █▄▄▄█ █     █▄▀  ',
+      '█ █ █ █ ▀▄  █   █ █  ██ █   █     █   █   █   █ █     █ ▀▄ ',
+      ' ▀ ▀  ▀   ▀  ▀▀▀  ▀   ▀  ▀▀▀  ▀▀▀▀    ▀   ▀   ▀  ▀▀▀▀ ▀   ▀',
+    ]);
   });
 });
 

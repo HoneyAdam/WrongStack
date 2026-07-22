@@ -8,8 +8,8 @@ import {
   mutateTasks,
   savePlan,
   setPlanItemStatus,
-  type TodoItem,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
+import type { TodoItem } from '@wrongstack/core/agent';
 import type { WebSocket } from 'ws';
 import type { WSServerMessage } from '../types.js';
 import { validatePlanTemplateUsePayload } from '../ws-payload-validation.js';

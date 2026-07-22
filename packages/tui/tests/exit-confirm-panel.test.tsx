@@ -99,4 +99,17 @@ describe('ExitConfirmPanel', () => {
     expect(frame).toContain('Esc');
     view.unmount();
   });
+
+  it('explains that detached background jobs are preserved', () => {
+    const view = render(
+      React.createElement(ExitConfirmPanel, {
+        leaderActive: true,
+        subagentCount: 0,
+        backgroundCount: 2,
+      }),
+    );
+    expect(view.lastFrame()).toContain('2 detached background processes');
+    expect(view.lastFrame()).toContain('remain running');
+    view.unmount();
+  });
 });

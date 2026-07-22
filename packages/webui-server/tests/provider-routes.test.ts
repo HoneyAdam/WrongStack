@@ -1,4 +1,4 @@
-import type { ResolvedProvider } from '@wrongstack/core';
+import type { ResolvedProvider } from '@wrongstack/core/types';
 import {
   handleProviderRoute,
   type ProviderRouteHandlers,

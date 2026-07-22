@@ -1,11 +1,7 @@
-import {
-  type Config,
-  Container,
-  DefaultLogger,
-  EventBus,
-  ProviderRegistry,
-  ToolRegistry,
-} from '@wrongstack/core';
+import { type Config } from '@wrongstack/core/types';
+import { Container, EventBus } from '@wrongstack/core/kernel';
+import { DefaultLogger } from '@wrongstack/core/infrastructure';
+import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import { describe, expect, it } from 'vitest';
 import createApi from '../src/plugin-api-factory.js';
 

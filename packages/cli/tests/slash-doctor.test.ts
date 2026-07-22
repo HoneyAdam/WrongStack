@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { stripAnsi } from '@wrongstack/core';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnoseConfig } from '../src/config-doctor.js';
 import { buildDoctorCommand } from '../src/slash-commands/doctor.js';

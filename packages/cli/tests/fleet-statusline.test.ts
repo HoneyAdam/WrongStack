@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EventBus } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
 import {
   FleetStatusLine,
   renderFleetLine,

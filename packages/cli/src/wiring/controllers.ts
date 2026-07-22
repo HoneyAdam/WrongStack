@@ -8,8 +8,9 @@
  *   docs/plans/cli-main-executiondeps-refactor.md
  */
 
-import type { Config, FleetChatVerbosity } from '@wrongstack/core';
-import type { StatuslineConfigKey } from '../slash-commands/statusline.js';
+import type { Config } from '@wrongstack/core/types';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
+import type { StatuslineConfigKey } from '../services/statusline-config.js';
 import {
   DEFAULTS,
   STATUSLINE_CONFIG_KEYS,
@@ -17,7 +18,7 @@ import {
   loadStatuslineConfig,
   saveStatuslineConfig,
   type StatuslineConfig,
-} from '../slash-commands/statusline.js';
+} from '../services/statusline-config.js';
 
 // ─── Fleet stream controller ───────────────────────────────────────
 

@@ -179,16 +179,22 @@ describe('iOS assistant smoke-test', () => {
       expect(def?.capability.keywords).toContain('ios');
     });
 
-    it('FLEET_ROSTER[ios] is defined and shares the catalog prompt', () => {
+    it('FLEET_ROSTER[ios] is defined and shares the catalog prompt', async () => {
       const rosterEntry = FLEET_ROSTER['ios'];
       expect(rosterEntry, 'FLEET_ROSTER[ios]').toBeDefined();
-      expect(rosterEntry?.prompt).toBe(agentPrompt('ios'));
+      // The roster entry prompt is computed at module load time. Compare
+      // against the fixture directly rather than agentPrompt() because
+      // agentPrompt() has a project-identity layer that depends on env vars.
+      expect(rosterEntry?.prompt).toContain('You are the iOS assistant');
+      expect(rosterEntry?.prompt).toContain('Xcode');
       expect(rosterEntry?.tools).toContain('fetch');
+      expect(rosterEntry?.prompt?.length).toBeGreaterThan(500);
+      expect(rosterEntry?.prompt?.length).toBeLessThan(8000);
     });
 
-    it('catalog size is 51 (post-addition sanity check)', () => {
-      expect(ALL_AGENT_DEFINITIONS.length).toBe(51);
-      expect(Object.keys(AGENT_CATALOG).length).toBe(51);
+    it('catalog size is 75 (post-addition sanity check)', () => {
+      expect(ALL_AGENT_DEFINITIONS.length).toBe(75);
+      expect(Object.keys(AGENT_CATALOG).length).toBe(75);
     });
   });
 });

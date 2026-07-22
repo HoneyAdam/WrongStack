@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  */
-import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core/hq';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the WS client module so store.ts doesn't try to create a real WS.

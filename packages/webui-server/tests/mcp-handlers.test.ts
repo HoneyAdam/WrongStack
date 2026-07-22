@@ -198,6 +198,48 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
     expect(servers[0]?.tools).toEqual(['a', 'b']);
   });
 
+  it('includes persisted config details needed by the Edit dialog', async () => {
+    await seed({
+      github: {
+        name: 'github',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { GITHUB_TOKEN: 'configured-token' },
+        enabled: false,
+      },
+      remote: {
+        name: 'remote',
+        transport: 'streamable-http',
+        url: 'https://mcp.example.com/mcp',
+        enabled: false,
+      },
+    });
+    const ws = fakeWs();
+
+    await handleMcpList(ws as never, msg('mcp.list'), configPath, makeRegistry());
+
+    const servers = (
+      ws.sent.find((m) => m.type === 'mcp.list')!.payload as {
+        servers: Array<{
+          name: string;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
+        }>;
+      }
+    ).servers;
+    expect(servers.find((server) => server.name === 'github')).toMatchObject({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: 'configured-token' },
+    });
+    expect(servers.find((server) => server.name === 'remote')?.url).toBe(
+      'https://mcp.example.com/mcp',
+    );
+  });
+
   it('maps a dormant lazy server to "sleeping" with cached tools', async () => {
     await seed({
       ctx: { name: 'ctx', transport: 'stdio', command: 'npx', enabled: true, lazy: true },

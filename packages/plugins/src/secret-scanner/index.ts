@@ -26,7 +26,7 @@
  * They share the same threat model but act at different points in the
  * pipeline.
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Pattern set

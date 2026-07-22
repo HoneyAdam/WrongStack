@@ -1,20 +1,10 @@
-import {
-  type Config,
-  createFallbackModelExtension,
-  type EventBus,
-  type FallbackProfileManager,
-  type Logger,
-  type Provider,
-  type ProviderConfig,
-  type ProviderConfigSnapshot,
-  type ProviderModelStatusTracker,
-  type ProviderRegistry,
-  readProviderSnapshot,
-  type SecretVault,
-  SessionMemoryConsolidator,
-  type WstackPaths,
-  watchProviderConfig,
-} from '@wrongstack/core';
+import { type Config, type Logger, type Provider, type ProviderConfig, type SecretVault } from '@wrongstack/core/types';
+import { createFallbackModelExtension, type FallbackProfileManager } from '@wrongstack/core/agent';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { type ProviderConfigSnapshot, readProviderSnapshot, SessionMemoryConsolidator, watchProviderConfig } from '@wrongstack/core/storage';
+import { type ProviderModelStatusTracker } from '@wrongstack/core/coordination';
+import { type ProviderRegistry } from '@wrongstack/core/registry';
+import { type WstackPaths } from '@wrongstack/core/utils';
 import { patchConfig } from '../utils.js';
 
 export function serializeProviderRuntimeSnapshot(snapshot: unknown): string {
@@ -138,7 +128,7 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
   if (cfg.features.memory && cfg.features.memoryConsolidation !== false) {
     const consSuperMemory = typeof memoryStore === 'object' && memoryStore !== null
       && typeof (memoryStore as Record<string, unknown>).rememberSuper === 'function'
-      ? (memoryStore as import('@wrongstack/core').ConsolidatorSuperMemory)
+      ? (memoryStore as import('@wrongstack/core/storage').ConsolidatorSuperMemory)
       : undefined;
     agent.extensions.register(
       new SessionMemoryConsolidator({

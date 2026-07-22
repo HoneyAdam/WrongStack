@@ -1,5 +1,5 @@
-import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { FetchError, ToolError, ToolValidationError } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core/types';
+import { FetchError, ToolError, ToolValidationError } from '@wrongstack/core/types';
 import TurndownService from 'turndown';
 import { ALLOW_PRIVATE, assertNotPrivate, guardedFetch } from './_fetch-guard.js';
 import { truncateMiddle } from './_util.js';

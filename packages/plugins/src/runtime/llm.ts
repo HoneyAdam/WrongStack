@@ -7,7 +7,7 @@
  * deterministic fallback when no provider is wired or generation fails.
  */
 
-import type { PluginAPI, PluginLLMOptions } from '@wrongstack/core';
+import type { PluginAPI, PluginLLMOptions } from '@wrongstack/core/types';
 
 export interface OptionalLlmResult<T> {
   used: boolean;

@@ -432,6 +432,33 @@ describe('makeMailboxTool', () => {
     expect(msgs[0]!.from).toBe(`sender@${mailboxSessionTag('default')}`);
   });
 
+  it('forces Chimera sends through the low-level tool to leaders only', async () => {
+    const chimeraTool = makeMailboxTool({
+      resolveMailbox: () => mailbox,
+      agentId: 'chimera-fix',
+    });
+    const result = await chimeraTool.execute(
+      {
+        action: 'send',
+        to: 'agent-b',
+        type: 'result',
+        subject: 'Fix result',
+        body: 'Applied fixes',
+      },
+      mockCtx({
+        agentId: 'chimera-fix',
+        agentName: 'chimera-fix',
+        meta: { agentId: 'chimera-fix', agentName: 'chimera-fix' },
+      }) as any,
+    );
+
+    expect(result).toMatchObject({ ok: true, to: 'leader' });
+    const msgs = await mailbox.query({ to: 'leader' });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({ audience: 'leaders', type: 'result' });
+    expect(await mailbox.query({ to: 'agent-b' })).toHaveLength(0);
+  });
+
   it('send canonicalizes @session and query filters by sender session', async () => {
     const context = mockCtx({
       meta: { agentId: 'sender', sessionId: 'session-a' },

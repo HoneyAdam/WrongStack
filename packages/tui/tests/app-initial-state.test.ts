@@ -1,4 +1,4 @@
-import type { Message, SessionEvent } from '@wrongstack/core';
+import type { Message, SessionEvent } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   buildRestoredCheckpoints,

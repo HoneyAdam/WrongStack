@@ -1,4 +1,4 @@
-import type { ProviderConfig, SecretVault } from '@wrongstack/core';
+import type { ProviderConfig, SecretVault } from '@wrongstack/core/types';
 import type { WebSocket } from 'ws';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProviderHandlers } from '@wrongstack/webui-server/server/provider-handlers.js';

@@ -30,7 +30,8 @@
  * @public
  */
 
-import type { Plugin, Mailbox, MailboxSendInput } from '@wrongstack/core';
+import type { Mailbox, MailboxSendInput } from '@wrongstack/core/coordination';
+import type { Plugin } from '@wrongstack/core/types';
 
 const API_VERSION = '^0.1.10';
 

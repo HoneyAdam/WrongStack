@@ -23,7 +23,8 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { GlobalMailbox, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 import {
   addRouteMutationTests,

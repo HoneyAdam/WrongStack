@@ -361,6 +361,11 @@ export class BrowserSessionManager {
     for (const id of ids) await this.close(id, ownerId).catch(() => undefined);
   }
 
+  /** True when the manager owns no live browser contexts. */
+  isIdle(): boolean {
+    return this.sessions.size === 0;
+  }
+
   async dispose(): Promise<void> {
     for (const session of [...this.sessions.values()]) {
       await session.context.close().catch(() => undefined);

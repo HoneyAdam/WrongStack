@@ -16,7 +16,7 @@ vi.mock('../src/store.js', async (importOriginal) => {
 
 import { CockpitView } from '../src/views/cockpit.js';
 import { useHqStore } from '../src/store.js';
-import type { HqAlert } from '@wrongstack/core';
+import type { HqAlert } from '@wrongstack/core/hq';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;

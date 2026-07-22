@@ -8,16 +8,24 @@ import type { State } from '../src/app-reducer.js';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // We need to mock the core modules that useInputHistoryPersistence imports
-vi.mock('@wrongstack/core', () => {
+vi.mock('@wrongstack/core/storage', () => {
   const mockStore = {
     _entries: [] as string[],
     load: vi.fn(async function () { return (this as unknown as typeof mockStore)._entries; }),
     save: vi.fn(async () => undefined),
   };
   return {
-    DefaultSecretScrubber: vi.fn(() => ({ scrub: vi.fn((s: string) => s) })),
     InputHistoryStore: vi.fn(() => mockStore),
     INPUT_HISTORY_DEFAULT_MAX: 100,
+  };
+});
+
+vi.mock('@wrongstack/core/security', () => ({
+  DefaultSecretScrubber: vi.fn(() => ({ scrub: vi.fn((s: string) => s) })),
+}));
+
+vi.mock('@wrongstack/core/utils', () => {
+  return {
     resolveWstackPaths: vi.fn(() => ({ projectInputHistory: '/fake/path/history.json' })),
   };
 });
@@ -62,7 +70,7 @@ describe('useInputHistoryPersistence', () => {
     render(React.createElement(Harness, { refs }));
     // The mock InputHistoryStore.load returns [] by default
     // We need to set up the mock to return entries
-    const { InputHistoryStore } = await import('@wrongstack/core');
+    const { InputHistoryStore } = await import('@wrongstack/core/storage');
     const storeInstance = (InputHistoryStore as unknown as Mock).mock.results[0]?.value;
     if (storeInstance) {
       storeInstance._entries = ['entry1', 'entry2'];
@@ -96,7 +104,7 @@ describe('useInputHistoryPersistence', () => {
   });
 
   it('handles load error gracefully', async () => {
-    const { InputHistoryStore } = await import('@wrongstack/core');
+    const { InputHistoryStore } = await import('@wrongstack/core/storage');
     (InputHistoryStore as unknown as Mock).mockImplementation(() => ({
       _entries: [],
       load: vi.fn(async () => { throw new Error('load error'); }),

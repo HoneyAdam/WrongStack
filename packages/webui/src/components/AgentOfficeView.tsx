@@ -15,6 +15,7 @@ import {
   HardDrive,
   Inbox,
   ListTodo,
+  Lock,
   type LucideIcon,
   Mail,
   MemoryStick,
@@ -1167,6 +1168,11 @@ function MailActionDetail({
           {mail.from} → {mail.to}
         </strong>
         <span>{mail.type}</span>
+        {mail.audience === 'leaders' && (
+          <span>
+            <Lock className="h-3 w-3" /> {t('activity:mailbox.audienceLeaders')}
+          </span>
+        )}
       </div>
 
       <section className="agent-office__detail-section">

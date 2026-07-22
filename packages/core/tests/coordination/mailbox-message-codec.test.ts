@@ -22,6 +22,7 @@ describe('mailbox message codec', () => {
     const parsed = parseMailboxMessageLine(
       JSON.stringify({
         ...validMessage,
+        audience: 'leaders',
         replyTo: 'parent',
         taskContext: { agentRole: 'executor', status: 'running' },
       }),
@@ -30,6 +31,7 @@ describe('mailbox message codec', () => {
     expect(parsed).toMatchObject({
       id: 'm1',
       replyTo: 'parent',
+      audience: 'leaders',
       taskContext: { agentRole: 'executor', status: 'running' },
     });
   });
@@ -66,6 +68,7 @@ describe('mailbox message codec', () => {
     [],
     { ...validMessage, id: 1 },
     { ...validMessage, type: 'mystery' },
+    { ...validMessage, audience: 'workers' },
     { ...validMessage, priority: 1 },
     { ...validMessage, readBy: [] },
     { ...validMessage, readBy: { worker: 1 } },

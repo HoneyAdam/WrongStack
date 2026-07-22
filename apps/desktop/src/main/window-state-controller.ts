@@ -24,17 +24,26 @@ export class DesktopWindowStateController {
 
   async save(): Promise<void> {
     const window = this.ctx.getWindow();
-    if (!window) return;
+    if (!window || window.isDestroyed?.()) return;
     const bounds = window.getNormalBounds();
     await this.ctx.save({ ...bounds, maximized: window.isMaximized() });
   }
 
   validated(state: DesktopWindowState | null): DesktopWindowState | null {
-    if (!state || state.width < MIN_WINDOW_WIDTH || state.height < MIN_WINDOW_HEIGHT) return null;
-    if (state.x === undefined || state.y === undefined) return state;
+    if (
+      !state ||
+      !Number.isFinite(state.width) ||
+      !Number.isFinite(state.height) ||
+      state.width < MIN_WINDOW_WIDTH ||
+      state.height < MIN_WINDOW_HEIGHT
+    )
+      return null;
+    if (state.x === undefined || state.y === undefined) {
+      return { width: state.width, height: state.height, maximized: state.maximized };
+    }
     const candidate = { x: state.x, y: state.y, width: state.width, height: state.height };
     return this.ctx.getDisplays().some(({ workArea }) => intersects(candidate, workArea))
-      ? state
+      ? { x: state.x, y: state.y, width: state.width, height: state.height, maximized: state.maximized }
       : null;
   }
 }

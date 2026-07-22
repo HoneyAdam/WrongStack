@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { getProcessRegistry } from '@wrongstack/tools';
 
 const USAGE =

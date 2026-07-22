@@ -1,4 +1,4 @@
-import { DefaultPluginAPI, type PluginAPI, type PluginAPIInit } from '@wrongstack/core';
+import { DefaultPluginAPI, type PluginAPI, type PluginAPIInit } from '@wrongstack/core/plugin';
 
 export default function createApi(
   ownerName: string,

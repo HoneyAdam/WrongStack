@@ -1,13 +1,9 @@
 import type { Dirent } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  SKILL_LIMITS,
-  type SkillLoader,
-  stripFrontmatter,
-  type Tool,
-  ToolValidationError,
-} from '@wrongstack/core';
+import { SKILL_LIMITS, stripFrontmatter } from '@wrongstack/core/skills';
+import type { SkillLoader, Tool } from '@wrongstack/core/types';
+import { ToolValidationError } from '@wrongstack/core/types';
 
 interface SkillToolInput {
   name: string;

@@ -10,7 +10,7 @@
  * additionally needs the client started with `--hq-allow-exec` and a token
  * carrying `control.execute`.
  */
-import type { HqClientRecord, HqSnapshot } from '@wrongstack/core';
+import type { HqClientRecord, HqSnapshot } from '@wrongstack/core/hq';
 import {
   AlertTriangle,
   Bot,

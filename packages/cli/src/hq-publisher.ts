@@ -1,10 +1,6 @@
-import {
-  createHqPublisherFromEnv,
-  resolveHqConfig,
-  type CreateHqPublisherOptions,
-  type HqPublisher,
-  type HqSocketLike,
-} from '@wrongstack/core';
+import { createHqPublisherFromEnv, resolveHqConfig } from '@wrongstack/core/hq';
+import { type CreateHqPublisherOptions } from '@wrongstack/core/hq';
+import { type HqPublisher, type HqSocketLike } from '@wrongstack/core/hq';
 import { WebSocket } from 'ws';
 
 type CliHqPublisherOptions = Omit<CreateHqPublisherOptions, 'socketFactory'> & {

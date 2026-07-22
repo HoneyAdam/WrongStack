@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import { parseAuthFlags } from '../../arg-parser.js';
 import {
   type AuthMenuDeps,

@@ -1,4 +1,4 @@
-import { ParseError } from '@wrongstack/core';
+import { ParseError } from '@wrongstack/core/types';
 import { isNodeReadable } from './object-utils.js';
 
 /**

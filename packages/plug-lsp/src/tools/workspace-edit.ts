@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core/utils';
 import type { TextEdit, WorkspaceEdit } from 'vscode-languageserver-protocol';
 import type { DocumentTracker } from '../document-tracker.js';
 import { editsByPath } from '../formatters/workspace-edit.js';

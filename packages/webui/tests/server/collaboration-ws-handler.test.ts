@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { CollaborationBus, EventBus } from '@wrongstack/core';
+import { CollaborationBus } from '@wrongstack/core/coordination';
+import { EventBus } from '@wrongstack/core/kernel';
 import { CollaborationWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal ws stub capturing sent JSON messages. */

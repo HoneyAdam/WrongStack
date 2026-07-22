@@ -11,8 +11,9 @@
  * aborted) so the caller assigns it to its `code` variable without a
  * closure mutation.
  */
-import type { Agent, TokenCounter } from '@wrongstack/core';
-import { color, writeOut } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { TokenCounter } from '@wrongstack/core/types';
+import { color, writeOut } from '@wrongstack/core/utils';
 import type { TerminalRenderer } from '../renderer.js';
 import { contextOverflowHint } from '../context-overflow-diagnostic.js';
 import { fmtTok } from '../utils.js';
@@ -47,14 +48,14 @@ export async function runSingleShotDispatch(
   const startedAt = Date.now();
   const before = tokenCounter.total();
   const costBefore = tokenCounter.estimateCost().total;
-  let result: import('@wrongstack/core').RunResult;
+  let result: import('@wrongstack/core/agent').RunResult;
   try {
     result = await agent.run(query, { signal: ctrl.signal });
   } finally {
     process.off('SIGINT', onSigint);
     // Clean up any lingering bash/exec processes.
     const { getProcessRegistry } = await import('@wrongstack/tools');
-    getProcessRegistry().killAll();
+    getProcessRegistry().killAll({ preserveBackground: true });
   }
   const after = tokenCounter.total();
   const costAfter = tokenCounter.estimateCost().total;

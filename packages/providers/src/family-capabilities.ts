@@ -1,4 +1,4 @@
-import type { Capabilities, WireFamily } from '@wrongstack/core';
+import type { Capabilities, WireFamily } from '@wrongstack/core/types';
 
 export const CAPABILITIES_BY_FAMILY: Record<WireFamily, Capabilities> = {
   anthropic: {

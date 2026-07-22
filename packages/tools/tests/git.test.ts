@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { gitTool } from '../src/git.js';
-import { projectSlug } from '@wrongstack/core';
+import { projectSlug } from '@wrongstack/core/utils';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';

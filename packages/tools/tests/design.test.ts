@@ -112,4 +112,26 @@ describe('designTool', () => {
       expect(wrote).toBe(false);
     },
   );
+
+  it('tune resolves high-level knobs and flows into materialize', async () => {
+    const ctx = makeCtx();
+    await designTool.execute({ action: 'use', kit: 'linear-dark', stack: 'web' }, ctx, opts);
+    const tuned = await designTool.execute(
+      { action: 'tune', tune: { radius: 'lg', density: 'compact' } },
+      ctx,
+      opts,
+    );
+    expect(tuned.output).toMatch(/Tuned/);
+    expect(tuned.output).toContain('radius-md=0.75rem');
+    // Materialize picks up the tuned overrides in the generated CSS.
+    const mat = await designTool.execute(
+      { action: 'materialize', out: 'tuned.css', force: true },
+      ctx,
+      opts,
+    );
+    const css = await fs.readFile(path.join(root, 'tuned.css'), 'utf8');
+    expect(css).toContain('--radius-md: 0.75rem;');
+    expect(css).toContain('--spacing-4: 0.8rem;'); // compact density
+    expect(mat.output).toMatch(/Wrote/);
+  });
 });

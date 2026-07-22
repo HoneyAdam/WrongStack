@@ -1,5 +1,6 @@
 import * as path from 'node:path';
-import { type AgentPipelines, DefaultLogger, createDefaultPipelines } from '@wrongstack/core';
+import { type AgentPipelines, createDefaultPipelines } from '@wrongstack/core/agent';
+import { DefaultLogger } from '@wrongstack/core/infrastructure';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Spy on the background indexer entry points the wiring drives.

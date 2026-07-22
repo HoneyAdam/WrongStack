@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { summarizeWorkspaceEdit } from '../formatters/workspace-edit.js';
 import { humanToLSP } from '../position.js';
 import { supportsRename } from '../server/capabilities.js';

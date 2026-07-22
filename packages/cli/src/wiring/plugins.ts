@@ -1,26 +1,12 @@
 import { join } from 'node:path';
-import type {
-  AgentPipelines,
-  Config,
-  ConfigStore,
-  Container,
-  EventBus,
-  ExtensionRegistry,
-  HealthRegistry,
-  Logger,
-  MetricsRuntimeStatus,
-  MetricsSinkView,
-  ModelsRegistry,
-  Plugin,
-  PluginHostHandle,
-  PromptLoader,
-  ProviderRegistry,
-  SessionWriter,
-  SkillLoader,
-  SlashCommandRegistry,
-  ToolRegistry,
-} from '@wrongstack/core';
-import { loadPlugins, resolvePluginConfig } from '@wrongstack/core';
+import type { AgentPipelines } from '@wrongstack/core/agent';
+import type { Config, HealthRegistry, Logger, MetricsRuntimeStatus, MetricsSinkView, ModelsRegistry, Plugin, PromptLoader, SkillLoader } from '@wrongstack/core/types';
+import type { ExtensionRegistry } from '@wrongstack/core/extension';
+import type { PluginHostHandle } from '@wrongstack/core/plugin';
+import type { ConfigStore, SessionWriter } from '@wrongstack/core/types';
+import type { Container, EventBus } from '@wrongstack/core/kernel';
+import type { ProviderRegistry, SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { loadPlugins, resolvePluginConfig } from '@wrongstack/core/plugin';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { OFFICIAL_PLUGIN_FACTORIES } from '@wrongstack/plugins/factories';
 import createApi from '../plugin-api-factory.js';
@@ -125,7 +111,7 @@ export interface PluginsWiringDeps {
   log: Logger;
   agent: { extensions?: ExtensionRegistry | undefined };
   /** Lifecycle hook registry — injected so plugins can register in-process hooks. */
-  hookRegistry?: import('@wrongstack/core').HookRegistry | undefined;
+  hookRegistry?: import('@wrongstack/core/hooks').HookRegistry | undefined;
   sessionWriter: SessionWriter;
   metricsSink?: MetricsSinkView | undefined;
   metricsStatus?: MetricsRuntimeStatus | undefined;
@@ -140,14 +126,14 @@ export interface PluginsWiringDeps {
    * publish to other agents (todo-listener, session-recap). Optional —
    * minimal hosts (tests, the LSP server) may omit.
    */
-  mailbox?: import('@wrongstack/core').Mailbox | undefined;
+  mailbox?: import('@wrongstack/core/coordination').Mailbox | undefined;
   /**
    * Notification router — instantiated as a `NotifierImpl` by the host.
    * Plugins that deliver one-way notifications (Telegram, Slack, webhook)
    * register their `NotificationChannel` with this notifier during setup().
    * Optional — minimal hosts may omit.
    */
-  notifier?: import('@wrongstack/core').Notifier | undefined;
+  notifier?: import('@wrongstack/core/notifications').Notifier | undefined;
   /**
    * LLM wiring for `api.llm` — the host session's live provider, its
    * default model, and a factory for named-provider overrides. Optional —
@@ -155,12 +141,12 @@ export interface PluginsWiringDeps {
    */
   llm?:
     | {
-        provider: import('@wrongstack/core').Provider;
+        provider: import('@wrongstack/core/types').Provider;
         model: string;
-        getProvider?: (() => import('@wrongstack/core').Provider) | undefined;
+        getProvider?: (() => import('@wrongstack/core/types').Provider) | undefined;
         getModel?: (() => string) | undefined;
         createProvider?:
-          | ((name: string, model?: string) => import('@wrongstack/core').Provider)
+          | ((name: string, model?: string) => import('@wrongstack/core/types').Provider)
           | undefined;
       }
     | undefined;
@@ -182,6 +168,8 @@ export interface PluginsWiringDeps {
     globalMemory: string;
     historyFile: string;
     syncConfig: string;
+    /** ~/.wrongstack/profiles/<activeProfile> — used by sync plugin for its state path. */
+    configDir: string;
     /**
      * Per-project root (`~/.wrongstack/projects/<slug>/`). Plugins that
      * need project-scoped state (todo-tracker, etc.) should put their
@@ -205,23 +193,23 @@ export interface PluginsWiringDeps {
  */
 export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
   async () => {
-    const { createPromptsPlugin } = await import('@wrongstack/core');
+    const { createPromptsPlugin } = await import('@wrongstack/core/plugin');
     return createPromptsPlugin();
   },
   async () => {
-    const { createSyncPlugin } = await import('@wrongstack/core');
+    const { createSyncPlugin } = await import('@wrongstack/core/plugin');
     return createSyncPlugin();
   },
   async () => {
-    const { createChimeraPlugin } = await import('@wrongstack/core');
+    const { createChimeraPlugin } = await import('@wrongstack/core/plugin');
     return createChimeraPlugin();
   },
   async () => {
-    const { createAutoReviewPlugin } = await import('@wrongstack/core');
+    const { createAutoReviewPlugin } = await import('@wrongstack/core/plugin');
     return createAutoReviewPlugin();
   },
   async () => {
-    const { createSkillsPlugin } = await import('@wrongstack/core');
+    const { createSkillsPlugin } = await import('@wrongstack/core/plugin');
     return createSkillsPlugin();
   },
   // ── Workspace plugins (@wrongstack/plugins subpath exports) ──────────

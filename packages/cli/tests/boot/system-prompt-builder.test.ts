@@ -31,7 +31,7 @@ import * as path from 'node:path';
 
 const { bindSystemPromptBuilder } = await import('../../src/boot/system-prompt-builder.js');
 
-import type { TokenSavingTier } from '@wrongstack/core';
+import type { TokenSavingTier } from '@wrongstack/core/types';
 
 interface CapturedBuilder {
   opts: {

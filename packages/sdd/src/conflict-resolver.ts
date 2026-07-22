@@ -20,7 +20,7 @@ import type { TaskNode } from '@wrongstack/core/types';
 import {
   readBundledInstructionText,
   renderInstructionTemplate,
-} from '@wrongstack/core';
+} from '@wrongstack/core/utils';
 
 export type ConflictSide = 'incoming' | 'base';
 

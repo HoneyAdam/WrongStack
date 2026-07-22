@@ -113,6 +113,22 @@ describe('StdioTransport', () => {
     expect(await p).toEqual({ method: 'split', id: 7 });
   });
 
+  it('closes instead of retaining an oversized pending frame', async () => {
+    const t = new StdioTransport({ maxFrameChars: 8 });
+    stdin.emit('data', '123456789');
+    expect(stdin.pause).toHaveBeenCalled();
+    expect(await t.read()).toBeNull();
+    expect(stderr.written.some((s) => s.includes('frame error'))).toBe(true);
+  });
+
+  it('accepts a large chunk made of individually bounded frames', async () => {
+    const t = new StdioTransport({ maxFrameChars: 15 });
+    stdin.emit('data', '{"method":"a"}\n{"method":"b"}\n');
+    expect(await t.read()).toEqual({ method: 'a' });
+    expect(await t.read()).toEqual({ method: 'b' });
+    expect(stdin.pause).not.toHaveBeenCalled();
+  });
+
   it('writes a parse error to stderr for malformed JSON', () => {
     const t = new StdioTransport();
     void t;
@@ -366,6 +382,50 @@ describe('ClientTransport', () => {
     off();
     child.stdout.emit('data', JSON.stringify({ method: 'second' }) + '\n');
     expect(seen).toEqual([{ method: 'first' }]);
+  });
+
+  it('does not duplicate onMessage traffic into the optional read queue', async () => {
+    const { transport, child } = await startedTransport();
+    const seen: ACPMessage[] = [];
+    transport.onMessage((m) => seen.push(m));
+    child.stdout.emit('data', JSON.stringify({ method: 'handler-only' }) + '\n');
+    expect(seen).toEqual([{ method: 'handler-only' }]);
+    expect((transport as unknown as { messageQueue: ACPMessage[] }).messageQueue).toHaveLength(0);
+  });
+
+  it('kills the child instead of retaining an oversized pending frame', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({
+      command: 'agent',
+      skipHandshakeMarker: true,
+      maxFrameChars: 8,
+    });
+    const started = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    child.emit('spawn');
+    await started;
+    child.stdout.emit('data', '123456789');
+    expect(child.kill).toHaveBeenCalled();
+    expect(await transport.read()).toBeNull();
+  });
+
+  it('accepts a large child chunk made of individually bounded frames', async () => {
+    const child = new FakeChild();
+    spawnMock.fn.mockReturnValue(child);
+    const transport = new ClientTransport({
+      command: 'agent',
+      skipHandshakeMarker: true,
+      maxFrameChars: 15,
+    });
+    const started = transport.start();
+    await vi.waitFor(() => expect(spawnMock.fn).toHaveBeenCalled());
+    child.emit('spawn');
+    await started;
+    child.stdout.emit('data', '{"method":"a"}\n{"method":"b"}\n');
+    expect(await transport.read()).toEqual({ method: 'a' });
+    expect(await transport.read()).toEqual({ method: 'b' });
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
   it('queues child messages with no pending read', async () => {

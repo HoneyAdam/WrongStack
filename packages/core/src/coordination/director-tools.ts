@@ -3,10 +3,10 @@ import {
   claimReadyTask,
   describeKanbanBoundary,
   heartbeatTaskAssignment,
-  listReadyTasks,
-  updateTaskAssignment,
   type KanbanBoard,
   type KanbanTask,
+  listReadyTasks,
+  updateTaskAssignment,
 } from '@wrongstack/kanban';
 import { ToolCapabilities } from '../security/capabilities.js';
 import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
@@ -14,12 +14,12 @@ import type { JSONSchema, Tool } from '../types/tool.js';
 import { toErrorMessage } from '../utils/error.js';
 import { type AgentDefinition, getAgentDefinition } from './agents/index.js';
 import type { CollabSessionOptions } from './collab-debug.js';
-import type { Director } from './director.js';
 import {
   FleetCostCapError,
   FleetSpawnBudgetError,
   FleetTokenCapError,
 } from './director/director-errors.js';
+import type * as Host from './director-host-contracts.js';
 import { dispatchAgent } from './dispatcher.js';
 import { validateFleetEventEmission } from './fleet-event-validation.js';
 
@@ -34,7 +34,10 @@ function nowIso(): string {
 // reads the descriptions and gets clean structured shapes. We avoid deep
 // nested schemas because they confuse smaller models.
 
-export function makeSpawnTool(director: Director, roster?: Record<string, SubagentConfig>): Tool {
+export function makeSpawnTool(
+  director: Host.DirectorAdmissionPort,
+  roster?: Record<string, SubagentConfig>,
+): Tool {
   const inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -234,7 +237,7 @@ interface QualityGateAssessment {
 }
 
 export function makeQualityGateTool(
-  director: Director,
+  director: Host.DirectorRepairPort,
   roster?: Record<string, SubagentConfig>,
 ): Tool {
   return {
@@ -729,7 +732,7 @@ function excerpt(text: string, max: number): string {
   return `${text.slice(0, max - 20).trimEnd()}\n...(truncated)`;
 }
 
-export function makeAssignTool(director: Director): Tool {
+export function makeAssignTool(director: Pick<Host.DirectorAssignmentPort, 'assign'>): Tool {
   const inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -799,7 +802,7 @@ interface KanbanQueueInput {
 }
 
 export function makeKanbanQueueTool(
-  director: Director,
+  director: Host.DirectorLeaseRecoveryPort,
   roster?: Record<string, SubagentConfig>,
 ): Tool {
   return {
@@ -1195,7 +1198,9 @@ export function makeKanbanQueueTool(
         // the initial lease, dispatch stamp, and every refresh agree.
         const ourLeaseId = leaseSeeding.leaseId;
         const runTaskIds = new Set(dispatches.map((dispatch) => dispatch.runTaskId));
-        const heartbeatTimer = setInterval(async () => {
+        let heartbeatRunning = false;
+        let heartbeatInFlight: Promise<void> = Promise.resolve();
+        const runHeartbeat = async (): Promise<void> => {
           const refreshedExpiry = new Date(Date.now() + effectiveLeaseTtlMs).toISOString();
           for (const dispatch of dispatches) {
             // Only heartbeat tasks still in flight; resolved ones are
@@ -1217,12 +1222,22 @@ export function makeKanbanQueueTool(
               // tear down the awaited dispatch over a transient write error.
             }
           }
+        };
+        const heartbeatTimer = setInterval(() => {
+          // setInterval does not await async callbacks. Without this guard a
+          // slow board store can accumulate overlapping heartbeat batches.
+          if (heartbeatRunning) return;
+          heartbeatRunning = true;
+          heartbeatInFlight = runHeartbeat().finally(() => {
+            heartbeatRunning = false;
+          });
         }, heartbeatIntervalMs);
 
         try {
           results = await director.awaitTasks(dispatches.map((dispatch) => dispatch.runTaskId));
         } finally {
           clearInterval(heartbeatTimer);
+          await heartbeatInFlight.catch(() => undefined);
         }
         for (const result of results) {
           const dispatch = dispatches.find((candidate) => candidate.runTaskId === result.taskId);
@@ -1489,7 +1504,7 @@ function resultErrorText(result: TaskResult): string {
   return result.error ? `${result.error.kind}: ${result.error.message}` : result.status;
 }
 
-export function makeAwaitTasksTool(director: Director): Tool {
+export function makeAwaitTasksTool(director: Host.DirectorAssignmentPort): Tool {
   return {
     name: 'await_tasks',
     description:
@@ -1549,7 +1564,9 @@ export function makeAwaitTasksTool(director: Director): Tool {
   };
 }
 
-export function makeAskTool(director: Director): Tool {
+export function makeAskTool(
+  director: Host.DirectorQuestionPort & Host.DirectorAnswerStorePort,
+): Tool {
   return {
     name: 'ask_subagent',
     description:
@@ -1601,7 +1618,7 @@ export function makeAskTool(director: Director): Tool {
  * The key was returned as `_answerKey` in the ask_subagent response.
  * Use this only for large responses that were stored out-of-context.
  */
-export function makeAskResultTool(director: Director): Tool {
+export function makeAskResultTool(director: Host.DirectorAnswerStorePort): Tool {
   return {
     name: 'ask_result',
     description:
@@ -1634,7 +1651,7 @@ export function makeAskResultTool(director: Director): Tool {
   };
 }
 
-export function makeRollUpTool(director: Director): Tool {
+export function makeRollUpTool(director: Pick<Host.DirectorQuestionPort, 'rollUp'>): Tool {
   return {
     name: 'roll_up',
     description: 'Aggregate completed task results into a single formatted summary.',
@@ -1665,7 +1682,7 @@ export function makeRollUpTool(director: Director): Tool {
   };
 }
 
-export function makeTerminateTool(director: Director): Tool {
+export function makeTerminateTool(director: Pick<Host.DirectorLifecyclePort, 'terminate'>): Tool {
   return {
     name: 'terminate_subagent',
     description:
@@ -1686,7 +1703,9 @@ export function makeTerminateTool(director: Director): Tool {
   };
 }
 
-export function makeTerminateAllTool(director: Director): Tool {
+export function makeTerminateAllTool(
+  director: Pick<Host.DirectorLifecyclePort, 'terminateAll'>,
+): Tool {
   return {
     name: 'terminate_all',
     description:
@@ -1718,7 +1737,7 @@ export function makeTerminateAllTool(director: Director): Tool {
  * reduces tool-schema token overhead (4 × ~150 tokens → 1 × ~250 tokens)
  * and eliminates model confusion when choosing between similar tools.
  */
-export function makeFleetTool(director: Director): Tool {
+export function makeFleetTool(director: Host.DirectorReadModelPort): Tool {
   return {
     name: 'fleet',
     description:
@@ -1844,7 +1863,7 @@ export function makeFleetTool(director: Director): Tool {
  * Returns a structured CollabDebugReport containing all bug findings,
  * refactor plans, critic evaluations, and an overall verdict.
  */
-export function makeCollabDebugTool(director: Director): Tool {
+export function makeCollabDebugTool(director: Host.DirectorCollabPort): Tool {
   return {
     name: 'collab_debug',
     description:
@@ -1936,7 +1955,7 @@ export function makeCollabDebugTool(director: Director): Tool {
  *
  * The payload structure is event-type-specific. Use null for empty payloads.
  */
-export function makeFleetEmitTool(director: Director): Tool {
+export function makeFleetEmitTool(director: Host.DirectorPublishingPort): Tool {
   return {
     name: 'fleet_emit',
     description:
@@ -1992,7 +2011,9 @@ export function makeFleetEmitTool(director: Director): Tool {
  * stop spawning without forcibly stopping in-flight work. Call
  * `terminate_subagent` separately for any subagent you need to stop immediately.
  */
-export function makeWorkCompleteTool(director: Director): Tool {
+export function makeWorkCompleteTool(
+  director: Pick<Host.DirectorLifecyclePort, 'workComplete'>,
+): Tool {
   return {
     name: 'work_complete',
     description:

@@ -1,4 +1,6 @@
-import { DefaultPromptLoader, PromptUsageStore, resolveWstackPaths } from '@wrongstack/core';
+import { DefaultPromptLoader } from '@wrongstack/core/execution';
+import { PromptUsageStore } from '@wrongstack/core/storage';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { useCallback, useRef } from 'react';

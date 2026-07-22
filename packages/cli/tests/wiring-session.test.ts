@@ -1,7 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Message, SessionStore, SessionWriter, WstackPaths } from '@wrongstack/core';
+import type { Message } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { SessionStore, SessionWriter } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setupSession } from '../src/wiring/session.js';
 
@@ -34,8 +36,8 @@ function makeWpaths(): WstackPaths {
 function makeSessionWriter(id = 'sess-new'): SessionWriter {
   return {
     id,
-    append: vi.fn(),
-    finalize: vi.fn(),
+    append: vi.fn().mockResolvedValue(undefined),
+    finalize: vi.fn().mockResolvedValue(undefined),
   } as never as SessionWriter;
 }
 

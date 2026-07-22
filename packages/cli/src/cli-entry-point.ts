@@ -18,7 +18,7 @@
  *      logs `err.stack` (not just the message) makes crash dumps from
  *      end-user bug reports actually debuggable.
  */
-import { writeErr } from '@wrongstack/core';
+import { writeErr } from '@wrongstack/core/utils';
 
 const isMain =
   import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}` ||

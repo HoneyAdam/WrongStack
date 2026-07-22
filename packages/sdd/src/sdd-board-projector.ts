@@ -12,10 +12,10 @@
  * on the nodes (the run mutates them through the tracker), so the projector
  * mostly re-derives the snapshot and only tracks run-level status/wave/deadlock.
  */
-import { DefaultSecretScrubber, type SecretScrubber } from '@wrongstack/core';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
 import type { EventBus, EventMap } from '@wrongstack/core/kernel';
 import type { TaskTracker } from '@wrongstack/core/tasking';
-import type { TaskGraph } from '@wrongstack/core/types';
+import type { SecretScrubber, TaskGraph } from '@wrongstack/core/types';
 import {
   buildBoardSnapshot,
   type SddBoardFeedEntry,

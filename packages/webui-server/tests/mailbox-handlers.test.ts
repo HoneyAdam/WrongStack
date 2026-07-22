@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMailboxRouteHandlers, handleMailboxMessages } from '@wrongstack/webui-server';
 
@@ -61,6 +61,14 @@ describe('mailbox handlers', () => {
       subject: 'broadcast',
       body: 'all',
     });
+    await mailbox.send({
+      from: 'sender',
+      to: 'agent-a',
+      type: 'note',
+      audience: 'leaders',
+      subject: 'leader-private',
+      body: 'hidden',
+    });
 
     const ws = mockWs();
     await handleMailboxMessages(ws, { projectRoot, globalRoot }, { agentId: 'agent-a', limit: 10 });
@@ -114,5 +122,42 @@ describe('mailbox handlers', () => {
     };
     expect(response.type).toBe('key.operation_result');
     expect(response.payload.success).toBe(false);
+  });
+
+  it('persists WebUI leader-only mail and acknowledges the request', async () => {
+    const ws = mockWs();
+    const routes = createMailboxRouteHandlers({
+      getProjectRoot: () => projectRoot,
+      getGlobalRoot: () => globalRoot,
+    });
+
+    await routes.send(ws, {
+      type: 'mailbox.send',
+      payload: {
+        requestId: 'webui-1',
+        to: 'leader',
+        type: 'result',
+        audience: 'leaders',
+        subject: 'Review done',
+        body: 'No findings',
+        priority: 'normal',
+      },
+    });
+
+    const response = JSON.parse(String(ws.send.mock.calls.at(-1)?.[0])) as {
+      type: string;
+      payload: { requestId: string; success: boolean; audience: string };
+    };
+    expect(response).toMatchObject({
+      type: 'mailbox.sent',
+      payload: { requestId: 'webui-1', success: true, audience: 'leaders' },
+    });
+    const messages = await mailbox.query({ to: 'leader' });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      from: 'webui',
+      audience: 'leaders',
+      subject: 'Review done',
+    });
   });
 });

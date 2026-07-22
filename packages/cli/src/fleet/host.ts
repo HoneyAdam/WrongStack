@@ -5,73 +5,38 @@ import * as path from 'node:path';
  * factory is created lazily on the first `/spawn` so users who never use
  * subagents don't pay the construction cost.
  */
-import { ACP_AGENT_COMMANDS, defaultPermissionPolicy, findAgentDescriptor, makeACPSubagentRunner } from '@wrongstack/acp';
-import type { BrainArbiter, SubagentRunner, TextBlock } from '@wrongstack/core';
 import {
-  AdaptiveConcurrencyController,
-  Agent,
-  AgentError,
-  type AgentFactory,
-  AutoApprovePermissionPolicy,
-  applyModelRuntime,
-  type Config,
-  type ConfigStore,
-  type Container,
-  Context,
-  createDefaultPipelines,
-  DEFAULT_MAX_FLEET_SPAWNS,
-  DEFAULT_SUBAGENT_BASELINE,
-  dispatchAgent,
-  type DefaultMultiAgentCoordinator,
-  Director,
-  type DirectorSessionFactory,
-  EventBus,
-  type FallbackProfileManager,
-  FLEET_ROSTER,
-  formatSubagentStructuredReport,
-  FleetManager,
-  FleetSupervisor,
-  type FleetWorktreePolicy,
-  GlobalMailbox,
-  HARD_MAX_SPAWN_DEPTH,
-  installSubagentAutoCompaction,
-  type ModelsRegistry,
-  mailboxSessionTag,
-  makeDirectorSessionFactory,
-  makeFleetEmitTool,
-  makeSubagentResultTool,
-  mergeModelRuntime,
-  type Provider,
-  type ProviderRegistry,
-  type ReasoningConfig,
-  type Request,
-  resolveProjectDir,
-  resolveSubagentModelTarget,
-  type SessionWriter,
-  type SubagentConfig,
-  type SystemPromptBuilder,
-  type TaskResult,
-  type TaskResultNotification,
-  type TaskSpec,
-  TOKENS,
-  type TokenCounter,
-  type Tool,
-  ToolRegistry,
-  ToolCapabilities,
-  ToolValidationError,
-  WIDE_SUBAGENT_CAPABILITIES,
-  WorktreeManager,
-  createFallbackModelExtension,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
-import { makePreferSideConflictResolver } from '@wrongstack/sdd';
+  ACP_AGENT_COMMANDS,
+  defaultPermissionPolicy,
+  findAgentDescriptor,
+  makeACPSubagentRunner,
+} from '@wrongstack/acp';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
+import type { SubagentRunner, TextBlock } from '@wrongstack/core/types';
+import { AdaptiveConcurrencyController, type AgentFactory, DEFAULT_MAX_FLEET_SPAWNS, DEFAULT_SUBAGENT_BASELINE, type DefaultMultiAgentCoordinator, Director, type DirectorSessionFactory, dispatchAgent, FleetManager, FleetSupervisor, type FleetWorktreePolicy, formatSubagentStructuredReport, GlobalMailbox, HARD_MAX_SPAWN_DEPTH, mailboxSessionTag, makeDirectorSessionFactory, makeFleetEmitTool, makeSubagentResultTool, resolveProjectDir, resolveSubagentModelTarget } from '@wrongstack/core/coordination';
+import { Agent, Context, createDefaultPipelines, createFallbackModelExtension, type FallbackProfileManager } from '@wrongstack/core/agent';
+import { type TaskResult, type TaskSpec } from '@wrongstack/core/types';
+import { type TaskResultNotification } from '@wrongstack/core/coordination';
+import { AgentError, type Config, type ModelsRegistry, type Provider, type ReasoningConfig, type Request, type SessionWriter, type SkillLoader, type SubagentConfig, type SystemPromptBuilder, type TokenCounter, type Tool, ToolValidationError } from '@wrongstack/core/types';
+import { AutoApprovePermissionPolicy, ToolCapabilities, WIDE_SUBAGENT_CAPABILITIES } from '@wrongstack/core/security';
+import { applyModelRuntime, installSubagentAutoCompaction, mergeModelRuntime } from '@wrongstack/core/execution';
+import { type ConfigStore } from '@wrongstack/core/types';
+import { type Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { FLEET_ROSTER } from '@wrongstack/core/coordination';
+import { loadProjectAgentConfig, applyProjectAgentConfig, loadProjectAgentIdentity } from '@wrongstack/core/agent-catalog';
+import { installDesignStudioMiddleware } from '@wrongstack/core/design';
+import { type ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { WorktreeManager } from '@wrongstack/core/worktree';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
+import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
 import { ToolExecutor } from '@wrongstack/core/execution';
 // PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
 // symbols are imported from the published subpath (see commit 66c4eb68).
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
-import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
 import { makeProviderFromConfig } from '@wrongstack/providers';
+import { makePreferSideConflictResolver } from '@wrongstack/sdd';
+import { getSuperMemoryRetrieval } from '@wrongstack/super-memory';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { buildRoutingRunner } from './routing.js';
 import { createFleetStatusBroadcaster } from './status-broadcast.js';
@@ -132,7 +97,7 @@ function makeFleetWorktreeConflictResolver() {
   if (mode !== 'prefer-incoming' && mode !== 'prefer-base') return undefined;
   const resolver = makePreferSideConflictResolver(mode === 'prefer-incoming' ? 'incoming' : 'base');
   return (info: {
-    task: import('@wrongstack/core').TaskSpec;
+    task: import('@wrongstack/core/types').TaskSpec;
     conflictFiles: string[];
     cwd: string;
   }) =>
@@ -162,8 +127,10 @@ export interface MultiAgentDeps {
   tokenCounter: TokenCounter;
   projectRoot: string;
   cwd: string;
-  secretScrubber: import('@wrongstack/core').SecretScrubber;
-  renderer?: import('@wrongstack/core').Renderer | undefined;
+  secretScrubber: import('@wrongstack/core/types').SecretScrubber;
+  /** Loader used to resolve the roster's per-role skill names. */
+  skillLoader?: SkillLoader | undefined;
+  renderer?: import('@wrongstack/core/types').Renderer | undefined;
   /** Shared live fallback profile manager from the runtime container. */
   fallbackProfileManager: FallbackProfileManager;
 }
@@ -271,7 +238,7 @@ export interface MultiAgentHostOptions {
    * passes the same writer the host Agent uses so all events land in one
    * JSONL. Optional — when omitted, those events stay in-memory.
    */
-  sessionWriter?: import('@wrongstack/core').SessionWriter | undefined;
+  sessionWriter?: import('@wrongstack/core/types').SessionWriter | undefined;
   /**
    * Root session trace ID for correlating subagent storage events with
    * the parent session's trace in observability pipelines.
@@ -331,12 +298,12 @@ export class MultiAgentHost {
   private director?: Director | undefined;
   /** Own FleetManager — created in buildDirector(), used for pending task
    *  tracking so status() can show descriptions without host-side state. */
-  private fleetManager?: import('@wrongstack/core').FleetManager | undefined;
+  private fleetManager?: import('@wrongstack/core/coordination').FleetManager | undefined;
   /** Own FleetEmitTool — created in buildDirector() so subagents in director
    *  mode can publish structured events (bug.found, refactor.plan,
    *  critic.evaluation) onto the fleet bus without needing the tool registered
    *  in the host's ToolRegistry. */
-  private fleetEmitTool?: import('@wrongstack/core').Tool | undefined;
+  private fleetEmitTool?: import('@wrongstack/core/types').Tool | undefined;
   /** Director-owned tools available to scoped subagents even when the leader
    * ToolRegistry was not populated because director mode was promoted lazily. */
   private directorToolsByName = new Map<string, Tool>();
@@ -968,7 +935,7 @@ export class MultiAgentHost {
    * has been built. Used by makeSubagentFactory to inject the tool into
    * the filtered tool registry so collab session agents can emit fleet events.
    */
-  getFleetEmitTool(): import('@wrongstack/core').Tool | undefined {
+  getFleetEmitTool(): import('@wrongstack/core/types').Tool | undefined {
     return this.fleetEmitTool;
   }
 
@@ -1050,6 +1017,37 @@ export class MultiAgentHost {
           type: 'text',
           text: `Project memory for this agent role:\n${audienceMemory.map((text) => `- ${text}`).join('\n')}`,
         });
+      }
+
+      // Apply project-level agent identity and overrides before building
+      // the system prompt. This lets project `.wrongstack/agents/<role>/`
+      // files customize the agent's tools, budget, identity and learned
+      // wisdom on top of the base catalog definition.
+      const projectRoot = this.deps.projectRoot;
+      const projectCfg = loadProjectAgentConfig(subCfg.role ?? '', projectRoot);
+      const effectiveCfg = applyProjectAgentConfig(subCfg, projectCfg);
+      // If the caller explicitly set projectIdentity, use its identityOverride
+      // or fall back to the on-disk identity.md. When no explicit identity is
+      // set at all, the subagent still receives the catalog base prompt.
+      const identityText = subCfg.projectIdentity?.identityOverride
+        ?? loadProjectAgentIdentity(subCfg.role ?? '', projectRoot);
+      if (identityText && effectiveCfg.prompt) {
+        effectiveCfg.prompt = `${effectiveCfg.prompt}\n\n# Project custom identity\n\n${identityText}`;
+      }
+
+      const roleSkillContent = await this.resolveSubagentSkillContent(effectiveCfg, task?.context);
+      if (roleSkillContent) {
+        // The shared builder may eagerly inject every discovered skill. A
+        // roster-selected worker needs only its curated subset, so replace that
+        // generic section rather than duplicating the same skill bodies.
+        // NOTE: splice is guarded by roleSkillContent being truthy — if
+        // resolveSubagentSkillContent returns empty (deduped empty names,
+        // no skillLoader, or all skills filtered), we keep the builder's
+        // generic block rather than leaving the worker with no skills at all.
+        for (let index = baseSystem.length - 1; index >= 0; index--) {
+          if (baseSystem[index]?.text.includes('# Active Skills')) baseSystem.splice(index, 1);
+        }
+        baseSystem.push({ type: 'text', text: roleSkillContent });
       }
 
       // Append the role persona. Priority:
@@ -1137,6 +1135,10 @@ export class MultiAgentHost {
         agentName: subCfg.name ?? subagentName,
       });
       if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
+      const normalizedAgentName = (subCfg.name ?? subagentName).trim().toLowerCase();
+      if (normalizedAgentName === 'chimera' || normalizedAgentName.startsWith('chimera-')) {
+        ctx.meta['mailboxSendPolicy'] = 'leaders-only';
+      }
       const leaderMode = this.opts.getLeaderMode?.();
       if (leaderMode) ctx.meta['mode'] = leaderMode;
       if (subCfg.spawnLineage) ctx.meta['spawnLineage'] = subCfg.spawnLineage;
@@ -1171,6 +1173,15 @@ export class MultiAgentHost {
           });
         },
       });
+
+      // Design Studio — install the SAME per-turn UI-intent detection + kit-menu
+      // injection + auto-verify-on-write that the leader has, so a frontend task
+      // delegated to this subagent still commits to the active kit (restored
+      // from `.design/active.json` via shared projectRoot) and gets nudged on
+      // off-palette drift. Without this, roster/fleet agents lost the design
+      // direction entirely the moment work was delegated. `prepend`-based, so
+      // ordering vs. ModelRuntimeSettings above is handled by the installer.
+      installDesignStudioMiddleware({ pipelines, ctx });
 
       // Proactive auto-compaction — subagents shrink on the warn/soft/hard
       // thresholds (and get the last-resort emergency trim) like the leader,
@@ -1326,23 +1337,55 @@ export class MultiAgentHost {
     };
   }
 
+  private async resolveSubagentSkillContent(
+    subCfg: SubagentConfig,
+    _taskContext?: Record<string, unknown>,
+  ): Promise<string> {
+    const rosterSkillNames = subCfg.role ? FLEET_ROSTER[subCfg.role]?.skillNames : undefined;
+    const skillNames = [...new Set(subCfg.skillNames ?? rosterSkillNames ?? [])];
+    const directContent = subCfg.skillContent?.trim();
+    if (skillNames.length === 0 || !this.deps.skillLoader) return directContent ?? '';
+
+    const resolved: string[] = [];
+    let usedChars = 0;
+    const maxChars = 16_000;
+    const maxCharsPerSkill = 4_000;
+    for (const skillName of skillNames) {
+      try {
+        const manifest = await this.deps.skillLoader.find(skillName);
+        if (!manifest) continue;
+        const body = (await this.deps.skillLoader.readSaveBody(skillName)).trim();
+        if (!body) continue;
+        const entry = `## Skill: ${skillName}\n\n${body.slice(0, maxCharsPerSkill)}`;
+        if (usedChars + entry.length > maxChars) {
+          console.warn(
+            `[MultiAgentHost] resolveSubagentSkillContent: budget (${maxChars}) exhausted ` +
+              `after ${resolved.length} skill(s); dropping "${skillName}" and remaining skills`,
+          );
+          break;
+        }
+        resolved.push(entry);
+        usedChars += entry.length;
+      } catch {
+        // A missing or unreadable optional skill must not prevent the role from spawning.
+      }
+    }
+
+    const sections = [
+      directContent,
+      resolved.length > 0
+        ? `# Role-prioritized skills\n\nApply these skills first for this assignment.\n\n${resolved.join('\n\n---\n\n')}`
+        : undefined,
+    ].filter((section): section is string => Boolean(section));
+    return sections.join('\n\n');
+  }
+
   private async retrieveSubagentMemory(
     subCfg: SubagentConfig,
     taskContext?: Record<string, unknown>,
   ): Promise<string[]> {
-    const memory = this.deps.container.safeResolve(TOKENS.MemoryStore) as
-      | {
-          retrieveForAudience?: (
-            context: { role?: string; taskType?: string; mode?: string },
-            limit?: number,
-          ) => Promise<Array<{ id: string; text: string }>>;
-          recordInjection?: (
-            ids: string[],
-            trigger: string,
-            sessionId?: string,
-          ) => Promise<void> | void;
-        }
-      | undefined;
+    const memoryPort = this.deps.container.safeResolve(TOKENS.MemoryStore);
+    const memory = memoryPort ? getSuperMemoryRetrieval(memoryPort) : undefined;
     if (!memory?.retrieveForAudience) return [];
     const contextualTaskType =
       typeof taskContext?.['taskType'] === 'string' ? taskContext['taskType'] : undefined;
@@ -1768,9 +1811,11 @@ export class MultiAgentHost {
        * (`evaluateToolKanbanBoundary`) can resolve the live policy instead
        * of failing open.
        */
-      context?: {
-        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
-      } | undefined;
+      context?:
+        | {
+            kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+          }
+        | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Director Mode is permanently on — no guard needed.
@@ -1845,9 +1890,11 @@ export class MultiAgentHost {
        * (`evaluateToolKanbanBoundary`) can resolve the live policy instead
        * of failing open.
        */
-      context?: {
-        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
-      } | undefined;
+      context?:
+        | {
+            kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+          }
+        | undefined;
     },
   ): Promise<TaskResult> {
     const { taskId } = await this.spawn(description, opts);
@@ -1887,9 +1934,11 @@ export class MultiAgentHost {
       internalTask?: boolean;
       stopShadowAfterTask?: boolean;
       shadowIntervalMs?: number | undefined;
-      taskContext?: {
-        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
-      } | undefined;
+      taskContext?:
+        | {
+            kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+          }
+        | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();

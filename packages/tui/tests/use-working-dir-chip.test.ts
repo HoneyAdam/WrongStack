@@ -3,7 +3,7 @@ import { render } from 'ink-testing-library';
 import { act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { formatWorkingDirChip, useWorkingDirChip } from '../src/hooks/use-working-dir-chip.js';
 
 // ── formatWorkingDirChip (pure) ──────────────────────────────────────

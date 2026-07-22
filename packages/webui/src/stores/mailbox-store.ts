@@ -37,6 +37,8 @@ export interface MailboxMessage {
   /** Session id from `to` when `scope === 'session'`. */
   recipientSessionId?: string;
   type: string;
+  /** Agent delivery audience; `leaders` is not consumed by subagents. */
+  audience?: 'all' | 'leaders';
   subject: string;
   body: string;
   priority: string;

@@ -65,6 +65,48 @@ describe('buildCspHeader', () => {
     expect(csp).toContain('wss://wrongstack-ws.example.com');
   });
 
+  it('adds explicit ws:// entries for loopback hosts when host:port provided', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1', 3466);
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
+  });
+
+  it('adds explicit ws:// entries for ::1 loopback bind (IPv6)', () => {
+    const csp = buildCspHeader(undefined, '::1', 3466);
+    expect(csp).toContain('ws://[::1]:3466');
+    expect(csp).toContain('wss://[::1]:3466');
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
+  });
+
+  it('adds explicit ws:// entries for [::1] bracketed IPv6 bind', () => {
+    const csp = buildCspHeader(undefined, '[::1]', 3466);
+    expect(csp).toContain('ws://[::1]:3466');
+    expect(csp).toContain('wss://[::1]:3466');
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
+  });
+
+  it('does not add ws:// entries for non-loopback hosts', () => {
+    const csp = buildCspHeader(undefined, '192.168.1.100', 3466);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+  });
+
+  it('falls back to 3456 when port is omitted for loopback', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1');
+    expect(csp).toContain('ws://127.0.0.1:3456');
+    expect(csp).toContain('wss://127.0.0.1:3456');
+    expect(csp).toContain('ws://localhost:3456');
+    expect(csp).toContain('wss://localhost:3456');
+  });
+
   it('ignores non-WebSocket public URLs', () => {
     const csp = buildCspHeader('https://wrongstack.example.com');
     expect(csp).toContain("connect-src 'self'");
@@ -246,7 +288,7 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
   const projectRoot = path.join(os.tmpdir(), 'watch-proj-fixture');
 
   beforeAll(async () => {
-    const { resolveWstackPaths } = await import('@wrongstack/core');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     gRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'webui-watch-'));
 
     // One live session in the registry pointing at our fixture project.
@@ -326,9 +368,8 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
   });
 
   it('POST .../message delivers a steer message to the session mailbox', async () => {
-    const { mailboxSessionTag, GlobalMailbox, resolveWstackPaths } = await import(
-      '@wrongstack/core'
-    );
+    const { mailboxSessionTag, GlobalMailbox } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const res = await fetch(`${evBase}/api/sessions/${sessionId}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

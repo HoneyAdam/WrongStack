@@ -1,6 +1,8 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultLogger, DefaultModelsRegistry, type ModelsDevPayload } from '@wrongstack/core';
+import { DefaultLogger } from '@wrongstack/core/infrastructure';
+import { DefaultModelsRegistry } from '@wrongstack/core/models';
+import type { ModelsDevPayload } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildProviderFactoriesFromRegistry } from '../src/index.js';
 

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { noOpVault } from '@wrongstack/core';
+import { noOpVault } from '@wrongstack/core/security';
 import { DefaultSecretVault } from '@wrongstack/core/security';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MCPAuthorizationServerMetadata } from '../src/authorization.js';

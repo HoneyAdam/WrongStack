@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Context, Logger } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Logger } from '@wrongstack/core/types';
 import type { DocumentTracker } from '../document-tracker.js';
 import type { LSPRegistry } from '../registry.js';
 import type { LSPServer } from '../server/lsp-server.js';

@@ -1,22 +1,14 @@
 /**
- * Fleet spawn / assign / terminate / awaitTasks / remove for the Director.
+ * Fleet spawn admission and bookkeeping for the Director.
  *
- * Owns the methods that hand work to the `MultiAgentCoordinator` and
- * tear it down: `spawn`, `assign`, `awaitTasks`, `terminate`,
- * `terminateAll`, `remove`. Extracted out of `director.ts` to keep
- * that file under review-able size.
- *
- * Public surface (called from `Director` methods):
- *   - `spawn`        — create a new subagent
- *   - `assign`       — hand a task to a (possibly new) subagent
- *   - `awaitTasks`   — block until a set of tasks resolve
- *   - `terminate`    — stop a single subagent
- *   - `terminateAll` — stop every subagent
- *   - `remove`       — drop a subagent from internal indexes
+ * Owns spawn caps, model-matrix routing, nickname assignment, bridge
+ * creation, and manifest/checkpoint registration. Task identity and waiter
+ * semantics belong to DirectorTaskRegistry; termination remains a Director
+ * lifecycle concern.
  */
 
 import type { DirectorStateCheckpoint } from '../storage/director-state.js';
-import type { SubagentConfig, TaskResult, TaskSpec } from '../types/multi-agent.js';
+import type { SubagentConfig } from '../types/multi-agent.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import {
   FleetContextOverflowError,
@@ -24,15 +16,35 @@ import {
   FleetSpawnBudgetError,
   FleetTokenCapError,
 } from './director/director-errors.js';
-import type { ModelMatrixSource } from './director.js';
 import type { FleetBus, FleetUsageAggregator } from './fleet-bus.js';
 import type { FleetManager } from './fleet-manager.js';
 import type { InMemoryBridgeTransport } from './in-memory-transport.js';
-import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
-import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
+import {
+  type ModelMatrixSource,
+  resolveModelMatrixResolution,
+  roleNeedsIndependentReviewModel,
+} from './model-matrix.js';
 import type { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
-import { assignNickname, nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import { resolveMaxSpawnDepth } from './spawn-budget.js';
+import { assignNickname } from './subagent-nicknames.js';
+import type { WorktreeTaskStateUpdate } from './worktree-task-runner.js';
+
+/**
+ * Shape stored in the Director's manifestEntries map for each spawned subagent.
+ * Keyed by subagentId.
+ */
+export interface ManifestEntry {
+  subagentId: string;
+  name: string;
+  role?: string | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
+  taskIds: string[];
+  /** Per-task worktree state updates, keyed by taskId. The entire record
+   *  is replaced each time (see `Director._asManifestEntry`), so external
+   *  references to a previous `worktrees` object become stale. */
+  worktrees?: Record<string, WorktreeTaskStateUpdate> | undefined;
+}
 
 /**
  * Narrow interface the helpers in this file need from the Director.
@@ -67,17 +79,8 @@ export interface DirectorFleetHost {
 
   // Per-subagent state
   readonly manifestEntries: Map<string, unknown>;
-  readonly completed: Map<string, TaskResult>;
   readonly subagentBridges: Map<string, InMemoryAgentBridge>;
-  readonly taskWorktrees: Map<string, WorktreeTaskStateUpdate>;
-  readonly extendTotals: Map<string, number>;
-  readonly taskWaiters: Map<
-    string,
-    { promise: Promise<TaskResult>; resolve: (r: TaskResult) => void }
-  >;
   readonly subagentMeta: Map<string, { provider?: string | undefined; model?: string | undefined }>;
-  readonly taskDescriptions: Map<string, string>;
-  readonly taskOwners: Map<string, string>;
   readonly priceLookups: Map<
     string,
     {
@@ -313,150 +316,4 @@ export async function spawn(
     host.scheduleManifest();
   }
   return result.subagentId;
-}
-
-/**
- * Hand a task to the coordinator. Returns the assigned task id so
- * callers can wait on it via `awaitTasks([id])`. The coordinator's
- * concurrency limit applies — the task may queue before running.
- *
- * `appendTaskDescription` and `recordTaskOwner` are injected because
- * they touch Director's `taskDescriptions` / `taskOwners` Maps which
- * are out of scope for this file's surface.
- */
-export async function assign(
-  host: DirectorFleetHost,
-  task: TaskSpec,
-  taskId: string,
-  appendTaskDescription: (taskId: string, description: string | undefined) => void,
-  recordTaskOwner: (taskId: string, subagentId: string) => void,
-): Promise<string> {
-  const taskWithId: TaskSpec = task.id ? task : { ...task, id: taskId };
-  // When workComplete() has been called, drain the pending queue as aborted
-  // rather than dispatching new work. The director has decided the goal is
-  // satisfied — queued tasks never get a chance to run, so synthesize their
-  // completion now so any caller awaiting them unblocks immediately.
-  if (host.workCompleteFlag) {
-    const synthetic: TaskResult = {
-      subagentId: taskWithId.subagentId ?? 'unassigned',
-      taskId: taskWithId.id,
-      status: 'stopped',
-      error: {
-        kind: 'aborted_by_parent',
-        message: 'Director called workComplete() — no further tasks will run',
-        retryable: false,
-      },
-      iterations: 0,
-      toolCalls: 0,
-      durationMs: 0,
-    };
-    host.completed.set(taskWithId.id, synthetic);
-    const waiter = host.taskWaiters.get(taskWithId.id);
-    if (waiter) {
-      waiter.resolve(synthetic);
-      host.taskWaiters.delete(taskWithId.id);
-    }
-    return taskWithId.id;
-  }
-  if (task.subagentId) {
-    const entry = host.manifestEntries.get(task.subagentId);
-    if (entry) (entry as { taskIds: string[] }).taskIds.push(taskWithId.id);
-  }
-  await host.coordinator.assign(taskWithId);
-  // Snapshot task metadata for completion-event titles + state checkpoint
-  // bookkeeping. Done AFTER coordinator.assign() so we don't checkpoint a
-  // task the coordinator rejected.
-  appendTaskDescription(taskWithId.id, taskWithId.description);
-  if (taskWithId.subagentId) recordTaskOwner(taskWithId.id, taskWithId.subagentId);
-  const assignedAt = new Date().toISOString();
-  host.stateCheckpoint?.recordTaskAssigned({
-    taskId: taskWithId.id,
-    subagentId: taskWithId.subagentId,
-    description: taskWithId.description,
-    status: 'running',
-    assignedAt,
-  });
-  void host.appendSessionEvent({
-    type: 'task_created',
-    ts: assignedAt,
-    taskId: taskWithId.id,
-    title: taskWithId.description,
-  });
-  host.scheduleManifest();
-  return taskWithId.id;
-}
-
-/** Await a set of tasks by id, preserving input order. */
-export function awaitTasks(host: DirectorFleetHost, taskIds: string[]): Promise<TaskResult[]> {
-  return Promise.all(
-    taskIds.map((id) => {
-      const cached = host.completed.get(id);
-      if (cached) return cached;
-      const existing = host.taskWaiters.get(id);
-      if (existing) return existing.promise;
-      let resolveFn!: (r: TaskResult) => void;
-      const promise = new Promise<TaskResult>((res) => {
-        resolveFn = res;
-      });
-      host.taskWaiters.set(id, { promise, resolve: resolveFn });
-      return promise;
-    }),
-  );
-}
-
-/** Stop a single subagent by id. */
-export function terminate(host: DirectorFleetHost, subagentId: string): Promise<void> {
-  return host.coordinator.stop(subagentId);
-}
-
-/** Stop every subagent managed by the coordinator. */
-export function terminateAll(host: DirectorFleetHost): Promise<void> {
-  return host.coordinator.stopAll();
-}
-
-/**
- * Drop a subagent from the director's local indexes after the coordinator
- * has already torn it down. Idempotent.
- */
-export async function remove(host: DirectorFleetHost, subagentId: string): Promise<void> {
-  await host.coordinator.remove(subagentId);
-
-  // Clean up the bridge so it stops consuming resources.
-  const bridge = host.subagentBridges.get(subagentId);
-  if (bridge) {
-    await bridge.stop();
-    host.subagentBridges.delete(subagentId);
-  }
-
-  // Clean up the aggregator so terminated subagent data doesn't accumulate.
-  host.usage.removeSubagent(subagentId);
-
-  // Delegate nickname cleanup to FleetManager when available; otherwise handle
-  // it directly here. This frees the slot so the same name can be reused.
-  if (host.fleetManager) {
-    host.fleetManager.removeSubagent(subagentId);
-  } else {
-    const entry = host.manifestEntries.get(subagentId) as { name?: string } | undefined;
-    if (entry?.name) {
-      const nicknameKey = nicknameKeyFromDisplay(entry.name);
-      if (nicknameKey) host.usedNicknames.delete(nicknameKey);
-    }
-  }
-
-  // Remove all local state entries for this subagent.
-  // taskOwners and taskDescriptions are keyed by taskId, not subagentId.
-  // Iterate the subagent's owned task IDs rather than using subagentId as the
-  // key (which would never match).
-  const entry = host.manifestEntries.get(subagentId) as
-    | { taskIds?: string[] }
-    | undefined;
-  if (entry?.taskIds) {
-    for (const tid of entry.taskIds) {
-      host.taskOwners.delete(tid);
-      host.taskDescriptions.delete(tid);
-      host.taskWorktrees.delete(tid);
-    }
-  }
-  host.extendTotals.delete(subagentId);
-  host.manifestEntries.delete(subagentId);
 }

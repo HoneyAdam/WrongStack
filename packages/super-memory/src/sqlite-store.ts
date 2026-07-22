@@ -13,14 +13,26 @@
  * the store migrates records automatically (one-time cost).
  */
 
-import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ulid, withFileLock } from '@wrongstack/core/utils';
-import { ensureDir } from '@wrongstack/core/utils';
+import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core/types';
+import { ensureDir, ulid, withFileLock } from '@wrongstack/core/utils';
 import { readJsonl } from './jsonl.js';
-import { normalizeTextKey } from './middleware/turn-memory.js';
+import { resolveSuperMemoryPaths } from './paths.js';
+import {
+  collectStringValues,
+  looksLikeSecret,
+  normalizeAnchors,
+  normalizeAudience,
+  normalizeSources,
+  normalizeTags,
+  normalizeText,
+  normalizeTextKey,
+  scoreMemoryRelationship,
+  validateRememberInput,
+} from './store-helpers.js';
 import type {
   CandidateDecision,
   CreateCandidateInput,
@@ -37,41 +49,44 @@ import type {
   SessionConsolidationInput,
   SessionConsolidationResult,
   SuperMemory,
+  SuperMemoryAuditRecord,
   SuperMemoryForPathOptions,
   SuperMemoryHygieneOptions,
   SuperMemoryHygieneReport,
   SuperMemoryManifest,
-  SuperMemoryAuditRecord,
   SuperMemoryRecord,
   SuperMemorySearchOptions,
-  SuperMemoryStatus,
   SuperMemoryStats,
+  SuperMemoryStatus,
   SuperMemoryStoreOptions,
   UpdateSuperMemoryInput,
 } from './types.js';
-import type { MemoryEntry, MemoryScope } from '@wrongstack/core';
-import { SUPER_MEMORY_SCHEMA_VERSION, toLegacyEntry } from './types.js';
-import { resolveSuperMemoryPaths } from './paths.js';
 import {
-  collectStringValues,
-  looksLikeSecret,
-  normalizeAnchors,
-  normalizeAudience,
-  normalizeSources,
-  normalizeTags,
-  normalizeText,
-  scoreMemoryRelationship,
-  validateRememberInput,
-} from './store-helpers.js';
+  DEFAULT_PERSISTENCE,
+  legacyToSuperScope,
+  legacyTypeToKind,
+  SUPER_MEMORY_SCHEMA_VERSION,
+  superToLegacyScope,
+  toLegacyEntry,
+} from './types.js';
 
 // ─── Pagination helpers (mirror SuperMemoryStore.listSuperPage semantics) ──
 
 const SQLITE_VALID_STATUSES = new Set<SuperMemoryStatus>([
-  'active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted',
+  'active',
+  'stale',
+  'superseded',
+  'contradicted',
+  'archived',
+  'deleted',
 ]);
 /** Statuses shown by default in the paginated listing (everything except the soft-delete audit trail). */
 const SQLITE_DEFAULT_PAGE_STATUSES: SuperMemoryStatus[] = [
-  'active', 'stale', 'superseded', 'contradicted', 'archived',
+  'active',
+  'stale',
+  'superseded',
+  'contradicted',
+  'archived',
 ];
 const SQLITE_MAX_PAGE_LIMIT = 500;
 const SQLITE_DEFAULT_PAGE_LIMIT = 50;
@@ -87,7 +102,10 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
-interface SqlitePageCursor { updatedAt: string; id: string }
+interface SqlitePageCursor {
+  updatedAt: string;
+  id: string;
+}
 
 /** Encode the last item of a page into an opaque base64url cursor token. */
 function encodeSqlitePageCursor(updatedAt: string, id: string): string {
@@ -98,7 +116,10 @@ function encodeSqlitePageCursor(updatedAt: string, id: string): string {
 function decodeSqlitePageCursor(cursor: string | undefined): SqlitePageCursor | undefined {
   if (!cursor) return undefined;
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { u?: unknown; i?: unknown };
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      u?: unknown;
+      i?: unknown;
+    };
     if (typeof parsed.u === 'string' && typeof parsed.i === 'string') {
       return { updatedAt: parsed.u, id: parsed.i };
     }
@@ -134,7 +155,7 @@ function loadDatabaseSync(): typeof DatabaseSync {
   // silence the experimental warning
   const originalEmit = process.emitWarning;
   process.emitWarning = ((w: unknown, ...r: unknown[]): void => {
-    const msg = typeof w === 'string' ? w : (w as Error)?.message ?? '';
+    const msg = typeof w === 'string' ? w : ((w as Error)?.message ?? '');
     if (/sqlite/i.test(msg) && /experimental/i.test(msg)) return;
     (originalEmit as (w: unknown, ...r: unknown[]) => void)(w, ...r);
   }) as typeof process.emitWarning;
@@ -152,7 +173,7 @@ function loadDatabaseSync(): typeof DatabaseSync {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
-const SQLITE_SCHEMA_VERSION = 1;
+const SQLITE_SCHEMA_VERSION = 2;
 const LEGACY_JSONL_MIGRATION_KEY = 'legacy_jsonl_migrated';
 
 function initSchema(db: DatabaseSync): void {
@@ -180,7 +201,8 @@ function initSchema(db: DatabaseSync): void {
       updated_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       audience TEXT,
-      tags TEXT
+      tags TEXT,
+      canonical_text TEXT NOT NULL DEFAULT ''
     );
   `);
 
@@ -189,6 +211,7 @@ function initSchema(db: DatabaseSync): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_scope ON memories(scope)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_importance ON memories(importance DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_updated ON memories(updated_at DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)');
 
   // FTS5 full-text search over memory text + tags
   try {
@@ -270,7 +293,11 @@ function initSchema(db: DatabaseSync): void {
 
 // ─── Store ──────────────────────────────────────────────────────────────
 
-export class SqliteSuperMemoryStore {
+/**
+ * @deprecated Use `createSqliteMemoryPort` and depend on Core's `MemoryPort`.
+ * This class remains public only for the compatibility window.
+ */
+export class SqliteSuperMemoryStore implements MemoryStore {
   readonly paths;
   private readonly projectRoot: string;
   private readonly now: () => Date;
@@ -312,12 +339,56 @@ export class SqliteSuperMemoryStore {
     this.db = new DBCtor(dbPath);
     initSchema(this.db);
 
-    // Check schema version
+    // Check schema version and apply migrations
     const row = this.db.prepare('SELECT value FROM schema_meta WHERE key = ?').get('version') as
       | { value?: number }
       | undefined;
+    // Fresh DB: the schema was just created by initSchema() with the latest
+    // version (including canonical_text), so skip all migrations.
+    const currentVersion = row?.value ?? SQLITE_SCHEMA_VERSION;
     if (!row) {
-      this.db.prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)').run('version', SQLITE_SCHEMA_VERSION);
+      this.db
+        .prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)')
+        .run('version', SQLITE_SCHEMA_VERSION);
+    }
+
+    if (currentVersion < 2) {
+      // Migration v1 → v2: add canonical_text column for O(1) dedup lookups.
+      // The column is backfilled from the existing data JSON once, then
+      // maintained by upsertMemory on every write.
+      //
+      // Wrapped in a transaction so a crash mid-backfill does not leave the
+      // column added with partial backfill and schema_meta still at v1.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(
+          "ALTER TABLE memories ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''",
+        );
+        // Backfill existing rows (safe to re-run — ALTER TABLE ADD COLUMN is
+        // idempotent on the column itself, but backfill should only run once).
+        const backfillRows = this.db
+          .prepare("SELECT id, data FROM memories WHERE canonical_text = ''")
+          .all() as Array<{ id: string; data: string }>;
+        if (backfillRows.length > 0) {
+          const stmt = this.db.prepare(
+            'UPDATE memories SET canonical_text = ? WHERE id = ?',
+          );
+          for (const r of backfillRows) {
+            const memory = JSON.parse(r.data) as SuperMemory;
+            stmt.run(normalizeTextKey(memory.text), r.id);
+          }
+        }
+        this.db.exec(
+          'CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)',
+        );
+        this.db
+          .prepare('UPDATE schema_meta SET value = ? WHERE key = ?')
+          .run(2, 'version');
+        this.db.exec('COMMIT');
+      } catch (migrationErr) {
+        this.db.exec('ROLLBACK');
+        throw migrationErr;
+      }
     }
 
     // Write manifest if absent
@@ -409,9 +480,9 @@ export class SqliteSuperMemoryStore {
       }
 
       for (const incoming of latestMemories.values()) {
-        const existingRow = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(incoming.id) as
-          | { data: string }
-          | undefined;
+        const existingRow = this.db
+          .prepare('SELECT data FROM memories WHERE id = ?')
+          .get(incoming.id) as { data: string } | undefined;
         const existing = existingRow ? this.rowToMemory(existingRow) : undefined;
         if (existing && !shouldReplaceMigratedMemory(existing, incoming)) continue;
         this.upsertMemory(incoming);
@@ -422,9 +493,9 @@ export class SqliteSuperMemoryStore {
         'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
       );
       for (const candidate of latestCandidates.values()) {
-        const existingRow = this.db.prepare('SELECT data FROM candidates WHERE id = ?').get(candidate.id) as
-          | { data: string }
-          | undefined;
+        const existingRow = this.db
+          .prepare('SELECT data FROM candidates WHERE id = ?')
+          .get(candidate.id) as { data: string } | undefined;
         if (existingRow) {
           const existing = JSON.parse(existingRow.data) as MemoryCandidate;
           if (existing.updatedAt.localeCompare(candidate.updatedAt) > 0) continue;
@@ -496,6 +567,23 @@ export class SqliteSuperMemoryStore {
     return JSON.parse(row.data) as SuperMemory;
   }
 
+  /** Prefix used for graph node ids referencing memories. */
+  private static readonly NODE_ID_PREFIX = 'mem:';
+
+  /** Build the canonical graph node id for a memory. */
+  private static toNodeId(memoryId: string): string {
+    return `${SqliteSuperMemoryStore.NODE_ID_PREFIX}${memoryId}`;
+  }
+
+  /**
+   * Cascade-delete all graph edges referencing a given node id.
+   * Called from forget(), clear(), and deleteSuperMemory() so the edge
+   * cleanup logic is maintained in one place.
+   */
+  private cascadeDeleteEdges(nodeId: string): void {
+    this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(nodeId, nodeId);
+  }
+
   private runMutation<T>(work: () => T): Promise<T> {
     const next = this.mutationChain
       .catch(() => undefined)
@@ -511,6 +599,21 @@ export class SqliteSuperMemoryStore {
 
   // ─── Public API ─────────────────────────────────────────────────────
 
+  /**
+   * Store (or merge) a Super Memory record.
+   *
+   * **Field precedence for the dual-bridge API:**
+   * - `scope` (SuperMemoryScope) and `kind` (SuperMemoryKind) are the primary
+   *   fields. `legacyScope` (MemoryScope) and `type` (MemoryType) are read-only
+   *   bridges for backward compatibility with the legacy `MemoryStore` API.
+   * - When `scope` is omitted, it is derived from `legacyScope` via
+   *   `legacyToSuperScope()`.  Defaults to `'project'` when neither is given.
+   * - When `kind` is omitted, it is derived from `type` via
+   *   `legacyTypeToKind()`.  Defaults to `'fact'` when neither is given.
+   * - **`kind` always wins over `type`**, and **`scope` always wins over
+   *   `legacyScope`**.  Callers supplying both should ensure they are
+   *   semantically consistent.
+   */
   async rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory> {
     validateRememberInput(input);
     const normalizedText = normalizeText(input.text);
@@ -518,8 +621,19 @@ export class SqliteSuperMemoryStore {
     this.rejectIfUnsafeInput(input);
     await this.initialize();
 
-    const scope = input.scope ?? 'project';
-    const kind = input.kind ?? 'fact';
+    // Default to project scope when neither `scope` (SuperMemoryScope) nor
+    // `legacyScope` (MemoryScope) is given. This fallback is intentional:
+    // legacy callers such as `remember('text')` and the migration pipeline
+    // do not pass an explicit scope, and `'project-memory'` is the correct
+    // default for those paths. See `RememberSuperMemoryInput` for field docs.
+    const scope = input.scope ?? legacyToSuperScope(input.legacyScope ?? 'project-memory');
+    // Preserve undefined legacyScope when not provided — matches
+    // SuperMemoryStore.rememberSuper (store.ts:290). The effective legacy
+    // scope is always resolved at query time via
+    // `memory.legacyScope ?? superToLegacyScope(memory.scope)`, so storing
+    // undefined is safe and avoids a silent scope/legacyScope divergence.
+    const legacyScope = input.legacyScope;
+    const kind = input.kind ?? legacyTypeToKind(input.type);
     const tags = normalizeTags(input.tags);
     const anchors = normalizeAnchors(this.projectRoot, input.anchors ?? []);
     const audience = normalizeAudience(input.audience);
@@ -527,40 +641,62 @@ export class SqliteSuperMemoryStore {
     const nowIso = this.nowIso();
 
     return this.runMutation(() => {
-      // Check for duplicate by canonical text
+      // Check for duplicate by canonical text via indexed column.
+      // The canonical_text column (populated by upsertMemory) stores
+      // normalizeTextKey(text) so dedup is a single indexed lookup instead
+      // of an O(N) full-table scan.
       const canonical = normalizeTextKey(normalizedText);
-      const candidates = this.db
+      const row = this.db
         .prepare(
           `SELECT data FROM memories
-           WHERE status IN ('active','stale') AND scope = ?
-           AND LOWER(json_extract(data, '$.text')) LIKE ?`,
+           WHERE status IN ('active','stale') AND scope = ? AND canonical_text = ?
+           LIMIT 1`,
         )
-        .all(scope, `%${canonical}%`) as Array<{ data: string }>;
+        .get(scope, canonical) as { data: string } | undefined;
 
-      for (const c of candidates) {
-        const existing = this.rowToMemory(c);
-        const existingCanonical = normalizeTextKey(existing.text);
-        if (existingCanonical === canonical) {
-          // Merge
-          const merged: SuperMemory = {
-            ...existing,
-            tags: [...new Set([...existing.tags, ...tags])],
-            anchors: [...new Map([...existing.anchors, ...anchors].map((a) => [JSON.stringify(a), a])).values()] as MemoryAnchor[],
-            ...(audience ? { audience } : {}),
-            sources: [...new Map([...existing.sources, ...sources].map((s) => [JSON.stringify(s), s])).values()],
-            importance: Math.max(existing.importance, input.importance ?? 0.6),
-            confidence: Math.max(existing.confidence, input.confidence ?? 0.8),
-            freshness: Math.max(existing.freshness, input.freshness ?? 1),
-            updatedAt: nowIso,
-            revision: existing.revision + 1,
-          };
-          this.upsertMemory(merged);
-          this.events?.emit(
-            'memory.merged',
-            this.eventPayload({ memoryId: merged.id, mergedIds: [] }),
-          );
-          return merged;
-        }
+      if (row) {
+        const existing = this.rowToMemory(row);
+        // Merge
+        const merged: SuperMemory = {
+          ...existing,
+          // Preserve existing legacyScope on merge (first-write wins),
+          // matching SuperMemoryStore (store.ts) merge behaviour where
+          // legacyScope is excluded from the mergedPatch and the original
+          // value is never overwritten.
+          legacyScope: existing.legacyScope,
+          tags: [...new Set([...existing.tags, ...tags])],
+          anchors: [
+            ...new Map(
+              [...existing.anchors, ...anchors].map((a) => [JSON.stringify(a), a]),
+            ).values(),
+          ] as MemoryAnchor[],
+          ...(audience ? { audience } : {}),
+          sources: [
+            ...new Map(
+              [...existing.sources, ...sources].map((s) => [JSON.stringify(s), s]),
+            ).values(),
+          ],
+          supersedes: [
+            ...new Set([...(existing.supersedes ?? []), ...(input.supersedes ?? [])]),
+          ],
+          contradicts: [
+            ...new Set([...(existing.contradicts ?? []), ...(input.contradicts ?? [])]),
+          ],
+          importance: Math.max(
+            existing.importance,
+            clamp01(input.importance ?? importanceFromPriority(input.priority)),
+          ),
+          confidence: Math.max(existing.confidence, input.confidence ?? 0.8),
+          freshness: Math.max(existing.freshness, input.freshness ?? 1),
+          updatedAt: nowIso,
+          revision: existing.revision + 1,
+        };
+        this.upsertMemory(merged);
+        this.events?.emit(
+          'memory.merged',
+          this.eventPayload({ memoryId: merged.id, mergedIds: [] }),
+        );
+        return merged;
       }
 
       // Create new
@@ -571,14 +707,15 @@ export class SqliteSuperMemoryStore {
 
         kind,
         scope,
+        legacyScope,
         status: 'active',
         tags,
         anchors,
         sources,
         audience,
-        importance: input.importance ?? 0.6,
-        confidence: input.confidence ?? 0.8,
-        freshness: input.freshness ?? 1,
+        importance: clamp01(input.importance ?? importanceFromPriority(input.priority)),
+        confidence: clamp01(input.confidence ?? 0.8),
+        freshness: clamp01(input.freshness ?? 1),
         persistence: input.persistence,
         supersedes: input.supersedes,
         contradicts: input.contradicts,
@@ -592,7 +729,7 @@ export class SqliteSuperMemoryStore {
         this.eventPayload({
           memoryId: memory.id,
           kind: memory.kind,
-          persistence: memory.persistence ?? 'long_lived',
+          persistence: memory.persistence ?? DEFAULT_PERSISTENCE,
           confidence: memory.confidence,
           freshness: memory.freshness,
         }),
@@ -601,12 +738,226 @@ export class SqliteSuperMemoryStore {
     });
   }
 
+  // ─── Legacy MemoryStore compatibility ──────────────────────────────
+
+  async readAll(): Promise<string> {
+    const sections: string[] = [];
+    for (const scope of ['project-agents', 'project-memory', 'user-memory'] as const) {
+      const body = await this.read(scope);
+      if (body) sections.push(`## ${legacyScopeLabel(scope)}\n\n${body}`);
+    }
+    return sections.join('\n\n');
+  }
+
+  async read(scope: MemoryScope): Promise<string> {
+    return (await this.list(scope))
+      .map((entry) => {
+        const tags = entry.tags?.length ? ` ${entry.tags.map((tag) => `#${tag}`).join(' ')}` : '';
+        const type = entry.type
+          ? ` [${entry.type}${entry.priority ? `|${entry.priority}` : ''}]`
+          : '';
+        return `- [${entry.ts}]${type} ${entry.text}${tags}`;
+      })
+      .join('\n');
+  }
+
+  async remember(
+    text: string,
+    scope: MemoryScope = 'project-memory',
+    metadata?: Omit<Partial<MemoryEntry>, 'scope' | 'text' | 'ts'>,
+  ): Promise<void> {
+    await this.rememberSuper({
+      text,
+      legacyScope: scope,
+      scope: legacyToSuperScope(scope),
+      type: metadata?.type,
+      tags: metadata?.tags,
+      priority: metadata?.priority,
+      confidence: metadata?.confidence,
+      sources: metadata?.source
+        ? [{ type: 'legacy_memory', excerptHash: metadata.source }]
+        : undefined,
+    });
+  }
+
+  async forget(query: string, scope: MemoryScope = 'project-memory'): Promise<number> {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return 0;
+    await this.initialize();
+    const superScope = legacyToSuperScope(scope);
+    return this.runMutation(() => {
+      const rows = this.db
+        .prepare(
+          "SELECT data FROM memories WHERE status != 'deleted' AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)",
+        )
+        .all(superScope, scope) as Array<{ data: string }>;
+      let removed = 0;
+      const skippedPermanent: string[] = [];
+      for (const row of rows) {
+        const memory = this.rowToMemory(row);
+        if ((memory.legacyScope ?? superToLegacyScope(memory.scope)) !== scope) continue;
+        if (!matchesLegacyForget(memory, normalized)) continue;
+        if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') {
+          skippedPermanent.push(memory.id);
+          continue;
+        }
+        this.upsertMemory({
+          ...memory,
+          status: 'deleted',
+          revision: memory.revision + 1,
+          updatedAt: this.nowIso(),
+        });
+        // Cascade-delete graph edges so orphan rows don't accumulate.
+        this.cascadeDeleteEdges(SqliteSuperMemoryStore.toNodeId(memory.id));
+        removed++;
+      }
+      if (removed > 0) {
+        this.audit('memory.deleted', { reason: query, details: { removed, scope } });
+        this.events?.emit('memory.forgotten', { scope, query, removed });
+      }
+      if (skippedPermanent.length > 0) {
+        this.audit('memory.forget_skipped_permanent', {
+          reason: query,
+          details: { skipped: skippedPermanent, scope },
+        });
+      }
+      return removed;
+    });
+  }
+
+  async consolidate(scope: MemoryScope): Promise<void> {
+    await this.initialize();
+    await this.runMutation(() => {
+      // Push scope filter into SQL using the indexed `scope` column so the
+      // consolidator does not incur O(N) full-table JSON parses every call.
+      // The JS fallback on the effective legacy scope still catches edge
+      // cases where an explicit legacyScope differs from the column value.
+      const superScope = legacyToSuperScope(scope);
+      const rows = this.db
+        .prepare(
+          "SELECT data FROM memories WHERE status IN ('active','stale') AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)",
+        )
+        .all(superScope, scope) as Array<{ data: string }>;
+      const groups = new Map<string, SuperMemory[]>();
+      for (const row of rows) {
+        const memory = this.rowToMemory(row);
+        if ((memory.legacyScope ?? superToLegacyScope(memory.scope)) !== scope) continue;
+        const key = normalizeTextKey(memory.text);
+        const group = groups.get(key);
+        if (group) group.push(memory);
+        else groups.set(key, [memory]);
+      }
+      let removed = 0;
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        const [keeper, ...duplicates] = [...group].sort(
+          (a, b) => b.importance - a.importance || b.confidence - a.confidence,
+        );
+        if (!keeper) continue;
+        this.upsertMemory({
+          ...keeper,
+          tags: [...new Set(group.flatMap((memory) => memory.tags))],
+          supersedes: [
+            ...new Set([...(keeper.supersedes ?? []), ...duplicates.map((memory) => memory.id)]),
+          ],
+          revision: keeper.revision + 1,
+          updatedAt: this.nowIso(),
+        });
+        for (const duplicate of duplicates) {
+          this.upsertMemory({
+            ...duplicate,
+            status: 'superseded',
+            supersededBy: keeper.id,
+            revision: duplicate.revision + 1,
+            updatedAt: this.nowIso(),
+          });
+          removed++;
+        }
+      }
+      if (removed > 0) this.events?.emit('memory.consolidated', { scope, removed });
+      this.audit('memory.consolidation_completed', { details: { scope, removed } });
+    });
+  }
+
+  async clear(scope?: MemoryScope): Promise<void> {
+    await this.initialize();
+    const superScope = scope ? legacyToSuperScope(scope) : undefined;
+    await this.runMutation(() => {
+      const scopeClause = scope
+        ? " AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)"
+        : '';
+      const params: string[] = scope ? [superScope!, scope] : [];
+      const rows = this.db
+        .prepare(`SELECT data FROM memories WHERE status != 'deleted'${scopeClause}`)
+        .all(...params) as Array<{ data: string }>;
+      const skippedPermanent: string[] = [];
+      const clearedIds: string[] = [];
+      for (const row of rows) {
+        const memory = this.rowToMemory(row);
+        const legacyScope = memory.legacyScope ?? superToLegacyScope(memory.scope);
+        if (scope && legacyScope !== scope) continue;
+        if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') {
+          skippedPermanent.push(memory.id);
+          continue;
+        }
+        this.upsertMemory({
+          ...memory,
+          status: 'deleted',
+          revision: memory.revision + 1,
+          updatedAt: this.nowIso(),
+        });
+        // Cascade-delete graph edges so orphan rows don't accumulate
+        // (matches forget() and deleteSuperMemory()).
+        this.cascadeDeleteEdges(SqliteSuperMemoryStore.toNodeId(memory.id));
+        clearedIds.push(memory.id);
+      }
+      if (clearedIds.length > 0) {
+        this.events?.emit('memory.cleared', { scope });
+      }
+      if (skippedPermanent.length > 0) {
+        this.audit('memory.clear_skipped_permanent', {
+          details: { skipped: skippedPermanent, scope: scope ?? 'all' },
+        });
+      }
+      this.audit('memory.bulk_clear_completed', {
+        details: {
+          scope: scope ?? 'all',
+          deleted: clearedIds.length,
+          skippedPermanent: skippedPermanent.length,
+        },
+      });
+    });
+  }
+
+  async list(scope: MemoryScope = 'project-memory', limit?: number): Promise<MemoryEntry[]> {
+    await this.initialize();
+    const superScope = legacyToSuperScope(scope);
+    const rows = this.db
+      .prepare(
+        "SELECT data FROM memories WHERE status = 'active' AND (scope = ? OR json_extract(data, '$.legacyScope') = ?) ORDER BY created_at DESC",
+      )
+      .all(superScope, scope) as Array<{ data: string }>;
+    const entries = rows
+      .map((row) => this.rowToMemory(row))
+      .filter((memory) => (memory.legacyScope ?? superToLegacyScope(memory.scope)) === scope)
+      .map(toLegacyEntry);
+    return limit === undefined ? entries : entries.slice(0, Math.max(0, limit));
+  }
+
   private upsertMemory(m: SuperMemory): void {
+    // Explicit DELETE + INSERT pattern needed for FTS index integrity.
+    // DELETE fires the AFTER DELETE trigger which cleans up the old FTS
+    // entry at the old rowid.  INSERT OR REPLACE does not fire AFTER
+    // DELETE (recursive triggers are off by default in SQLite), so it
+    // would leave an orphaned FTS entry at the old rowid because id is
+    // TEXT PRIMARY KEY (not an INTEGER rowid alias) — the AFTER INSERT
+    // trigger indexes the new rowid but the old rowid's FTS entry persists.
+    this.db.prepare('DELETE FROM memories WHERE id = ?').run(m.id);
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO memories
-          (id, data, status, kind, scope, importance, confidence, freshness, updated_at, created_at, audience, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO memories
+          (id, data, status, kind, scope, importance, confidence, freshness, updated_at, created_at, audience, tags, canonical_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -621,6 +972,7 @@ export class SqliteSuperMemoryStore {
         m.createdAt,
         m.audience ? JSON.stringify(m.audience) : null,
         JSON.stringify(m.tags),
+        normalizeTextKey(m.text),
       );
   }
 
@@ -639,10 +991,18 @@ export class SqliteSuperMemoryStore {
         ...(input.kind !== undefined && { kind: input.kind }),
         ...(input.status !== undefined && { status: input.status as SuperMemoryStatus }),
         ...(input.tags !== undefined && { tags: normalizeTags(input.tags) }),
-        ...(input.anchors !== undefined && { anchors: normalizeAnchors(this.projectRoot, input.anchors) }),
-        ...(input.importance !== undefined && { importance: Math.max(0, Math.min(1, input.importance)) }),
-        ...(input.confidence !== undefined && { confidence: Math.max(0, Math.min(1, input.confidence)) }),
-        ...(input.freshness !== undefined && { freshness: Math.max(0, Math.min(1, input.freshness)) }),
+        ...(input.anchors !== undefined && {
+          anchors: normalizeAnchors(this.projectRoot, input.anchors),
+        }),
+        ...(input.importance !== undefined && {
+          importance: Math.max(0, Math.min(1, input.importance)),
+        }),
+        ...(input.confidence !== undefined && {
+          confidence: Math.max(0, Math.min(1, input.confidence)),
+        }),
+        ...(input.freshness !== undefined && {
+          freshness: Math.max(0, Math.min(1, input.freshness)),
+        }),
         ...(input.audience !== undefined && { audience: normalizeAudience(input.audience) }),
         ...(input.supersedes !== undefined && { supersedes: input.supersedes }),
         ...(input.contradicts !== undefined && { contradicts: input.contradicts }),
@@ -656,7 +1016,7 @@ export class SqliteSuperMemoryStore {
           memoryId: updated.id,
           status: updated.status,
           kind: updated.kind,
-          persistence: updated.persistence ?? 'long_lived',
+          persistence: updated.persistence ?? DEFAULT_PERSISTENCE,
           confidence: updated.confidence,
           freshness: updated.freshness,
         }),
@@ -667,9 +1027,10 @@ export class SqliteSuperMemoryStore {
           this.eventPayload({
             memoryId: updated.id,
             reason: 'Memory status changed to deleted.',
-            persistence: updated.persistence ?? 'long_lived',
+            persistence: updated.persistence ?? DEFAULT_PERSISTENCE,
             removedEdges: 0,
-            contextPolicy: updated.contextPolicy === 'never' ? ('never' as const) : ('eligible' as const),
+            contextPolicy:
+              updated.contextPolicy === 'never' ? ('never' as const) : ('eligible' as const),
           }),
         );
       }
@@ -760,7 +1121,11 @@ export class SqliteSuperMemoryStore {
     // Try FTS5 first
     try {
       const placeholders = statusFilter.map(() => '?').join(',');
-      const ftsQuery = query.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, '""')}"*`).join(' ');
+      const ftsQuery = query
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((t) => `"${t.replace(/"/g, '""')}"*`)
+        .join(' ');
       const rows = this.db
         .prepare(
           `SELECT m.data FROM memories m
@@ -791,10 +1156,7 @@ export class SqliteSuperMemoryStore {
     return rows.map((r) => this.rowToMemory(r));
   }
 
-  async retrieveForPath(
-    paths: string[],
-    opts?: SuperMemoryForPathOptions,
-  ): Promise<SuperMemory[]> {
+  async retrieveForPath(paths: string[], opts?: SuperMemoryForPathOptions): Promise<SuperMemory[]> {
     await this.initialize();
     const limit = opts?.limit ?? 20;
     const includeAncestors = opts?.includeAncestors ?? true;
@@ -805,13 +1167,13 @@ export class SqliteSuperMemoryStore {
     for (const p of paths) {
       const normalized = p.replace(/\\/g, '/').replace(/\/+/g, '/');
       params.push(`%"path":"${normalized.replace(/[%_]/g, '\\$&')}"%`);
-      conditions.push('LOWER(data) LIKE ? ESCAPE \'\\\'');
+      conditions.push("LOWER(data) LIKE ? ESCAPE '\\'");
       if (includeAncestors) {
         const parts = normalized.split('/').filter(Boolean);
         for (let i = parts.length; i >= 1; i--) {
           const ancestor = parts.slice(0, i).join('/');
           params.push(`%"path":"${ancestor.replace(/[%_]/g, '\\$&')}"%`);
-          conditions.push('LOWER(data) LIKE ? ESCAPE \'\\\'');
+          conditions.push("LOWER(data) LIKE ? ESCAPE '\\'");
         }
       }
     }
@@ -824,7 +1186,7 @@ export class SqliteSuperMemoryStore {
          ORDER BY importance DESC, updated_at DESC
          LIMIT ?`,
       )
-      .all(...rowParams as (string | number)[]) as Array<{ data: string }>;
+      .all(...(rowParams as (string | number)[])) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
   }
 
@@ -854,11 +1216,11 @@ export class SqliteSuperMemoryStore {
 
     const graphRelatedIds = new Set<string>();
     for (const edge of await this.traverseGraph(
-      seeds.map((memory) => `mem:${memory.id}`),
+      seeds.map((memory) => SqliteSuperMemoryStore.toNodeId(memory.id)),
       { maxDepth: opts.maxDepth ?? 3, limit: Math.max(100, (opts.limit ?? 20) * 20) },
     )) {
       for (const node of [edge.from, edge.to]) {
-        if (node.startsWith('mem:')) graphRelatedIds.add(node.slice(4));
+        if (node.startsWith(SqliteSuperMemoryStore.NODE_ID_PREFIX)) graphRelatedIds.add(node.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
       }
     }
 
@@ -866,9 +1228,12 @@ export class SqliteSuperMemoryStore {
       .filter((memory) => !seedIds.has(memory.id))
       .map((memory) => ({ memory, score: scoreMemoryRelationship(memory, seeds, graphRelatedIds) }))
       .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score
-        || b.memory.importance - a.memory.importance
-        || b.memory.confidence - a.memory.confidence)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.memory.importance - a.memory.importance ||
+          b.memory.confidence - a.memory.confidence,
+      )
       .slice(0, Math.max(1, Math.min(opts.limit ?? 20, 100)))
       .map((item) => item.memory);
   }
@@ -906,7 +1271,8 @@ export class SqliteSuperMemoryStore {
         // For each dimension the memory defines, the context must match.
         // Undefined/unset dimensions in memory are pass-through (no constraint).
         if (a.roles?.length && !a.roles.some((r) => r.toLowerCase() === role)) return false;
-        if (a.taskTypes?.length && !a.taskTypes.some((t) => t.toLowerCase() === taskType)) return false;
+        if (a.taskTypes?.length && !a.taskTypes.some((t) => t.toLowerCase() === taskType))
+          return false;
         if (a.modes?.length && !a.modes.some((m) => m.toLowerCase() === mode)) return false;
         return true;
       })
@@ -938,7 +1304,9 @@ export class SqliteSuperMemoryStore {
     sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
-    const rows = this.db.prepare(sql).all(...params as (string | number)[]) as Array<{ data: string }>;
+    const rows = this.db.prepare(sql).all(...(params as (string | number)[])) as Array<{
+      data: string;
+    }>;
     return rows.map((r) => this.rowToMemory(r));
   }
 
@@ -963,9 +1331,10 @@ export class SqliteSuperMemoryStore {
     for (const r of statusRows) statusCounts[r.status] = r.n;
 
     // Resolve status filter (default: all except 'deleted').
-    const requested = options.statuses && options.statuses.length > 0
-      ? options.statuses.filter((s) => SQLITE_VALID_STATUSES.has(s))
-      : SQLITE_DEFAULT_PAGE_STATUSES;
+    const requested =
+      options.statuses && options.statuses.length > 0
+        ? options.statuses.filter((s) => SQLITE_VALID_STATUSES.has(s))
+        : SQLITE_DEFAULT_PAGE_STATUSES;
     const statuses = requested.length > 0 ? requested : SQLITE_DEFAULT_PAGE_STATUSES;
     const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
     const query = options.query?.trim().toLowerCase();
@@ -990,7 +1359,7 @@ export class SqliteSuperMemoryStore {
     // Total matching the filter (across all pages).
     const totalRow = this.db
       .prepare(`SELECT COUNT(*) AS n FROM memories ${whereClause}`)
-      .get(...params as (string | number)[]) as { n: number };
+      .get(...(params as (string | number)[])) as { n: number };
     const total = totalRow.n;
 
     // Cursor: keyset pagination on the DESC ordering.
@@ -999,7 +1368,7 @@ export class SqliteSuperMemoryStore {
     let cursorClause = '';
     if (cursor) {
       // (updated_at, id) strictly "after" the cursor in DESC order.
-      cursorClause = " AND (updated_at < ? OR (updated_at = ? AND id < ?))";
+      cursorClause = ' AND (updated_at < ? OR (updated_at = ? AND id < ?))';
       pageParams.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
     }
 
@@ -1010,15 +1379,18 @@ export class SqliteSuperMemoryStore {
          ORDER BY updated_at DESC, id DESC
          LIMIT ?`,
       )
-      .all(...pageParams as (string | number)[], limit + 1) as Array<{ data: string; updated_at: string; id: string }>;
+      .all(...(pageParams as (string | number)[]), limit + 1) as Array<{
+      data: string;
+      updated_at: string;
+      id: string;
+    }>;
 
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
     const memories = pageRows.map((r) => this.rowToMemory({ data: r.data }));
     const lastRow = pageRows[pageRows.length - 1];
-    const nextCursor = hasMore && lastRow
-      ? encodeSqlitePageCursor(lastRow.updated_at, lastRow.id)
-      : null;
+    const nextCursor =
+      hasMore && lastRow ? encodeSqlitePageCursor(lastRow.updated_at, lastRow.id) : null;
 
     return { memories, nextCursor, total, statusCounts };
   }
@@ -1050,7 +1422,12 @@ export class SqliteSuperMemoryStore {
 
   // ─── Graph ──────────────────────────────────────────────────────────
 
-  async addGraphEdge(from: string, to: string, relation: MemoryGraphRelation, weight = 1): Promise<void> {
+  async addGraphEdge(
+    from: string,
+    to: string,
+    relation: MemoryGraphRelation,
+    weight = 1,
+  ): Promise<void> {
     await this.initialize();
     const edgeId = `edge_${ulid()}`;
     this.db
@@ -1066,7 +1443,10 @@ export class SqliteSuperMemoryStore {
     );
   }
 
-  async traverseGraph(starts: string[], opts?: { maxDepth?: number; limit?: number }): Promise<MemoryGraphEdge[]> {
+  async traverseGraph(
+    starts: string[],
+    opts?: { maxDepth?: number; limit?: number },
+  ): Promise<MemoryGraphEdge[]> {
     await this.initialize();
     const maxDepth = Math.min(opts?.maxDepth ?? 2, 6);
     const limit = Math.min(opts?.limit ?? 100, 1000);
@@ -1080,7 +1460,9 @@ export class SqliteSuperMemoryStore {
       const current = queue.shift()!;
       if (current.depth >= maxDepth) continue;
       const rows = this.db
-        .prepare('SELECT from_node, to_node, relation, weight FROM edges WHERE from_node = ? OR to_node = ?')
+        .prepare(
+          'SELECT from_node, to_node, relation, weight FROM edges WHERE from_node = ? OR to_node = ?',
+        )
         .all(current.node, current.node) as Array<{
         from_node: string;
         to_node: string;
@@ -1127,10 +1509,14 @@ export class SqliteSuperMemoryStore {
    * `SuperMemoryStore.rejectIfUnsafeInput` so every SQLite persistence path,
    * including direct memories and review candidates, shares the same guard.
    */
-  private rejectIfUnsafeInput(input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>): void {
+  private rejectIfUnsafeInput(
+    input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
+  ): void {
     for (const value of collectStringValues(input)) {
       if (looksLikeSecret(value)) {
-        throw new Error('Super Memory refused to store text that looks like a secret or credential.');
+        throw new Error(
+          'Super Memory refused to store text that looks like a secret or credential.',
+        );
       }
     }
   }
@@ -1214,10 +1600,11 @@ export class SqliteSuperMemoryStore {
     }
     for (const group of groups.values()) {
       if (group.length < 2) continue;
-      const sorted = [...group].sort((a, b) =>
-        b.importance - a.importance
-        || b.confidence - a.confidence
-        || a.createdAt.localeCompare(b.createdAt),
+      const sorted = [...group].sort(
+        (a, b) =>
+          b.importance - a.importance ||
+          b.confidence - a.confidence ||
+          a.createdAt.localeCompare(b.createdAt),
       );
       const keeper = sorted[0]!;
       const duplicates = sorted.slice(1);
@@ -1225,8 +1612,14 @@ export class SqliteSuperMemoryStore {
       const updatedKeeper: SuperMemory = {
         ...keeper,
         tags: [...new Set(sorted.flatMap((m) => m.tags))],
-        anchors: [...new Map([...sorted.flatMap((m) => m.anchors)].map((a) => [JSON.stringify(a), a])).values()] as MemoryAnchor[],
-        sources: [...new Set(sorted.flatMap((m) => m.sources.map((s) => JSON.stringify(s))))].map((s) => JSON.parse(s)),
+        anchors: [
+          ...new Map(
+            [...sorted.flatMap((m) => m.anchors)].map((a) => [JSON.stringify(a), a]),
+          ).values(),
+        ] as MemoryAnchor[],
+        sources: [...new Set(sorted.flatMap((m) => m.sources.map((s) => JSON.stringify(s))))].map(
+          (s) => JSON.parse(s),
+        ),
         supersedes: [...new Set([...(keeper.supersedes ?? []), ...duplicates.map((m) => m.id)])],
         updatedAt: this.nowIso(),
       };
@@ -1242,9 +1635,19 @@ export class SqliteSuperMemoryStore {
         // Add graph edge (best-effort — the edges table may not exist in all configs)
         try {
           this.db
-            .prepare('INSERT INTO edges (from_node, to_node, relation, weight, created_at) VALUES (?, ?, ?, ?, ?)')
-            .run(`mem:${keeper.id}`, `mem:${dup.id}`, 'supersedes', 1, this.nowIso());
-        } catch { /* edges table may be absent */ }
+            .prepare(
+              'INSERT INTO edges (from_node, to_node, relation, weight, created_at) VALUES (?, ?, ?, ?, ?)',
+            )
+            .run(
+              SqliteSuperMemoryStore.toNodeId(keeper.id),
+              SqliteSuperMemoryStore.toNodeId(dup.id),
+              'supersedes',
+              1,
+              this.nowIso(),
+            );
+        } catch {
+          /* edges table may be absent */
+        }
         deduplicated++;
         superseded++;
       }
@@ -1268,9 +1671,7 @@ export class SqliteSuperMemoryStore {
     // moved the link, so this reader had to move with it).
     const existingCandidates = await this.listCandidates();
     const existingPendingKeys = new Set(
-      existingCandidates
-        .filter((c) => c.status === 'pending')
-        .map((c) => c.targetMemoryId ?? ''),
+      existingCandidates.filter((c) => c.status === 'pending').map((c) => c.targetMemoryId ?? ''),
     );
     const candidateEmittedFor = new Set<string>();
 
@@ -1279,10 +1680,11 @@ export class SqliteSuperMemoryStore {
     // Query non-deleted, non-superseded memories for candidate evaluation
     const candidates = await this.listMemories({ status: 'all', limit: 10000 });
     for (const m of candidates) {
-      if (m.status === 'deleted' || m.status === 'superseded' || m.status === 'contradicted') continue;
+      if (m.status === 'deleted' || m.status === 'superseded' || m.status === 'contradicted')
+        continue;
 
       const age = nowMs - Date.parse(m.lastAccessedAt ?? m.updatedAt);
-      const persistence = m.persistence ?? 'long_lived';
+      const persistence = m.persistence ?? DEFAULT_PERSISTENCE;
       let reason: string | undefined;
       let suggestedAction: 'delete' | 'archive' | 'investigate' = 'investigate';
 
@@ -1293,26 +1695,29 @@ export class SqliteSuperMemoryStore {
         reason = 'expires_at_passed';
         suggestedAction = 'delete';
       } else if (
-        m.status === 'active'
-        && m.scope !== 'session'
-        && (m.injectionCount ?? 0) >= unusedMinInjections
-        && (m.useCount ?? 0) === 0
-        && nowMs - Date.parse(m.updatedAt) >= unusedMs
+        m.status === 'active' &&
+        m.scope !== 'session' &&
+        (m.injectionCount ?? 0) >= unusedMinInjections &&
+        (m.useCount ?? 0) === 0 &&
+        nowMs - Date.parse(m.updatedAt) >= unusedMs
       ) {
         reason = 'injected_never_used';
         suggestedAction = 'delete';
       } else if (
-        (m.status === 'stale' && age >= retentionMs)
-        || (m.confidence < 0.5 && age >= lowConfidenceMs)
+        (m.status === 'stale' && age >= retentionMs) ||
+        (m.confidence < 0.5 && age >= lowConfidenceMs)
       ) {
         reason = m.confidence < 0.5 ? 'confidence_low' : 'freshness_low';
         suggestedAction = 'investigate';
       }
 
       // Permanent memories are exempt from time/usage rules
-      if (reason && persistence !== 'permanent'
-        && !candidateEmittedFor.has(m.id)
-        && !existingPendingKeys.has(m.id)) {
+      if (
+        reason &&
+        persistence !== 'permanent' &&
+        !candidateEmittedFor.has(m.id) &&
+        !existingPendingKeys.has(m.id)
+      ) {
         candidateEmittedFor.add(m.id);
         const ageDays = Math.floor((nowMs - Date.parse(m.updatedAt)) / 86_400_000);
         await this.addCandidate({
@@ -1325,7 +1730,12 @@ export class SqliteSuperMemoryStore {
           scope: 'project',
           confidence: 0.6,
           importance: 0.4,
-          tags: [...m.tags, `review:${reason}`, `suggested:${suggestedAction}`, `persistence:${persistence}`],
+          tags: [
+            ...m.tags,
+            `review:${reason}`,
+            `suggested:${suggestedAction}`,
+            `persistence:${persistence}`,
+          ],
           anchors: m.anchors,
           sources: [{ type: 'session' }],
           createdAt: this.nowIso(),
@@ -1334,7 +1744,13 @@ export class SqliteSuperMemoryStore {
         this.audit('memory.review_candidate_created', {
           memoryId: m.id,
           reason,
-          details: { suggestedAction, ageDays, persistence, status: m.status, confidence: m.confidence },
+          details: {
+            suggestedAction,
+            ageDays,
+            persistence,
+            status: m.status,
+            confidence: m.confidence,
+          },
         });
         reviewCandidatesCreated++;
       }
@@ -1358,7 +1774,9 @@ export class SqliteSuperMemoryStore {
       // SQLite does not run the JSONL store's SimHash near-dedup pass.
       transitiveMerges: 0,
     };
-    this.audit('memory.hygiene_completed', { details: report as unknown as Record<string, unknown> });
+    this.audit('memory.hygiene_completed', {
+      details: report as unknown as Record<string, unknown>,
+    });
     return report;
   }
 
@@ -1370,7 +1788,13 @@ export class SqliteSuperMemoryStore {
       .prepare(
         'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
       )
-      .run(candidate.id, JSON.stringify(candidate), candidate.status, candidate.createdAt, candidate.updatedAt);
+      .run(
+        candidate.id,
+        JSON.stringify(candidate),
+        candidate.status,
+        candidate.createdAt,
+        candidate.updatedAt,
+      );
   }
 
   /**
@@ -1378,9 +1802,7 @@ export class SqliteSuperMemoryStore {
    * Lets agents (e.g. the Mnemosyne custodian) file review proposals into
    * the ReviewQueue instead of applying destructive changes directly.
    */
-  async createCandidate(
-    input: CreateCandidateInput,
-  ): Promise<MemoryCandidate> {
+  async createCandidate(input: CreateCandidateInput): Promise<MemoryCandidate> {
     validateRememberInput(input);
     // Reject secrets/credentials before any store operation. Mirrors
     // SuperMemoryStore.rejectIfUnsafeInput so candidate proposals filed
@@ -1429,7 +1851,13 @@ export class SqliteSuperMemoryStore {
         .prepare(
           'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
         )
-        .run(candidate.id, JSON.stringify(candidate), candidate.status, candidate.createdAt, candidate.updatedAt);
+        .run(
+          candidate.id,
+          JSON.stringify(candidate),
+          candidate.status,
+          candidate.createdAt,
+          candidate.updatedAt,
+        );
       this.audit('memory.candidate_created', { details: { candidateId: candidate.id } });
       return candidate;
     });
@@ -1507,7 +1935,13 @@ export class SqliteSuperMemoryStore {
         .prepare(
           'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
         )
-        .run(updated.id, JSON.stringify(updated), updated.status, updated.createdAt, updated.updatedAt);
+        .run(
+          updated.id,
+          JSON.stringify(updated),
+          updated.status,
+          updated.createdAt,
+          updated.updatedAt,
+        );
       this.audit('memory.candidate_accepted', { memoryId: memory.id, details: { candidateId } });
     });
     return memory;
@@ -1538,7 +1972,13 @@ export class SqliteSuperMemoryStore {
         .prepare(
           'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
         )
-        .run(updated.id, JSON.stringify(updated), updated.status, updated.createdAt, updated.updatedAt);
+        .run(
+          updated.id,
+          JSON.stringify(updated),
+          updated.status,
+          updated.createdAt,
+          updated.updatedAt,
+        );
       this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
       return true;
     });
@@ -1578,9 +2018,11 @@ export class SqliteSuperMemoryStore {
       if (!any) return undefined;
       return { candidateId, decision, applied: false, alreadyResolved: true };
     }
-    const targetId = snapshot.targetMemoryId
-      ?? snapshot.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length);
-    const resolutionNote = reason ?? (decision === 'keep' ? 'Reviewed: keep' : `Reviewed: ${decision}`);
+    const targetId =
+      snapshot.targetMemoryId ??
+      snapshot.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length);
+    const resolutionNote =
+      reason ?? (decision === 'keep' ? 'Reviewed: keep' : `Reviewed: ${decision}`);
     // Atomic claim: only the caller that flips pending → terminal state owns
     // this resolution. Interleaved decisions see `alreadyResolved` instead of
     // double-applying memory mutations.
@@ -1592,7 +2034,9 @@ export class SqliteSuperMemoryStore {
         updatedAt: this.nowIso(),
       };
       const result = this.db
-        .prepare("UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
+        .prepare(
+          "UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
+        )
         .run(JSON.stringify(updated), updated.status, updated.updatedAt, candidateId);
       return result.changes > 0;
     });
@@ -1610,10 +2054,12 @@ export class SqliteSuperMemoryStore {
       // Permanent memories refuse deletion (matches SuperMemoryStore.resolveCandidate
       // and deleteSuperMemory's force guard). Explicit archival is still permitted —
       // permanence protects against destructive removal, not lifecycle archival.
-      const isPermanent = target && (target.persistence ?? 'long_lived') === 'permanent';
+      const isPermanent = target && (target.persistence ?? DEFAULT_PERSISTENCE) === 'permanent';
       if (target && (decision === 'archive' || !isPermanent)) {
         try {
-          await this.updateSuper(targetId, { status: decision === 'delete' ? 'deleted' : 'archived' });
+          await this.updateSuper(targetId, {
+            status: decision === 'delete' ? 'deleted' : 'archived',
+          });
           applied = true;
         } catch {
           applied = false; // Target vanished between read and write.
@@ -1652,12 +2098,19 @@ export class SqliteSuperMemoryStore {
 
   async consolidateSession(input: SessionConsolidationInput): Promise<SessionConsolidationResult> {
     await this.initialize();
-    const result: SessionConsolidationResult = { candidates: 0, accepted: 0, rejected: 0, duplicate: 0 };
+    const result: SessionConsolidationResult = {
+      candidates: 0,
+      accepted: 0,
+      rejected: 0,
+      duplicate: 0,
+    };
     // Build dedup set from existing active/stale project memories
     const existing = new Set<string>();
-    const memories = this.db.prepare(
-      "SELECT data FROM memories WHERE json_extract(data, '$.status') IN ('active', 'stale') AND json_extract(data, '$.scope') = 'project'",
-    ).all() as Array<{ data: string }>;
+    const memories = this.db
+      .prepare(
+        "SELECT data FROM memories WHERE json_extract(data, '$.status') IN ('active', 'stale') AND json_extract(data, '$.scope') = 'project'",
+      )
+      .all() as Array<{ data: string }>;
     for (const row of memories) {
       const memory = JSON.parse(row.data) as SuperMemory;
       existing.add(canonicalMemoryText(memory.text));
@@ -1740,10 +2193,7 @@ export class SqliteSuperMemoryStore {
     return row ? this.rowToMemory(row) : null;
   }
 
-  async updateSuperMemory(
-    id: string,
-    patch: UpdateSuperMemoryInput,
-  ): Promise<SuperMemory> {
+  async updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory> {
     return this.updateSuper(id, patch);
   }
 
@@ -1753,7 +2203,7 @@ export class SqliteSuperMemoryStore {
     limit?: number,
   ): Promise<MemoryEntry[]> {
     const memories = await this.searchSuper(query, {
-      legacyScope: scope,
+      scope: legacyToSuperScope(scope),
       limit,
       // Do NOT pass includeStatuses — let searchSuper apply its default
       // (['active']) AND the contextPolicy !== 'never' filter that only
@@ -1762,6 +2212,7 @@ export class SqliteSuperMemoryStore {
     });
     return memories
       .filter((memory) => memory.contextPolicy !== 'never')
+      .filter((memory) => (memory.legacyScope ?? superToLegacyScope(memory.scope)) === scope)
       .map(toLegacyEntry);
   }
 
@@ -1802,7 +2253,7 @@ export class SqliteSuperMemoryStore {
         );
       }
 
-      const nodeId = `mem:${id}`;
+      const nodeId = SqliteSuperMemoryStore.toNodeId(id);
       const edgeCount = this.db
         .prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
         .get(nodeId, nodeId) as { n: number };
@@ -1817,9 +2268,7 @@ export class SqliteSuperMemoryStore {
       // block. The outer memory.deleted audit entry (below) is the authoritative
       // record.
       const refs = this.db
-        .prepare(
-          `SELECT id, data FROM memories WHERE id != ? AND status != 'deleted'`,
-        )
+        .prepare(`SELECT id, data FROM memories WHERE id != ? AND status != 'deleted'`)
         .all(id) as Array<{ id: string; data: string }>;
       for (const ref of refs) {
         const other = this.rowToMemory(ref);
@@ -1856,7 +2305,7 @@ export class SqliteSuperMemoryStore {
         ...(options.neverInject === true ? { contextPolicy: 'never' as const } : {}),
       };
       this.upsertMemory(softDeleted);
-      this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(nodeId, nodeId);
+      this.cascadeDeleteEdges(nodeId);
 
       this.audit('memory.deleted', {
         memoryId: id,
@@ -1872,7 +2321,7 @@ export class SqliteSuperMemoryStore {
         this.eventPayload({
           memoryId: id,
           reason,
-          persistence: fresh.persistence ?? 'long_lived',
+          persistence: fresh.persistence ?? DEFAULT_PERSISTENCE,
           removedEdges: edgeCount.n,
           contextPolicy: options.neverInject === true ? ('never' as const) : ('eligible' as const),
         }),
@@ -1895,6 +2344,57 @@ export class SqliteSuperMemoryStore {
   }
 }
 
+function importanceFromPriority(priority: MemoryEntry['priority']): number {
+  switch (priority) {
+    case 'critical':
+      return 1;
+    case 'high':
+      return 0.8;
+    case 'low':
+      return 0.3;
+    case 'medium':
+    case undefined:
+      return 0.6;
+    default: {
+      // Unknown priority — defensively fall back to medium (0.6) instead of
+      // throwing on a hot path where unvalidated input could reach here
+      // (e.g. JSON deserialization of persisted data from a future version).
+      return 0.6;
+    }
+  }
+}
+
+function legacyScopeLabel(scope: MemoryScope): string {
+  switch (scope) {
+    case 'project-agents':
+      return 'Project AGENTS.md';
+    case 'project-memory':
+      return 'Project Memory';
+    case 'user-memory':
+      return 'User Memory';
+    default: {
+      // Exhaustive — all union cases handled above.
+      // Throw so a future MemoryScope addition is caught at runtime
+      // instead of silently producing `## undefined` in readAll() output.
+      const _exhaustive: never = scope;
+      throw new Error(`Unknown scope: ${_exhaustive}`);
+    }
+  }
+}
+
+function matchesLegacyForget(memory: SuperMemory, normalizedQuery: string): boolean {
+  const searchable = [
+    memory.id,
+    memory.text,
+    ...memory.tags,
+    ...memory.anchors.flatMap((anchor) => [anchor.path, anchor.symbol, anchor.command]),
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+  return searchable.includes(normalizedQuery);
+}
+
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
@@ -1904,26 +2404,28 @@ function isMigratableMemoryRecord(value: unknown): value is SuperMemoryRecord {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<SuperMemoryRecord>;
   const memory = record.memory as Partial<SuperMemory> | undefined;
-  return record.recordType === 'memory'
-    && !!memory
-    && typeof memory.id === 'string'
-    && Number.isInteger(memory.revision)
-    && (memory.revision ?? 0) >= 1
-    && typeof memory.status === 'string'
-    && typeof memory.kind === 'string'
-    && typeof memory.scope === 'string'
-    && typeof memory.text === 'string'
-    && typeof memory.importance === 'number'
-    && Number.isFinite(memory.importance)
-    && typeof memory.confidence === 'number'
-    && Number.isFinite(memory.confidence)
-    && typeof memory.freshness === 'number'
-    && Number.isFinite(memory.freshness)
-    && Array.isArray(memory.tags)
-    && Array.isArray(memory.anchors)
-    && Array.isArray(memory.sources)
-    && typeof memory.createdAt === 'string'
-    && typeof memory.updatedAt === 'string';
+  return (
+    record.recordType === 'memory' &&
+    !!memory &&
+    typeof memory.id === 'string' &&
+    Number.isInteger(memory.revision) &&
+    (memory.revision ?? 0) >= 1 &&
+    typeof memory.status === 'string' &&
+    typeof memory.kind === 'string' &&
+    typeof memory.scope === 'string' &&
+    typeof memory.text === 'string' &&
+    typeof memory.importance === 'number' &&
+    Number.isFinite(memory.importance) &&
+    typeof memory.confidence === 'number' &&
+    Number.isFinite(memory.confidence) &&
+    typeof memory.freshness === 'number' &&
+    Number.isFinite(memory.freshness) &&
+    Array.isArray(memory.tags) &&
+    Array.isArray(memory.anchors) &&
+    Array.isArray(memory.sources) &&
+    typeof memory.createdAt === 'string' &&
+    typeof memory.updatedAt === 'string'
+  );
 }
 
 /** Match the JSONL replay rule while never replacing a newer SQLite revision. */
@@ -1935,23 +2437,27 @@ function shouldReplaceMigratedMemory(current: SuperMemory, incoming: SuperMemory
 function isMigratableCandidate(value: unknown): value is MemoryCandidate {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<MemoryCandidate>;
-  return typeof candidate.id === 'string'
-    && typeof candidate.status === 'string'
-    && typeof candidate.text === 'string'
-    && typeof candidate.createdAt === 'string'
-    && typeof candidate.updatedAt === 'string';
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.status === 'string' &&
+    typeof candidate.text === 'string' &&
+    typeof candidate.createdAt === 'string' &&
+    typeof candidate.updatedAt === 'string'
+  );
 }
 
 function isMigratableEdge(value: unknown): value is MemoryGraphEdge {
   if (!value || typeof value !== 'object') return false;
   const edge = value as Partial<MemoryGraphEdge>;
-  return typeof edge.id === 'string'
-    && typeof edge.from === 'string'
-    && typeof edge.to === 'string'
-    && typeof edge.relation === 'string'
-    && typeof edge.weight === 'number'
-    && Number.isFinite(edge.weight)
-    && typeof edge.createdAt === 'string';
+  return (
+    typeof edge.id === 'string' &&
+    typeof edge.from === 'string' &&
+    typeof edge.to === 'string' &&
+    typeof edge.relation === 'string' &&
+    typeof edge.weight === 'number' &&
+    Number.isFinite(edge.weight) &&
+    typeof edge.createdAt === 'string'
+  );
 }
 
 function isMigratableAuditRecord(value: unknown): value is SuperMemoryAuditRecord {

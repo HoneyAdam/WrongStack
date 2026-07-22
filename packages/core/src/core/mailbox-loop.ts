@@ -22,6 +22,8 @@
  */
 
 import type { Mailbox, MailboxMessage, MailboxMessageType } from '../coordination/mailbox-types.js';
+import type { TextBlock } from '../types/blocks.js';
+import type { Message } from '../types/messages.js';
 import { toErrorMessage } from '../utils/error.js';
 
 export interface MailboxLoopOptions {
@@ -40,6 +42,8 @@ export interface MailboxLoopOptions {
    * in-process session swap moves the leader onto a new session tag).
    */
   agentId: string | (() => string);
+  /** Current roster role, used by leader-only delivery filtering. */
+  role?: string | (() => string | undefined) | undefined;
   /**
    * Additional addresses this agent also answers to — typically the bare
    * base id (`leader`). Lets other agents (and humans) address "leader"
@@ -86,6 +90,8 @@ export function createMailboxChecker(
   const currentId = typeof opts.agentId === 'function' ? opts.agentId : () => opts.agentId as string;
   const currentSessionId =
     typeof opts.sessionId === 'function' ? opts.sessionId : () => opts.sessionId;
+  const currentRole: () => string | undefined =
+    typeof opts.role === 'function' ? opts.role : () => opts.role as string | undefined;
 
   const injectedIds = new Set<string>();
   const broadcastFloor = opts.broadcastFloor ?? new Date().toISOString();
@@ -94,6 +100,7 @@ export function createMailboxChecker(
     try {
       const mailbox = getMailbox();
       const agentId = currentId();
+      const role = currentRole();
       const sessionId = currentSessionId();
       const targets = [
         agentId,
@@ -105,7 +112,7 @@ export function createMailboxChecker(
       // each query and are deduped below). Receipts always use the unique id.
       const batches = await Promise.all(
         targets.map((to) =>
-          mailbox.query({ to, unreadBy: agentId, limit: 10 }).catch(() => [] as MailboxMessage[]),
+          mailbox.query({ to, unreadBy: agentId, readerRole: role, limit: 10 }).catch(() => [] as MailboxMessage[]),
         ),
       );
       const seen = new Set<string>();
@@ -241,6 +248,8 @@ export function buildMailboxBtwAwarenessBlock(messages: MailboxMessage[]): { typ
     parts.push('');
   }
 
+  parts.push('This raw awareness block is request-scoped; absorb it once without quoting or restating it.');
+  parts.push('');
   parts.push('[END MAILBOX BTW]');
   return { type: 'text', text: parts.join('\n') };
 }
@@ -290,8 +299,63 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
     parts.push('');
   }
 
+  parts.push(
+    'Context policy: this raw mailbox block is request-scoped and will be removed after you evaluate it. Do not quote or restate the mail. If it has a durable consequence, retain only one concise conclusion/action in your response, task state, or tool output; otherwise acknowledge it internally and continue.',
+  );
+  parts.push('');
+
   parts.push('[END MAILBOX]');
   return { type: 'text', text: parts.join('\n') };
+}
+
+/**
+ * Remove request-scoped mailbox blocks after the provider has evaluated them.
+ *
+ * Mail is folded into a user message before request construction so normal
+ * context-window accounting and provider role alternation still work. Keeping
+ * the raw block after that request, however, makes every later request pay for
+ * and reconsider the same mail. This helper removes only the exact text blocks
+ * injected by the current run. Any assistant response, tool call/result, todo,
+ * or other durable consequence remains in the conversation.
+ */
+export function removeInjectedMailboxBlocks(
+  messages: readonly Message[],
+  injectedBlocks: readonly TextBlock[],
+): { messages: Message[]; changed: boolean } {
+  if (injectedBlocks.length === 0) {
+    return { messages: messages as Message[], changed: false };
+  }
+
+  const blockRefs = new Set<TextBlock>(injectedBlocks);
+  const blockTexts = new Set(injectedBlocks.map((block) => block.text));
+  const next: Message[] = [];
+  let changed = false;
+
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) {
+      next.push(message);
+      continue;
+    }
+
+    const content = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      const isInjected = blockRefs.has(block) || blockTexts.has(block.text);
+      if (isInjected) changed = true;
+      return !isInjected;
+    });
+
+    if (content.length === message.content.length) {
+      next.push(message);
+      continue;
+    }
+    if (content.length === 0) continue;
+
+    // The cached estimate belongs to the pre-removal content.
+    const { _estTokens: _staleEstimate, ...rest } = message;
+    next.push({ ...rest, content });
+  }
+
+  return changed ? { messages: next, changed: true } : { messages: messages as Message[], changed: false };
 }
 
 // ── Integration hooks ────────────────────────────────────────────────────
@@ -329,6 +393,7 @@ export async function injectPendingMailboxMessages(
       from: m.from,
       to: m.to,
       type: m.type,
+      audience: m.audience ?? 'all',
       subject: m.subject,
     });
   }

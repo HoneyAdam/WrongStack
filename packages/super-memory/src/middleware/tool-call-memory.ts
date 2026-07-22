@@ -1,12 +1,13 @@
 import * as path from 'node:path';
+import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
 import type { Middleware } from '@wrongstack/core/kernel';
-import type { EventBus, ToolCallPipelinePayload } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance, memoryStructuralRelevance } from '../retrieval/relevance.js';
-import { normalizeTextKey } from './turn-memory.js';
-import { MemoryInjectorAgent } from './memory-injector-agent.js';
+import { normalizeTextKey } from '../store-helpers.js';
 import type { SuperMemory } from '../types.js';
 import type { InjectionTracker } from './injection-tracker.js';
+import { MemoryInjectorAgent } from './memory-injector-agent.js';
 
 export interface SuperMemoryToolCallMiddlewareOptions {
   memory: SuperMemoryRetrieverLike;

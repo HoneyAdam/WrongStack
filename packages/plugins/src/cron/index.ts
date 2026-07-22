@@ -6,7 +6,7 @@
  * - cron_list: List all scheduled jobs
  * - cron_cancel: Cancel a scheduled job
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 const COORDINATION_CRON_CAPABILITY = 'coordination.cron';
 

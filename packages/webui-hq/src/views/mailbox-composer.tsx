@@ -35,10 +35,16 @@ type SendState =
   | { phase: 'error'; message: string };
 
 const TYPE_OPTIONS: { value: MailboxSendInput['type']; label: string }[] = [
+  { value: 'note', label: 'note — general information' },
+  { value: 'ask', label: 'ask — reply required' },
+  { value: 'assign', label: 'assign — work ownership' },
   { value: 'steer', label: 'steer — redirect the current work' },
   { value: 'btw', label: 'btw — FYI, no action required' },
   { value: 'queue', label: 'queue — note for the next agent' },
   { value: 'broadcast', label: 'broadcast — all agents in the project' },
+  { value: 'status', label: 'status — meaningful checkpoint' },
+  { value: 'result', label: 'result — completed output/evidence' },
+  { value: 'review', label: 'review — passive inspection request' },
 ];
 
 export function MailboxComposer({ projects, sender }: MailboxComposerProps): React.ReactElement {
@@ -48,6 +54,7 @@ export function MailboxComposer({ projects, sender }: MailboxComposerProps): Rea
   const [type, setType] = useState<MailboxSendInput['type']>('steer');
   const [to, setTo] = useState('leader');
   const [priority, setPriority] = useState<'high' | 'normal' | 'low'>('normal');
+  const [leadersOnly, setLeadersOnly] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [state, setState] = useState<SendState>({ phase: 'idle' });
@@ -67,6 +74,7 @@ export function MailboxComposer({ projects, sender }: MailboxComposerProps): Rea
         subject: subject.trim() || 'HQ prompt',
         body: body.trim(),
         priority,
+        audience: leadersOnly ? 'leaders' : 'all',
       });
       setState({ phase: 'sent', messageId: result.messageId });
       setBody('');
@@ -158,6 +166,17 @@ export function MailboxComposer({ projects, sender }: MailboxComposerProps): Rea
             />
           </label>
         )}
+        <label className="hq-composer-field">
+          <span>audience</span>
+          <select
+            className="hq-select"
+            value={leadersOnly ? 'leaders' : 'all'}
+            onChange={(e) => setLeadersOnly(e.target.value === 'leaders')}
+          >
+            <option value="all">all agents</option>
+            <option value="leaders">leaders only — subagents cannot consume</option>
+          </select>
+        </label>
         <label className="hq-composer-field">
           <span>priority</span>
           <select

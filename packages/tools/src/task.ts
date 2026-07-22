@@ -1,20 +1,18 @@
+import type { TaskStatus } from '@wrongstack/core/types';
+import type { TaskFile } from '@wrongstack/core/storage';
 import {
-  type TaskItem,
-  type TaskStatus,
-  type TaskFile,
   computeTaskItemProgress,
   formatTaskList,
-} from '@wrongstack/core';
-import {
-  mutateTasks,
-} from '@wrongstack/core';
+  type TaskItem,
+} from '@wrongstack/core/utils';
+import { mutateTasks } from '@wrongstack/core/storage';
 import {
   addPlanItem,
   mutatePlan,
   formatPlan,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
 import { randomUUID } from 'node:crypto';
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { projectSessionTasksToKanban } from './session-kanban.js';
 
 // ---------------------------------------------------------------------------

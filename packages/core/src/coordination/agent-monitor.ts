@@ -11,8 +11,10 @@
  *   - HQ dashboard — real-time per-agent transcript viewing
  *   - File-based audit trail — each subagent's full JSONL transcript on disk
  */
+import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
 import { expectDefined } from '../utils/expect-defined.js';
 import type { FleetBus } from './fleet-bus.js';
@@ -98,7 +100,11 @@ export class AgentMonitorService {
    * segments and those appends reaching disk, losing exactly the text that was
    * on screen. Mirrors FleetManager.closeManifest()'s drain.
    */
-  private _writeChain: Promise<void> = Promise.resolve();
+  private readonly _writeQueue: Array<{ subagentId: string; line: string; bytes: number }> = [];
+  private _writeQueueBytes = 0;
+  private _writeDrain: Promise<void> | null = null;
+  private static readonly _MAX_QUEUED_WRITES = 1_000;
+  private static readonly _MAX_QUEUED_WRITE_BYTES = 8 * 1024 * 1024;
   /** Disposers for FleetBus subscriptions, keyed by subagentId. */
   private readonly _subscriptions = new Map<string, () => void>();
   /** Generic fleet-wide subscription disposer. */
@@ -178,18 +184,29 @@ export class AgentMonitorService {
 
   private async _readTranscriptFile(subagentId: string): Promise<AgentTimelineEntry[]> {
     const file = path.join(this._transcriptsDir, subagentId, 'transcript.jsonl');
-    const raw = await fs.readFile(file, 'utf8').catch(() => null);
-    if (raw === null) return [];
+    const accessible = await fs
+      .access(file)
+      .then(() => true)
+      .catch(() => false);
+    if (!accessible) return [];
     const out: AgentTimelineEntry[] = [];
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      try {
-        out.push(JSON.parse(trimmed) as AgentTimelineEntry);
-      } catch {
-        // Skip a torn trailing line — the writer appends without fsync, so a
-        // crash can leave a partial record.
+    const input = createReadStream(file, { encoding: 'utf8' });
+    const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+    try {
+      for await (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        try {
+          out.push(JSON.parse(trimmed) as AgentTimelineEntry);
+          if (out.length > this._maxEntries) out.shift();
+        } catch {
+          // Skip a torn trailing line — the writer appends without fsync, so a
+          // crash can leave a partial record.
+        }
       }
+    } finally {
+      lines.close();
+      input.destroy();
     }
     return out;
   }
@@ -243,7 +260,12 @@ export class AgentMonitorService {
    */
   async close(): Promise<void> {
     this.stop();
-    await this._writeChain;
+    for (;;) {
+      if (this._writeQueue.length > 0) this._startWriteDrain();
+      const drain = this._writeDrain;
+      if (!drain) return;
+      await drain;
+    }
   }
 
   /** Stop listening and clean up all subscriptions. */
@@ -357,13 +379,25 @@ export class AgentMonitorService {
       case 'provider.text_delta': {
         const text = payload.text as string | undefined;
         if (!text || text.length === 0) return;
-        this._appendStreamDelta(subagentId, session, 'text', text, (payload.iteration as number) ?? 0);
+        this._appendStreamDelta(
+          subagentId,
+          session,
+          'text',
+          text,
+          (payload.iteration as number) ?? 0,
+        );
         break;
       }
       case 'provider.thinking_delta': {
         const text = payload.text as string | undefined;
         if (!text || text.length === 0) return;
-        this._appendStreamDelta(subagentId, session, 'thinking', text, (payload.iteration as number) ?? 0);
+        this._appendStreamDelta(
+          subagentId,
+          session,
+          'thinking',
+          text,
+          (payload.iteration as number) ?? 0,
+        );
         break;
       }
       case 'tool.started': {
@@ -386,7 +420,8 @@ export class AgentMonitorService {
         const ok = payload.ok as boolean | undefined;
         const durationMs = payload.durationMs as number | undefined;
         const output = typeof payload.output === 'string' ? payload.output : '';
-        const outputBytes = typeof payload.outputBytes === 'number' ? payload.outputBytes : undefined;
+        const outputBytes =
+          typeof payload.outputBytes === 'number' ? payload.outputBytes : undefined;
         if (!name) return;
         const duration = durationMs !== undefined ? ` (${durationMs}ms)` : '';
         const state = ok ? 'Completed' : 'Failed';
@@ -532,18 +567,44 @@ export class AgentMonitorService {
    * not take down the agent it is watching.
    */
   private _enqueueWrite(subagentId: string, entry: AgentTimelineEntry): void {
-    this._writeChain = this._writeChain.then(() =>
-      this._appendToFile(subagentId, entry).catch(() => {
-        // Best-effort file write — failures must never crash the agent.
-      }),
-    );
+    const line = JSON.stringify(entry) + '\n';
+    const bytes = Buffer.byteLength(line, 'utf8');
+    if (bytes > AgentMonitorService._MAX_QUEUED_WRITE_BYTES) return;
+    while (
+      this._writeQueue.length >= AgentMonitorService._MAX_QUEUED_WRITES ||
+      this._writeQueueBytes + bytes > AgentMonitorService._MAX_QUEUED_WRITE_BYTES
+    ) {
+      const dropped = this._writeQueue.shift();
+      if (!dropped) break;
+      this._writeQueueBytes = Math.max(0, this._writeQueueBytes - dropped.bytes);
+    }
+    this._writeQueue.push({ subagentId, line, bytes });
+    this._writeQueueBytes += bytes;
+    this._startWriteDrain();
   }
 
-  private async _appendToFile(subagentId: string, entry: AgentTimelineEntry): Promise<void> {
+  private _startWriteDrain(): void {
+    if (this._writeDrain) return;
+    const drain = (async () => {
+      while (this._writeQueue.length > 0) {
+        const queued = this._writeQueue.shift();
+        if (!queued) continue;
+        this._writeQueueBytes = Math.max(0, this._writeQueueBytes - queued.bytes);
+        await this._appendToFile(queued.subagentId, queued.line).catch(() => {
+          // Best-effort transcript writes must never stop agent monitoring.
+        });
+      }
+    })().finally(() => {
+      if (this._writeDrain === drain) this._writeDrain = null;
+      if (this._writeQueue.length > 0) this._startWriteDrain();
+    });
+    this._writeDrain = drain;
+  }
+
+  private async _appendToFile(subagentId: string, line: string): Promise<void> {
     const dir = path.join(this._transcriptsDir, subagentId);
     await fs.mkdir(dir, { recursive: true });
     const filePath = path.join(dir, 'transcript.jsonl');
-    const line = JSON.stringify(entry) + '\n';
     await fs.appendFile(filePath, line, { encoding: 'utf8' });
   }
 
@@ -563,11 +624,16 @@ export class AgentMonitorService {
     return `${head}\n${body}`;
   }
 
-  private _formatToolResult(summary: string, output: string, outputBytes: number | undefined): string {
+  private _formatToolResult(
+    summary: string,
+    output: string,
+    outputBytes: number | undefined,
+  ): string {
     if (!output) return summary;
-    const suffix = outputBytes && Buffer.byteLength(output, 'utf8') < outputBytes
-      ? `\n\n... ${outputBytes.toLocaleString()} bytes total`
-      : '';
+    const suffix =
+      outputBytes && Buffer.byteLength(output, 'utf8') < outputBytes
+        ? `\n\n... ${outputBytes.toLocaleString()} bytes total`
+        : '';
     return `${summary}\n${output}${suffix}`;
   }
 

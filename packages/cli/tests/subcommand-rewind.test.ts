@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { resolveWstackPaths } from '@wrongstack/core';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 
 // Mock the core's rewinder/store classes — exercised in their own tests.
 // Use vi.hoisted so the mock factory can refer to the shared instances.
@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 const { rewindInstance, storeInstance } = mocks;
 
-vi.mock('@wrongstack/core', async (orig) => {
+vi.mock('@wrongstack/core/storage', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   class FakeRewinder {
     constructor(...args: unknown[]) {

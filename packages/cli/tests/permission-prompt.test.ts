@@ -1,5 +1,5 @@
-import type { InputReader, Tool } from '@wrongstack/core';
-import { stripAnsi } from '@wrongstack/core';
+import type { InputReader, Tool } from '@wrongstack/core/types';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makePromptDelegate } from '../src/permission-prompt.js';
 

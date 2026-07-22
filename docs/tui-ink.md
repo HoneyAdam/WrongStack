@@ -135,7 +135,8 @@ Key design decisions:
 ### 3.1 History Panel
 
 **Components:**
-- `src/components/history/index.tsx` — `<History>` with React.memo, renders via `<Static>` for scrollback flushing
+- `src/components/scrollable-history.tsx` — default bounded, virtualized history viewport
+- `src/components/history/index.tsx` — legacy `<History>` renderer and history component exports
 - `src/components/history/entry.tsx` (671 lines) — discriminated union renderer for 11 entry kinds
 - `src/components/history/assistant.tsx` — `AssistantBody` (markdown + code blocks), `AssistantTail` (8-row constant-height streaming tail)
 - `src/components/history/banner.tsx` (414 lines) — startup banner with ASCII "W" logo + wordmark
@@ -172,7 +173,9 @@ With inline diff previews using dark green/red background washes (`#1e4620`/`#5a
 
 `src/components/scrollable-history.tsx` (212 lines)
 
-When the TUI operates in mouse mode, the normal `<History>` (which uses Ink's `<Static>` to flush entries into terminal scrollback) is replaced by `<ScrollableHistory>`, which renders into a **fixed-height, scrolled viewport**.
+The TUI uses `<ScrollableHistory>` by default. It renders retained entries into
+a **fixed-height, scrolled viewport**, preventing unbounded terminal scrollback.
+`PgUp`/`PgDn` work in every mode; mouse mode adds wheel and scrollbar control.
 
 **Scrolling mechanism:**
 - Parent Box: `height={viewportRows}`, `overflowY="hidden"`, `justifyContent="flex-end"`
@@ -181,9 +184,9 @@ When the TUI operates in mouse mode, the normal `<History>` (which uses Ink's `<
 - Ink's output clipper handles over/underflow while preserving ANSI styling
 
 **Performance bounding:**
-- Only the most recent 500 entries are mounted in the viewport
-- Older entries display a summary line: `"↑ N earlier entries (scroll lives in this session; full log on disk)"`
-- True windowing (spacer boxes for measured off-screen entries) is planned for a later upgrade
+- At most 400 recent entries and 1 MiB of serialized display data are retained
+- Older entries are replaced by an omission marker; the full session stays on disk
+- Height-cache windowing mounts only the relevant viewport slice
 
 **Scrollbar:**
 - Right-edge 1-column track
@@ -785,8 +788,8 @@ Based on mailbox broadcast activity during this session:
 
 ### 20.2 Design Considerations
 - **No font installation**: WrongStack never silently installs or changes system fonts — Nerd Font is user's choice via `WRONGSTACK_TUI_ICON_STYLE=nerd`
-- **Inline vs Alt-Screen**: The TUI runs in inline mode (Ink's default), not alt-screen. This means committed entries flow into native terminal scrollback. Tool stream boxes are deliberately NOT rendered in inline mode because every `tool.progress` re-render scrolls the screen and strands headers in scrollback
-- **Performance**: `React.memo` on History/Input prevents keystroke churn; 500-entry mount cap on ScrollableHistory; LRU cache on markdown inline parsing; `fleetBatch` action coalesces high-frequency events
+- **Inline vs Alt-Screen**: The TUI runs in inline mode (Ink's default), but chat entries stay inside a fixed-height managed viewport instead of flowing into native terminal scrollback
+- **Performance**: `React.memo` on history/input prevents keystroke churn; display retention is capped at 400 entries / 1 MiB; height-cache windowing, markdown LRU caching, and `fleetBatch` coalescing bound hot paths
 - **Ghost artifacts**: Resize handler erases from cursor to end-of-screen to prevent reflow ghosts
 - **Panel close mechanism**: Overlays rendered above the input keep the input `hidden` but mounted (not unmounted) so keyboard listeners for F-key/Esc remain active and panels remain closable
 

@@ -1,4 +1,4 @@
-import type { Capabilities, Request } from '@wrongstack/core';
+import type { Capabilities, Request } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { applyPromptCacheKey } from '../src/prompt-cache-key.js';
 import { openaiWireFormat } from '../src/presets/openai.js';

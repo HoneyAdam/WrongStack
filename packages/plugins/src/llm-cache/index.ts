@@ -39,7 +39,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Minimal structural mirrors of the provider Request/Response. We keep these

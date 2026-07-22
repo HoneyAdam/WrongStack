@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isParseError, type ModelsRegistry } from '@wrongstack/core';
+import { isParseError, type ModelsRegistry } from '@wrongstack/core/types';
 import { expectFetchError } from './helpers/fetch-error.js';
 import {
   buildAuthorizeUrl,

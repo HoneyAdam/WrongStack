@@ -24,7 +24,7 @@
 //     enqueues after stop() reject with a clear error.
 // ---------------------------------------------------------------------------
 
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 
 export type OutboundKind = 'notification' | 'manual';
 

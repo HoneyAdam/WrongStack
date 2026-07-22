@@ -21,13 +21,13 @@
  * @public
  */
 
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import type {
   NotificationChannel,
   NotificationLevel,
   NotificationMessage,
   NotificationResult,
-} from '@wrongstack/core';
+} from '@wrongstack/core/notifications';
 import type { TelegramBot } from './bot.js';
 import { scrubTelegramOutboundText } from './security/outbound.js';
 import { truncateForTelegram } from './bot.js';

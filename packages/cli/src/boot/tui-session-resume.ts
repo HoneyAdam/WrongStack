@@ -9,8 +9,11 @@
  * activeRecoveryLock, wpaths).
  */
 import * as path from 'node:path';
-import type { Agent, EventBus, TokenCounter } from '@wrongstack/core';
-import { attachTodosCheckpoint, loadTodosCheckpoint, sessionScopedPath } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { TokenCounter } from '@wrongstack/core/types';
+import { attachTodosCheckpoint, loadTodosCheckpoint } from '@wrongstack/core/storage';
+import { sessionScopedPath } from '@wrongstack/core/utils';
 import type { TuiRuntimeState } from './tui-runtime-state.js';
 
 export interface SessionResumeContext {
@@ -49,7 +52,7 @@ export async function resumeSession(
   // the resume picker surfaces the reason instead of a generic
   // failure. Best-effort: a broken registry must not block resume.
   try {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     const registry = new SessionRegistry(path.dirname(state.wpaths.globalConfig));
     const live = (await registry.list()).find(
       (s) => s.sessionId === sessionId && s.status !== 'stale' && s.pid !== process.pid,

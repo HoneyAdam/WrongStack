@@ -7,16 +7,17 @@
  *
  *   case 'memory.list': return handleMemoryList(ws, memoryStore);
  *
- * SuperMemory handlers use duck-typing to detect the store capability:
+ * SuperMemory handlers request the typed surface capability:
  *
  *   case 'memory.super.list': return handleSuperMemoryList(ws, memoryStore);
  */
 
-import type { MemoryStore } from '@wrongstack/core';
+import type { MemoryPort } from '@wrongstack/core/types';
+import { getSuperMemorySurface } from '@wrongstack/super-memory';
 import type { WebSocket } from 'ws';
 import { errMessage, send } from './ws-utils.js';
 
-// ── SuperMemory duck-type interface (local, mirrors @wrongstack/super-memory) ──
+// ── SuperMemory response projection ──────────────────────────────────
 
 interface SuperMemoryLike {
   id: string;
@@ -24,13 +25,6 @@ interface SuperMemoryLike {
   status: string;
   text: string;
   tags: string[];
-  anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-  audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
-  createdAt: string;
-  updatedAt: string;
-  importance: number;
-  confidence: number;
-  revision: number;
 }
 
 interface SuperMemoryStatsLike {
@@ -38,112 +32,6 @@ interface SuperMemoryStatsLike {
   byStatus: Record<string, number>;
   byKind: Partial<Record<string, number>>;
   edges: number;
-}
-
-interface SuperMemoryGraphEdgeLike {
-  id: string;
-  from: string;
-  to: string;
-  relation: string;
-  weight: number;
-  evidence?: string[] | undefined;
-  createdAt: string;
-}
-
-interface UpdateSuperMemoryInput {
-  text?: string | undefined;
-  tags?: string[] | undefined;
-  kind?: string | undefined;
-  status?: string | undefined;
-  importance?: number | undefined;
-  confidence?: number | undefined;
-  freshness?: number | undefined;
-  anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined;
-  audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
-  supersedes?: string[] | undefined;
-  contradicts?: string[] | undefined;
-}
-
-interface ListSuperPageResultLike {
-  memories: SuperMemoryLike[];
-  nextCursor: string | null;
-  total: number;
-  statusCounts: Record<string, number>;
-}
-
-interface SuperMemoryStoreLike {
-  stats(): Promise<SuperMemoryStatsLike>;
-  listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
-  listSuperPage?(options: {
-    statuses?: string[] | undefined;
-    kind?: string | undefined;
-    query?: string | undefined;
-    limit?: number | undefined;
-    cursor?: string | undefined;
-  }): Promise<ListSuperPageResultLike>;
-  getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
-  graphFor?(query: string, maxDepth?: number, limit?: number): Promise<SuperMemoryGraphEdgeLike[]>;
-  updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemoryLike>;
-  deleteSuperMemory(
-    id: string,
-    reason?: string,
-    options?: { force?: boolean; neverInject?: boolean },
-  ): Promise<void>;
-  rememberSuper(input: {
-    text: string;
-    kind?: string | undefined;
-    scope?: string | undefined;
-    tags?: string[] | undefined;
-    anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined;
-    importance?: number | undefined;
-    confidence?: number | undefined;
-    freshness?: number | undefined;
-    audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
-    supersedes?: string[] | undefined;
-    contradicts?: string[] | undefined;
-  }): Promise<SuperMemoryLike>;
-  // PR #1: restore a `deleted` memory to active status (or return head-of-chain for superseded).
-  recoverSuperMemory(id: string, reason?: string): Promise<SuperMemoryLike>;
-  // PR #1: resolve a hygiene review candidate (accept|reject).
-  acceptCandidate(candidateId: string): Promise<{ id: string; status: string } | undefined>;
-  rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
-  // PR #3: scan `deleted` records + create fresh active versions (dryRun default).
-  backfillRecoverable(opts: {
-    apply?: boolean;
-    filter?: {
-      kinds?: string[];
-      scopes?: string[];
-      updatedAfter?: string;
-      updatedBefore?: string;
-    };
-  }): Promise<{
-    examined: number;
-    recovered: number;
-    recoverable: number;
-  }>;
-  // PR #4: rich file-drawer query — 3 buckets (primary/symbol/related).
-  findMemoriesForFile(
-    filePath: string,
-    options?: {
-      lineStart?: number;
-      lineEnd?: number;
-      limit?: number;
-      includeDeleted?: boolean;
-    },
-  ): Promise<Record<string, unknown>>;
-}
-
-function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
-  const s = store as unknown as Record<string, unknown>;
-  return (
-    typeof s.stats === 'function' &&
-    typeof s.listSuper === 'function' &&
-    typeof s.getSuperMemory === 'function' &&
-    typeof s.updateSuperMemory === 'function' &&
-    typeof s.deleteSuperMemory === 'function' &&
-    typeof s.acceptCandidate === 'function' &&
-    typeof s.rejectCandidate === 'function'
-  );
 }
 
 function requiresSuperMemory(command: string): string {
@@ -159,10 +47,11 @@ function requiresSuperMemory(command: string): string {
  * to `readAll()` text only for a non-super store.
  * Responds with `{ type: 'memory.list', payload: { text } }`.
  */
-export async function handleMemoryList(ws: WebSocket, memoryStore: MemoryStore): Promise<void> {
+export async function handleMemoryList(ws: WebSocket, memoryStore: MemoryPort): Promise<void> {
   try {
-    if (isSuperMemoryStore(memoryStore)) {
-      const [stats, memories] = await Promise.all([memoryStore.stats(), memoryStore.listSuper()]);
+    const superMemory = getSuperMemorySurface(memoryStore);
+    if (superMemory) {
+      const [stats, memories] = await Promise.all([superMemory.stats(), superMemory.listSuper()]);
       const text =
         memories.length === 0
           ? '🧠 Super Memory is empty.'
@@ -214,11 +103,9 @@ function formatSuperMemoryText(stats: SuperMemoryStatsLike, memories: SuperMemor
  * Request:  { type: 'memory.super.list' }
  * Response: { type: 'memory.super.list', payload: { memories, stats } }
  */
-export async function handleSuperMemoryList(
-  ws: WebSocket,
-  memoryStore: MemoryStore,
-): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+export async function handleSuperMemoryList(ws: WebSocket, memoryStore: MemoryPort): Promise<void> {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.list',
       payload: { error: requiresSuperMemory('memory.super.list') },
@@ -226,7 +113,7 @@ export async function handleSuperMemoryList(
     return;
   }
   try {
-    const [stats, memories] = await Promise.all([memoryStore.stats(), memoryStore.listSuper()]);
+    const [stats, memories] = await Promise.all([superMemory.stats(), superMemory.listSuper()]);
     send(ws, { type: 'memory.super.list', payload: { memories, stats } });
   } catch (err) {
     send(ws, { type: 'memory.super.list', payload: { error: errMessage(err) } });
@@ -248,9 +135,10 @@ export async function handleSuperMemoryList(
 export async function handleSuperMemoryListPage(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.listPage',
       payload: { error: requiresSuperMemory('memory.super.listPage') },
@@ -269,10 +157,10 @@ export async function handleSuperMemoryListPage(
       cursor: typeof payload['cursor'] === 'string' ? (payload['cursor'] as string) : undefined,
     };
 
-    if (typeof memoryStore.listSuperPage === 'function') {
+    if (typeof superMemory.listSuperPage === 'function') {
       const [page, stats] = await Promise.all([
-        memoryStore.listSuperPage(options),
-        memoryStore.stats(),
+        superMemory.listSuperPage(options as never),
+        superMemory.stats(),
       ]);
       send(ws, { type: 'memory.super.listPage', payload: { ...page, stats } });
       return;
@@ -281,7 +169,7 @@ export async function handleSuperMemoryListPage(
     // Backend without native pagination: emulate by loading + slicing in-memory.
     const allowed =
       options.statuses && options.statuses.length > 0 ? new Set(options.statuses) : undefined; // undefined => every status; deleted filtered below
-    const everything = await memoryStore.listSuper();
+    const everything = await superMemory.listSuper();
     const statusCounts: Record<string, number> = {};
     for (const m of everything) statusCounts[m.status] = (statusCounts[m.status] ?? 0) + 1;
     const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
@@ -301,7 +189,7 @@ export async function handleSuperMemoryListPage(
         nextCursor: null,
         total: filtered.length,
         statusCounts,
-        stats: await memoryStore.stats(),
+        stats: await superMemory.stats(),
       },
     });
   } catch (err) {
@@ -317,9 +205,10 @@ export async function handleSuperMemoryListPage(
 export async function handleSuperMemoryGet(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.get',
       payload: { error: requiresSuperMemory('memory.super.get') },
@@ -332,7 +221,7 @@ export async function handleSuperMemoryGet(
     return;
   }
   try {
-    const memory = await memoryStore.getSuperMemory(id);
+    const memory = await superMemory.getSuperMemory(id);
     if (!memory) {
       send(ws, { type: 'memory.super.get', payload: { error: `Memory "${id}" not found.` } });
       return;
@@ -347,9 +236,10 @@ export async function handleSuperMemoryGet(
 export async function handleSuperMemoryGraph(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore) || typeof memoryStore.graphFor !== 'function') {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory?.graphFor) {
     send(ws, {
       type: 'memory.super.graph',
       payload: { query: '', error: requiresSuperMemory('memory.super.graph') },
@@ -371,7 +261,7 @@ export async function handleSuperMemoryGraph(
       ? Math.max(1, Math.min(250, Math.floor(payload['limit'])))
       : 100;
   try {
-    const edges = await memoryStore.graphFor(query, maxDepth, limit);
+    const edges = await superMemory.graphFor(query, maxDepth, limit);
     const memoryIds = new Set<string>();
     for (const edge of edges) {
       for (const node of [edge.from, edge.to]) {
@@ -379,8 +269,8 @@ export async function handleSuperMemoryGraph(
       }
     }
     const memories = (
-      await Promise.all([...memoryIds].map((id) => memoryStore.getSuperMemory(id)))
-    ).filter((memory): memory is SuperMemoryLike => memory !== null);
+      await Promise.all([...memoryIds].map((id) => superMemory.getSuperMemory(id)))
+    ).filter((memory) => memory !== null);
     send(ws, { type: 'memory.super.graph', payload: { query, edges, memories } });
   } catch (err) {
     send(ws, {
@@ -399,9 +289,10 @@ export async function handleSuperMemoryGraph(
 export async function handleSuperMemoryUpdate(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.update',
       payload: { error: requiresSuperMemory('memory.super.update') },
@@ -425,7 +316,7 @@ export async function handleSuperMemoryUpdate(
   }
 
   try {
-    const memory = await memoryStore.updateSuperMemory(id, patch as UpdateSuperMemoryInput);
+    const memory = await superMemory.updateSuperMemory(id, patch as never);
     send(ws, { type: 'memory.super.update', payload: { memory } });
   } catch (err) {
     send(ws, { type: 'memory.super.update', payload: { error: errMessage(err) } });
@@ -441,9 +332,10 @@ export async function handleSuperMemoryUpdate(
 export async function handleSuperMemoryRemember(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.remember',
       payload: { error: requiresSuperMemory('memory.super.remember') },
@@ -457,7 +349,7 @@ export async function handleSuperMemoryRemember(
     return;
   }
   try {
-    const memory = await memoryStore.rememberSuper({
+    const memory = await superMemory.rememberSuper({
       text: text.trim(),
       kind: payload['kind'] as string | undefined,
       scope: payload['scope'] as string | undefined,
@@ -473,7 +365,7 @@ export async function handleSuperMemoryRemember(
         | undefined,
       supersedes: payload['supersedes'] as string[] | undefined,
       contradicts: payload['contradicts'] as string[] | undefined,
-    });
+    } as never);
     send(ws, { type: 'memory.super.remember', payload: { memory } });
   } catch (err) {
     send(ws, { type: 'memory.super.remember', payload: { error: errMessage(err) } });
@@ -482,8 +374,16 @@ export async function handleSuperMemoryRemember(
 
 /**
  * Delete a SuperMemory entry (soft-delete with cascade cleanup).
- * Request:  { type: 'memory.super.delete', payload: { id, reason? } }
+ * Request:  { type: 'memory.super.delete', payload: { id, reason?, force?, neverInject? } }
  * Response: { type: 'memory.super.delete', payload: { success, message } }
+ *
+ * `force` defaults to `true` (backward-compatible). When `false`, the
+ * permanent-memory guard in `deleteSuperMemory` is respected and
+ * `persistence: 'permanent'` entries cannot be deleted.
+ *
+ * `neverInject` (default false) marks the memory so context injection
+ * never loads it — used when a memory is factually wrong, not just
+ * superseded.
  *
  * Uses an operation-specific response type (not the generic
  * `key.operation_result`) so the client can correlate the response
@@ -492,18 +392,24 @@ export async function handleSuperMemoryRemember(
 export async function handleSuperMemoryDelete(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.delete',
       payload: { success: false, message: requiresSuperMemory('memory.super.delete') },
     });
     return;
   }
-  const { id, reason, neverInject } = (
+  const { id, reason, neverInject, force } = (
     msg as {
-      payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined };
+      payload: {
+        id: string;
+        reason?: string | undefined;
+        neverInject?: boolean | undefined;
+        force?: boolean | undefined;
+      };
     }
   ).payload;
   if (!id) {
@@ -514,9 +420,13 @@ export async function handleSuperMemoryDelete(
     return;
   }
   try {
-    if (neverInject === true)
-      await memoryStore.deleteSuperMemory(id, reason, { force: true, neverInject: true });
-    else await memoryStore.deleteSuperMemory(id, reason, { force: true });
+    // Default force: true for backward compatibility — existing WebUI
+    // clients always force-delete.  Newer clients may pass force: false
+    // to respect the permanent-memory guard (soft-delete path).
+    await superMemory.deleteSuperMemory(id, reason, {
+      force: force ?? true,
+      neverInject: neverInject === true,
+    });
     send(ws, {
       type: 'memory.super.delete',
       payload: { success: true, message: `Deleted memory "${id}".` },
@@ -541,9 +451,10 @@ export async function handleSuperMemoryDelete(
 export async function handleSuperMemoryRecover(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory?.recoverSuperMemory) {
     send(ws, {
       type: 'memory.super.recover',
       payload: { error: requiresSuperMemory('memory.super.recover') },
@@ -558,7 +469,7 @@ export async function handleSuperMemoryRecover(
   }
   const reason = payload['reason'] as string | undefined;
   try {
-    const preExisting = await memoryStore.getSuperMemory(id);
+    const preExisting = await superMemory.getSuperMemory(id);
     if (!preExisting) {
       send(ws, {
         type: 'memory.super.recover',
@@ -575,7 +486,7 @@ export async function handleSuperMemoryRecover(
       return;
     }
     // Deleted or superseded: call recover to get the actual result.
-    const memory = await memoryStore.recoverSuperMemory(id, reason);
+    const memory = await superMemory.recoverSuperMemory(id, reason);
     // Superseded: the store returns the chain head (different id).
     const noop = memory.id !== id;
     const response: Record<string, unknown> = { recovered: true, memory };
@@ -601,9 +512,10 @@ export async function handleSuperMemoryRecover(
 export async function handleSuperMemoryCandidateResolve(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory) {
     send(ws, {
       type: 'memory.super.candidateResolve',
       payload: { error: requiresSuperMemory('memory.super.candidateResolve') },
@@ -631,10 +543,10 @@ export async function handleSuperMemoryCandidateResolve(
   try {
     let candidate: { id: string; status: string } | undefined;
     if (action === 'accept') {
-      const accepted = await memoryStore.acceptCandidate(candidateId);
+      const accepted = await superMemory.acceptCandidate(candidateId);
       candidate = accepted ? { id: accepted.id, status: accepted.status ?? 'active' } : undefined;
     } else {
-      const rejected = await memoryStore.rejectCandidate(
+      const rejected = await superMemory.rejectCandidate(
         candidateId,
         reason ?? 'Rejected via WebUI',
       );
@@ -673,9 +585,10 @@ export async function handleSuperMemoryCandidateResolve(
 export async function handleSuperMemoryBackfillRecoverable(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory?.backfillRecoverable) {
     send(ws, {
       type: 'memory.super.backfillRecoverable',
       payload: { error: requiresSuperMemory('memory.super.backfillRecoverable') },
@@ -701,10 +614,10 @@ export async function handleSuperMemoryBackfillRecoverable(
   if (typeof rawFilter['updatedBefore'] === 'string')
     filter.updatedBefore = rawFilter['updatedBefore'];
   try {
-    const report = await memoryStore.backfillRecoverable({
-      apply,
+    const report = await superMemory.backfillRecoverable({
+      dryRun: !apply,
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
-    });
+    } as never);
     send(ws, {
       type: 'memory.super.backfillRecoverable',
       payload: {
@@ -729,9 +642,10 @@ export async function handleSuperMemoryBackfillRecoverable(
 export async function handleSuperMemoryForFile(
   ws: WebSocket,
   msg: unknown,
-  memoryStore: MemoryStore,
+  memoryStore: MemoryPort,
 ): Promise<void> {
-  if (!isSuperMemoryStore(memoryStore)) {
+  const superMemory = getSuperMemorySurface(memoryStore);
+  if (!superMemory?.findMemoriesForFile) {
     send(ws, {
       type: 'memory.super.forFile',
       payload: { error: requiresSuperMemory('memory.super.forFile') },
@@ -745,7 +659,7 @@ export async function handleSuperMemoryForFile(
     return;
   }
   try {
-    const response = await memoryStore.findMemoriesForFile(filePath, {
+    const response = await superMemory.findMemoriesForFile(filePath, {
       ...(typeof payload['lineStart'] === 'number'
         ? { lineStart: payload['lineStart'] as number }
         : {}),

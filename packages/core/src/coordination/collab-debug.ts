@@ -26,11 +26,12 @@
  *     collab agents via task context before making cancellation decisions.
  */
 
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import * as fsp from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import { expandGlob } from '../utils/glob-expand.js';
+import type { CollabDirectorHost } from './collab-director-host.js';
 import { validateFleetEventEmission } from './fleet-event-validation.js';
 
 /**
@@ -287,7 +288,7 @@ export class CollabSession extends EventEmitter {
   readonly options: CollabSessionOptions;
   readonly snapshot: SharedFileSnapshot;
 
-  private readonly director: import('./director.js').Director;
+  private readonly director: CollabDirectorHost;
   private readonly fleetBus: import('./fleet-bus.js').FleetBus;
   private readonly subagentIds = new Map<string, string>(); // role → subagentId
   private readonly bugs = new Map<string, BugFinding>();
@@ -309,7 +310,7 @@ export class CollabSession extends EventEmitter {
   private _timeoutTimer?: NodeJS.Timeout | undefined;
 
   constructor(
-    director: import('./director.js').Director,
+    director: CollabDirectorHost,
     fleetBus: import('./fleet-bus.js').FleetBus,
     options: CollabSessionOptions,
   ) {
@@ -455,15 +456,15 @@ export class CollabSession extends EventEmitter {
     await this.buildSnapshot();
     this.wireFleetBus();
 
-    const [bugHunterId, refactorPlannerId, criticId] = await Promise.all([
+    const [bugHunter, refactorPlanner, critic] = await Promise.all([
       this.spawnAgent('bug-hunter', this.buildBugHunterTask()),
       this.spawnAgent('refactor-planner', this.buildRefactorPlannerTask()),
       this.spawnAgent('critic', this.buildCriticTask()),
     ]);
 
-    this.subagentIds.set('bug-hunter', bugHunterId);
-    this.subagentIds.set('refactor-planner', refactorPlannerId);
-    this.subagentIds.set('critic', criticId);
+    this.subagentIds.set('bug-hunter', bugHunter.subagentId);
+    this.subagentIds.set('refactor-planner', refactorPlanner.subagentId);
+    this.subagentIds.set('critic', critic.subagentId);
 
     const timeout = new Promise<never>((_, reject) => {
       this._timeoutTimer = setTimeout(() => {
@@ -477,9 +478,9 @@ export class CollabSession extends EventEmitter {
     try {
       results = await Promise.race([
         Promise.all([
-          this.director.awaitTasks([bugHunterId]),
-          this.director.awaitTasks([refactorPlannerId]),
-          this.director.awaitTasks([criticId]),
+          this.director.awaitTasks([bugHunter.taskId]),
+          this.director.awaitTasks([refactorPlanner.taskId]),
+          this.director.awaitTasks([critic.taskId]),
         ]),
         timeout,
       ]);
@@ -604,7 +605,10 @@ export class CollabSession extends EventEmitter {
     return defaults[role] ?? { maxIterations: 1500, maxToolCalls: 4000, timeoutMs: 8 * 60 * 1000 };
   }
 
-  private async spawnAgent(role: string, taskBrief: string): Promise<string> {
+  private async spawnAgent(
+    role: string,
+    taskBrief: string,
+  ): Promise<{ subagentId: string; taskId: string }> {
     const budget = this.budgetForRole(role);
     const cfg: SubagentConfig = {
       id: `${role}-${this.sessionId}`,
@@ -616,8 +620,12 @@ export class CollabSession extends EventEmitter {
       timeoutMs: budget.timeoutMs,
     };
     const subagentId = await this.director.spawn(cfg);
-    await this.director.assign({ id: randomUUID(), subagentId, description: taskBrief });
-    return subagentId;
+    const taskId = await this.director.assign({
+      id: randomUUID(),
+      subagentId,
+      description: taskBrief,
+    });
+    return { subagentId, taskId };
   }
 
   private buildBugHunterTask(): string {
@@ -718,9 +726,7 @@ export class CollabSession extends EventEmitter {
         // `used` is elapsed milliseconds for timeout kinds. `timeoutMs` is the
         // negotiation response deadline (normally 60s), not agent runtime.
         elapsedMs:
-          payload.kind === 'timeout' || payload.kind === 'idle_timeout'
-            ? payload.used
-            : undefined,
+          payload.kind === 'timeout' || payload.kind === 'idle_timeout' ? payload.used : undefined,
         limit: payload.limit,
         btwNotes,
       };

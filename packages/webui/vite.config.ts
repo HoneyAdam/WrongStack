@@ -11,6 +11,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@wrongstack\/core\/agent-catalog$/,
+        replacement: path.resolve(__dirname, '../core/src/coordination/agents/index.ts'),
+      },
+      {
         find: /^@wrongstack\/core\/utils\/expect-defined$/,
         replacement: path.resolve(__dirname, '../core/src/utils/expect-defined.ts'),
       },
@@ -45,8 +49,7 @@ export default defineConfig({
     //   - script-src 'unsafe-inline': @vitejs/plugin-react injects an inline
     //     react-refresh preamble into index.html; `script-src 'self'` blocked
     //     it and the app crashed at boot with "can't detect preamble".
-    //   - connect-src ws://…:* — ports auto-advance when 3456/3457 are taken
-    //     (multiple instances), so pinning :3457 blocked the backend WS.
+    //   - connect-src ws://…:* — ports auto-advance when 3456 is taken
     headers: {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',

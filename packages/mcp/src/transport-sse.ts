@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { ToolError } from '@wrongstack/core';
+import { ToolError } from '@wrongstack/core/types';
 import type { JsonRpcResponse, ToolCallResult } from './client.js';
 import { MCP_CONSTANTS } from './constants.js';
 import { parseServerMetadata } from './protocol.js';

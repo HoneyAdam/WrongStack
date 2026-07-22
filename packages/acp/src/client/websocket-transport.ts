@@ -25,10 +25,15 @@ export interface WebSocketClientTransportOptions {
   protocols?: string | string[] | undefined;
   /** How long to wait for the socket to open. Default 30s. */
   handshakeTimeoutMs?: number | undefined;
+  /** Maximum unsent bytes retained by the WebSocket implementation. Default 32 MiB. */
+  maxBufferedBytes?: number | undefined;
+  /** Maximum inbound message size in characters. Default 20 MiB. */
+  maxMessageChars?: number | undefined;
 }
 
 /** Narrow view of the global WebSocket we rely on (avoids lib.dom typings). */
 interface WSLike {
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(): void;
   addEventListener(type: 'open', cb: () => void): void;
@@ -44,9 +49,13 @@ export class WebSocketClientTransport implements ACPClientTransport {
   private readonly handlers = new Set<(msg: ACPMessage) => void>();
   private closed = false;
   private readonly opts: WebSocketClientTransportOptions;
+  private readonly maxBufferedBytes: number;
+  private readonly maxMessageChars: number;
 
   constructor(opts: WebSocketClientTransportOptions) {
     this.opts = opts;
+    this.maxBufferedBytes = finitePositiveLimit(opts.maxBufferedBytes, 32 * 1024 * 1024);
+    this.maxMessageChars = finitePositiveLimit(opts.maxMessageChars, 20 * 1024 * 1024);
   }
 
   start(): Promise<void> {
@@ -108,7 +117,13 @@ export class WebSocketClientTransport implements ACPClientTransport {
       return Promise.reject(new Error('WebSocket transport is not open'));
     }
     try {
-      this.ws.send(JSON.stringify(msg));
+      const serialized = JSON.stringify(msg);
+      const buffered = Number.isFinite(this.ws.bufferedAmount) ? this.ws.bufferedAmount ?? 0 : 0;
+      if (buffered + Buffer.byteLength(serialized, 'utf8') > this.maxBufferedBytes) {
+        this.stop();
+        return Promise.reject(new Error('WebSocket transport send buffer limit exceeded'));
+      }
+      this.ws.send(serialized);
       return Promise.resolve();
     } catch (err) {
       return Promise.reject(err instanceof Error ? err : new Error(String(err)));
@@ -141,6 +156,10 @@ export class WebSocketClientTransport implements ACPClientTransport {
           : Buffer.isBuffer(data)
             ? data.toString('utf8')
             : String(data);
+    if (text.length > this.maxMessageChars) {
+      this.stop();
+      return;
+    }
     if (!text.trim()) return;
     let msg: ACPMessage;
     try {
@@ -170,4 +189,8 @@ export class WebSocketClientTransport implements ACPClientTransport {
       }
     }
   }
+}
+
+function finitePositiveLimit(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.floor(value as number) : fallback;
 }

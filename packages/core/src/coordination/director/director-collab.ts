@@ -8,17 +8,16 @@
  * `cancelCollabSession`, `onCollabAlert`, `activeCollabSessions`) so its public
  * surface is unchanged.
  */
+
+import type { Logger } from '../../types/logger.js';
 import {
   type CollabDebugReport,
   CollabSession,
   type CollabSessionOptions,
   type DirectorAlert,
 } from '../collab-debug.js';
+import type { CollabDirectorHost } from '../collab-director-host.js';
 import type { FleetBus } from '../fleet-bus.js';
-import type { Logger } from '../../types/logger.js';
-// Type-only import: erased at compile time, so no runtime import cycle with
-// director.ts even though CollabSession takes a Director as its first arg.
-import type { Director } from '../director.js';
 
 /** Minimal slice of the coordinator the controller needs to abort collab agents. */
 interface CollabAgentStopper {
@@ -27,7 +26,7 @@ interface CollabAgentStopper {
 
 interface DirectorCollabControllerDeps {
   /** The owning Director, passed to each CollabSession. */
-  director: Director;
+  director: CollabDirectorHost;
   fleet: FleetBus;
   coordinator: CollabAgentStopper;
   logger?: Logger | undefined;
@@ -91,13 +90,10 @@ export class DirectorCollabController {
     // is silently lost.
     for (const [_role, subagentId] of entry.session.getSubagentIds()) {
       this.deps.coordinator.stop(subagentId).catch((err) => {
-        this.deps.logger?.debug(
-          `stop subagent ${subagentId} failed (may have already completed)`,
-          {
-            subagentId,
-            err: err instanceof Error ? err.message : String(err),
-          },
-        );
+        this.deps.logger?.debug(`stop subagent ${subagentId} failed (may have already completed)`, {
+          subagentId,
+          err: err instanceof Error ? err.message : String(err),
+        });
       });
     }
   }

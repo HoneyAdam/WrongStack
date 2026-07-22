@@ -26,7 +26,7 @@
 //     remains private to this module; nothing outside the
 //     shim needs it.
 
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 
 /**
  * Structured-log line shape used by the CLI webui-server

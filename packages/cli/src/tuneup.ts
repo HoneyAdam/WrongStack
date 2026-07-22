@@ -18,7 +18,7 @@
  *                 judgement-heavy items (instruction-file dedup / split).
  */
 
-import type { Config } from '@wrongstack/core';
+import type { Config } from '@wrongstack/core/types';
 import type { UpdateInfo } from './update-check.js';
 
 export type TuneupSeverity = 'error' | 'warning' | 'info' | 'ok';

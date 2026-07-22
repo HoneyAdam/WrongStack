@@ -1,4 +1,6 @@
-import { type JSONSchema, type PluginAPI, TOKENS } from '@wrongstack/core';
+import { TOKENS } from '@wrongstack/core/kernel';
+import type { PluginAPI } from '@wrongstack/core/plugin';
+import type { JSONSchema } from '@wrongstack/core/types';
 import { PRESETS } from './presets.js';
 import type { PlugLSPConfig, ServerConfig, SeverityName } from './types.js';
 

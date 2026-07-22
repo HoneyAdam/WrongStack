@@ -1,6 +1,8 @@
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { EventBus, type Context, type SessionEventBridge } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { EventBus } from '@wrongstack/core/kernel';
+import type { SessionEventBridge } from '@wrongstack/core/storage';
 import { setupEvents } from '@wrongstack/webui-server';
 
 describe('setupEvents session scoping', () => {

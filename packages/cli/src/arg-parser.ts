@@ -154,7 +154,7 @@ function normalizeSurfaceAliases(
 export interface AuthFlags {
   positional: string[];
   label?: string | undefined;
-  family?: import('@wrongstack/core').WireFamily | undefined;
+  family?: import('@wrongstack/core/types').WireFamily | undefined;
   baseUrl?: string | undefined;
   envVars?: string[] | undefined;
 }

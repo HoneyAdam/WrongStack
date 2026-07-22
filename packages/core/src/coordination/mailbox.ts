@@ -34,7 +34,7 @@ import type {
   PurgeOptions,
   PurgeResult,
 } from './mailbox-types.js';
-import { normalizeRecipient, sessionRecipient } from './mailbox-types.js';
+import { isMailboxMessageVisibleTo, normalizeRecipient, sessionRecipient } from './mailbox-types.js';
 
 const MAILBOX_FILE = '_mailbox.jsonl';
 const LINE_SEPARATOR = '\n';
@@ -79,6 +79,9 @@ export class DefaultMailbox implements Mailbox {
       // Resolve project/session aliases before persisting the message.
       to: normalizeRecipient(input.to, input.senderSessionId),
       type: normalizeMailboxMessageType(input.type),
+      ...(input.audience !== undefined && input.audience !== 'all'
+        ? { audience: input.audience }
+        : {}),
       subject: input.subject,
       body: input.body,
       priority: input.priority ?? 'normal',
@@ -152,6 +155,7 @@ export class DefaultMailbox implements Mailbox {
       if (q.to !== undefined && msg.to !== q.to && msg.to !== '*') return false;
       if (q.from !== undefined && msg.from !== q.from) return false;
       if (q.sessionId !== undefined && msg.senderSessionId !== q.sessionId) return false;
+      if (q.unreadBy !== undefined && !isMailboxMessageVisibleTo(msg, q.unreadBy, q.readerRole)) return false;
       if (q.unreadBy !== undefined && q.unreadBy in msg.readBy) return false;
       if (q.incompleteOnly && msg.completed) return false;
       if (queryType !== undefined && msg.type !== queryType) return false;
@@ -330,6 +334,7 @@ export class DefaultMailbox implements Mailbox {
     return all.filter(
       (m) =>
         (m.to === forAgentId || m.to === '*' || m.to === scopedSessionRecipient) &&
+        isMailboxMessageVisibleTo(m, forAgentId) &&
         !(forAgentId in m.readBy) &&
         !m.completed,
     ).length;

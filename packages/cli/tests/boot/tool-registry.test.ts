@@ -1,4 +1,4 @@
-import { ToolRegistry } from '@wrongstack/core';
+import { ToolRegistry } from '@wrongstack/core/registry';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -75,7 +75,7 @@ describe('registerBuiltinTools', () => {
       toolRegistry: registry as never,
       compactor: {},
       config: { features: { memory: false } },
-      memoryStore: { _kind: 'fakeStore' } as never,
+      memoryStore: { _kind: 'fakeStore', getCapability: () => undefined } as never,
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });
@@ -113,7 +113,7 @@ describe('registerBuiltinTools', () => {
       toolRegistry: registry as never,
       compactor: {},
       config: { features: { memory: true } },
-      memoryStore: { _kind: 'fakeStore' } as never,
+      memoryStore: { _kind: 'fakeStore', getCapability: () => undefined } as never,
       events: makeEvents() as never,
       wpaths: makeWpaths() as never,
     });

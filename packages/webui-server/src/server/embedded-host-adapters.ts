@@ -1,16 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { Agent } from '@wrongstack/core/agent';
 import type {
-  Agent,
   Config,
-  MemoryStore,
+  MemoryPort,
   ModelsRegistry,
   ModeStore,
   ProviderConfig,
   SessionStore,
   SessionWriter,
-} from '@wrongstack/core';
-import { TOKENS, wstackGlobalRoot } from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { TOKENS } from '@wrongstack/core/kernel';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
@@ -18,10 +19,10 @@ import type { WebSocket } from 'ws';
 import { createConversationOperations } from './conversation-operations.js';
 import type { ConversationRouteHandlers } from './conversation-routes.js';
 import type { CustomModeStore } from './custom-context-modes.js';
+import type { PendingConfirm } from './pending-confirms.js';
 import { createProjectHandlers } from './project-handlers.js';
 import type { ProjectRouteHandlers } from './project-routes.js';
 import { createProviderOperations } from './provider-handlers.js';
-import type { PendingConfirm } from './pending-confirms.js';
 import { createSessionHandlers } from './session-handlers.js';
 import type { SessionRouteHandlers } from './session-routes.js';
 import type { WSServerMessage } from './types.js';
@@ -48,7 +49,7 @@ export interface EmbeddedAgentConfigContext extends EmbeddedHostTransport {
   buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
   loadSavedProviders: () => Promise<Record<string, ProviderConfig>>;
   modelsRegistry?: ModelsRegistry | undefined;
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: MemoryPort | undefined;
   getConfig?: (() => Config | undefined) | undefined;
   onMaxContextResolved?:
     | ((providerId: string, modelId: string, maxContext: number) => void)
@@ -167,9 +168,7 @@ function sessionStoreFor(opts: EmbeddedSessionOptions): SessionStore {
   );
 }
 
-export function createEmbeddedSessionRoutes(
-  ctx: EmbeddedSessionContext,
-): SessionRouteHandlers {
+export function createEmbeddedSessionRoutes(ctx: EmbeddedSessionContext): SessionRouteHandlers {
   const { opts } = ctx;
   const actx = opts.agent.ctx;
   const getProjectRoot = () => opts.projectRoot ?? actx.projectRoot;
@@ -185,7 +184,8 @@ export function createEmbeddedSessionRoutes(
     getSession: () => actx.session ?? opts.session,
     getSessionStore: () => sessionStoreFor(opts),
     canSwapSessions: () => opts.sessionStore !== undefined,
-    getSessionsDir: () => opts.sessionsDir ?? path.join(getProjectRoot(), '.wrongstack', 'sessions'),
+    getSessionsDir: () =>
+      opts.sessionsDir ?? path.join(getProjectRoot(), '.wrongstack', 'sessions'),
     setSession: (next) => {
       actx.session = next;
     },
@@ -196,9 +196,7 @@ export function createEmbeddedSessionRoutes(
   });
 }
 
-export async function broadcastEmbeddedGoalSnapshot(
-  ctx: EmbeddedSessionContext,
-): Promise<void> {
+export async function broadcastEmbeddedGoalSnapshot(ctx: EmbeddedSessionContext): Promise<void> {
   const projectRoot = ctx.opts.projectRoot ?? ctx.opts.agent.ctx.projectRoot;
   try {
     const raw = await fs.readFile(path.join(projectRoot, '.wrongstack', 'goal.json'), 'utf8');
@@ -215,9 +213,7 @@ export interface EmbeddedProjectContext extends EmbeddedHostTransport {
   buildSessionStart: (overrides?: Record<string, unknown>) => Promise<unknown>;
 }
 
-export function createEmbeddedProjectRoutes(
-  ctx: EmbeddedProjectContext,
-): ProjectRouteHandlers {
+export function createEmbeddedProjectRoutes(ctx: EmbeddedProjectContext): ProjectRouteHandlers {
   const { opts } = ctx;
   const actx = opts.agent.ctx;
   const globalConfigPath = opts.globalConfigPath ?? path.join(wstackGlobalRoot(), 'config.json');

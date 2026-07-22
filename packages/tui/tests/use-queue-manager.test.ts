@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import React, { act } from 'react';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
-import type { QueueStore, SlashCommandRegistry, ContentBlock } from '@wrongstack/core';
+import type { QueueStore, SlashCommandRegistry, ContentBlock } from '@wrongstack/core/types';
 import { Text } from '../src/ink.js';
 import { useQueueManager, type UseQueueManagerOptions } from '../src/hooks/use-queue-manager.js';
 import type { Action, State } from '../src/app-reducer.js';

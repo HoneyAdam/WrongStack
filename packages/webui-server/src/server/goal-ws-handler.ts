@@ -2,16 +2,21 @@ import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   assignNickname,
+} from '@wrongstack/core/coordination';
+import {
   GoalPlanner,
   PhaseGraphBuilder,
   PhaseOrchestrator,
   PhaseStore,
-  WorktreeManager,
   type PhaseGraph,
   type PhaseTemplate,
-} from '@wrongstack/core';
-import type { Agent, Context, EventBus, Logger } from '@wrongstack/core';
+} from '@wrongstack/core/goal';
+import type { Agent, Context } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 import { gitStdout, isGitWorkTree } from './git-process.js';
+import { sendSerialized } from './ws-utils.js';
 
 /**
  * Derive a short, single-line heading from a (possibly multi-paragraph) goal
@@ -174,8 +179,8 @@ export class GoalWebSocketHandler {
           phaseId: string;
           title: string;
           description?: string;
-          type?: import('@wrongstack/core').TaskNode['type'];
-          priority?: import('@wrongstack/core').TaskNode['priority'];
+          type?: import('@wrongstack/core/types').TaskNode['type'];
+          priority?: import('@wrongstack/core/types').TaskNode['priority'];
         };
         if (title?.trim() && this.orchestrator?.addTask(phaseId, { title: title.trim(), description, type, priority })) {
           this.afterBoardMutation();
@@ -464,7 +469,7 @@ export class GoalWebSocketHandler {
   }
 
   private async executeTaskWithAgent(
-    task: import('@wrongstack/core').TaskNode,
+    task: import('@wrongstack/core/types').TaskNode,
     phaseId: string,
     env?: { cwd?: string | undefined; branch?: string | undefined },
   ): Promise<unknown> {
@@ -506,7 +511,7 @@ export class GoalWebSocketHandler {
     for (const phase of this.graph.phases.values()) {
       const task = phase.taskGraph.nodes.get(taskId);
       if (task) {
-        task.status = status as import('@wrongstack/core').TaskStatus;
+        task.status = status as import('@wrongstack/core/types').TaskStatus;
         task.updatedAt = Date.now();
         this.broadcastState();
         return;
@@ -565,7 +570,7 @@ export class GoalWebSocketHandler {
 
     // Shared task → board-card mapper. Carries assignee/timestamps so the kanban
     // can show who is on each card and how long it has been running.
-    const mapTask = (t: import('@wrongstack/core').TaskNode) => ({
+    const mapTask = (t: import('@wrongstack/core/types').TaskNode) => ({
       id: t.id,
       title: t.title,
       description: t.description,
@@ -658,15 +663,11 @@ export class GoalWebSocketHandler {
   private broadcast(msg: { type: string; payload: unknown }): void {
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
-      if (client.ws.readyState === 1) { // OPEN
-        client.ws.send(data);
-      }
+      sendSerialized(client.ws, data);
     }
   }
 
   private send(client: WSClient, msg: { type: string; payload: unknown }): void {
-    if (client.ws.readyState === 1) {
-      client.ws.send(JSON.stringify(msg));
-    }
+    sendSerialized(client.ws, JSON.stringify(msg));
   }
 }

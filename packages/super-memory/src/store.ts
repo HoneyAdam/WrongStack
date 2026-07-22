@@ -6,7 +6,7 @@ import type {
   MemoryScope,
   MemoryStore,
   ScoredEntry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { atomicWrite, ensureDir, ulid, withFileLock } from '@wrongstack/core/utils';
 import { verifyMemoryAnchors } from './anchors/verify.js';
 import { SuperMemoryGraph } from './graph/graph.js';
@@ -207,6 +207,11 @@ const VALID_SOURCE_TYPES = new Set<SuperMemory['sources'][number]['type']>([
   'legacy_memory',
 ]);
 
+/**
+ * @deprecated Use `createSqliteMemoryPort` for production composition or
+ * `createJsonlCompatibilityMemoryPort` while migrating historical JSONL data.
+ * Direct concrete-store construction is blocked in production code.
+ */
 export class SuperMemoryStore implements MemoryStore {
   readonly paths;
   private readonly projectRoot: string;

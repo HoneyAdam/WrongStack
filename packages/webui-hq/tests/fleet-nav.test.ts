@@ -1,4 +1,4 @@
-import type { HqSnapshot } from '@wrongstack/core';
+import type { HqSnapshot } from '@wrongstack/core/hq';
 import { describe, expect, it } from 'vitest';
 import { buildNav } from '../src/views/fleet-nav.js';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { ContentBlock, TextBlock } from '@wrongstack/core';
+import type { ContentBlock, TextBlock } from '@wrongstack/core/types';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';

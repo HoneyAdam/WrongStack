@@ -3,7 +3,8 @@
  * the ≤4000-entry live ring), by reading the agent monitor's
  * <projectSessions>/<sessionId>/subagents/transcripts/<subId>/transcript.jsonl.
  */
-import { resolveWstackPaths, SessionRegistry, sessionScopedPath } from '@wrongstack/core';
+import { resolveWstackPaths, sessionScopedPath } from '@wrongstack/core/utils';
+import { SessionRegistry } from '@wrongstack/core/storage';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';

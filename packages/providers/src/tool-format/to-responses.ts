@@ -22,8 +22,8 @@ import type {
   Tool,
   ToolResultBlock,
   ToolUseBlock,
-} from '@wrongstack/core';
-import { compactToolDefinitionForWire } from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { compactToolDefinitionForWire } from '@wrongstack/core/utils';
 
 export interface ResponsesTool {
   type: 'function';

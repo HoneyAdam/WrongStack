@@ -1,9 +1,9 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import * as fs from 'node:fs/promises';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { atomicWrite } from '@wrongstack/core';
-import type { DefaultSecretVault } from '@wrongstack/core';
-import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core/utils';
+import type { DefaultSecretVault } from '@wrongstack/core/security';
+import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core/types';
 export interface ProviderStoreDeps {
   /** Active profile config path. */
   profileConfigPath: string;

@@ -1,4 +1,4 @@
-import type { Mode } from '@wrongstack/core';
+import type { Mode } from '@wrongstack/core/types';
 import type React from 'react';
 import { Box, Text } from '../ink.js';
 

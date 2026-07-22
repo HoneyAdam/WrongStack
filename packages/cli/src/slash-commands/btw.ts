@@ -1,5 +1,6 @@
-import { pendingBtwCount, type SlashCommand, setBtwNote } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { pendingBtwCount, setBtwNote } from '@wrongstack/core/agent';
+import { type SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 /**
  * `/btw <note>` — non-aborting mid-run steering ("by the way").

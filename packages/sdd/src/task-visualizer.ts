@@ -1,7 +1,7 @@
 import type { TaskGraph, TaskNode, TaskProgress } from '@wrongstack/core/types';
-import { computeTaskProgress } from '@wrongstack/core/types';
+import { computeTaskProgress } from '@wrongstack/core/tasking';
 import type { Specification } from '@wrongstack/core/types';
-import { truncate } from '@wrongstack/core';
+import { truncate } from '@wrongstack/core/utils';
 
 const STATUS_ICON: Record<TaskNode['status'], string> = {
   pending: '○',
@@ -227,4 +227,3 @@ export function renderSpecAnalysis(
 
   return lines.join('\n');
 }
-

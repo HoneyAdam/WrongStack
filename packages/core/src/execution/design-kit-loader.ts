@@ -156,6 +156,7 @@ export class DefaultDesignKitLoader implements DesignKitLoader {
   private cache?: DesignKitManifest[] | undefined;
   private readonly bodyCache = new Map<string, string>();
   private readonly tokenCache = new Map<string, DesignKitTokens | undefined>();
+  private readonly rawTokenCache = new Map<string, DesignKitTokens | undefined>();
 
   constructor(opts: DesignKitLoaderOptions) {
     this.dirs = [
@@ -253,20 +254,41 @@ export class DefaultDesignKitLoader implements DesignKitLoader {
     return body;
   }
 
-  async readTokens(id: string): Promise<DesignKitTokens | undefined> {
+  /** Read a kit's OWN tokens.json (no foundations merge). Cached per id. */
+  private async readRawTokens(id: string): Promise<DesignKitTokens | undefined> {
     const key = id.toLowerCase();
-    if (this.tokenCache.has(key)) return this.tokenCache.get(key);
+    if (this.rawTokenCache.has(key)) return this.rawTokenCache.get(key);
     const m = await this.find(id);
     let tokens: DesignKitTokens | undefined;
     if (m) {
       const tokensPath = path.join(path.dirname(m.path), TOKENS_FILE);
       try {
         const raw = await fs.readFile(tokensPath, 'utf8');
-        const parsed = JSON.parse(raw) as DesignKitTokens;
-        tokens = parsed;
+        tokens = JSON.parse(raw) as DesignKitTokens;
       } catch {
         tokens = undefined;
       }
+    }
+    this.rawTokenCache.set(key, tokens);
+    return tokens;
+  }
+
+  /**
+   * Read a kit's tokens with the `_foundations` base scales merged UNDER them
+   * (kit values win, per theme). This is why every kit resolves a full
+   * radius/space/type/motion scale even though its tokens.json only lists the
+   * axes it changes. `_foundations` itself is returned raw (no self-merge).
+   */
+  async readTokens(id: string): Promise<DesignKitTokens | undefined> {
+    const key = id.toLowerCase();
+    if (this.tokenCache.has(key)) return this.tokenCache.get(key);
+    let tokens: DesignKitTokens | undefined;
+    if (key === FOUNDATIONS_ID) {
+      tokens = await this.readRawTokens(FOUNDATIONS_ID);
+    } else {
+      const own = await this.readRawTokens(id);
+      const base = await this.readRawTokens(FOUNDATIONS_ID);
+      tokens = mergeKitTokens(base, own);
     }
     this.tokenCache.set(key, tokens);
     return tokens;
@@ -284,7 +306,36 @@ export class DefaultDesignKitLoader implements DesignKitLoader {
     this.cache = undefined;
     this.bodyCache.clear();
     this.tokenCache.clear();
+    this.rawTokenCache.clear();
   }
+}
+
+/**
+ * Merge foundations base scales UNDER a kit's own tokens, per theme (kit wins).
+ * Returns undefined only when neither side has tokens. When a kit ships a single
+ * theme, the other theme still resolves from the foundations base — so every
+ * kit has a complete light AND dark scale set.
+ */
+function mergeKitTokens(
+  base: DesignKitTokens | undefined,
+  own: DesignKitTokens | undefined,
+): DesignKitTokens | undefined {
+  if (!base && !own) return undefined;
+  if (!base) return own;
+  if (!own) return base;
+  const mergeTheme = (
+    b: Record<string, string> | undefined,
+    o: Record<string, string> | undefined,
+  ): Record<string, string> | undefined => {
+    if (!b && !o) return undefined;
+    return { ...(b ?? {}), ...(o ?? {}) };
+  };
+  const light = mergeTheme(base.light, own.light);
+  const dark = mergeTheme(base.dark, own.dark);
+  const out: DesignKitTokens = {};
+  if (light) out.light = light;
+  if (dark) out.dark = dark;
+  return out;
 }
 
 /**
@@ -313,6 +364,7 @@ export function resolveBundledDesignKitsDir(): string | undefined {
 }
 
 const loaderMemo = new Map<string, DefaultDesignKitLoader>();
+const LOADER_MEMO_MAX_PROJECTS = 32;
 
 /**
  * Memoized per-project loader. Used by the `design` tool and the Design Studio
@@ -322,13 +374,22 @@ const loaderMemo = new Map<string, DefaultDesignKitLoader>();
  */
 export function getDesignKitLoader(projectRoot: string): DefaultDesignKitLoader {
   const existing = loaderMemo.get(projectRoot);
-  if (existing) return existing;
+  if (existing) {
+    loaderMemo.delete(projectRoot);
+    loaderMemo.set(projectRoot, existing);
+    return existing;
+  }
   const paths = resolveWstackPaths({ projectRoot });
   const loader = new DefaultDesignKitLoader({
     inProjectDir: paths.inProjectDesignKits,
     globalDir: paths.globalDesignKits,
     bundledDir: resolveBundledDesignKitsDir(),
   });
+  while (loaderMemo.size >= LOADER_MEMO_MAX_PROJECTS) {
+    const oldest = loaderMemo.keys().next().value;
+    if (oldest === undefined) break;
+    loaderMemo.delete(oldest);
+  }
   loaderMemo.set(projectRoot, loader);
   return loader;
 }

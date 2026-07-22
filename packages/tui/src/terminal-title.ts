@@ -1,4 +1,4 @@
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
 
 /**
  * Animated terminal/tab title for the TUI.

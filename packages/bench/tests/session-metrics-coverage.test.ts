@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveWstackPaths } from '@wrongstack/core';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readToolMetrics, readSessionLogEvents } from '../src/session-metrics.js';
 

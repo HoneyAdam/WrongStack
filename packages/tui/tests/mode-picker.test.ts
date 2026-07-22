@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import React from 'react';
-import type { Mode } from '@wrongstack/core';
+import type { Mode } from '@wrongstack/core/types';
 import { ModePicker, toModeOptions } from '../src/components/mode-picker.js';
 import { createPanelOpenDispatcher } from '../src/on-panel-open.js';
 

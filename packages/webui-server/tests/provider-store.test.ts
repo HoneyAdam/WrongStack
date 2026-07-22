@@ -11,7 +11,7 @@ vi.mock('@wrongstack/core/security', () => ({
   encryptConfigSecrets: mockEncrypt,
 }));
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/utils', () => ({
   expectDefined: mockExpectDefined,
   atomicWrite: mockAtomicWrite,
 }));

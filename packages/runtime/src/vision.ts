@@ -1,8 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ContentBlock, Context, ImageBlock, Tool, ToolRegistry } from '@wrongstack/core';
-import { assertNotPrivateHost } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { ToolRegistry } from '@wrongstack/core/registry';
+import type { ContentBlock, ImageBlock, Tool } from '@wrongstack/core/types';
+import { assertNotPrivateHost } from '@wrongstack/core/utils';
 
 export interface VisionAdapterInput {
   image: ImageBlock;

@@ -13,6 +13,7 @@ type Tracked = {
   sessionId?: string;
   child: ChildProcess;
   processGroupLeader?: boolean;
+  background?: boolean;
 };
 
 const fakeChild = (): ChildProcess => {
@@ -33,6 +34,7 @@ const makeProc = (overrides: Partial<Tracked> = {}): Tracked => ({
   startedAt: overrides.startedAt ?? Date.now(),
   sessionId: overrides.sessionId,
   child: overrides.child ?? fakeChild(),
+  background: overrides.background,
 });
 
 describe('ProcessRegistry', () => {
@@ -183,6 +185,21 @@ describe('ProcessRegistry', () => {
     const killed = r.killAll({ force: true }).sort((a, b) => a - b);
     expect(killed).toEqual([10051, 10052, 10053]);
     expect(r.activeCount).toBe(0);
+  });
+
+  it('preserves detached background jobs during host shutdown cleanup', () => {
+    const r = getProcessRegistry();
+    r.register(makeProc({ pid: 10054 }));
+    r.register(makeProc({ pid: 10055, background: true }));
+    expect(r.activeBackgroundCount).toBe(1);
+    expect(r.stats().backgroundCount).toBe(1);
+
+    expect(r.killAll({ force: true, preserveBackground: true })).toEqual([10054]);
+    expect(r.get(10054)?.killed).toBe(true);
+    expect(r.get(10055)?.killed).toBe(false);
+
+    // An explicit kill action still terminates the background job.
+    expect(r.kill(10055, { force: true })).toBe(true);
   });
 
   it('killSession kills only matching session processes', () => {

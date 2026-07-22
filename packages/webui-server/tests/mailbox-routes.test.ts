@@ -1,6 +1,10 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import { handleMailboxRoute, type MailboxRouteHandlers } from '@wrongstack/webui-server';
+import {
+  createMailboxRouteHandlers,
+  handleMailboxRoute,
+  type MailboxRouteHandlers,
+} from '@wrongstack/webui-server';
 import type { WSClientMessage } from '@wrongstack/webui-server';
 
 function mockWs(): WebSocket & { send: ReturnType<typeof vi.fn> } {
@@ -13,10 +17,12 @@ function sentMessages(ws: { send: ReturnType<typeof vi.fn> }): unknown[] {
 
 function handlers(): MailboxRouteHandlers {
   return {
+    send: vi.fn(),
     messages: vi.fn(),
     agents: vi.fn(),
     clear: vi.fn(),
     purge: vi.fn(),
+    compact: vi.fn(),
   };
 }
 
@@ -36,9 +42,11 @@ describe('handleMailboxRoute', () => {
 
   it.each([
     ['mailbox.messages', 'messages'],
+    ['mailbox.send', 'send'],
     ['mailbox.agents', 'agents'],
     ['mailbox.clear', 'clear'],
     ['mailbox.purge', 'purge'],
+    ['mailbox.compact', 'compact'],
   ] as const)('dispatches %s to %s', async (type, handlerName) => {
     const ws = mockWs();
     const h = handlers();
@@ -58,5 +66,36 @@ describe('handleMailboxRoute', () => {
 
     expect(h.purge).toHaveBeenCalledWith(ws, msg);
     expect(sentMessages(ws)).toEqual([]);
+  });
+
+  it('correlates mailbox send validation errors back to the WebUI composer', async () => {
+    const ws = mockWs();
+    const routes = createMailboxRouteHandlers({
+      getProjectRoot: () => 'project',
+      getGlobalRoot: () => 'global',
+    });
+    await routes.send(ws, {
+      type: 'mailbox.send',
+      payload: {
+        requestId: 'request-invalid',
+        to: '*',
+        type: 'assign',
+        audience: 'all',
+        subject: 'Task',
+        body: 'Do work',
+        priority: 'normal',
+      },
+    });
+
+    expect(sentMessages(ws)).toEqual([
+      {
+        type: 'mailbox.sent',
+        payload: {
+          requestId: 'request-invalid',
+          success: false,
+          error: 'mailbox.send payload.type assign requires a specific recipient',
+        },
+      },
+    ]);
   });
 });

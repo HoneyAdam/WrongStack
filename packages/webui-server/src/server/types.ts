@@ -4,15 +4,15 @@
 import type { WebSocket } from 'ws';
 import type { TrustBoundary } from '@wrongstack/core/security';
 import type {
-  Agent,
   ConfigStore,
-  EventBus,
-  JournalEntry,
   ModelsRegistry,
   SecretVault,
   SessionStore,
-  ToolRegistry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import type { JournalEntry } from '@wrongstack/core/storage';
+import type { Agent } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { ToolRegistry } from '@wrongstack/core/registry';
 
 /** Compatibility envelope; new boundaries should decode to CanonicalServerMessage. */
 export interface WSServerMessage {

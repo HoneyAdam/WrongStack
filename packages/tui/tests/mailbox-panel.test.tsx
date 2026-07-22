@@ -148,6 +148,19 @@ describe('MailboxPanel', () => {
     view.unmount();
   });
 
+  it('labels leader-only messages', () => {
+    const view = render(
+      React.createElement(MailboxPanel, {
+        messages: [msg({ audience: 'leaders' })],
+        agents: [],
+        unreadCount: 1,
+        open: true,
+      }),
+    );
+    expect(view.lastFrame() ?? '').toContain('leaders');
+    view.unmount();
+  });
+
   it('renders online agents', () => {
     const view = render(
       React.createElement(MailboxPanel, {

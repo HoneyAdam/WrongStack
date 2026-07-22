@@ -12,13 +12,13 @@
  *
  * @vitest-environment node
  */
-import { readHqAuthFile } from '@wrongstack/core';
+import { readHqAuthFile } from '@wrongstack/core/hq';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hqCmd } from '../src/subcommands/handlers/hq.js';
-import type { ContentBlock, TextBlock } from '@wrongstack/core';
+import type { ContentBlock, TextBlock } from '@wrongstack/core/types';
 import type { SubcommandDeps } from '../src/subcommands/index.js';
 
 vi.mock('../src/hq-server.js', () => ({ startHqServer: vi.fn() }));

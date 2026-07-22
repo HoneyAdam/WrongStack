@@ -44,4 +44,24 @@ describe('verifyFiles', () => {
   it('empty input scores 1 (nothing to flag)', () => {
     expect(verifyFiles(tokens, []).score).toBe(1);
   });
+
+  it('flags arbitrary radius/spacing utilities but not scale utilities', () => {
+    const r = verifyFiles(tokens, [
+      { path: 'a.tsx', text: '<div className="rounded-[7px] p-[13px] rounded-lg p-4" />' },
+    ]);
+    // rounded-[7px] + p-[13px] flagged; rounded-lg + p-4 are token-driven.
+    expect(r.violations.length).toBe(2);
+    expect(r.violations.some((v) => v.axis === 'radius')).toBe(true);
+    expect(r.violations.some((v) => v.axis === 'spacing')).toBe(true);
+    // Non-color axes must NOT drag the color score down.
+    expect(r.score).toBe(1);
+  });
+
+  it('flags hardcoded border-radius but ignores var() and trivial values', () => {
+    const r = verifyFiles(tokens, [
+      { path: 'a.css', text: '.a{border-radius: 7px} .b{border-radius: var(--radius-md)} .c{border-radius: 50%}' },
+    ]);
+    expect(r.violations.length).toBe(1);
+    expect(r.violations[0]?.axis).toBe('radius');
+  });
 });

@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 
 /**
  * Arguments passed to `createExitSlashCommand`. The handler runs inside the
@@ -10,13 +10,19 @@ export interface CreateExitSlashCommandOptions {
   isLeaderActive: () => boolean;
   /** Number of subagents currently in the running state. */
   countRunningSubagents: () => number;
+  /** Number of detached jobs that will be preserved when the TUI exits. */
+  countBackgroundProcesses?: (() => number) | undefined;
   /**
    * Bridge into the TUI's `exitConfirm` reducer slot. Returns the user's
    * decision (`true` to exit, `false` to cancel). When no work is active,
    * the bridge returns `true` synchronously so the slash command resolves
    * to `{ exit: true }` without opening the modal.
    */
-  confirmExit: (info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>;
+  confirmExit: (info: {
+    leaderActive: boolean;
+    subagentCount: number;
+    backgroundCount?: number | undefined;
+  }) => Promise<boolean>;
   /**
    * Original host-owned `/exit` handler. It owns pre-exit checks and process
    * teardown (MCP, fleet host, plugin handlers); the TUI only adds its active
@@ -58,12 +64,22 @@ export function createExitSlashCommand(opts: CreateExitSlashCommandOptions): Sla
       }
       const leaderActive = opts.isLeaderActive();
       const subagentCount = opts.countRunningSubagents();
-      const confirmed = await opts.confirmExit({ leaderActive, subagentCount });
+      const backgroundCount = opts.countBackgroundProcesses?.() ?? 0;
+      const confirmed = await opts.confirmExit({
+        leaderActive,
+        subagentCount,
+        ...(backgroundCount > 0 ? { backgroundCount } : {}),
+      });
       if (!confirmed) {
         return { message: 'Exit cancelled.' };
       }
       const lifecycleResult = await opts.runExitLifecycle?.(args, ctx);
-      return lifecycleResult ?? { exit: true, message: 'Exiting…' };
+      const result = lifecycleResult ?? { exit: true, message: 'Exiting…' };
+      if (backgroundCount === 0) return result;
+      return {
+        ...result,
+        message: `${result.message ?? 'Exiting…'} Preserving ${backgroundCount} background process${backgroundCount === 1 ? '' : 'es'}.`,
+      };
     },
   };
 }

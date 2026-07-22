@@ -1,4 +1,5 @@
-import type { Context, Provider } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Provider } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCompactCommand } from '../src/slash-commands/compact.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

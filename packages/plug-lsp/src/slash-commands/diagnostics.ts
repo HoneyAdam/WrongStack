@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { formatDiagnostics } from '../formatters/diagnostics.js';
 import type { LSPRegistry } from '../registry.js';
 import { uriToPath } from '../utils/uri.js';

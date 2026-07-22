@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -9,10 +9,11 @@ import {
   detectNewlineStyle,
   normalizeToLf,
   toStyle,
-  ToolValidationError,
   unifiedDiff,
-} from '@wrongstack/core';
-import type { Context, Tool } from '@wrongstack/core';
+} from '@wrongstack/core/utils';
+import { ToolValidationError } from '@wrongstack/core/types';
+import type { Context } from '@wrongstack/core/agent';
+import type { Tool } from '@wrongstack/core/types';
 import { compileUserRegex } from './_regex.js';
 import { isBinaryBuffer, safeResolve, sha256hex } from './_util.js';
 interface ReplaceInput {

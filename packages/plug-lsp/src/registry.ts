@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { EventBus, Logger } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
 import type { DocumentTracker } from './document-tracker.js';
 import { languageIdFor } from './language-detect.js';
 import { nextReconnectDelay } from './server/lifecycle.js';

@@ -102,6 +102,8 @@ function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): Picker
     getAgentCtxMaxContext: () => 200_000,
     activeMaxContext: 200_000,
     currentContextTokens: 0,
+    currentProvider: undefined,
+    currentModel: undefined,
     switchAutonomy: vi.fn<() => void>(),
     submit,
     onAuthEnter: vi.fn<() => void>(),
@@ -175,7 +177,7 @@ describe('usePickerKeys — model and mode flows', () => {
     });
   });
 
-  it('searches and selects a model, then closes the picker and emits the switch info entry', () => {
+  it('searches and selects a model, then closes the picker and emits structured switch history', () => {
     const host = makeHost(
       baseState({
         modelPicker: {
@@ -205,7 +207,16 @@ describe('usePickerKeys — model and mode flows', () => {
     expect(host.setActiveMaxContext).toHaveBeenCalledWith(200_000);
     expect(host.dispatch).toHaveBeenCalledWith({
       type: 'addEntry',
-      entry: { kind: 'info', text: 'Switched to openai / gpt-4o.' },
+      entry: {
+        kind: 'model-switch',
+        fromProvider: undefined,
+        fromModel: undefined,
+        fromContext: 200_000,
+        toProvider: 'openai',
+        toModel: 'gpt-4o',
+        toContext: 200_000,
+        requestTokens: undefined,
+      },
     });
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerClose' });
   });
@@ -260,8 +271,14 @@ describe('usePickerKeys — model and mode flows', () => {
     expect(host.dispatch).toHaveBeenCalledWith({
       type: 'addEntry',
       entry: {
-        kind: 'info',
-        text: 'Switched to openai / small.\n⚠ smaller context window: 200,000 → 32,000 tokens; current request ≈ 24,000 tokens (75% of new window)',
+        kind: 'model-switch',
+        fromProvider: undefined,
+        fromModel: undefined,
+        fromContext: 200_000,
+        toProvider: 'openai',
+        toModel: 'small',
+        toContext: 32_000,
+        requestTokens: 24_000,
       },
     });
   });

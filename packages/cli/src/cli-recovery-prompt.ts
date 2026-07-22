@@ -12,8 +12,8 @@
  * pass to make the recovery contract independently testable.
  */
 
-import type { AbandonedSession } from '@wrongstack/core';
-import { color, isStdinTTY } from '@wrongstack/core';
+import type { AbandonedSession } from '@wrongstack/core/storage';
+import { color, isStdinTTY } from '@wrongstack/core/utils';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
 

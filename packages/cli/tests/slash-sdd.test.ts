@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { resolveWstackPaths } from '@wrongstack/core';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import {
   buildSddCommand,
   getActiveSDDContext,

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 import { commandExistsOnPath, resolveServerCommand } from './utils/command-resolver.js';
 type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
 

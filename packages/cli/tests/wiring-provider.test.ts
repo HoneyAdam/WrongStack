@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { Config, Logger, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
+import type { Config, Logger, ModelsRegistry, ResolvedProvider } from '@wrongstack/core/types';
 import { setupProvider } from '../src/wiring/provider.js';
 import { expectConfigError } from './helpers/config-error.js';
 

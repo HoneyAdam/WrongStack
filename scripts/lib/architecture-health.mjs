@@ -18,6 +18,23 @@ function repoRelative(repoRoot, value) {
   return toPosix(path.relative(repoRoot, value));
 }
 
+const CLI_SLASH_COMMAND_ROOT = 'packages/cli/src/slash-commands/';
+const CLI_SLASH_COMMAND_COMPOSITION_ROOT = `${CLI_SLASH_COMMAND_ROOT}index.ts`;
+
+/**
+ * Reusable runtime code must not depend on command adapters. The command
+ * registry entry point is the sole exception: composition roots may import it
+ * to install commands, but shared behavior belongs in cli/services.
+ */
+export function findNonCommandSlashImports(moduleEdges) {
+  return moduleEdges.filter(
+    (edge) =>
+      edge.to.startsWith(CLI_SLASH_COMMAND_ROOT) &&
+      edge.to !== CLI_SLASH_COMMAND_COMPOSITION_ROOT &&
+      !edge.from.startsWith(CLI_SLASH_COMMAND_ROOT),
+  );
+}
+
 async function pathExists(value) {
   try {
     await stat(value);
@@ -478,6 +495,7 @@ export async function buildArchitectureHealth({ repoRoot, registry, exceptions, 
   }
 
   const moduleNodes = allSourceFiles.map((file) => repoRelative(repoRoot, file));
+  const nonCommandSlashImports = findNonCommandSlashImports(moduleEdges);
   const runtimeCycles = findGraphCycles(moduleNodes, moduleEdges, true).map((members) => ({ kind: 'runtime-module-cycle', members }));
   const typeCycles = findGraphCycles(moduleNodes, moduleEdges, false).map((members) => ({ kind: 'type-module-cycle', members }));
   const activeCycles = [...runtimeCycles, ...typeCycles];
@@ -509,6 +527,9 @@ export async function buildArchitectureHealth({ repoRoot, registry, exceptions, 
   if (unclassifiedCoreAreas.length > 0) errors.push(`unclassified Core areas: ${unclassifiedCoreAreas.join(', ')}`);
   if (staleCoreAreas.length > 0) errors.push(`stale Core registry areas: ${staleCoreAreas.join(', ')}`);
   if (invalidRuntimeTestOwnership.length > 0) errors.push(`${invalidRuntimeTestOwnership.length} test file(s) without exactly one runtime project`);
+  for (const edge of nonCommandSlashImports) {
+    errors.push(`${edge.from}: non-command module imports ${edge.to}; move shared logic to packages/cli/src/services`);
+  }
   if (exceptionResult.unexcepted.length > 0) errors.push(`${exceptionResult.unexcepted.length} unexcepted module cycle(s)`);
   errors.push(...exceptionResult.errors);
   errors.push(...hotspotResult.errors);
@@ -524,6 +545,7 @@ export async function buildArchitectureHealth({ repoRoot, registry, exceptions, 
       sourceLines: sourceMetrics.reduce((total, item) => total + item.lines, 0),
       workspaceEdges: packages.reduce((total, item) => total + item.workspaceDependencies.length, 0),
       moduleEdges: moduleEdges.length,
+      nonCommandSlashImports: nonCommandSlashImports.length,
       runtimeModuleCycles: runtimeCycles.length,
       typeModuleCycles: typeCycles.length,
       testsWithoutTypecheck: testsWithoutTypecheck.length,
@@ -551,6 +573,7 @@ export async function buildArchitectureHealth({ repoRoot, registry, exceptions, 
     },
     unresolvedRelativeImports,
     selfImports,
+    nonCommandSlashImports,
     hotspotCandidates: hotspotResult.candidates,
     hotspots: sourceMetrics.slice(0, 50),
   };
@@ -560,7 +583,7 @@ export function renderArchitectureHealthMarkdown(report) {
   const lines = [
     '# Architecture Health Report',
     '',
-    `**Generated:** ${report.generatedAt}  `,
+    `**Generated:** ${report.generatedAt}`,
     `**Scope:** ${report.scope.workspaceRoots.join(', ')}; excluded: ${report.scope.excludedPaths.join(', ') || 'none'}`,
     '',
     '## Summary',
@@ -573,6 +596,7 @@ export function renderArchitectureHealthMarkdown(report) {
     `| Test files | ${report.summary.testFiles} |`,
     `| Workspace dependency edges | ${report.summary.workspaceEdges} |`,
     `| Relative module edges | ${report.summary.moduleEdges} |`,
+    `| Non-command slash imports | ${report.summary.nonCommandSlashImports} |`,
     `| Runtime module cycles | ${report.summary.runtimeModuleCycles} |`,
     `| Type-inclusive module cycles | ${report.summary.typeModuleCycles} |`,
     `| Tests without TypeScript test-project coverage | ${report.summary.testsWithoutTypecheck} |`,

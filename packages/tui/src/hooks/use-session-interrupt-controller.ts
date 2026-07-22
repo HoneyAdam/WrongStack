@@ -1,4 +1,4 @@
-import type { EternalAutonomyEngine, ParallelEternalEngine } from '@wrongstack/core';
+import type { EternalAutonomyEngine, ParallelEternalEngine } from '@wrongstack/core/execution';
 import type { SddRunControl } from '@wrongstack/sdd';
 import { useEffect } from 'react';
 import type { Action, State } from '../app-reducer.js';

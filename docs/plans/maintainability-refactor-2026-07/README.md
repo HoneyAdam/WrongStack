@@ -1,7 +1,7 @@
 # WrongStack Maintainability Refactor Execution Playbook
 
 **Date:** 2026-07-21  
-**Status:** Proposed execution detail  
+**Status:** In-repository execution complete; external next-major compatibility removal remains release-gated
 **Language:** English  
 **Scope:** The production monorepo, beginning with Core and continuing through every package and application surface except `website/`
 
@@ -39,6 +39,8 @@ When this playbook and the canonical graph disagree, the accepted ADR and canoni
 | [`06-verification-governance.md`](06-verification-governance.md) | CI gates, architecture checks, exception policy, migration protocol, and metrics |
 | [`07-task-crosswalk.md`](07-task-crosswalk.md) | Mapping between audit findings, this playbook, and canonical graph task IDs |
 | [`08-test-type-debt-burndown.md`](08-test-type-debt-burndown.md) | Package-ordered plan for eliminating the test-inclusive TypeScript baseline |
+| [`09-runtime-pilot-decision.md`](09-runtime-pilot-decision.md) | Runtime pilot evidence, kill criteria, and the accepted facade-fold decision |
+| [`10-completion-report.md`](10-completion-report.md) | Final in-repository outcomes, verification evidence, and release-gated residuals |
 
 ## Program outcome
 

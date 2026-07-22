@@ -1,22 +1,22 @@
 import { type FSWatcher, watch } from 'node:fs';
 import { basename, dirname } from 'node:path';
+import type { Context, TodoItem } from '@wrongstack/core/agent';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
 import {
-  type Context,
-  deserializeTaskGraph,
-  GlobalMailbox,
   loadPlan,
   loadTasks,
   mutatePlan,
   mutateTasks,
   type PlanFile,
   type PlanItem,
-  type SerializedTaskGraph,
   type TaskFile,
-  type TaskItem,
-  type TaskStatus,
-  type TodoItem,
-} from '@wrongstack/core';
-import { resolveWstackPaths } from '@wrongstack/core/utils';
+} from '@wrongstack/core/storage';
+import { deserializeTaskGraph } from '@wrongstack/core/tasking';
+import type {
+  SerializedTaskGraph,
+  TaskStatus,
+} from '@wrongstack/core/types';
+import { resolveWstackPaths, type TaskItem } from '@wrongstack/core/utils';
 import {
   createBoard,
   getBoard,

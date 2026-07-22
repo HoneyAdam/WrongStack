@@ -4,7 +4,7 @@
  * then fed live. Events are grouped per owner so one worktree's lifecycle
  * reads as a single lane instead of interleaved noise.
  */
-import type { HqEventEnvelope, HqWorktreeEventPayload } from '@wrongstack/core';
+import type { HqEventEnvelope, HqWorktreeEventPayload } from '@wrongstack/core/hq';
 import { AlertTriangle, Check, GitMerge, Package, Trash2, XCircle } from 'lucide-react';
 import type React from 'react';
 import { useMemo } from 'react';

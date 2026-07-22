@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Tool } from '@wrongstack/core';
-import { atomicWrite } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
+import { atomicWrite } from '@wrongstack/core/utils';
 import { safeResolve } from './_util.js';
 
 interface ScaffoldInput {

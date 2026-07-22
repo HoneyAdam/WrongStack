@@ -43,6 +43,60 @@ export interface DesignTokenSet {
   [token: string]: string;
 }
 
+/**
+ * The kind of value a token holds, inferred from its string form. Materialize
+ * and verify branch on this so non-color axes (radius, spacing, type, motion)
+ * are handled correctly — not just colors. See `classifyTokenValue`.
+ */
+export type TokenValueKind =
+  | 'color' // oklch(...) / #hex
+  | 'length' // 12px, 0.75rem, 100%, 2em
+  | 'duration' // 150ms, 0.2s
+  | 'number' // bare numeric (unitless scale/weight/line-height)
+  | 'font' // font-family stack
+  | 'shadow' // box-shadow definition (offset/blur/color …)
+  | 'gradient' // linear-/radial-gradient(...)
+  | 'raw'; // anything else (kept verbatim)
+
+/**
+ * Recognized token groups by kebab-scale prefix. A kit's `tokens.json` stays a
+ * FLAT string map (backward compatible); richness comes from populating these
+ * scale keys. `_foundations/tokens.json` supplies defaults that kits override
+ * per-axis. CSS materialization maps each group to a Tailwind v4 `@theme`
+ * namespace so utilities (`rounded-lg`, `p-4`, `text-base`, `shadow-2`) resolve
+ * to the kit.
+ *
+ * Dot (`.`) is reserved for theme-scoping (`light.`/`dark.`) in overrides, so
+ * scale token names use kebab (`radius-lg`, not `radius.lg`).
+ */
+export const KNOWN_TOKEN_GROUPS = {
+  /** Corner radii. */
+  radius: ['radius-none', 'radius-sm', 'radius-md', 'radius-lg', 'radius-xl', 'radius-full'],
+  /** Spacing scale (4/8px rhythm). */
+  space: ['space-1', 'space-2', 'space-3', 'space-4', 'space-6', 'space-8', 'space-12'],
+  /** Type sizes. */
+  text: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl', 'text-3xl'],
+  /** Line-heights (unitless). */
+  leading: ['leading-tight', 'leading-normal', 'leading-relaxed'],
+  /** Font weights (unitless). */
+  weight: ['weight-normal', 'weight-medium', 'weight-semibold', 'weight-bold'],
+  /** Letter-spacing. */
+  tracking: ['tracking-tight', 'tracking-normal', 'tracking-wide'],
+  /** Elevation / shadow ramp. */
+  shadow: ['shadow-1', 'shadow-2', 'shadow-3', 'shadow-4'],
+  /** Border widths. */
+  border: ['border-hairline', 'border-thin', 'border-thick'],
+  /** Motion durations. */
+  duration: ['duration-fast', 'duration-base', 'duration-slow'],
+  /** Motion easings. */
+  ease: ['ease-standard', 'ease-emphasized'],
+  /** Font families. */
+  font: ['font-sans', 'font-mono', 'font-display'],
+} as const;
+
+/** Flat list of every known scale token name across all groups. */
+export const KNOWN_TOKEN_NAMES: readonly string[] = Object.values(KNOWN_TOKEN_GROUPS).flat();
+
 /** Parsed `tokens.json` — light + dark token snapshots used by visual pickers. */
 export interface DesignKitTokens {
   light?: DesignTokenSet | undefined;

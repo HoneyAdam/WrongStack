@@ -1,11 +1,11 @@
-import { expectDefined } from '../utils/expect-defined.js';
-import { toErrorMessage } from '../utils/error.js';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import { sessionScopedPath } from '../utils/session-scoped-path.js';
-import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
-import { WrongStackError, ERROR_CODES } from '../types/errors.js';
 import type { EventBus } from '../kernel/events.js';
+import { ERROR_CODES, WrongStackError } from '../types/errors.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
+import { expectDefined } from '../utils/expect-defined.js';
+import { sessionScopedPath } from '../utils/session-scoped-path.js';
 /**
  * L2-B: AnnotationsStore — sidecar storage for collaboration annotations
  * (Phase 2 of idea #13 from IDEAS.md).
@@ -368,10 +368,11 @@ export class AnnotationsStore {
     const next = prev.then(fn, fn);
     // Keep the chain intact even when `fn` throws; failures
     // shouldn't break subsequent writes.
-    this.writeChains.set(
-      sessionId,
-      next.catch(() => undefined),
-    );
+    const settled = next.catch(() => undefined);
+    this.writeChains.set(sessionId, settled);
+    void settled.finally(() => {
+      if (this.writeChains.get(sessionId) === settled) this.writeChains.delete(sessionId);
+    });
     return next;
   }
 }

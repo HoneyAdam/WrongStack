@@ -2,7 +2,8 @@ import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FetchError, resolveWstackPaths } from '@wrongstack/core';
+import { FetchError } from '@wrongstack/core/types';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 
 export interface UpdateInfo {
   current: string;

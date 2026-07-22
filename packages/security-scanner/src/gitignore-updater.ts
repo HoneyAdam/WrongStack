@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core/utils';
 
 export interface GitignoreUpdaterOptions {
   gitignorePath: string;

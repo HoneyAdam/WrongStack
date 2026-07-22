@@ -18,6 +18,40 @@ export interface PersistedQueueItem {
   shouldRefine?: boolean | undefined;
 }
 
+/** Hard memory/disk budgets shared by QueueStore and the TUI reducer. */
+export const QUEUE_MAX_ITEMS = 100;
+export const QUEUE_MAX_BYTES = 16 * 1024 * 1024;
+export const QUEUE_MAX_ITEM_BYTES = 8 * 1024 * 1024;
+
+function serializedBytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/**
+ * Keep the FIFO prefix that fits the queue budget. Callers can compare the
+ * returned length with the input length to detect a rejected append.
+ */
+export function retainPersistedQueueItems(
+  items: readonly PersistedQueueItem[],
+): PersistedQueueItem[] {
+  const retained: PersistedQueueItem[] = [];
+  let bytes = 2; // JSON array brackets
+  for (const item of items) {
+    if (retained.length >= QUEUE_MAX_ITEMS) break;
+    const itemBytes = serializedBytes(item);
+    if (!Number.isFinite(itemBytes) || itemBytes > QUEUE_MAX_ITEM_BYTES) break;
+    const nextBytes = bytes + itemBytes + (retained.length > 0 ? 1 : 0);
+    if (nextBytes > QUEUE_MAX_BYTES) break;
+    retained.push(item);
+    bytes = nextBytes;
+  }
+  return retained;
+}
+
 /**
  * Side-file storage for a session's pending input queue. Lives at
  * `<sessionDir>/queue.json` next to the attachment spool. Reads are
@@ -38,7 +72,12 @@ export class QueueStore {
   private readonly traceId: string | undefined;
   private readonly logger: Logger | undefined;
 
-  constructor(opts: { dir: string; events?: EventBus; traceId?: string; logger?: Logger | undefined }) {
+  constructor(opts: {
+    dir: string;
+    events?: EventBus;
+    traceId?: string;
+    logger?: Logger | undefined;
+  }) {
     this.file = path.join(opts.dir, 'queue.json');
     this.events = opts.events;
     this.traceId = opts.traceId;
@@ -62,7 +101,25 @@ export class QueueStore {
       return;
     }
     try {
-      await atomicWrite(this.file, JSON.stringify(items), { mode: 0o600 });
+      const retained = retainPersistedQueueItems(items);
+      if (retained.length !== items.length) {
+        this.logWarn(
+          'Queue snapshot exceeded its memory budget; oversized tail was not persisted',
+          {
+            event: 'queue_store.budget_exceeded',
+            path: this.file,
+            suppliedItems: items.length,
+            retainedItems: retained.length,
+            maxItems: QUEUE_MAX_ITEMS,
+            maxBytes: QUEUE_MAX_BYTES,
+          },
+        );
+      }
+      if (retained.length === 0) {
+        await this.clear();
+        return;
+      }
+      await atomicWrite(this.file, JSON.stringify(retained), { mode: 0o600 });
       this.events?.emit('storage.write', {
         sessionId: this.traceId ?? '~boot~',
         store: 'queue',
@@ -83,7 +140,11 @@ export class QueueStore {
         recoverable: false,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
-      this.logWarn('Queue store write failed', { event: 'queue_store.write_failed', path: this.file, message: toErrorMessage(err) });
+      this.logWarn('Queue store write failed', {
+        event: 'queue_store.write_failed',
+        path: this.file,
+        message: toErrorMessage(err),
+      });
     }
   }
 
@@ -91,6 +152,26 @@ export class QueueStore {
     const t0 = Date.now();
     let raw: string;
     try {
+      const stat = await fsp.stat(this.file);
+      if (stat.size > QUEUE_MAX_BYTES) {
+        this.logWarn('Queue file exceeds the safe read budget; ignoring it', {
+          event: 'queue_store.read_budget_exceeded',
+          path: this.file,
+          bytes: stat.size,
+          maxBytes: QUEUE_MAX_BYTES,
+        });
+        this.events?.emit('storage.read', {
+          sessionId: this.traceId ?? '~boot~',
+          store: 'queue',
+          filePath: this.file,
+          operation: 'read',
+          outcome: 'failure',
+          durationMs: Date.now() - t0,
+          error: 'size_limit_exceeded',
+          ...(this.traceId !== undefined && { traceId: this.traceId }),
+        });
+        return [];
+      }
       raw = await fsp.readFile(this.file, 'utf8');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -116,7 +197,11 @@ export class QueueStore {
         recoverable: true,
         ...(this.traceId !== undefined && { traceId: this.traceId }),
       });
-      this.logWarn('Queue store read failed', { event: 'queue_store.read_failed', path: this.file, message: toErrorMessage(err) });
+      this.logWarn('Queue store read failed', {
+        event: 'queue_store.read_failed',
+        path: this.file,
+        message: toErrorMessage(err),
+      });
       return [];
     }
     let parsed: unknown;
@@ -158,8 +243,16 @@ export class QueueStore {
       ...(this.traceId !== undefined && { traceId: this.traceId }),
     });
     const out: PersistedQueueItem[] = [];
+    let outBytes = 2;
     for (const v of parsed) {
-      if (isPersistedQueueItem(v)) out.push(v);
+      if (!isPersistedQueueItem(v)) continue;
+      if (out.length >= QUEUE_MAX_ITEMS) break;
+      const itemBytes = serializedBytes(v);
+      if (!Number.isFinite(itemBytes) || itemBytes > QUEUE_MAX_ITEM_BYTES) break;
+      const nextBytes = outBytes + itemBytes + (out.length > 0 ? 1 : 0);
+      if (nextBytes > QUEUE_MAX_BYTES) break;
+      out.push(v);
+      outBytes = nextBytes;
     }
     return out;
   }
@@ -193,7 +286,11 @@ export class QueueStore {
       // Best-effort: a permission/lock error during clear is rare and
       // the queue slash command is non-critical. Warn so it's observable
       // but don't throw so the slash command doesn't crash.
-      this.logWarn('Queue store clear failed', { event: 'queue_store.clear_failed', path: this.file, message: (err as Error).message });
+      this.logWarn('Queue store clear failed', {
+        event: 'queue_store.clear_failed',
+        path: this.file,
+        message: (err as Error).message,
+      });
     }
   }
 }

@@ -1,14 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  DefaultModeStore,
-  EventBus,
-  noOpVault,
-  SlashCommandRegistry,
-  ToolRegistry,
-  type WstackPaths,
-} from '@wrongstack/core';
+import { DefaultModeStore } from '@wrongstack/core/models';
+import { EventBus } from '@wrongstack/core/kernel';
+import { noOpVault } from '@wrongstack/core/security';
+import { SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { type WstackPaths } from '@wrongstack/core/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULTS } from '../src/slash-commands/statusline.js';
 import { setupSlashCommands } from '../src/wiring/slash-commands.js';

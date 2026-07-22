@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { stripAnsi } from '@wrongstack/core';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildHqCommand } from '../src/slash-commands/hq.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

@@ -4,8 +4,8 @@ import {
   type ModelsDevModel,
   type ModelsDevPayload,
   type Provider,
-  DefaultModelsRegistry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { DefaultModelsRegistry } from '@wrongstack/core/models';
 import { withCatalogCapabilities } from '../src/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';

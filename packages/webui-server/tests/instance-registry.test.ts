@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockAtomicWrite = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/utils', () => ({
   atomicWrite: mockAtomicWrite,
 }));
 
@@ -25,8 +25,8 @@ import {
 describe('instance-registry', () => {
   const sampleRecord: WebUIInstanceRecord = {
     pid: 99999,
+    surface: 'webui',
     httpPort: 3456,
-    wsPort: 3457,
     host: '127.0.0.1',
     projectRoot: '/tmp/test-project',
     projectName: 'test-project',

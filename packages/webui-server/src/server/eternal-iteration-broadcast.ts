@@ -17,7 +17,7 @@
 
 import type { WebSocket } from 'ws';
 import type { WSServerMessage } from './types.js';
-import type { JournalEntry } from '@wrongstack/core';
+import type { JournalEntry } from '@wrongstack/core/storage';
 
 export type EternalSubscribe = (
   fn: (entry: JournalEntry) => void,

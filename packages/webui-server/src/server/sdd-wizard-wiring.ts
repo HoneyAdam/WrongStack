@@ -1,15 +1,17 @@
 import * as path from 'node:path';
 import {
-  type Agent,
   type AgentFactory,
   type BrainArbiter,
+} from '@wrongstack/core/coordination';
+import type { Agent } from '@wrongstack/core/agent';
+import {
   DefaultTaskStore,
-  type EventBus,
-  type TaskGraph,
   TaskTracker,
-  WorktreeManager,
-  ToolValidationError,
-} from '@wrongstack/core';
+} from '@wrongstack/core/tasking';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { TaskGraph } from '@wrongstack/core/types';
+import { ToolValidationError } from '@wrongstack/core/types';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 import {
   cleanupStaleSddWorktrees,
   makeCommandVerifier,

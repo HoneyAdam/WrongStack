@@ -70,6 +70,7 @@ export const SERVER_COLLABORATION_MESSAGE_TYPES = [
   'mailbox.compacted',
   'mailbox.event',
   'mailbox.messages',
+  'mailbox.sent',
   'mailbox.purged',
   'mailbox.received',
   'subagent.budget_extended',

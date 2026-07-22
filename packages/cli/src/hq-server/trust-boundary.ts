@@ -1,9 +1,5 @@
-import type { HqCommand } from '@wrongstack/core';
-import {
-  isTrustDecisionAllowed,
-  type TrustBoundary,
-  type TrustBoundaryRequest,
-} from '@wrongstack/core/security';
+import type { HqCommand } from '@wrongstack/core/hq';
+import { isTrustDecisionAllowed, type TrustBoundary, type TrustBoundaryRequest } from '@wrongstack/core/security';
 import type { ConnectedClient } from './types.js';
 
 export async function authorizeHqCommand(input: {

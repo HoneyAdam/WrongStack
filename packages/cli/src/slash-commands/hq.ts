@@ -1,14 +1,11 @@
-import type { HqClientConfig, SlashCommand } from '@wrongstack/core';
-import {
-  color,
-  noOpVault,
-  readHqRuntimeFileSync,
-  resolveHqConfig,
-  resolveHqDataDir,
-} from '@wrongstack/core';
+import type { HqClientConfig } from '@wrongstack/core/hq';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { noOpVault } from '@wrongstack/core/security';
+import { readHqRuntimeFileSync, resolveHqConfig, resolveHqDataDir } from '@wrongstack/core/hq';
 import { persistConfigSetting } from '../settings-menu.js';
 import { parseSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 function maskToken(t: string): string {

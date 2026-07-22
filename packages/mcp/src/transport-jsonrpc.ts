@@ -1,4 +1,4 @@
-import { ToolError } from '@wrongstack/core';
+import { ToolError } from '@wrongstack/core/types';
 
 export type JsonRpcResult = {
   jsonrpc: string;

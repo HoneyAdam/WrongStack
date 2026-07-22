@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { buildReviewCommand } from '../src/slash-commands/review.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

@@ -13,36 +13,10 @@ import * as path from 'node:path';
 import type * as http from 'node:http';
 import { WebSocket } from 'ws';
 import type { TrustBoundary } from '@wrongstack/core/security';
-import {
-  buildTranscriptFromEvents,
-  type HqSnapshot,
-  createHqPersistence,
-  createMailboxHttpRouter,
-  DEFAULT_HQ_REDACTION_POLICY,
-  GlobalMailbox,
-  HqAlertEngine,
-  type HqAlertRuleConfig,
-  type HqCommand,
-  type HqCommandAuditEntry,
-  HqCommandAuditLog,
-  type HqEventEnvelope,
-  type HqQueuedCommand,
-  type HqRedactionPolicy,
-  type HqTimeseriesSample,
-  type HqToken,
-  type HqTranscriptEntry,
-  hashHqPassword,
-  isLoopbackHost,
-  type MailboxHttpAccessDecision,
-  MailboxHttpRateLimiter,
-  mintHqCookieSecret,
-  mutateHqAuthFile,
-  resolveHqDataDir,
-  resolveProjectDir,
-  tokenHasCapability,
-  validateHqCommand,
-  verifyHqPassword,
-} from '@wrongstack/core';
+import { buildTranscriptFromEvents, createHqPersistence, DEFAULT_HQ_REDACTION_POLICY, hashHqPassword, isLoopbackHost, mintHqCookieSecret, mutateHqAuthFile, resolveHqDataDir, tokenHasCapability, validateHqCommand, verifyHqPassword } from '@wrongstack/core/hq';
+import { type HqSnapshot, HqAlertEngine, type HqAlertRuleConfig, type HqCommand, type HqCommandAuditEntry, HqCommandAuditLog, type HqEventEnvelope, type HqQueuedCommand, type HqRedactionPolicy, type HqTimeseriesSample, type HqToken, type HqTranscriptEntry } from '@wrongstack/core/hq';
+import { createMailboxHttpRouter } from '@wrongstack/core/coordination';
+import { GlobalMailbox, type MailboxHttpAccessDecision, MailboxHttpRateLimiter, resolveProjectDir } from '@wrongstack/core/coordination';
 import { HQ_HTML } from '../hq-recovery-html.js';
 import { resolveHqDistDir, serveHqStatic } from '../hq-static-serve.js';
 import * as HqServerAuth from './auth.js';
@@ -957,6 +931,7 @@ async function handleApiMailboxSend(
     subject?: string;
     body?: string;
     priority?: string;
+    audience?: string;
   };
   try {
     mbody = JSON.parse(await readRequestBody(_req));
@@ -972,6 +947,11 @@ async function handleApiMailboxSend(
   if (typeof mbody.sessionId !== 'string' && typeof mbody.projectId !== 'string') {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
+    return;
+  }
+  if (mbody.audience !== undefined && mbody.audience !== 'all' && mbody.audience !== 'leaders') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'audience must be all or leaders' }));
     return;
   }
 
@@ -990,21 +970,24 @@ async function handleApiMailboxSend(
   const subject = typeof mbody.subject === 'string' ? mbody.subject : 'HQ prompt';
   const priority =
     mbody.priority === 'high' ? 'high' : mbody.priority === 'low' ? 'low' : 'normal';
-  const validated = validateHqCommand({
-    commandId: randomUUID(),
-    type: mbody.type,
-    createdAt: new Date().toISOString(),
-    payload: { to, subject, body: mbody.body, priority },
-    requiresAck: false,
-  });
+  const audience = mbody.audience === 'leaders' ? 'leaders' : 'all';
   const mailboxType =
-    validated?.type === 'steer' || validated?.type === 'btw'
-      ? validated.type
-      : validated?.type === 'queue'
-        ? 'note'
-        : validated?.type === 'broadcast'
-          ? 'broadcast'
-          : undefined;
+    mbody.type === 'queue'
+      ? 'note'
+      : ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review'].includes(
+            mbody.type,
+          )
+        ? (mbody.type as
+            | 'note'
+            | 'ask'
+            | 'assign'
+            | 'steer'
+            | 'btw'
+            | 'broadcast'
+            | 'status'
+            | 'result'
+            | 'review')
+        : undefined;
   if (mailboxType === undefined) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(
@@ -1015,22 +998,38 @@ async function handleApiMailboxSend(
     );
     return;
   }
+  if (
+    (mailboxType === 'assign' || mailboxType === 'steer') &&
+    (to === '*' || to.trim().toLowerCase() === 'all')
+  ) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `${mailboxType} requires a specific recipient` }));
+    return;
+  }
 
   try {
     const projectDir = resolveProjectDir(projectRoot, mbGlobalRoot);
     const mailbox = getMailboxGateway(projectDir).mailbox;
     const from = `hq@${hqSessionTag}`;
+    const deliveryTo = mailboxType === 'broadcast' ? 'all' : to;
     const sent = await mailbox.send({
       from,
-      to: mailboxType === 'broadcast' ? 'all' : to,
+      to: deliveryTo,
       type: mailboxType,
       subject,
       body: mbody.body,
       priority,
+      audience,
     });
     res.writeHead(202, { 'Content-Type': 'application/json' });
     res.end(
-      JSON.stringify({ delivered: true, messageId: sent?.id, to, type: mailboxType }),
+      JSON.stringify({
+        delivered: true,
+        messageId: sent?.id,
+        to: sent?.to ?? deliveryTo,
+        type: mailboxType,
+        audience,
+      }),
     );
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1102,7 +1101,7 @@ async function handleMailboxAction(
   }
 
   try {
-    const { actionToAckInput } = await import('@wrongstack/core');
+    const { actionToAckInput } = await import('@wrongstack/core/coordination');
     const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
     const mailbox = getMailboxGateway(projectDir).mailbox;
     const readerId = abody.readerId;
@@ -1160,7 +1159,7 @@ async function handleApiAlerts(
 }
 
 async function handleApiSessions(res: http.ServerResponse): Promise<void> {
-  const { SessionRegistry } = await import('@wrongstack/core');
+  const { SessionRegistry } = await import('@wrongstack/core/storage');
   const globalRoot = path.dirname(resolveHqDataDir());
   try {
     const registry = new SessionRegistry(globalRoot);
@@ -1202,9 +1201,8 @@ async function handleApiSessionEvents(
   match: RegExpMatchArray,
   transcripts: Map<string, TranscriptRing>,
 ): Promise<void> {
-  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore } = await import(
-    '@wrongstack/core'
-  );
+  const { SessionRegistry, DefaultSessionStore } = await import('@wrongstack/core/storage');
+  const { resolveWstackPaths } = await import('@wrongstack/core/utils');
   const url = new URL(req.url ?? '/', 'http://localhost');
   const full = url.searchParams.get('full') === '1';
   const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
@@ -1340,7 +1338,7 @@ function resolveHqProjectRoot(
 ): Promise<string | undefined> {
   // Dynamic import to avoid pulling in SessionRegistry at module level
   const fn = async (): Promise<string | undefined> => {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     try {
       const registry = new SessionRegistry(globalRoot);
       if (typeof ids.sessionId === 'string') {

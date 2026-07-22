@@ -1,4 +1,6 @@
-import { type MemoryStore, type Tool, ToolRegistry } from '@wrongstack/core';
+import { ToolRegistry } from '@wrongstack/core/registry';
+import type { MemoryStore, Tool } from '@wrongstack/core/types';
+import { LegacyMemoryPortAdapter } from '@wrongstack/super-memory';
 import { describe, expect, it } from 'vitest';
 import { registerCanonicalHostTools } from '../src/tool-registration.js';
 
@@ -47,7 +49,7 @@ describe('canonical host tool registration', () => {
     const result = registerCanonicalHostTools({
       registry,
       tier: 'minimal',
-      memory: { enabled: true, store: legacyMemoryStore() },
+      memory: { enabled: true, store: new LegacyMemoryPortAdapter(legacyMemoryStore()) },
       coordinationTools: [coordinationTool],
       disabledTools: ['grep'],
     });
@@ -66,7 +68,7 @@ describe('canonical host tool registration', () => {
     const result = registerCanonicalHostTools({
       registry,
       tier: 'minimal',
-      memory: { enabled: false, store: legacyMemoryStore() },
+      memory: { enabled: false, store: new LegacyMemoryPortAdapter(legacyMemoryStore()) },
     });
 
     expect(result.memoryBackend).toBe('disabled');

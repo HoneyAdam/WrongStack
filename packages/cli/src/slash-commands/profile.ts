@@ -1,8 +1,9 @@
 import * as path from 'node:path';
-import type { SlashCommand, WstackPaths } from '@wrongstack/core';
-import { atomicWrite, color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import { atomicWrite, color } from '@wrongstack/core/utils';
 import { readJsonObjectFile } from '@wrongstack/core/utils';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 /** Characters that are stripped from profile names to prevent path traversal. */
 const INVALID_NAME_PATTERN = /[/\\:._]/g;

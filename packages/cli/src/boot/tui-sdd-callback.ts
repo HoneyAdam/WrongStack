@@ -5,15 +5,15 @@
  * context; onSDDOutput parses assistant output for spec/plan/task artifacts,
  * auto-saves them, and returns status messages for the TUI to display.
  *
- * No closure dependencies — both functions are pure delegates to the
- * slash-commands/sdd module.
+ * No closure dependencies — both functions delegate to the shared SDD
+ * runtime service.
  */
 
 /**
  * Get the active SDD context for the current session.
  */
 export async function getSDDContext(): Promise<unknown> {
-  const { getActiveSDDContext } = await import('../slash-commands/sdd.js');
+  const { getActiveSDDContext } = await import('../services/sdd-runtime.js');
   return getActiveSDDContext();
 }
 
@@ -29,7 +29,7 @@ export async function onSDDOutput(output: string): Promise<string[]> {
     autoDetectTaskCompletion,
     getTaskProgress,
     getActiveSDDPhase,
-  } = await import('../slash-commands/sdd.js');
+  } = await import('../services/sdd-runtime.js');
   const messages: string[] = [];
   const specSaved = await trySaveSpecFromAIOutput(output);
   if (specSaved)

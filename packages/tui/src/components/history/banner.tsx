@@ -81,30 +81,52 @@ function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
   return brandMarkPinkRow(frame);
 }
 
-// The startup wordmark uses a compact 5×5 block face. Every glyph is five
-// columns wide and five rows tall, composing to 59 columns so the full mark
-// fits comfortably inside an 80-column terminal while staying legible.
-const WORDMARK_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█   █', '█   █', '█ █ █', '█ █ █', '██ ██']),
-  R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
-  O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
-  N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
-  G: Object.freeze([' ████', '█    ', '█ ███', '█   █', ' ████']),
-  S: Object.freeze([' ████', '█    ', ' ███ ', '    █', '████ ']),
-  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ', '  █  ']),
-  A: Object.freeze([' ███ ', '█   █', '█████', '█   █', '█   █']),
-  C: Object.freeze([' ████', '█    ', '█    ', '█    ', ' ████']),
-  K: Object.freeze(['█   █', '█  █ ', '███  ', '█  █ ', '█   █']),
+// ── Packed 5×7 wordmark ───────────────────────────────────────────────────
+//
+// Each terminal cell represents two vertical bitmap pixels: ▀ paints the top,
+// ▄ the bottom, and █ both. Packing (rather than expanding) the 5×7 face keeps
+// curves detailed and strokes continuous without making the banner too tall.
+const WORDMARK_GLYPH_BITS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  W: Object.freeze(['10001', '10001', '10001', '10101', '10101', '10101', '01010']),
+  R: Object.freeze(['11110', '10001', '10001', '11110', '10100', '10010', '10001']),
+  O: Object.freeze(['01110', '10001', '10001', '10001', '10001', '10001', '01110']),
+  N: Object.freeze(['10001', '11001', '11001', '10101', '10011', '10011', '10001']),
+  G: Object.freeze(['01110', '10001', '10000', '10111', '10001', '10001', '01110']),
+  S: Object.freeze(['01111', '10000', '10000', '01110', '00001', '00001', '11110']),
+  T: Object.freeze(['11111', '00100', '00100', '00100', '00100', '00100', '00100']),
+  A: Object.freeze(['01110', '10001', '10001', '11111', '10001', '10001', '10001']),
+  C: Object.freeze(['01111', '10000', '10000', '10000', '10000', '10000', '01111']),
+  K: Object.freeze(['10001', '10010', '10100', '11000', '10100', '10010', '10001']),
 });
 
 const WORDMARK = 'WRONGSTACK';
-const WORDMARK_ROWS = 5;
-const GLYPH_WIDTH = WORDMARK_GLYPHS.W?.[0]?.length ?? 5;
+const WORDMARK_PIXEL_ROWS = 7;
+const WORDMARK_ROWS = Math.ceil(WORDMARK_PIXEL_ROWS / 2);
+const GLYPH_WIDTH = 5;
 const WORDMARK_WIDTH = WORDMARK.length * GLYPH_WIDTH + WORDMARK.length - 1;
-const WORDMARK_LINES = Object.freeze(
+
+function packedCell(top: string | undefined, bottom: string | undefined): string {
+  if (top === '1' && bottom === '1') return '█';
+  if (top === '1') return '▀';
+  if (bottom === '1') return '▄';
+  return ' ';
+}
+
+function packedGlyphRow(glyph: ReadonlyArray<string>, row: number): string {
+  const top = glyph[row * 2] ?? '';
+  const bottom = glyph[row * 2 + 1] ?? '';
+  return Array.from({ length: GLYPH_WIDTH }, (_, column) =>
+    packedCell(top[column], bottom[column]),
+  ).join('');
+}
+
+export const WORDMARK_LINES: ReadonlyArray<string> = Object.freeze(
   Array.from({ length: WORDMARK_ROWS }, (_, row) =>
     [...WORDMARK]
-      .map((letter) => WORDMARK_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH))
+      .map((letter) => {
+        const glyph = WORDMARK_GLYPH_BITS[letter];
+        return glyph ? packedGlyphRow(glyph, row) : ' '.repeat(GLYPH_WIDTH);
+      })
       .join(' '),
   ),
 );

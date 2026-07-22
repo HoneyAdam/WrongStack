@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { ContentBlock, ToolUseBlock } from '@wrongstack/core';
-import { sanitizeJsonString } from '@wrongstack/core';
+import type { ContentBlock, ToolUseBlock } from '@wrongstack/core/types';
+import { sanitizeJsonString } from '@wrongstack/core/utils';
 import type { OpenAIToolCall } from './to-openai.js';
 
 export interface OpenAIChoice {

@@ -12,13 +12,14 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
   createDefaultPipelines,
+} from '@wrongstack/core/agent';
+import {
   createSessionEventBridge,
-  DEFAULT_CONTEXT_WINDOW_MODE_ID,
-  expectDefined,
-  type ProviderConfig,
   resolveSessionLoggingConfig,
   watchProviderConfig,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
+import { DEFAULT_CONTEXT_WINDOW_MODE_ID, type ProviderConfig } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import { createCompatibilityTrustBoundary } from '@wrongstack/core/security';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';

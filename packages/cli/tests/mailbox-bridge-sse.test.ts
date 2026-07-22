@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { GlobalMailbox, resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 /**
  * Integration tests for the mailbox HTTP bridge SSE (Server-Sent Events) endpoint.

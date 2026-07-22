@@ -1,11 +1,6 @@
-import type { ResolvedProvider } from '@wrongstack/core';
-import {
-  ConfigError,
-  type Config,
-  type Logger,
-  type ModelsRegistry,
-  ProviderRegistry,
-} from '@wrongstack/core';
+import type { ResolvedProvider } from '@wrongstack/core/types';
+import { ConfigError, type Config, type Logger, type ModelsRegistry } from '@wrongstack/core/types';
+import { ProviderRegistry } from '@wrongstack/core/registry';
 import { buildProviderFactoriesFromRegistry, makeProviderFromConfig, withCatalogCapabilities } from '@wrongstack/providers';
 import {
   fallbackCodexProviderModels,

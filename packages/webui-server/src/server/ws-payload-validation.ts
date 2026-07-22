@@ -94,6 +94,96 @@ interface MailboxAgentsPayload {
   onlineOnly?: boolean;
 }
 
+const MAILBOX_SEND_TYPES = new Set([
+  'note',
+  'ask',
+  'assign',
+  'steer',
+  'btw',
+  'broadcast',
+  'status',
+  'result',
+  'review',
+]);
+
+export interface MailboxSendPayload {
+  requestId: string;
+  to: string;
+  type: 'note' | 'ask' | 'assign' | 'steer' | 'btw' | 'broadcast' | 'status' | 'result' | 'review';
+  audience: 'all' | 'leaders';
+  subject: string;
+  body: string;
+  priority: 'low' | 'normal' | 'high';
+  replyTo?: string | undefined;
+}
+
+export function validateMailboxSendPayload(
+  payload: unknown,
+): PayloadValidationResult<MailboxSendPayload> {
+  if (!isRecord(payload)) {
+    return { ok: false, message: 'mailbox.send payload must be an object' };
+  }
+  const requestId = payload['requestId'];
+  const rawTo = payload['to'];
+  const rawType = payload['type'];
+  const rawAudience = payload['audience'];
+  const rawSubject = payload['subject'];
+  const rawBody = payload['body'];
+  const rawPriority = payload['priority'];
+  const rawReplyTo = payload['replyTo'];
+
+  if (typeof requestId !== 'string' || requestId.trim().length === 0) {
+    return { ok: false, message: 'mailbox.send payload.requestId must be a non-empty string' };
+  }
+  if (typeof rawTo !== 'string' || rawTo.trim().length === 0) {
+    return { ok: false, message: 'mailbox.send payload.to must be a non-empty string' };
+  }
+  if (typeof rawType !== 'string' || !MAILBOX_SEND_TYPES.has(rawType)) {
+    return {
+      ok: false,
+      message: 'mailbox.send payload.type must be a supported non-control message type',
+    };
+  }
+  if (rawAudience !== 'all' && rawAudience !== 'leaders') {
+    return { ok: false, message: 'mailbox.send payload.audience must be all or leaders' };
+  }
+  if (typeof rawSubject !== 'string' || rawSubject.trim().length === 0) {
+    return { ok: false, message: 'mailbox.send payload.subject must be a non-empty string' };
+  }
+  if (typeof rawBody !== 'string' || rawBody.trim().length === 0) {
+    return { ok: false, message: 'mailbox.send payload.body must be a non-empty string' };
+  }
+  if (rawPriority !== 'low' && rawPriority !== 'normal' && rawPriority !== 'high') {
+    return { ok: false, message: 'mailbox.send payload.priority must be low, normal, or high' };
+  }
+  if (rawReplyTo !== undefined && typeof rawReplyTo !== 'string') {
+    return { ok: false, message: 'mailbox.send payload.replyTo must be a string when provided' };
+  }
+
+  const type = rawType as MailboxSendPayload['type'];
+  const to = type === 'broadcast' ? '*' : rawTo.trim();
+  if ((type === 'assign' || type === 'steer') && (to === '*' || to.toLowerCase() === 'all')) {
+    return {
+      ok: false,
+      message: `mailbox.send payload.type ${type} requires a specific recipient`,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      requestId: requestId.trim(),
+      to,
+      type,
+      audience: rawAudience,
+      subject: rawSubject.trim(),
+      body: rawBody.trim(),
+      priority: rawPriority,
+      ...(rawReplyTo !== undefined ? { replyTo: rawReplyTo } : {}),
+    },
+  };
+}
+
 export function validateMailboxAgentsPayload(
   payload: unknown,
 ): PayloadValidationResult<MailboxAgentsPayload | undefined> {

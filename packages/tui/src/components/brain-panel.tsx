@@ -1,5 +1,7 @@
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
+import type { BrainLogEntry, BrainRiskLevel } from '../brain-contracts.js';
+export type { BrainLogEntry, BrainRiskLevel } from '../brain-contracts.js';
 import {
   BRAIN_READONLY_ROW_KINDS,
   type BrainDenyIsTerminal,
@@ -10,15 +12,6 @@ import {
   type BrainTraceContent,
   brainPanelRows,
 } from './brain-panel-model.js';
-
-export type BrainRiskLevel = 'off' | 'low' | 'medium' | 'high' | 'all';
-
-export interface BrainLogEntry {
-  kind: string;
-  question: string;
-  outcome: string;
-  age: string;
-}
 
 export interface BrainPanelProps {
   riskLevel: BrainRiskLevel;

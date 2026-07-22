@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { formatLocations } from '../formatters/location.js';
 import { humanToLSP } from '../position.js';
 import { supportsDefinition } from '../server/capabilities.js';

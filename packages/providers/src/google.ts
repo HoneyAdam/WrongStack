@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Capabilities, ProviderError, Request, StreamEvent } from '@wrongstack/core';
+import type { Capabilities, ProviderError, Request, StreamEvent } from '@wrongstack/core/types';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import type { GoogleStreamState } from './presets/google.js';
 import { googleWireFormat, toolsToGemini } from './presets/google.js';

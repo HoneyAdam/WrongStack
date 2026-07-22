@@ -18,21 +18,9 @@
  *
  * @module subcommands/handlers/hq
  */
-import {
-  HQ_AUTH_FILE_VERSION,
-  HQ_CLI_DEFAULT_HOST,
-  HqInsecureExposureError,
-  expectDefined,
-  mutateHqAuthFile,
-  mintHqToken,
-  readHqAuthFile,
-  resolveHqDataDir,
-  logHqAuthAudit,
-  hqAuthContentHash,
-  hqAuthAuditPath,
-  hqAuthFilePath,
-  type HqToken,
-} from '@wrongstack/core';
+import { HQ_AUTH_FILE_VERSION, HQ_CLI_DEFAULT_HOST, mutateHqAuthFile, mintHqToken, readHqAuthFile, resolveHqDataDir, logHqAuthAudit, hqAuthContentHash, hqAuthAuditPath, hqAuthFilePath } from '@wrongstack/core/hq';
+import { HqInsecureExposureError, type HqToken } from '@wrongstack/core/hq';
+import { expectDefined } from '@wrongstack/core/utils';
 import type { HqServerHandle } from '../../hq-server.js';
 import { resolveAuditActor } from '../../hq-server/audit-actor.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';

@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import type { ChatMessage } from '@/stores';

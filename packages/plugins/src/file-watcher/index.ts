@@ -6,7 +6,7 @@
  * - watch_stop: Stop a watch by ID
  * - watch_list: List all active watches
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { watch as fsWatch } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 

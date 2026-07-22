@@ -1,4 +1,5 @@
-import type { Agent, ContentBlock } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { ContentBlock } from '@wrongstack/core/types';
 import {
   buildUserContentBlocks,
   IncomingImageError,

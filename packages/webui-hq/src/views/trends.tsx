@@ -5,7 +5,7 @@
  * server reports per-model / per-provider breakdowns (newer cost signals),
  * those roll up into a "By Model" / "By Provider" share table.
  */
-import type { HqTimeseriesBreakdownEntry, HqTimeseriesSample } from '@wrongstack/core';
+import type { HqTimeseriesBreakdownEntry, HqTimeseriesSample } from '@wrongstack/core/hq';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { TimeseriesChart } from '../lib/timeseries-chart.js';

@@ -1,5 +1,5 @@
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 export function buildCoordinatorCommand(opts: SlashCommandContext): SlashCommand {
   const getStart = () => opts.onCoordinatorStart ?? opts.coordinatorController?.onCoordinatorStart;

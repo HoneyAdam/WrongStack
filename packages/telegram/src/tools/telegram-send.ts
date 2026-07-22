@@ -1,4 +1,5 @@
-import { ToolCapabilities, type Logger, type Tool } from '@wrongstack/core';
+import { ToolCapabilities } from '@wrongstack/core/security';
+import type { Logger, Tool } from '@wrongstack/core/types';
 import type { TelegramBot } from '../bot.js';
 import {
   resolveTelegramOutboundTarget,

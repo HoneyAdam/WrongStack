@@ -11,17 +11,14 @@
  */
 
 import {
-  type Context,
   type createStrategyCompactor,
-  DEFAULT_CONTEXT_WINDOW_MODE_ID,
-  loadTodosCheckpoint,
-  repairToolUseAdjacency,
-  resolveContextWindowPolicy,
-  type SessionStore,
-  type TodoItem,
-  type TokenCounter,
-  type ToolRegistry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/execution';
+import type { Context, TodoItem } from '@wrongstack/core/agent';
+import type { SessionStore, TokenCounter } from '@wrongstack/core/types';
+import type { ToolRegistry } from '@wrongstack/core/registry';
+import { loadTodosCheckpoint } from '@wrongstack/core/storage';
+import { DEFAULT_CONTEXT_WINDOW_MODE_ID, resolveContextWindowPolicy } from '@wrongstack/core/types';
+import { repairToolUseAdjacency } from '@wrongstack/core/utils';
 import { sessionScopedPath } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import type { CustomModeStore } from './custom-context-modes.js';
@@ -542,7 +539,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     listCheckpoints: async (ws, msg) => {
       if (!ensureCurrentSession(ws, msg, 'session.checkpoints')) return;
       try {
-        const { DefaultSessionRewinder } = await import('@wrongstack/core');
+        const { DefaultSessionRewinder } = await import('@wrongstack/core/storage');
         const projectRoot = ctx.getProjectRoot();
         const rewinder = new DefaultSessionRewinder(sessionsDirectory(), projectRoot);
         const checkpoints = await rewinder.listCheckpoints(ctx.getSession().id);
@@ -556,7 +553,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       const { checkpointIndex } = (msg as { payload: { checkpointIndex: number } }).payload;
       try {
         const { applyRewindToConversation, DefaultSessionRewinder } = await import(
-          '@wrongstack/core'
+          '@wrongstack/core/storage'
         );
         const projectRoot = ctx.getProjectRoot();
         const rewinder = new DefaultSessionRewinder(sessionsDirectory(), projectRoot);

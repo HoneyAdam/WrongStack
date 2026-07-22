@@ -3,7 +3,7 @@
  * Centralized here to avoid cross-domain import cycles.
  */
 
-/** Default tools config — mirrors values baked into BEHAVIOR_DEFAULTS. */
+/** Default tools config — mirrors values baked into CONFIG_BEHAVIOR_DEFAULTS. */
 export const DEFAULT_TOOLS_CONFIG = Object.freeze({
   defaultExecutionStrategy: 'smart',
   maxIterations: 100,
@@ -30,7 +30,7 @@ export const DEFAULT_TOOLS_CONFIG = Object.freeze({
   }>,
 });
 
-/** Default context config — mirrors BEHAVIOR_DEFAULTS.context. */
+/** Default context config — mirrors CONFIG_BEHAVIOR_DEFAULTS.context. */
 export const DEFAULT_CONTEXT_CONFIG = Object.freeze({
   preserveK: 8,
   eliseThreshold: 1000,

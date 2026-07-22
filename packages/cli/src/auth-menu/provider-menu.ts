@@ -1,5 +1,5 @@
-import type { ProviderConfig } from '@wrongstack/core';
-import { color, expectDefined } from '@wrongstack/core';
+import type { ProviderConfig } from '@wrongstack/core/types';
+import { color, expectDefined } from '@wrongstack/core/utils';
 import {
   maskedKey,
   mutateConfigProviders,

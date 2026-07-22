@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { GlobalMailbox } from '@wrongstack/core';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
 import { buildMailboxCommand } from '../src/slash-commands/mailbox.js';
 import { touchProjectInManifest, loadManifest } from '../src/slash-commands/project-utils.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
@@ -132,6 +132,21 @@ describe('/mailbox slash command', () => {
     const all = await mailbox.query({ to: '*', limit: 10 });
     expect(all[0]!.type).toBe('broadcast');
     expect(all[0]!.body).toBe('some message');
+  });
+
+  it('broadcast supports audience=leaders', async () => {
+    const cmd = buildMailboxCommand(opts);
+    const res = await cmd.run(
+      'broadcast audience=leaders terminal and WebUI leader context',
+      opts.context,
+    );
+
+    expect(stripAnsi(res?.message ?? '')).toContain('Broadcast to leader agents');
+    const all = await mailbox.query({ to: '*', limit: 10 });
+    expect(all[0]).toMatchObject({
+      audience: 'leaders',
+      body: 'terminal and WebUI leader context',
+    });
   });
 
   it('inbox shows messages addressed to the unique id, base alias, and broadcasts — then marks them read', async () => {

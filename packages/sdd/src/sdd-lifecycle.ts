@@ -10,7 +10,7 @@
 // the run already settled, or `/sdd destroy` to wipe the project).
 
 import * as fsp from 'node:fs/promises';
-import { WorktreeManager } from '@wrongstack/core';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 import { SddBoardStore } from './sdd-board-store.js';
 
 /** Force-remove every git worktree + branch a previous run left behind. */

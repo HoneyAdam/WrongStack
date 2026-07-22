@@ -1,17 +1,15 @@
+import { Container, TOKENS } from '@wrongstack/core/kernel';
+import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { DefaultConfigStore } from '@wrongstack/core/storage';
 import {
   type Config,
-  Container,
-  DefaultConfigStore,
-  DefaultSecretScrubber,
   type Provider,
   ProviderError,
-  ProviderRegistry,
   type SessionWriter,
-  TOKENS,
   type Tool,
-  ToolRegistry,
   type UserInputPayload,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { makeLightSubagentFactory } from '../src/index.js';
 

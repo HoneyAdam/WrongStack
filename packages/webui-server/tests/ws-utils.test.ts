@@ -20,6 +20,7 @@ import {
   hostForBrowserUrl,
   buildWebUIAccessUrl,
   envFlag,
+  WEBUI_WS_MAX_BUFFERED_BYTES,
 } from '../src/server/ws-utils.js';
 
 describe('ws-utils', () => {
@@ -40,6 +41,18 @@ describe('ws-utils', () => {
       const ws = { readyState: WebSocket.CLOSING, send: vi.fn() } as any;
       send(ws, { type: 'test' });
       expect(ws.send).not.toHaveBeenCalled();
+    });
+
+    it('terminates a slow client before its buffered output can grow further', () => {
+      const ws = {
+        readyState: WebSocket.OPEN,
+        bufferedAmount: WEBUI_WS_MAX_BUFFERED_BYTES,
+        send: vi.fn(),
+        terminate: vi.fn(),
+      } as any;
+      send(ws, { type: 'test' });
+      expect(ws.send).not.toHaveBeenCalled();
+      expect(ws.terminate).toHaveBeenCalledOnce();
     });
   });
 

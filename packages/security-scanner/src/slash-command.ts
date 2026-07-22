@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Context, Provider, SlashCommand } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Provider, SlashCommand } from '@wrongstack/core/types';
 import { defaultOrchestrator } from './orchestrator.js';
 import type { PackageAuditResult, PackageAuditRunner } from './package-audit.js';
 import { defaultPackageAuditRunner } from './package-audit.js';
@@ -310,7 +311,11 @@ async function handleReport(
   try {
     const files = await readdir(reportsDir);
     const reports = files
-      .filter((f) => f.startsWith('security-report-') && (f.endsWith('.md') || f.endsWith('.json')))
+      .filter(
+        (f) =>
+          f.startsWith('security-report-') &&
+          (f.endsWith('.md') || f.endsWith('.json') || f.endsWith('.html')),
+      )
       .sort()
       .reverse();
 
@@ -322,7 +327,7 @@ async function handleReport(
 
       const list = reports
         .map((r, i) => {
-          const date = r.replace('security-report-', '').replace(/\.(md|json)$/, '');
+          const date = r.replace('security-report-', '').replace(/\.(md|json|html)$/, '');
           return `  ${i + 1}. ${date}`;
         })
         .join('\n');

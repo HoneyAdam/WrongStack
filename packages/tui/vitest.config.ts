@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       // Force @wrongstack/core to resolve from source during package-local tests
       // instead of following package exports to dist/.
+      '@wrongstack/core/agent': path.resolve(__dirname, '../../packages/core/src/core'),
       '@wrongstack/core': path.resolve(__dirname, '../../packages/core/src'),
     },
   },

@@ -15,8 +15,8 @@
  * base URL from each new token. The API-key `openai` family is untouched.
  */
 
-import type { Capabilities, Request } from '@wrongstack/core';
-import { ProviderError } from '@wrongstack/core';
+import type { Capabilities, Request } from '@wrongstack/core/types';
+import { ProviderError } from '@wrongstack/core/types';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import {
   COPILOT_HEADERS,

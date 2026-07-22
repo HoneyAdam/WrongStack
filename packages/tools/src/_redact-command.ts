@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 
 // Sensitive CLI flag patterns that may appear in process command lines.
 // Redacted to [REDACTED] so crash dumps /ps output cannot leak secrets.

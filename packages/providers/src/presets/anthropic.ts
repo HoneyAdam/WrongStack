@@ -7,8 +7,9 @@
  * `parseAnthropicStream` in `../anthropic.ts`, just split into a stateful
  * `parseStreamEvent` call instead of an async generator loop.
  */
-import type { Capabilities, ContentBlock, Message, ReasoningEffort, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
-import { ProviderError, safeParse } from '@wrongstack/core';
+import type { Capabilities, ContentBlock, Message, ReasoningEffort, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core/types';
+import { ProviderError } from '@wrongstack/core/types';
+import { safeParse } from '@wrongstack/core/utils';
 import { parseToolInput } from '../_tool-input.js';
 import { capAnthropicCacheBreakpoints } from '../cache-breakpoint-cap.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';

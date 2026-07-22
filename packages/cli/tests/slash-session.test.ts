@@ -5,7 +5,7 @@ import {
   buildExitCommand,
   isSafeSessionKillPid,
 } from '../src/slash-commands/session.js';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 
 function fakeCtx(): Context {
   return {

@@ -1,27 +1,28 @@
-import type {
-  CompactReport,
-  ConfigStore,
-  Context,
-  EventBus,
-  HealthRegistry,
-  InputReader,
-  MemoryStore,
-  MetricsSink,
-  ModeStore,
-  Provider,
-  Renderer,
-  SecretVault,
-  SessionStore,
-  SkillLoader,
-  SlashCommandRegistry,
-  TokenCounter,
-  ToolRegistry,
-  WstackPaths,
-} from '@wrongstack/core';
+import type { CompactReport, HealthRegistry, InputReader, MemoryPort, MetricsSink, ModeStore, Provider, Renderer, SecretVault, SkillLoader, TokenCounter } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { ConfigStore, SessionStore } from '@wrongstack/core/types';
+import type { Context } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import type { MultiAgentHost } from '../multi-agent.js';
+import {
+  ensureStatuslineConfig,
+  loadStatuslineConfig,
+  STATUSLINE_CONFIG_KEYS,
+  type StatuslineConfig,
+  type StatuslineConfigKey,
+  saveStatuslineConfig,
+} from '../services/statusline-config.js';
 import { buildBuiltinSlashCommands } from '../slash-commands/index.js';
-import type { StatuslineConfig, StatuslineConfigKey } from '../slash-commands/statusline.js';
-import { STATUSLINE_CONFIG_KEYS, ensureStatuslineConfig, loadStatuslineConfig, saveStatuslineConfig } from '../slash-commands/statusline.js';
+
+export type BuiltinSlashCommandDeps = Parameters<typeof buildBuiltinSlashCommands>[0];
+
+/** Canonical bridge into the slash-command catalog for non-command hosts. */
+export function buildCommandHostSlashCommands(
+  deps: BuiltinSlashCommandDeps,
+): ReturnType<typeof buildBuiltinSlashCommands> {
+  return buildBuiltinSlashCommands(deps);
+}
 
 export interface SlashCommandsDeps {
   slashRegistry: SlashCommandRegistry;
@@ -35,7 +36,7 @@ export interface SlashCommandsDeps {
   readSecret: (prompt: string) => Promise<string>;
   vault: SecretVault;
   events: EventBus;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   context: Context;
   cwd: string;
   projectRoot: string;
@@ -47,8 +48,8 @@ export interface SlashCommandsDeps {
   model: string;
   multiAgentHost: MultiAgentHost;
   fleetStreamController: {
-    mode: import('@wrongstack/core').FleetChatVerbosity;
-    setMode(mode: import('@wrongstack/core').FleetChatVerbosity): void;
+    mode: import('@wrongstack/core/types').FleetChatVerbosity;
+    setMode(mode: import('@wrongstack/core/types').FleetChatVerbosity): void;
   };
   /** Controller for the agents monitor overlay (optional). */
   agentsMonitorController?: {

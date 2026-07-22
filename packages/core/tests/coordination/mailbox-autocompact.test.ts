@@ -178,6 +178,36 @@ describe('GlobalMailbox autoCompact — read by all online agents', () => {
     expect(result.remaining).toBe(1);
   });
 
+  it('does not wait for subagent receipts on leaders-only messages', async () => {
+    await mb.registerAgent({
+      agentId: 'leader@session',
+      sessionId: 's',
+      name: 'Leader',
+      role: 'leader',
+      pid: 1,
+    });
+    await mb.registerAgent({
+      agentId: 'worker@session',
+      sessionId: 's',
+      name: 'Worker',
+      role: 'executor',
+      pid: 2,
+    });
+    const oldRead = new Date(Date.now() - 120_000).toISOString();
+    await writeRawMessages([
+      {
+        id: '1',
+        subject: 'leader-only-read',
+        audience: 'leaders',
+        readBy: { 'leader@session': oldRead },
+        timestamp: oldRead,
+      },
+    ]);
+
+    const result = await mb.autoCompact({ readMaxAgeMs: 60_000 });
+    expect(result.readByAllRemoved).toBe(1);
+  });
+
   it('skips the read-by-all pass when no agents are online', async () => {
     // No agents registered.
     const oldRead = new Date(Date.now() - 120_000).toISOString();

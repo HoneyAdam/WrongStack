@@ -20,6 +20,7 @@ export {
   SYSTEM_CONFIG_VIEW_TOOL_NAME,
 } from './fallback-manage-tools.js';
 export { createMcpControlTool, type MCPRegistryHandle } from './mcp-control.js';
+export { createMcpUseTool } from './mcp-use.js';
 export {
   type CreateOneShotLLMToolOptions,
   createOneShotLLMTool,

@@ -7,13 +7,13 @@
  * rationale (ChatGPT backend, JWT account-id claim, etc.).
  */
 
+import { CODEX_MODELS } from '@wrongstack/core/models';
 import {
-  CODEX_MODELS,
   FetchError,
   type ModelsRegistry,
   ParseError,
   type ProviderApiKey,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { extractAccountId } from '../openai-codex-account.js';
 import {
   createState,

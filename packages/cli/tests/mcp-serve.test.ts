@@ -1,7 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { AutoApprovePermissionPolicy, type PermissionPolicy, ToolRegistry } from '@wrongstack/core';
+import { AutoApprovePermissionPolicy } from '@wrongstack/core/security';
+import { type PermissionPolicy } from '@wrongstack/core/types';
+import { ToolRegistry } from '@wrongstack/core/registry';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { afterEach, describe, expect, it } from 'vitest';
 import {

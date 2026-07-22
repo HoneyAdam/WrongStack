@@ -25,7 +25,7 @@
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { wstackGlobalRoot } from '@wrongstack/core';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 const SPOOL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Stop queueing chunks on the heap when the fs stream falls this far behind. */

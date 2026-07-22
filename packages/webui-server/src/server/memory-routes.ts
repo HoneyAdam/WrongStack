@@ -1,4 +1,4 @@
-import type { MemoryStore } from '@wrongstack/core';
+import type { MemoryPort } from '@wrongstack/core/types';
 import type { WebSocket } from 'ws';
 import {
   handleMemoryList,
@@ -17,7 +17,7 @@ import {
 import type { WSClientMessage, WSServerMessage } from './types.js';
 
 export interface MemoryRouteContext {
-  getMemoryStore: () => MemoryStore | undefined;
+  getMemoryStore: () => MemoryPort | undefined;
   send: (ws: WebSocket, message: WSServerMessage) => void;
   sendResult: (ws: WebSocket, success: boolean, message: string) => void;
 }

@@ -1,0 +1,235 @@
+// Pure data model for the interactive /auth panel — NO React or Ink imports.
+//
+// Three consumers share this module so the row layout can never drift:
+//   - app-reducer.ts      → cursor clamping via `authPanelRows(...).length`
+//   - hooks/use-auth-panel.ts → Enter/shortcut dispatch on the selected row
+//   - components/auth-panel.tsx → rendering
+//
+// The `AuthPanelHost` interface is the contract the CLI implements
+// (packages/cli/src/auth-menu/panel-service.ts) and passes through
+// RunTuiOptions. The TUI never touches the config file or the vault —
+// every mutation goes through the host, and every secret stays CLI-side
+// (key values arrive pre-masked).
+
+/** One saved API key / OAuth token, with the secret already masked. */
+export interface AuthKeyRow {
+  label: string;
+  /** Pre-masked display form ("sk-a…f3k2" / "••••••") — never the secret. */
+  masked: string;
+  createdAt: string;
+  active: boolean;
+  authMethod?: 'api_key' | 'oauth' | 'session_token' | undefined;
+  expiresAt?: string | undefined;
+}
+
+/** One saved provider from the active profile config. */
+export interface AuthProviderRow {
+  id: string;
+  type?: string | undefined;
+  family?: string | undefined;
+  baseUrl?: string | undefined;
+  models: string[];
+  envVars: string[];
+  keys: AuthKeyRow[];
+}
+
+/** One models.dev catalog entry offered by "Add provider (catalog)". */
+export interface AuthCatalogRow {
+  id: string;
+  name: string;
+  family: string;
+  apiBase?: string | undefined;
+  envVars: string[];
+  /** Already present in the saved config (shown as ◉). */
+  saved: boolean;
+}
+
+/** One local-LLM preset (OmniRoute / Ollama / vLLM / LM Studio). */
+export interface AuthLocalPresetRow {
+  id: string;
+  label: string;
+  defaultBaseUrl: string;
+  noAuth: boolean;
+  hint: string;
+}
+
+export type AuthOAuthKind = 'chatgpt' | 'claude' | 'copilot';
+
+/**
+ * Bridge the CLI flows use to talk to the panel while a flow runs.
+ * `prompt` REJECTS when the user cancels (Esc) — flows treat a thrown
+ * prompt as user-cancel, which aborts before anything is saved.
+ */
+export interface AuthFlowIo {
+  onLog(line: string): void;
+  prompt(question: string, opts: { secret: boolean }): Promise<string>;
+  signal: AbortSignal;
+}
+
+export interface AuthFlowResult {
+  ok: boolean;
+  message?: string | undefined;
+}
+
+/**
+ * Host callbacks the CLI provides. Simple mutations return an error
+ * string (or null on success); multi-step interactions run as "flows"
+ * that log and prompt through {@link AuthFlowIo}.
+ */
+export interface AuthPanelHost {
+  listProviders(): Promise<AuthProviderRow[]>;
+  listCatalog(): Promise<AuthCatalogRow[]>;
+  localPresets(): AuthLocalPresetRow[];
+  setActiveKey(providerId: string, label: string): Promise<string | null>;
+  deleteKey(providerId: string, label: string): Promise<string | null>;
+  removeProvider(providerId: string): Promise<string | null>;
+  addKey(providerId: string, io: AuthFlowIo): Promise<AuthFlowResult>;
+  updateKey(providerId: string, label: string, io: AuthFlowIo): Promise<AuthFlowResult>;
+  editField(
+    providerId: string,
+    field: 'family' | 'baseUrl' | 'models',
+    io: AuthFlowIo,
+  ): Promise<AuthFlowResult>;
+  addCatalogProvider(catalogId: string, io: AuthFlowIo): Promise<AuthFlowResult>;
+  addCustomProvider(io: AuthFlowIo): Promise<AuthFlowResult>;
+  addLocal(presetId: string, io: AuthFlowIo): Promise<AuthFlowResult>;
+  oauthLogin(kind: AuthOAuthKind, io: AuthFlowIo): Promise<AuthFlowResult>;
+}
+
+// ── Panel state slice ──────────────────────────────────────────────────────
+
+export type AuthPanelView = 'list' | 'provider' | 'catalog' | 'local' | 'oauth' | 'flow';
+
+export type AuthConfirmAction =
+  | { kind: 'delete-key'; providerId: string; label: string }
+  | { kind: 'remove-provider'; providerId: string };
+
+export interface AuthPanelState {
+  open: boolean;
+  view: AuthPanelView;
+  busy: boolean;
+  hint?: string | undefined;
+  providers: AuthProviderRow[];
+  presets: AuthLocalPresetRow[];
+  catalog: AuthCatalogRow[];
+  /** Cursor index into `authPanelRows(state)` for the current view. */
+  selected: number;
+  /** Provider shown in the 'provider' detail view. */
+  providerId?: string | undefined;
+  /** Type-to-filter query for the catalog view. */
+  filter: string;
+  /** Running/last flow (OAuth, catalog add, local add, key edit, …). */
+  flowTitle: string;
+  log: string[];
+  flowDone: boolean;
+  flowOk?: boolean | undefined;
+  /** Modal one-line prompt raised by a flow (masked for secrets). */
+  input?: { label: string; masked: boolean; draft: string } | undefined;
+  /** Modal y/N confirmation for destructive actions. */
+  confirm?: { question: string; action: AuthConfirmAction } | undefined;
+}
+
+export const AUTH_PANEL_INITIAL: AuthPanelState = {
+  open: false,
+  view: 'list',
+  busy: false,
+  providers: [],
+  presets: [],
+  catalog: [],
+  selected: 0,
+  filter: '',
+  flowTitle: '',
+  log: [],
+  flowDone: false,
+};
+
+// ── Row descriptors ────────────────────────────────────────────────────────
+
+export type AuthPanelRow =
+  | { kind: 'provider'; provider: AuthProviderRow }
+  | { kind: 'list-action'; action: 'catalog' | 'local' | 'custom' | 'oauth' }
+  | { kind: 'key'; keyRow: AuthKeyRow }
+  | {
+      kind: 'provider-action';
+      action: 'add-key' | 'edit-family' | 'edit-base-url' | 'edit-models' | 'remove';
+    }
+  | { kind: 'catalog-entry'; entry: AuthCatalogRow }
+  | { kind: 'local-preset'; preset: AuthLocalPresetRow }
+  | { kind: 'oauth-option'; oauth: AuthOAuthKind };
+
+/** Case-insensitive substring filter over id + name + family. */
+export function filterAuthCatalog(catalog: AuthCatalogRow[], filter: string): AuthCatalogRow[] {
+  const q = filter.trim().toLowerCase();
+  if (!q) return catalog;
+  return catalog.filter(
+    (c) =>
+      c.id.toLowerCase().includes(q) ||
+      c.name.toLowerCase().includes(q) ||
+      c.family.toLowerCase().includes(q),
+  );
+}
+
+export function authSelectedProvider(state: AuthPanelState): AuthProviderRow | undefined {
+  return state.providers.find((p) => p.id === state.providerId);
+}
+
+/**
+ * Selectable rows for the current view, in render order. The component
+ * renders exactly this list; the reducer clamps `selected` to its length;
+ * the Enter handler dispatches on `rows[selected]`.
+ */
+export function authPanelRows(state: AuthPanelState): AuthPanelRow[] {
+  switch (state.view) {
+    case 'list': {
+      const rows: AuthPanelRow[] = state.providers.map((provider) => ({
+        kind: 'provider' as const,
+        provider,
+      }));
+      rows.push(
+        { kind: 'list-action', action: 'catalog' },
+        { kind: 'list-action', action: 'local' },
+        { kind: 'list-action', action: 'custom' },
+        { kind: 'list-action', action: 'oauth' },
+      );
+      return rows;
+    }
+    case 'provider': {
+      const provider = authSelectedProvider(state);
+      if (!provider) return [];
+      const rows: AuthPanelRow[] = provider.keys.map((keyRow) => ({
+        kind: 'key' as const,
+        keyRow,
+      }));
+      rows.push(
+        { kind: 'provider-action', action: 'add-key' },
+        { kind: 'provider-action', action: 'edit-family' },
+        { kind: 'provider-action', action: 'edit-base-url' },
+        { kind: 'provider-action', action: 'edit-models' },
+        { kind: 'provider-action', action: 'remove' },
+      );
+      return rows;
+    }
+    case 'catalog':
+      return filterAuthCatalog(state.catalog, state.filter).map((entry) => ({
+        kind: 'catalog-entry' as const,
+        entry,
+      }));
+    case 'local':
+      return state.presets.map((preset) => ({ kind: 'local-preset' as const, preset }));
+    case 'oauth':
+      return (['chatgpt', 'claude', 'copilot'] as const).map((oauth) => ({
+        kind: 'oauth-option' as const,
+        oauth,
+      }));
+    case 'flow':
+      return [];
+  }
+}
+
+/** Wrap-around cursor move over the current view's rows. */
+export function authMoveSelected(state: AuthPanelState, delta: number): number {
+  const count = authPanelRows(state).length;
+  if (count === 0) return 0;
+  return (((state.selected + delta) % count) + count) % count;
+}
+

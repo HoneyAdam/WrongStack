@@ -1,5 +1,5 @@
-import type { ProviderConfig, ResolvedProvider, WireFamily } from '@wrongstack/core';
-import { atomicWrite, color } from '@wrongstack/core';
+import type { ProviderConfig, ResolvedProvider, WireFamily } from '@wrongstack/core/types';
+import { atomicWrite, color } from '@wrongstack/core/utils';
 import {
   mutateConfigProviders,
   normalizeKeys,

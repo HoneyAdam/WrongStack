@@ -13,12 +13,8 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  GlobalMailbox,
-  HQ_AUTH_FILE_VERSION,
-  resolveProjectDir,
-  writeHqAuthFile,
-} from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import { HQ_AUTH_FILE_VERSION, writeHqAuthFile } from '@wrongstack/core/hq';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type HqServerHandle, startHqServer } from '../src/hq-server.js';
 
@@ -66,7 +62,7 @@ async function seedSession(
   projectSlug: string,
   projectRoot: string,
 ): Promise<() => Promise<void>> {
-  const { SessionRegistry } = await import('@wrongstack/core');
+  const { SessionRegistry } = await import('@wrongstack/core/storage');
   const registry = new SessionRegistry(globalRoot);
   await registry.register({
     sessionId,

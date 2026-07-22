@@ -1,5 +1,6 @@
-import type { TodoItem, Tool } from '@wrongstack/core';
-import { loadPlan, loadTasks, savePlan, saveTasks, setPlanItemStatus } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
+import type { Tool } from '@wrongstack/core/types';
+import { loadPlan, loadTasks, savePlan, saveTasks, setPlanItemStatus } from '@wrongstack/core/storage';
 import { projectSessionTodosToKanban } from './session-kanban.js';
 
 interface TodoInput {

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import type { SubcommandHandler } from '../index.js';
 
 export const projectsCmd: SubcommandHandler = async (_args, deps) => {

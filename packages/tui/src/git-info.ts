@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 
 export interface GitInfo {
   branch: string;

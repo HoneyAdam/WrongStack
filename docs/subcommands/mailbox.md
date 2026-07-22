@@ -46,6 +46,21 @@ GET  /mailbox/agents
 Startup prints a `mailbox_serve_started` JSON event with the bind URL, project
 dir, and token path — deterministic hook for scripts.
 
+## Audience routing across surfaces
+
+Every send surface accepts the same delivery audience:
+
+- `audience: "all"` (or omitted) is visible to ordinary agents and leaders.
+- `audience: "leaders"` is consumed only by leader agents and leader-facing
+  terminal/WebUI/HQ views; subagent inbox, polling, unread count, and queries
+  exclude it.
+
+Audience is separate from the recipient address. For private operator mail,
+use `to: "leader"` together with `audience: "leaders"`. This combination is
+available in `mail_send`, low-level `mailbox send`, `/mailbox`, the standalone
+HTTP bridge, the main WebUI Mailbox composer, and the HQ composer. Chimera
+workers are runtime-enforced to this route even if they request another target.
+
 ## Code Reference
 
 - `packages/cli/src/subcommands/handlers/mailbox-serve.ts`

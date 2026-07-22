@@ -1,11 +1,17 @@
-import { expectDefined } from '../utils/expect-defined.js';
-import { toErrorMessage } from '../utils/error.js';
+import { createReadStream } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { CheckpointInfo, RewindResult, RewindResultExtended, SessionRewinder } from '../types/session-rewinder.js';
-import type { SessionEvent, FileSnapshot } from '../types/session.js';
+import { createInterface } from 'node:readline';
+import { ERROR_CODES, SessionError } from '../types/errors.js';
+import type { FileSnapshot, SessionEvent } from '../types/session.js';
+import type {
+  CheckpointInfo,
+  RewindResult,
+  RewindResultExtended,
+  SessionRewinder,
+} from '../types/session-rewinder.js';
 import { atomicWrite } from '../utils/atomic-write.js';
-import { SessionError, ERROR_CODES } from '../types/errors.js';
+import { toErrorMessage } from '../utils/error.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 
 export interface SessionRewinderOptions {
@@ -19,40 +25,66 @@ export interface SessionRewinderOptions {
  * changes to any previous checkpoint.
  */
 export class DefaultSessionRewinder implements SessionRewinder {
-  constructor(private readonly sessionsDir: string, private readonly projectRoot: string) {}
+  constructor(
+    private readonly sessionsDir: string,
+    private readonly projectRoot: string,
+  ) {}
 
   private sessionFile(sessionId: string): string {
     return sessionScopedPath(this.sessionsDir, sessionId, '.jsonl');
   }
 
+  private async *readEvents(file: string): AsyncGenerator<SessionEvent> {
+    const stream = createReadStream(file, { encoding: 'utf8' });
+    const lines = createInterface({ input: stream, crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed: unknown = JSON.parse(line);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            typeof (parsed as { type?: unknown }).type === 'string' &&
+            typeof (parsed as { ts?: unknown }).ts === 'string'
+          ) {
+            yield parsed as SessionEvent;
+          }
+        } catch {
+          // Skip malformed lines without materializing the complete file.
+        }
+      }
+    } finally {
+      lines.close();
+      stream.close();
+    }
+  }
+
   async listCheckpoints(sessionId: string): Promise<CheckpointInfo[]> {
     const file = this.sessionFile(sessionId);
-    const raw = await fsp.readFile(file, 'utf8');
-    const events = parseEvents(raw);
 
     // Build a map of promptIndex -> file snapshot count
     const fileCountMap = new Map<number, number>();
-    for (const event of events) {
+    const checkpoints: Array<Omit<CheckpointInfo, 'fileCount'>> = [];
+    for await (const event of this.readEvents(file)) {
       if (event.type === 'file_snapshot') {
         const e = event as { promptIndex: number; files: FileSnapshot[] };
         fileCountMap.set(e.promptIndex, (fileCountMap.get(e.promptIndex) ?? 0) + e.files.length);
       }
-    }
-
-    const checkpoints: CheckpointInfo[] = [];
-    for (const event of events) {
       if (event.type === 'checkpoint') {
         const e = event as { promptIndex: number; promptPreview: string; ts: string };
         checkpoints.push({
           promptIndex: e.promptIndex,
           promptPreview: e.promptPreview,
           ts: e.ts,
-          fileCount: fileCountMap.get(e.promptIndex) ?? 0,
         });
       }
     }
 
-    return checkpoints;
+    return checkpoints.map((checkpoint) => ({
+      ...checkpoint,
+      fileCount: fileCountMap.get(checkpoint.promptIndex) ?? 0,
+    }));
   }
 
   async rewindToCheckpoint(
@@ -60,22 +92,25 @@ export class DefaultSessionRewinder implements SessionRewinder {
     checkpointIndex: number,
   ): Promise<RewindResultExtended> {
     const file = this.sessionFile(sessionId);
-    const raw = await fsp.readFile(file, 'utf8');
-    const events = parseEvents(raw);
-
-    let targetIdx = -1;
-    for (let i = 0; i < events.length; i++) {
-      const event = expectDefined(events[i]);
+    let foundTarget = false;
+    let removedEvents = 0;
+    const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
+    for await (const event of this.readEvents(file)) {
       if (event.type === 'checkpoint') {
         const checkpointEvent = event as { promptIndex: number };
         if (checkpointEvent.promptIndex === checkpointIndex) {
-          targetIdx = i;
-          break;
+          foundTarget = true;
+          continue;
         }
+      }
+      if (!foundTarget) continue;
+      removedEvents++;
+      if (event.type === 'file_snapshot' && event.promptIndex >= checkpointIndex) {
+        snapshotsToRevert.push({ promptIndex: event.promptIndex, files: event.files });
       }
     }
 
-    if (targetIdx === -1) {
+    if (!foundTarget) {
       throw new SessionError({
         message: `Checkpoint ${checkpointIndex} not found`,
         code: ERROR_CODES.SESSION_NOT_FOUND,
@@ -90,29 +125,15 @@ export class DefaultSessionRewinder implements SessionRewinder {
     // next checkpoint would revert only the target prompt's files while the
     // caller truncates the journal all the way back, leaving the working tree
     // and the conversation in different eras.
-    const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
-    for (let i = targetIdx + 1; i < events.length; i++) {
-      const event = expectDefined(events[i]);
-      if (event.type === 'file_snapshot') {
-        const snapshotEvent = event as { promptIndex: number; files: FileSnapshot[] };
-        if (snapshotEvent.promptIndex >= checkpointIndex) {
-          snapshotsToRevert.push({ promptIndex: snapshotEvent.promptIndex, files: snapshotEvent.files });
-        }
-      }
-    }
-
     const result = await revertSnapshots(snapshotsToRevert, this.projectRoot);
-    const removedEvents = events.length - targetIdx - 1;
     return { ...result, toPromptIndex: checkpointIndex, removedEvents };
   }
 
   async rewindLastN(sessionId: string, n: number): Promise<RewindResultExtended> {
     const file = this.sessionFile(sessionId);
-    const raw = await fsp.readFile(file, 'utf8');
-    const events = parseEvents(raw);
 
     const checkpoints: Array<{ promptIndex: number; ts: string }> = [];
-    for (const event of events) {
+    for await (const event of this.readEvents(file)) {
       if (event.type === 'checkpoint') {
         checkpoints.push({ promptIndex: event.promptIndex, ts: event.ts });
       }
@@ -132,7 +153,7 @@ export class DefaultSessionRewinder implements SessionRewinder {
     const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
     let shouldRevert = false;
 
-    for (const event of events) {
+    for await (const event of this.readEvents(file)) {
       if (event.type === 'checkpoint' && event.promptIndex === targetIndex) {
         shouldRevert = true;
         continue;
@@ -148,11 +169,9 @@ export class DefaultSessionRewinder implements SessionRewinder {
 
   async rewindToStart(sessionId: string): Promise<RewindResultExtended> {
     const file = this.sessionFile(sessionId);
-    const raw = await fsp.readFile(file, 'utf8');
-    const events = parseEvents(raw);
 
     const allSnapshots: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
-    for (const event of events) {
+    for await (const event of this.readEvents(file)) {
       if (event.type === 'file_snapshot') {
         allSnapshots.push({ promptIndex: event.promptIndex, files: event.files });
       }
@@ -165,29 +184,6 @@ export class DefaultSessionRewinder implements SessionRewinder {
     const result = await revertSnapshots(allSnapshots, this.projectRoot);
     return { ...result, toPromptIndex: 0, removedEvents: allSnapshots.length };
   }
-}
-
-function parseEvents(raw: string): SessionEvent[] {
-  const lines = raw.split('\n').filter((l) => l.trim());
-  const events: SessionEvent[] = [];
-
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line);
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
-        typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
-      ) {
-        events.push(parsed as SessionEvent);
-      }
-    } catch {
-      // skip malformed
-    }
-  }
-
-  return events;
 }
 
 async function revertSnapshots(

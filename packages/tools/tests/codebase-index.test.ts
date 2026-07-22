@@ -9,7 +9,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildBm25Index, tokenise } from '../src/codebase-index/bm25.js';
 import { codebaseIndexTool } from '../src/codebase-index/codebase-index-tool.js';

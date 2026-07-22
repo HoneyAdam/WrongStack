@@ -3,7 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
-import { EventBus, type ToolCallPipelinePayload } from '@wrongstack/core';
+import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
+import { EventBus } from '@wrongstack/core/kernel';
 import { SuperMemoryStore } from '../src/store.js';
 
 let tmpDir: string;

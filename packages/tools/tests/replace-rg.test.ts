@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Control ripgrep availability + output so the rg glob path runs deterministically.

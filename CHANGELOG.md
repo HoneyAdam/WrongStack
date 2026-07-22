@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **TUI: soft half-block wordmark.** The startup banner's `WRONGSTACK` pixel face is now designed on a 5×5 grid with 2-bit density (empty / lower-half `▄` / upper-half `▀` / full `█`). Each cell renders across two terminal rows, doubling the vertical resolution to 10 rows so diagonals and curves fade through half-blocks instead of the previous hard "either fully lit or fully blank" look. The 53-column footprint and 65-column layout breakpoint are unchanged.
+
 - **Brain: deterministic rule tier.** `brain.rules` is evaluated before anything that costs tokens — match on source, risk band, fallback, offered options and question/context patterns; `defer` carves exceptions out of broader rules. An invalid pattern disables only its own rule and is reported via `/brain rules`.
 - **Brain: replay trace.** `brain.trace` records one JSONL row per decision — every tier the ladder ran, every pool target called (including the failures the fallback loop swallowed), every council seat's vote, timings and tokens. Rows convert to `BrainEvaluationCaseV1` fixtures for offline replay. Disabled by default; `content: none | redacted | full`.
 - **Brain: decision provenance and `/brain stats`.** `brain.decision_*` events now carry the resolving `tier`, so deterministic decisions can be told apart from ones that cost a provider call.

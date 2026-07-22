@@ -1,4 +1,4 @@
-import type { Capabilities, Request } from '@wrongstack/core';
+import type { Capabilities, Request } from '@wrongstack/core/types';
 
 /**
  * Set OpenAI's `prompt_cache_key` from the provider-agnostic `req.cache.key`.

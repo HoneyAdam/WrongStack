@@ -197,7 +197,13 @@ export class PersistentProcessRegistry {
   private readonly lockPath: string;
   private readonly baseRegistry: ProcessRegistryImpl;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private heartbeatRunning = false;
+  private cleanupRunning = false;
   private isShuttingDown = false;
+  private readonly onProcessExit = (): void => {
+    void this.syncToPersistent();
+  };
 
   constructor(baseRegistry?: ProcessRegistryImpl) {
     this.instanceId = generateInstanceId();
@@ -226,9 +232,10 @@ export class PersistentProcessRegistry {
    */
   start(): void {
     if (this.heartbeatInterval) return;
+    this.isShuttingDown = false;
 
     // Register this instance's processes with the persistent registry
-    this.syncToPersistent();
+    this.heartbeat();
 
     // Heartbeat every 5 seconds to mark entries as alive
     this.heartbeatInterval = setInterval(() => {
@@ -237,15 +244,16 @@ export class PersistentProcessRegistry {
     this.heartbeatInterval.unref?.();
 
     // Cleanup stale entries every 30 seconds
-    setInterval(() => {
-      this.cleanupStaleEntries();
-    }, STALE_THRESHOLD_MS).unref?.();
+    this.cleanupInterval = setInterval(() => {
+      this.cleanup();
+    }, STALE_THRESHOLD_MS);
+    this.cleanupInterval.unref?.();
 
     // Register main process on startup
     this.registerMainProcess();
 
     // Sync on significant events
-    process.on('exit', () => this.syncToPersistent());
+    process.on('exit', this.onProcessExit);
   }
 
   /**
@@ -257,7 +265,12 @@ export class PersistentProcessRegistry {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
-    this.syncToPersistent();
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    process.off('exit', this.onProcessExit);
+    void this.syncToPersistent();
   }
 
   /**
@@ -351,9 +364,21 @@ export class PersistentProcessRegistry {
    * Send heartbeat to mark all this instance's processes as alive.
    */
   private heartbeat(): void {
-    if (this.isShuttingDown) return;
+    if (this.isShuttingDown || this.heartbeatRunning) return;
 
-    this.syncToPersistent();
+    this.heartbeatRunning = true;
+    void this.syncToPersistent().finally(() => {
+      this.heartbeatRunning = false;
+    });
+  }
+
+  private cleanup(): void {
+    if (this.isShuttingDown || this.cleanupRunning) return;
+
+    this.cleanupRunning = true;
+    void this.cleanupStaleEntries().finally(() => {
+      this.cleanupRunning = false;
+    });
   }
 
   /**

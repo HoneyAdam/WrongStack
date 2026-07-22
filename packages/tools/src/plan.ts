@@ -8,14 +8,14 @@ import {
   mutatePlan,
   removePlanItem,
   setPlanItemStatus,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
 import {
   type TaskFile,
   mutateTasks,
-  formatTaskList,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
+import { formatTaskList } from '@wrongstack/core/utils';
 import { randomUUID } from 'node:crypto';
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { projectSessionPlanToKanban } from './session-kanban.js';
 
 /**

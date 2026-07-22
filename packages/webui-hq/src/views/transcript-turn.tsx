@@ -11,7 +11,7 @@
  * @module views/transcript-turn
  */
 
-import type { HqTranscriptEntry } from '@wrongstack/core';
+import type { HqTranscriptEntry } from '@wrongstack/core/hq';
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
 import type React from 'react';
 import { memo, useState } from 'react';

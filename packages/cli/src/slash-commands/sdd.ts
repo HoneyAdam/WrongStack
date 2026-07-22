@@ -1,8 +1,9 @@
 import * as fsp from 'node:fs/promises';
-import { expectDefined, type SlashCommand, type SpecRequirement } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
+import { type SlashCommand, type SpecRequirement } from '@wrongstack/core/types';
 import {
-  type AISpecPhase,
   AISpecBuilder,
+  type AISpecPhase,
   analyzeCriticalPath,
   DefaultTaskStore,
   getTemplate,
@@ -18,33 +19,33 @@ import {
   TaskTracker,
   templateToMarkdown,
 } from '@wrongstack/sdd';
-import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
-import { findSpec, gatherProjectContext } from './sdd/project-context.js';
-import { getSessionState, sddState } from './sdd/state.js';
+import { findSpec, gatherProjectContext } from '../services/sdd/project-context.js';
+import { getSessionState, sddState } from '../services/sdd/state.js';
 import {
   advanceToNextTask,
   formatElapsed,
   getTaskProgress,
   matchTaskNode,
-} from './sdd/task-manager.js';
+} from '../services/sdd/task-manager.js';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './command-context.js';
 
-export type { TaskProgress } from '@wrongstack/core';
+export type { TaskProgress } from '@wrongstack/core/types';
 export {
   findSpec,
   gatherProjectContext,
   getActiveBuilder,
   getActiveSDDContext,
   getActiveSDDPhase,
-} from './sdd/project-context.js';
+} from '../services/sdd/project-context.js';
 export {
   autoDetectTaskCompletion,
   isExplanatoryText,
   trySaveImplementationPlan,
   trySaveSpecFromAIOutput,
-} from './sdd/spec-detection.js';
+} from '../services/sdd/spec-detection.js';
 // Re-exports for backward compat
-export { getSessionState, SDDState, sddState } from './sdd/state.js';
+export { getSessionState, SDDState, sddState } from '../services/sdd/state.js';
 export {
   advanceToNextTask,
   formatElapsed,
@@ -57,10 +58,10 @@ export {
   markTaskCompleted,
   renderTaskListWithProgress,
   trySaveTasksFromAIOutput,
-} from './sdd/task-manager.js';
+} from '../services/sdd/task-manager.js';
 export { renderProgress };
 
-import { getTaskTrackerExport as _getTaskTracker } from './sdd/task-manager.js';
+import { getTaskTrackerExport as _getTaskTracker } from '../services/sdd/task-manager.js';
 export function getTaskTracker(): TaskTracker | null {
   return _getTaskTracker();
 }
@@ -320,7 +321,10 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
         case 'stop':
         case 'abort': {
           opts.onSddParallelStop?.();
-          return { message: 'SDD parallel run stopped. Use /sdd clean to remove worktrees, /sdd rollback to undo commits, or /sdd destroy to delete the project.' };
+          return {
+            message:
+              'SDD parallel run stopped. Use /sdd clean to remove worktrees, /sdd rollback to undo commits, or /sdd destroy to delete the project.',
+          };
         }
 
         case 'clean':
@@ -433,7 +437,9 @@ export function buildSddCommand(opts: SlashCommandContext): SlashCommand {
           }
           const ids = opts.onSddSplitTask(taskId, subtasks);
           if (ids === null) {
-            return { message: `No active run, or task "${taskId}" is unknown / running (can't split).` };
+            return {
+              message: `No active run, or task "${taskId}" is unknown / running (can't split).`,
+            };
           }
           return {
             message: `Split ${taskId} into ${ids.length} sub-task${ids.length === 1 ? '' : 's'}: ${ids.join(', ')}`,

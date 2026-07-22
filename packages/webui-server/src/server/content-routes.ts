@@ -5,6 +5,8 @@ import {
   handleDesignMaterialize,
   handleDesignSet,
   handleDesignState,
+  handleDesignSwap,
+  handleDesignTune,
   handleDesignUse,
   handleDesignVerify,
 } from './design-handlers.js';
@@ -122,6 +124,12 @@ export async function handleContentRoute(
       return true;
     case 'design.set':
       await handleDesignSet(ws, ctx.getDesignContext(), message);
+      return true;
+    case 'design.tune':
+      await handleDesignTune(ws, ctx.getDesignContext(), message);
+      return true;
+    case 'design.swap':
+      await handleDesignSwap(ws, ctx.getDesignContext(), message);
       return true;
     case 'design.materialize':
       await handleDesignMaterialize(ws, ctx.getDesignContext(), message);

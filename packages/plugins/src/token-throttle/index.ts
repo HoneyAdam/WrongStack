@@ -31,7 +31,7 @@
  *
  * @public
  */
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 
 const WINDOW_MS = 60_000;
 

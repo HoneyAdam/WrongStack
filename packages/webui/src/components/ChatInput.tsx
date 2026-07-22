@@ -1,4 +1,5 @@
-import { expectDefined, toErrorMessage } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
+import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { Bell, BookOpen, ImagePlus, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';

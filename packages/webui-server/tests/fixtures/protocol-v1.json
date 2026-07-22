@@ -7,7 +7,8 @@
     { "type": "memory.super.list", "payload": {} },
     { "type": "mcp.list", "payload": {} },
     { "type": "collab.join", "payload": { "sessionId": "s1", "role": "observer" } },
-    { "type": "kanban.meta", "payload": {} }
+    { "type": "kanban.meta", "payload": {} },
+    { "type": "mailbox.send", "payload": { "requestId": "r1", "to": "leader", "type": "note", "audience": "leaders", "subject": "Private", "body": "Leader context", "priority": "normal" } }
   ],
   "server": [
     { "type": "session.start", "payload": { "sessionId": "s1", "protocolVersion": 1 } },
@@ -15,6 +16,7 @@
     { "type": "files.read", "payload": { "content": "# Readme" } },
     { "type": "goal.completed", "payload": { "goalId": "g1" } },
     { "type": "mailbox.compacted", "payload": { "removed": 3 } },
+    { "type": "mailbox.sent", "payload": { "requestId": "r1", "success": true, "messageId": "m1", "to": "leader", "audience": "leaders" } },
     { "type": "prompts.created", "payload": { "name": "review" } },
     { "type": "kanban.supervisor.status", "payload": { "running": true } }
   ]

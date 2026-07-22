@@ -14,23 +14,16 @@
  * inline — they are too deeply coupled to local mutable state for a
  * single-PR extraction.
  */
-import type {
-  Agent,
-  BrainArbiter,
-  Config,
-  EventBus,
-  JournalEntry,
-  MemoryStore,
-  ModelsRegistry,
-  ModeStore,
-  SessionStore,
-  SessionWriter,
-  SkillLoader,
-} from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
+import type { Config, MemoryPort, ModelsRegistry, ModeStore, SkillLoader } from '@wrongstack/core/types';
+import type { JournalEntry } from '@wrongstack/core/goal';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { SessionStore, SessionWriter } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import type { TerminalRenderer } from '../renderer.js';
-import type { AutonomyMode } from '../slash-commands/autonomy.js';
+import type { AutonomyMode } from '../services/autonomy-mode.js';
 
 export interface WebUIDispatchContext {
   agent: Agent;
@@ -49,8 +42,8 @@ export interface WebUIDispatchContext {
   brain: BrainArbiter | undefined;
   brainSettings:
     | {
-        maxAutoRisk: import('@wrongstack/core').BrainAutoRisk;
-        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        maxAutoRisk: import('@wrongstack/core/execution').BrainAutoRisk;
+        mode?: import('@wrongstack/core/coordination').BrainEscalationMode | undefined;
         poolLabels?: string[] | undefined;
         councilLabels?: string[] | undefined;
       }
@@ -59,12 +52,12 @@ export interface WebUIDispatchContext {
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
     | undefined;
   /** Live-editable Brain config owner (brain.config.get/set WS handlers). */
-  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
+  brainRuntime?: import('@wrongstack/core/execution').BrainRuntime | undefined;
   subscribeEternalIteration: ((fn: (entry: JournalEntry) => void) => () => void) | undefined;
   sessionStore: SessionStore | undefined;
-  memoryStore: MemoryStore | undefined;
+  memoryStore: MemoryPort | undefined;
   skillLoader: SkillLoader | undefined;
-  promptLoader: import('@wrongstack/core').PromptLoader | undefined;
+  promptLoader: import('@wrongstack/core/types').PromptLoader | undefined;
   modeStore: ModeStore | undefined;
   modeId: string | undefined;
   needsSetup: boolean | undefined;
@@ -88,7 +81,7 @@ export interface WebUIDispatchContext {
       }
     | undefined;
   /** Per-task agent factory for the SDD wizard's multi-agent run. */
-  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
+  sddSubagentFactory?: import('@wrongstack/core/coordination').AgentFactory | undefined;
   onKanbanDispatch?:
     | ((
         description: string,

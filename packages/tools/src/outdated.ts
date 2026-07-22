@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
-import { buildChildEnv } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
+import { buildChildEnv } from '@wrongstack/core/utils';
 import { detectPackageManager, safeResolve } from './_util.js';
 import { buildWin32CmdShimInvocation, resolveWin32Command } from './_win32-resolve.js';
 

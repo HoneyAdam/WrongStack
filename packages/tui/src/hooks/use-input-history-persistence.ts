@@ -1,4 +1,6 @@
-import { DefaultSecretScrubber, INPUT_HISTORY_DEFAULT_MAX, InputHistoryStore, resolveWstackPaths } from '@wrongstack/core';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { INPUT_HISTORY_DEFAULT_MAX, InputHistoryStore } from '@wrongstack/core/storage';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { useEffect, useMemo, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 

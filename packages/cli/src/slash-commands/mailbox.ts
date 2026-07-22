@@ -18,24 +18,15 @@
  *   /mailbox                                  — inbox (unread for this leader)
  *   /mailbox agents                           — all registered agents on the project
  *   /mailbox online                           — only agents with a live heartbeat
- *   /mailbox send <id> [type=<t>] <message>   — direct message an agent (type is one of note/ask/assign/steer/btw/broadcast/status/result/review)
- *   /mailbox broadcast <message>              — message every agent ('*')
+ *   /mailbox send <id> [type=<t>] [audience=leaders] <message>
+ *   /mailbox broadcast [audience=leaders] <message>
  *   /mailbox history [n]                      — last n messages on the project (default 20)
  */
 
-import {
-  color,
-  GlobalMailbox,
-  type MailboxAgentStatus,
-  type MailboxMessage,
-  type MailboxMessageType,
-  mailboxSessionTag,
-  resolveMailboxIdentity,
-  resolveProjectDir,
-  type SlashCommand,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { color, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { GlobalMailbox, type MailboxAgentStatus, type MailboxAudience, type MailboxMessage, type MailboxMessageType, mailboxSessionTag, resolveMailboxIdentity, resolveProjectDir } from '@wrongstack/core/coordination';
+import { type SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 function buildMailbox(opts: SlashCommandContext): GlobalMailbox | null {
   const projectDir =
@@ -120,7 +111,9 @@ function fmtMessage(m: MailboxMessage, selfId: string, fromWidth: number, toWidt
   const from = m.from === selfId ? color.cyan(rawFrom) : color.bold(rawFrom);
   const to = m.to === '*' ? color.magenta(rawTo) : m.to === selfId ? color.cyan(rawTo) : rawTo;
   const t = color.dim(new Date(m.timestamp).toISOString().slice(11, 19));
-  const tag = m.type !== 'note' ? `${color.magenta(`[${m.type}]`)} ` : '';
+  const typeTag = m.type !== 'note' ? color.magenta(`[${m.type}]`) : '';
+  const audienceTag = m.audience === 'leaders' ? color.cyan('[leaders]') : '';
+  const tag = typeTag || audienceTag ? `${[typeTag, audienceTag].filter(Boolean).join(' ')} ` : '';
   const body = oneLine(m.body, 120);
   const flatSubject = m.subject ? oneLine(m.subject, 60) : '';
   const subject =
@@ -162,23 +155,24 @@ function messageWidths(messages: MailboxMessage[], selfId: string): { from: numb
 function parseTypeFlag(
   tokens: string[],
   defaultType: MailboxMessageType,
-): { type: MailboxMessageType; body: string } {
+): { type: MailboxMessageType; audience?: MailboxAudience; body: string } {
   const VALID: ReadonlySet<MailboxMessageType> = new Set<MailboxMessageType>([
-    'note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control',
+    'note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review',
   ]);
   let type: MailboxMessageType = defaultType;
+  let audience: MailboxAudience | undefined;
   const rest = tokens.slice();
-  if (rest[0]?.startsWith('type=')) {
-    const candidate = rest[0].slice('type='.length) as MailboxMessageType;
-    if (VALID.has(candidate)) {
-      type = candidate;
+  while (rest[0]?.startsWith('type=') || rest[0]?.startsWith('audience=')) {
+    const flag = rest.shift()!;
+    if (flag.startsWith('type=')) {
+      const candidate = flag.slice('type='.length) as MailboxMessageType;
+      if (VALID.has(candidate)) type = candidate;
+    } else {
+      const candidate = flag.slice('audience='.length);
+      if (candidate === 'leaders' || candidate === 'all') audience = candidate;
     }
-    // Always consume the `type=` flag — even an unknown value (which falls back
-    // to defaultType) is stripped from the body so recipients never see the
-    // literal flag text (e.g. "type=garbage").
-    rest.shift();
   }
-  return { type, body: rest.join(' ') };
+  return { type, ...(audience !== undefined ? { audience } : {}), body: rest.join(' ') };
 }
 
 export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
@@ -187,7 +181,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Agent',
     aliases: ['mb'],
     description:
-      'Project-wide agent mailbox: /mailbox [agents|online|send <id> [type=<t>] <msg>|broadcast [type=<t>] <msg>|history [n]|clear]',
+      'Project-wide agent mailbox: /mailbox [agents|online|send <id> [type=<t>] [audience=leaders] <msg>|broadcast [type=<t>] [audience=leaders] <msg>|history [n]|clear]',
     help: [
       'The human window into the shared inter-agent mailbox. Every terminal,',
       'TUI and WebUI on this project shares one inbox — agents see incoming',
@@ -197,8 +191,8 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       "  /mailbox                      Unread inbox for this session's leader.",
       '  /mailbox agents               All registered agents on the project.',
       '  /mailbox online               Only agents with a live heartbeat.',
-      '  /mailbox send <id> [type=<t>] <message>     Direct message an agent. Optional type= sets the message category.',
-      '  /mailbox broadcast [type=<t>] <message>     Message every agent on the project. Optional type= overrides the default "broadcast" category.',
+      '  /mailbox send <id> [type=<t>] [audience=leaders] <message>     Direct message; audience=leaders prevents subagent consumption.',
+      '  /mailbox broadcast [type=<t>] [audience=leaders] <message>     Broadcast, optionally only to leader agents.',
       '  /mailbox history [n] [from <id>] [to <id>] [grep <text>]  Last n messages, optionally filtered.',
       '  /mailbox clear                 Delete all messages from the mailbox.',
       '  /mailbox purge                Remove stale/orphaned messages (completed >1d, incomplete >7d).',
@@ -211,7 +205,10 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       '  result   A subagent completion notice — recipient factors it in.',
       '  steer    A mid-task direction change — recipient adjusts course',
       '           at the next stopping point.',
-      '  note/btw/status/broadcast/control  Informational, no action implied.',
+      '  note/btw/status/broadcast  Informational, no action implied.',
+      '  control  Reserved for the runtime; human/agent sends are rejected.',
+      '  audience=leaders is a visibility filter. Pair it with recipient',
+      '  leader for private leader control-plane mail.',
       '',
       'Examples:',
       '  /mailbox broadcast pausing deploys, hold off on main',
@@ -219,6 +216,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
       '  /mailbox send leader@a1b2c3d4 can you take the auth refactor?',
       '  /mailbox send worker@b2c3d4e5 type=review please skim src/auth/*.ts when you get a chance',
       '  /mailbox send leader@a1b2c3d4 type=ask are we merging the refactor today or tomorrow?',
+      '  /mailbox send leader type=result audience=leaders review finished; findings attached',
     ].join('\n'),
     async run(args) {
       const mb = buildMailbox(opts);
@@ -253,7 +251,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
 
       if (sub === 'send') {
         const to = parts[1];
-        const { type, body } = parseTypeFlag(parts.slice(2), 'note');
+        const { type, audience, body } = parseTypeFlag(parts.slice(2), 'note');
         if (!to || !body) {
           return {
             message: 'Usage: /mailbox send <agentId> [type=<type>] <message>\nValid types: note, ask, assign, steer, btw, broadcast, status, result, review.',
@@ -263,6 +261,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
           from: self.id,
           to,
           type,
+          audience,
           subject: body.slice(0, 60),
           body,
         });
@@ -277,7 +276,7 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
         // to broadcast a `steer` ("stop what you're doing") or a `review`
         // request across the fleet, and forcing the literal `broadcast` type
         // would lose that signal in the recipient's mailbox render.
-        const { type, body } = parseTypeFlag(parts.slice(1), 'broadcast');
+        const { type, audience, body } = parseTypeFlag(parts.slice(1), 'broadcast');
         if (!body) {
           return {
             message: 'Usage: /mailbox broadcast [type=<type>] <message>\nValid types: note, ask, assign, steer, btw, broadcast, status, result, review.',
@@ -287,13 +286,14 @@ export function buildMailboxCommand(opts: SlashCommandContext): SlashCommand {
           from: self.id,
           to: '*',
           type,
+          audience,
           subject: body.slice(0, 60),
           body,
         });
         const typeTag = type === 'broadcast' ? '' : color.dim(` [${type}]`);
         return {
           message: color.green(
-            `✓ Broadcast to all agents on the project (id ${msg.id.slice(0, 8)}…).`,
+            `✓ Broadcast to ${audience === 'leaders' ? 'leader agents' : 'all agents'} on the project (id ${msg.id.slice(0, 8)}…).`,
           ) + typeTag,
         };
       }

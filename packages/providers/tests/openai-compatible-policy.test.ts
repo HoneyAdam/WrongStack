@@ -1,4 +1,4 @@
-import type { Request } from '@wrongstack/core';
+import type { Request } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { applyOpenAICompatiblePolicy } from '../src/openai-compatible-policy.js';
 

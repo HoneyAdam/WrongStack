@@ -170,9 +170,9 @@ wrongstack diag                   # full diagnostic
 
 **Symptom**: Garbled output, resize artifacts, or missing content.
 
-The TUI renders inline with the terminal's native scrollback. Chat history uses
-Ink's `<Static>` component — completed entries sit in native scrollback and can
-be reviewed with the terminal's scroll (mouse wheel, Shift+PgUp).
+The TUI renders chat history in a bounded managed viewport. Use `PgUp`/`PgDn`
+to review retained entries, or `/mouse on` for wheel and scrollbar navigation.
+The complete session log remains available on disk.
 
 **Fix**:
 

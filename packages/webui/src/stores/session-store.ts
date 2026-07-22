@@ -1,4 +1,4 @@
-import type { Usage } from '@wrongstack/core';
+import type { Usage } from '@wrongstack/core/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SessionInfo } from './types.js';

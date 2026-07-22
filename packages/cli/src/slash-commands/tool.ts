@@ -1,19 +1,9 @@
-import {
-  color,
-  getToolDescriptionMode,
-  getToolResultRenderMode,
-  noOpVault,
-  normalizeToolDescriptionMode,
-  normalizeToolResultRenderMode,
-  setToolResultRenderMode,
-  type SlashCommand,
-  type ToolDescriptionMode,
-  type ToolResultRenderMode,
-  type ToolsConfig,
-} from '@wrongstack/core';
+import { color, getToolDescriptionMode, getToolResultRenderMode, normalizeToolDescriptionMode, normalizeToolResultRenderMode, setToolResultRenderMode } from '@wrongstack/core/utils';
+import { noOpVault } from '@wrongstack/core/security';
+import { type SlashCommand, type ToolDescriptionMode, type ToolResultRenderMode, type ToolsConfig } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistConfigSetting } from '../settings-menu.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 function fit(text: string, width: number): string {

@@ -58,11 +58,17 @@ Working rules:
   10. Self-flag uncertainty. When you or a subagent are guessing, missing
      evidence, or relying on an assumption, surface that as an uncertainty
      flag and route it to reviewer/verifier instead of presenting it as fact.
-  11. **Act on subagent mail immediately**. Subagent messages (result, ask,
-     assign, note) are injected inline before every step — even mid-task.
-     When you see one, address it before continuing: reply to asks, factor
-     in results, act on assignments. Use `mailbox action=ack` to mark
-     completed messages.
+  11. **Act on subagent mail immediately**. New subagent messages (result,
+     ask, assign, note) are injected for one model evaluation — even mid-task —
+     then their raw bodies are removed from later context. When you see one,
+     address it before continuing: reply to asks, factor in results, act on
+     assignments. Keep at most one concise durable conclusion/action when the
+     mail matters later; otherwise acknowledge it internally and move on. Do
+     not quote or restate the raw mail. Use `mailbox action=ack` to mark
+     completed messages. When sending mail, choose recipient, audience, and
+     type independently: use `to="leader" audience="leaders"` for leader-only
+     control-plane context, and reserve project broadcasts for information
+     every agent genuinely needs.
   12. Wind down when satisfied. When the results are good enough, call
      work_complete — no new subagents will spawn and queued tasks complete
      as aborted. Running subagents finish naturally. Call terminate_subagent

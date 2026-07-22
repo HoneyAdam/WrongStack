@@ -9,8 +9,8 @@
  * Returns a subscribe function (called by runTui) and a cleanup function
  * (called on TUI teardown).
  */
-import { PHASE_EVENT_NAMES } from '@wrongstack/core';
-import type { EventBus } from '@wrongstack/core';
+import { PHASE_EVENT_NAMES } from '@wrongstack/core/goal';
+import type { EventBus } from '@wrongstack/core/kernel';
 
 /**
  * The full set of events forwarded from the EventBus to the TUI's

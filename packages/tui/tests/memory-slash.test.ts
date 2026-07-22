@@ -1,4 +1,9 @@
-import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core';
+import type { MemoryCapability, MemoryEntry, MemoryPort, MemoryScope, MemoryStore } from '@wrongstack/core/types';
+import {
+  LegacyMemoryPortAdapter,
+  SUPER_MEMORY_SURFACE_CAPABILITY,
+  type SuperMemorySurface,
+} from '@wrongstack/super-memory';
 import { describe, expect, it, vi } from 'vitest';
 import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-slash.js';
 
@@ -7,12 +12,12 @@ import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-sl
  * This does NOT implement `stats`, `listSuper`, or `retrieveForPath`,
  * so the command takes the legacy path.
  */
-function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): MemoryStore {
+function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): MemoryPort {
   const store: Partial<Record<MemoryScope, MemoryEntry[]>> = {};
   for (const [scope, list] of Object.entries(entries)) {
     store[scope as MemoryScope] = list ? [...list] : [];
   }
-  return {
+  const legacy: MemoryStore = {
     list: async (scope?: MemoryScope) => store[scope ?? 'project-memory'] ?? [],
     readAll: async () => '',
     read: async (_scope: MemoryScope) => '',
@@ -21,8 +26,9 @@ function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): 
     consolidate: async () => {},
     clear: async () => {},
     search: async () => [],
-    withTraceId: () => store as unknown as MemoryStore,
+    withTraceId: () => legacy,
   };
+  return new LegacyMemoryPortAdapter(legacy, 'test-legacy');
 }
 
 /**
@@ -30,7 +36,7 @@ function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): 
  * `retrieveForPath` so the command takes the supermemory path.
  */
 function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
-  return {
+  const port = {
     list: async () => [],
     readAll: async () => '',
     read: async () => '',
@@ -39,7 +45,12 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     consolidate: async () => {},
     clear: async () => {},
     search: async () => [],
-    withTraceId: () => ({}) as MemoryStore,
+    withTraceId: () => port,
+    initialize: async () => {},
+    health: async () => ({ status: 'ready' as const, backend: 'test-super-memory' }),
+    dispose: async () => {},
+    getCapability: <T>(capability: MemoryCapability<T>): T | undefined =>
+      capability.id === SUPER_MEMORY_SURFACE_CAPABILITY.id ? (port as unknown as T) : undefined,
 
     // ── SuperMemory duck-type methods ──
     stats: async () => {
@@ -93,6 +104,7 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
       }),
     graphFor: async () => [],
   };
+  return port as typeof port & MemoryPort & SuperMemorySurface;
 }
 
 interface SuperMemoryTestEntry {
@@ -254,7 +266,7 @@ describe('/memory slash command', () => {
     });
 
     it('reports an error when memoryStore.list rejects', async () => {
-      const brokenStore: MemoryStore = {
+      const brokenLegacy: MemoryStore = {
         list: async () => {
           throw new Error('disk failure');
         },
@@ -265,8 +277,9 @@ describe('/memory slash command', () => {
         consolidate: async () => {},
         clear: async () => {},
         search: async () => [],
-        withTraceId: () => brokenStore,
+        withTraceId: () => brokenLegacy,
       };
+      const brokenStore = new LegacyMemoryPortAdapter(brokenLegacy, 'test-broken');
       const deps: MemorySlashDeps = { memoryStore: brokenStore };
       const cmd = createMemorySlashCommand(deps);
       const out = await run(cmd);
@@ -494,7 +507,8 @@ describe('/memory slash command', () => {
     });
 
     it('handles supermemory store errors gracefully', async () => {
-      const brokenStore: MemoryStore = {
+      const brokenStore = fakeSuperMemoryStore([]);
+      Object.assign(brokenStore, {
         list: async () => {
           throw new Error('broken');
         },
@@ -505,8 +519,6 @@ describe('/memory slash command', () => {
         consolidate: async () => {},
         clear: async () => {},
         search: async () => [],
-        withTraceId: () => brokenStore,
-        // Duck-type to supermemory but broken
         stats: async () => {
           throw new Error('stats failure');
         },
@@ -517,7 +529,7 @@ describe('/memory slash command', () => {
           throw new Error('path failure');
         },
         searchSuper: async () => [],
-      };
+      });
       const deps: MemorySlashDeps = { memoryStore: brokenStore };
       const cmd = createMemorySlashCommand(deps);
       const out = await run(cmd);

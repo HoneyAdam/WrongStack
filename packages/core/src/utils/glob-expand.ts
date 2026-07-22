@@ -12,7 +12,7 @@ import { expectDefined } from './expect-defined.js';
 import * as fsp from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 const GLOB_CHARS = new Set(['*', '?', '[']);
-const IS_WINDOWS = process.platform === 'win32';
+const IS_WINDOWS = typeof process !== 'undefined' && process.platform === 'win32';
 const SEP = IS_WINDOWS ? '\\' : '/';
 
 function isGlob(p: string): boolean {

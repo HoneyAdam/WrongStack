@@ -8,7 +8,8 @@
  * with no side-channel state.
  */
 import * as fs from 'node:fs/promises';
-import { ConfigError, type ProviderConfig, type SecretVault, atomicWrite } from '@wrongstack/core';
+import { ConfigError, type ProviderConfig, type SecretVault } from '@wrongstack/core/types';
+import { atomicWrite } from '@wrongstack/core/utils';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 
 /**

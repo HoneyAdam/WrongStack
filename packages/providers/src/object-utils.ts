@@ -12,9 +12,9 @@ export function isNodeReadable(b: unknown): boolean {
   );
 }
 
-export type { Request } from '@wrongstack/core';
+export type { Request } from '@wrongstack/core/types';
 
-import type { Request } from '@wrongstack/core';
+import type { Request } from '@wrongstack/core/types';
 
 /** Strips `cache_control` from message blocks in a system prompt. */
 export function stripCacheControl(system: Request['system']): Request['system'] {

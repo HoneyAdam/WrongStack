@@ -2,7 +2,13 @@ export type MemoryScope = 'project-agents' | 'project-memory' | 'user-memory';
 
 // ── Memory categories ──────────────────────────────────────────────────
 
-export type MemoryType = 'fact' | 'decision' | 'convention' | 'preference' | 'reference' | 'anti_pattern';
+export type MemoryType =
+  | 'fact'
+  | 'decision'
+  | 'convention'
+  | 'preference'
+  | 'reference'
+  | 'anti_pattern';
 
 export const MEMORY_TYPE_LABELS: Record<MemoryType, string> = {
   fact: 'Fact',
@@ -88,7 +94,11 @@ export interface ScoredEntry extends MemoryEntry {
 export interface MemoryStore {
   readAll(): Promise<string>;
   read(scope: MemoryScope): Promise<string>;
-  remember(text: string, scope?: MemoryScope, metadata?: Omit<Partial<MemoryEntry>, 'scope' | 'text' | 'ts'>): Promise<void>;
+  remember(
+    text: string,
+    scope?: MemoryScope,
+    metadata?: Omit<Partial<MemoryEntry>, 'scope' | 'text' | 'ts'>,
+  ): Promise<void>;
   forget(query: string, scope?: MemoryScope): Promise<number>;
   consolidate(scope: MemoryScope): Promise<void>;
   clear(scope?: MemoryScope): Promise<void>;
@@ -104,7 +114,11 @@ export interface MemoryStore {
    * Score and rank memories by relevance to the current context.
    * Returns only entries that meet a relevance threshold.
    */
-  scoreRelevant?(ctx: MemoryRelevanceContext, scope?: MemoryScope, limit?: number): Promise<ScoredEntry[]>;
+  scoreRelevant?(
+    ctx: MemoryRelevanceContext,
+    scope?: MemoryScope,
+    limit?: number,
+  ): Promise<ScoredEntry[]>;
   /**
    * Run memory hygiene: verify anchors, mark stale entries, archive
    * low-confidence/old memories. Optional — only Super Memory stores
@@ -123,4 +137,49 @@ export interface MemoryStore {
    * in place and returns the same instance (convenience chaining).
    */
   withTraceId(traceId: string): MemoryStore;
+}
+
+/**
+ * A typed key for an optional memory feature. Implementations expose features
+ * through keys instead of forcing hosts to inspect concrete store methods.
+ */
+export interface MemoryCapability<T> {
+  readonly id: string;
+  /**
+   * Type-level brand to prevent structural assignment between capabilities
+   * with different generic parameters. Exists at runtime as an identity
+   * function (assigned by `defineMemoryCapability`) but is never inspected
+   * by any code path — capability lookup is keyed by `id` only.
+   */
+  readonly __memoryCapabilityType?: ((value: T) => T) | undefined;
+}
+
+export function defineMemoryCapability<T>(id: string): MemoryCapability<T> {
+  return Object.freeze({
+    id,
+    /** Identity function that makes the brand a real runtime value so
+     *  `defineMemoryCapability<A>('x')` and `defineMemoryCapability<B>('x')`
+     *  produce structurally distinct objects. Capability lookup is still
+     *  keyed by `id` only — the brand prevents accidental cross-type casts
+     *  at the type level. */
+    __memoryCapabilityType: (v: T) => v,
+  });
+}
+
+export interface MemoryHealth {
+  status: 'ready' | 'degraded' | 'unavailable';
+  backend: string;
+  details?: Readonly<Record<string, unknown>> | undefined;
+}
+
+/**
+ * Host-facing memory boundary. Basic legacy operations remain available during
+ * migration; optional graph/admin/Super Memory behavior is capability-based.
+ */
+export interface MemoryPort extends MemoryStore {
+  initialize(): Promise<void>;
+  getCapability<T>(capability: MemoryCapability<T>): T | undefined;
+  health(): Promise<MemoryHealth>;
+  dispose(): Promise<void>;
+  withTraceId(traceId: string): MemoryPort;
 }

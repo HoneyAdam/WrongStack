@@ -1,46 +1,38 @@
-import type {
-  Agent,
-  AttachmentStore,
-  AutonomousCoordinator,
-  CoordinatorEvent,
-  Director,
-  EventBus,
-  FleetChatVerbosity,
-  Message,
-  QueueStore,
-  SlashCommandRegistry,
-  TokenCounter,
-  TokenSavingTier,
-} from '@wrongstack/core';
+import { randomUUID } from 'node:crypto';
+import * as path from 'node:path';
+import type { Agent } from '@wrongstack/core/agent';
+import type { AutonomousCoordinator, CoordinatorEvent, Director } from '@wrongstack/core/coordination';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
+import type { QueueStore } from '@wrongstack/core/storage';
+import type { AttachmentStore, AutonomyStage, FleetChatVerbosity, Message, TokenCounter, TokenSavingTier } from '@wrongstack/core/types';
+import type { EventBus } from '@wrongstack/core/kernel';
 import {
-  writeErr,
-  type AutonomyStage,
-  GlobalMailbox,
   createHqPublisherFromEnv,
-  startSessionTelemetryBridge,
-  startFleetTelemetryBridge,
   startBrainTelemetryBridge,
-  startWorktreeTelemetryBridge,
-  startToolTelemetryBridge,
   startCostTelemetryBridge,
-  resolveProjectDir,
-  wstackGlobalRoot,
+  startFleetTelemetryBridge,
+  startSessionTelemetryBridge,
+  startToolTelemetryBridge,
+  startWorktreeTelemetryBridge,
+} from '@wrongstack/core/hq';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import {
   detectTerminal,
   TerminalLifecycle,
-} from '@wrongstack/core';
+  writeErr,
+  wstackGlobalRoot,
+} from '@wrongstack/core/utils';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { render } from 'ink';
-import { randomUUID } from 'node:crypto';
-import * as path from 'node:path';
 import React from 'react';
 import { App } from './app.js';
 import type { AgentTranscriptReader } from './components/agents-monitor.js';
 import type { McpPickerItem } from './components/mcp-picker.js';
 import type { PluginPickerItem } from './components/plugin-picker.js';
-import type { ToolPickerItem } from './components/tools-picker.js';
 import type { StatuslineItem } from './components/statusline-picker.js';
+import type { ToolPickerItem } from './components/tools-picker.js';
 import { MOUSE_OFF } from './mouse.js';
 import { startTerminalTitle } from './terminal-title.js';
 
@@ -88,13 +80,13 @@ export interface RunTuiOptions {
    * 'eternal' the TUI drives `runOneIteration()` from the post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
-  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
+  getEternalEngine?: (() => import('@wrongstack/core/execution').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode flips to
    * 'eternal-parallel' the TUI drives `runOneIteration()` from the post-slash
    * hook so the engine and TUI never race for the shared Context.
    */
-  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
+  getParallelEngine?: (() => import('@wrongstack/core/execution').ParallelEternalEngine | null) | undefined;
   /**
    * Access the active SDD parallel run's control surface (or null). The TUI's
    * SIGINT handler uses it to stop a running `/sdd parallel` on the first Ctrl+C.
@@ -116,7 +108,7 @@ export interface RunTuiOptions {
    * iteration as a live timeline entry as it lands.
    */
   subscribeEternalIteration?:
-    | ((fn: (entry: import('@wrongstack/core').JournalEntry) => void) => () => void)
+    | ((fn: (entry: import('@wrongstack/core/goal').JournalEntry) => void) => () => void)
     | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
@@ -173,7 +165,7 @@ export interface RunTuiOptions {
   /** Absolute project root for goal.json loading. */
   projectRoot?: string | undefined;
   /** Full app config, used for HQ client publishing settings. */
-  appConfig?: import('@wrongstack/core').Config | undefined;
+  appConfig?: import('@wrongstack/core/types').Config | undefined;
   /**
    * The embedding host already owns the HQ publisher and telemetry bridges.
    * Prevents this UI surface from opening a duplicate heartbeat-only client.
@@ -190,9 +182,9 @@ export interface RunTuiOptions {
   chime?: boolean | undefined;
   /**
    * Enable terminal mouse tracking (SGR; click + wheel). Stays in the normal
-   * screen buffer so native scrollback survives, BUT while tracking is on the
-   * plain wheel reports to the app instead of scrolling history — only
-   * Shift+wheel reaches native scrollback. Off by default; opt in here or via
+   * screen buffer, but while tracking is on the plain wheel reports to the app.
+   * The bounded chat viewport can always be scrolled with PgUp/PgDn. Off by
+   * default; opt in here or via
    * WRONGSTACK_MOUSE=1. See mouse.ts for the trade-off rationale.
    */
   mouse?: boolean | undefined;
@@ -210,10 +202,12 @@ export interface RunTuiOptions {
    * Get all available agent modes with their names, descriptions, and the
    * currently active mode id. Used by the `/mode` picker in the TUI.
    */
-  getModes?: (() => Promise<{
-    modes: import('@wrongstack/core').Mode[];
-    activeId: string | null;
-  }>) | undefined;
+  getModes?:
+    | (() => Promise<{
+        modes: import('@wrongstack/core/types').Mode[];
+        activeId: string | null;
+      }>)
+    | undefined;
   /** Switch to a different agent mode by id (e.g. "teach", "brief"). */
   switchMode?: ((modeId: string) => Promise<string | null>) | undefined;
   /**
@@ -323,14 +317,14 @@ export interface RunTuiOptions {
     | undefined;
   /** Capability-gated low-effort reasoning hint for the prompt refiner. */
   getEnhancerReasoning?:
-    | (() => import('@wrongstack/core').ReasoningRequest | undefined)
+    | (() => import('@wrongstack/core/types').ReasoningRequest | undefined)
     | undefined;
   /** Build an ephemeral Provider for retrying a failed refinement on another model (no session switch). */
   buildEnhancerProvider?:
     | ((
         providerId: string,
         modelId: string,
-      ) => Promise<import('@wrongstack/core').Provider | undefined>)
+      ) => Promise<import('@wrongstack/core/types').Provider | undefined>)
     | undefined;
   /** Resolve the one-key "retry with another model" fallback ref on a refine failure. */
   getEnhanceFallbackRef?: (() => string | undefined) | undefined;
@@ -407,9 +401,7 @@ export interface RunTuiOptions {
    * Returns an unsubscribe function. The TUI uses this to drive the
    * PhaseMonitor and PhasePanel live views via dispatch actions.
    */
-  subscribeGoal?:
-    | ((handler: (event: string, payload: unknown) => void) => () => void)
-    | undefined;
+  subscribeGoal?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
@@ -462,14 +454,17 @@ export interface RunTuiOptions {
     | undefined;
   /** Get current brain risk level and decision log for the Brain panel. */
   getBrainData?:
-    | (() => { riskLevel: 'off' | 'low' | 'medium' | 'high' | 'all'; log: Array<{ kind: string; question: string; outcome: string; age: string }> })
+    | (() => {
+        riskLevel: 'off' | 'low' | 'medium' | 'high' | 'all';
+        log: Array<{ kind: string; question: string; outcome: string; age: string }>;
+      })
     | undefined;
   /** Set brain risk ceiling from the Brain panel. */
   onBrainRiskLevel?:
     | ((level: 'off' | 'low' | 'medium' | 'high' | 'all') => string | undefined)
     | undefined;
   /** Full Brain settings editor bridge (live apply + persist to global config). */
-  brainPanelHost?: import('./components/brain-panel-model.js').BrainPanelHost | undefined;
+  brainPanelHost?: import('./brain-panel-model.js').BrainPanelHost | undefined;
   /** Get current Shadow Agent state. */
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
@@ -483,7 +478,7 @@ export interface RunTuiOptions {
    * sign-in, local-server add). The CLI builds this from its vault +
    * models registry; when absent, `/auth` falls back to plain text.
    */
-  authHost?: import('./components/auth-panel-model.js').AuthPanelHost | undefined;
+  authHost?: import('./auth-panel-model.js').AuthPanelHost | undefined;
   /**
    * Predict likely next steps after a completed turn. The CLI wires this from
    * the session provider and the `/next` toggle; it returns [] when prediction
@@ -545,7 +540,7 @@ export interface RunTuiOptions {
    * is rebuilt with the canonical renderer (tool I/O + interleaved audit
    * markers) instead of meta-only tool chips. Omitted → legacy fallback.
    */
-  restoredEvents?: import('@wrongstack/core').SessionEvent[] | undefined;
+  restoredEvents?: import('@wrongstack/core/types').SessionEvent[] | undefined;
 
   /**
    * List recent session summaries for the /resume picker. The CLI reads
@@ -642,7 +637,7 @@ export interface RunTuiOptions {
       } | null>)
     | undefined;
   /** Access the persistent memory store for listing and inspecting memories. */
-  memoryStore?: import('@wrongstack/core').MemoryStore | undefined;
+  memoryStore?: import('@wrongstack/core/types').MemoryPort | undefined;
 }
 
 // Bracketed paste mode wraps any pasted text with these markers, letting us
@@ -876,11 +871,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     // Detach all listeners first so cleanup() doesn't race with process.exit()
     detachListeners();
     unregisterTuiClient();
-    // Tree-kill every tracked child (bash/exec tools, background shells)
-    // BEFORE exiting — on win32, process.exit() orphans cmd.exe grandchildren
-    // otherwise and they keep burning CPU/RAM after the TUI is gone.
+    // Tree-kill foreground children before exiting. Explicit background jobs
+    // are detached and intentionally preserved across the host shutdown.
     try {
-      getProcessRegistry().killAll({ force: true });
+      getProcessRegistry().killAll({ force: true, preserveBackground: true });
     } catch {
       // best-effort — exiting either way
     }
@@ -928,7 +922,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     ctrlCPressTimestamps.push(now);
 
     if (ctrlCPressTimestamps.length >= RAPID_EXIT_THRESHOLD) {
-    // 2+ rapid Ctrl+C — force exit immediately
+      // 2+ rapid Ctrl+C — force exit immediately
       ctrlCPressTimestamps = [];
       forceExitViaRapidCtrlC();
       return;
@@ -966,8 +960,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // on the 2nd press; when the tree is wedged, this independent watcher makes
   // those same two presses an unconditional escape hatch.
   const onRawCtrlC = (data: Buffer | string): void => {
-    const hasCtrlC =
-      typeof data === 'string' ? data.includes('\x03') : data.includes(0x03);
+    const hasCtrlC = typeof data === 'string' ? data.includes('\x03') : data.includes(0x03);
     if (!hasCtrlC) return;
     const now = Date.now();
     ctrlCPressTimestamps = ctrlCPressTimestamps.filter((t) => now - t < RAPID_EXIT_WINDOW_MS);
@@ -1060,32 +1053,66 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
                 projectName: path.basename(opts.projectRoot),
               }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
           try {
             stopHqAuxBridges.push(
-              startFleetTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, runId: tuiSessionId, sessionId: tuiSessionId }),
+              startFleetTelemetryBridge({
+                events: opts.events,
+                publisher: tuiHqPublisher,
+                runId: tuiSessionId,
+                sessionId: tuiSessionId,
+              }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
           try {
             stopHqAuxBridges.push(
-              startBrainTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+              startBrainTelemetryBridge({
+                events: opts.events,
+                publisher: tuiHqPublisher,
+                sessionId: tuiSessionId,
+              }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
           try {
             stopHqAuxBridges.push(
-              startWorktreeTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+              startWorktreeTelemetryBridge({
+                events: opts.events,
+                publisher: tuiHqPublisher,
+                sessionId: tuiSessionId,
+              }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
           try {
             stopHqAuxBridges.push(
-              startToolTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, projectRoot: opts.projectRoot, sessionId: tuiSessionId }),
+              startToolTelemetryBridge({
+                events: opts.events,
+                publisher: tuiHqPublisher,
+                projectRoot: opts.projectRoot,
+                sessionId: tuiSessionId,
+              }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
           try {
             stopHqAuxBridges.push(
-              startCostTelemetryBridge({ events: opts.events, publisher: tuiHqPublisher, sessionId: tuiSessionId }),
+              startCostTelemetryBridge({
+                events: opts.events,
+                publisher: tuiHqPublisher,
+                sessionId: tuiSessionId,
+              }),
             );
-          } catch { /* optional */ }
+          } catch {
+            /* optional */
+          }
         }
       }
 
@@ -1140,7 +1167,11 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       initialClientSyncTimer = null;
     }
     for (const stop of stopHqAuxBridges) {
-      try { stop(); } catch { /* ignore */ }
+      try {
+        stop();
+      } catch {
+        /* ignore */
+      }
     }
     stopHqAuxBridges.length = 0;
     tuiHqPublisher?.close();

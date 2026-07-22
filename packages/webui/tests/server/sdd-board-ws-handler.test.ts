@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventBus } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
 import type { SddBoardSnapshot } from '@wrongstack/sdd';
 import { SddBoardWebSocketHandler } from '@wrongstack/webui-server';
 

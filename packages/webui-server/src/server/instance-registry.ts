@@ -22,7 +22,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core/utils';
 
 /** One running WebUI / SimpleUI process. */
 export interface WebUIInstanceRecord {
@@ -30,10 +30,8 @@ export interface WebUIInstanceRecord {
   pid: number;
   /** Surface kind — 'webui' or 'simpleui'. */
   surface: 'webui' | 'simpleui';
-  /** HTTP port serving the React frontend. */
+  /** Port serving both HTTP and WebSocket. */
   httpPort: number;
-  /** WebSocket port for the agent backend. */
-  wsPort: number;
   /** Bind host (e.g. 127.0.0.1 or 0.0.0.0). */
   host: string;
   /** Absolute project root the instance booted against. */
@@ -151,7 +149,7 @@ export function formatInstances(instances: WebUIInstanceRecord[]): string {
   const lines = [`Running WebUI instances (${instances.length}):`, ''];
   for (const i of instances) {
     lines.push(
-      `  • ${i.url}  ·  ws:${i.wsPort}  ·  pid ${i.pid}`,
+      `  • ${i.url}  ·  pid ${i.pid}`,
       `      project: ${i.projectName}  (${i.projectRoot})`,
       `      since:   ${i.startedAt}`,
     );

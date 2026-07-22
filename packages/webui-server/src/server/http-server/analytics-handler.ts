@@ -26,6 +26,13 @@ export interface AnalyticsEvent {
 
 const EVENT_BUFFER: AnalyticsEvent[] = [];
 const MAX_BUFFER_SIZE = 1000;
+export const ANALYTICS_MAX_BODY_BYTES = 256 * 1024;
+export const ANALYTICS_MAX_EVENT_BYTES = 32 * 1024;
+const ANALYTICS_MAX_NAME_CHARS = 256;
+const ANALYTICS_MAX_LABEL_CHARS = 2_048;
+const ANALYTICS_MAX_USER_AGENT_CHARS = 512;
+
+class AnalyticsBodyTooLargeError extends Error {}
 
 // Running counters so /summary is O(1) instead of O(n). Maintained alongside
 // the ring buffer; reset together with the buffer (see clearAnalyticsBuffer).
@@ -62,10 +69,23 @@ function pushEvent(event: AnalyticsEvent): void {
 function parseBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = '';
+    let bodyBytes = 0;
+    let tooLarge = false;
     req.on('data', (chunk: Buffer) => {
+      bodyBytes += chunk.length;
+      if (bodyBytes > ANALYTICS_MAX_BODY_BYTES) {
+        tooLarge = true;
+        body = '';
+        return;
+      }
+      if (tooLarge) return;
       body += chunk.toString('utf-8');
     });
     req.on('end', () => {
+      if (tooLarge) {
+        reject(new AnalyticsBodyTooLargeError('Analytics request body too large'));
+        return;
+      }
       try {
         resolve(JSON.parse(body));
       } catch {
@@ -79,11 +99,28 @@ function parseBody(req: http.IncomingMessage): Promise<unknown> {
 function isValidEvent(obj: unknown): obj is AnalyticsEvent {
   if (typeof obj !== 'object' || obj === null) return false;
   const e = obj as Record<string, unknown>;
-  return (
+  const shapeValid =
     typeof e.event === 'string' &&
+    e.event.length > 0 &&
+    e.event.length <= ANALYTICS_MAX_NAME_CHARS &&
     typeof e.category === 'string' &&
-    typeof e.timestamp === 'string'
-  );
+    e.category.length > 0 &&
+    e.category.length <= ANALYTICS_MAX_NAME_CHARS &&
+    typeof e.timestamp === 'string' &&
+    e.timestamp.length <= 128 &&
+    (e.label === undefined ||
+      (typeof e.label === 'string' && e.label.length <= ANALYTICS_MAX_LABEL_CHARS)) &&
+    (e.sessionId === undefined ||
+      (typeof e.sessionId === 'string' && e.sessionId.length <= ANALYTICS_MAX_NAME_CHARS)) &&
+    (e.value === undefined || (typeof e.value === 'number' && Number.isFinite(e.value))) &&
+    (e.metadata === undefined ||
+      (typeof e.metadata === 'object' && e.metadata !== null && !Array.isArray(e.metadata)));
+  if (!shapeValid) return false;
+  try {
+    return Buffer.byteLength(JSON.stringify(obj), 'utf8') <= ANALYTICS_MAX_EVENT_BYTES;
+  } catch {
+    return false;
+  }
 }
 
 /** POST /api/analytics — ingest a batch of events from the frontend. */
@@ -103,7 +140,7 @@ export async function handleApiAnalyticsPost(
         // Enrich with server-side metadata
         const enriched: AnalyticsEvent = {
           ...evt,
-          userAgent: req.headers['user-agent'] ?? undefined,
+          userAgent: req.headers['user-agent']?.slice(0, ANALYTICS_MAX_USER_AGENT_CHARS),
         };
         pushEvent(enriched);
         validEvents.push(enriched);
@@ -120,17 +157,15 @@ export async function handleApiAnalyticsPost(
         rejectedIndices: rejected,
       }),
     );
-  } catch {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+  } catch (error) {
+    const tooLarge = error instanceof AnalyticsBodyTooLargeError;
+    res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: tooLarge ? 'Request body too large' : 'Invalid JSON body' }));
   }
 }
 
 /** GET /api/analytics — retrieve the last N events (debug/export). */
-export async function handleApiAnalyticsGet(
-  res: http.ServerResponse,
-  url: URL,
-): Promise<void> {
+export async function handleApiAnalyticsGet(res: http.ServerResponse, url: URL): Promise<void> {
   const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
   const limit = Math.min(1000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
   const events = EVENT_BUFFER.slice(-limit);
@@ -140,9 +175,7 @@ export async function handleApiAnalyticsGet(
 }
 
 /** GET /api/analytics/summary — aggregated stats for quick inspection. */
-export async function handleApiAnalyticsSummary(
-  res: http.ServerResponse,
-): Promise<void> {
+export async function handleApiAnalyticsSummary(res: http.ServerResponse): Promise<void> {
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({

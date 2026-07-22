@@ -56,7 +56,7 @@
   },
   "connection": {
     "wsUrlLabel": "URL del server WebSocket",
-    "wsUrlPlaceholder": "ws://localhost:3457",
+    "wsUrlPlaceholder": "ws://localhost:3456",
     "wsUrlHint": "URL del server WebSocket dell'agente. Il server viene eseguito insieme alla CLI.",
     "startingHeading": "Avviare il server WebSocket",
     "startingBody": "Per lo sviluppo, esegui ./dev.ps1 dalla root del repo (facoltativamente imposta prima WS_HOST/WS_PORT). Altrimenti avvia la WebUI con la CLI: wstack --webui."

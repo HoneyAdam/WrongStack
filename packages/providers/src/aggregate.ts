@@ -1,5 +1,5 @@
-import { expectDefined } from '@wrongstack/core';
-import type { ContentBlock, Response, StopReason, StreamEvent, Usage } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
+import type { ContentBlock, Response, StopReason, StreamEvent, Usage } from '@wrongstack/core/types';
 import { parseToolInput } from './_tool-input.js';
 /**
  * Consume an `AsyncIterable<StreamEvent>` and reduce it to a non-streaming

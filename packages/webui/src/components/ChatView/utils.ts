@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import type { ChatMessage } from '@/stores';
 
 export function fmtTok(n: number): string {

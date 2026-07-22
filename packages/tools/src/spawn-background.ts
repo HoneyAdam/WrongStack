@@ -25,7 +25,7 @@
  */
 
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 import * as os from 'node:os';
 import {
   buildWin32CmdShimInvocation,
@@ -81,7 +81,7 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
   const spawnOpts: SpawnOptions = {
     cwd: opts.cwd ?? process.cwd(),
     env: buildChildEnv({ extra: opts.env }),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: 'ignore',
     detached: !isWin, // POSIX: setsid()
     windowsHide: true,
   };
@@ -99,8 +99,6 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
     console.log(JSON.stringify({ level: 'debug', event: 'spawn_error', cmd: opts.command, error: err.message }));
   });
 
-  releaseStdio(child);
-
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();
 
@@ -108,24 +106,6 @@ export function spawnBackground(opts: SpawnBackgroundOptions): {
     pid: child.pid ?? null,
     child,
   };
-}
-
-/**
- * Drain and release a fire-and-forget child's stdio pipes. Nothing here ever
- * reads them: without resume() a chatty child blocks as soon as the OS pipe
- * buffer (~64 KB) fills, and the open pipe handles keep the parent's event
- * loop alive even after child.unref() — a one-shot CLI run could never exit
- * while a background dev server kept its pipes open. resume() switches the
- * streams to flowing mode and discards the data (callers that attach their
- * own 'data' listener still receive chunks); unref() detaches the handles
- * from the event loop.
- */
-function releaseStdio(child: ReturnType<typeof spawn>): void {
-  for (const stream of [child.stdout, child.stderr]) {
-    if (!stream) continue;
-    stream.resume();
-    (stream as never as { unref?: () => void }).unref?.();
-  }
 }
 
 /**
@@ -164,7 +144,7 @@ export function spawnBackgroundExec(
   const spawnOpts: SpawnOptions = {
     cwd: cwd ?? process.cwd(),
     env: buildChildEnv({ extra: env }),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: 'ignore',
     detached: !isWin,
     windowsHide: true,
     ...(shim ? { windowsVerbatimArguments: shim.windowsVerbatimArguments } : {}),
@@ -179,8 +159,6 @@ export function spawnBackgroundExec(
     // don't crash the parent — just log at debug level.
     console.log(JSON.stringify({ level: 'debug', event: 'spawn_error', cmd: command, error: err.message }));
   });
-
-  releaseStdio(child);
 
   // Unref immediately so the parent can exit even if the child is still running
   child.unref();

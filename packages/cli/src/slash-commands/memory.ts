@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
   FindMemoriesForFileResponse,
@@ -14,13 +14,14 @@ import type {
   SuperMemoryHygieneReport,
   SuperMemoryKind,
   SuperMemoryScope,
-  SuperMemoryServiceLike,
   SuperMemoryStats,
   SuperMemoryStatus,
+  SuperMemorySurface,
   UpdateSuperMemoryInput,
 } from '@wrongstack/super-memory';
+import { getSuperMemorySurface } from '@wrongstack/super-memory';
+import type { SlashCommandContext } from './command-context.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -31,6 +32,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
+      const superMemory = getSuperMemorySurface(store);
       const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
       switch (cmd) {
@@ -38,8 +40,11 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'show':
         case 'list': {
           // SuperMemory path: show stats + structured entries when available
-          if (isSuperMemoryStore(store)) {
-            const [stats, allMemories] = await Promise.all([store.stats(), store.listSuper()]);
+          if (superMemory) {
+            const [stats, allMemories] = await Promise.all([
+              superMemory.stats(),
+              superMemory.listSuper(),
+            ]);
             if (allMemories.length === 0) {
               return { message: '🧠 Super Memory is empty.' };
             }
@@ -62,7 +67,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
                 'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
             };
           }
-          if (!isSuperMemoryStore(store)) {
+          if (!superMemory) {
             // Legacy fallback: no structured args available.
             if (!restJoined) return { message: 'Usage: /memory remember <text>' };
             await store.remember(restJoined);
@@ -76,7 +81,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               message: 'Nothing to remember — provide the memory text before/after the flags.',
             };
           try {
-            const memory = await store.rememberSuper({
+            const memory = await superMemory.rememberSuper({
               text: parsed.text,
               ...(parsed.kind && { kind: parsed.kind }),
               ...(parsed.scope && { scope: parsed.scope }),
@@ -86,7 +91,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
               ...(parsed.supersedes && { supersedes: parsed.supersedes }),
               ...(parsed.contradicts && { contradicts: parsed.contradicts }),
-            });
+            } as never);
             const tags =
               memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
             return {
@@ -98,7 +103,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'update':
         case 'edit': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('update');
+          if (!superMemory) return requiresSuperMemory('update');
           const id = rest[0];
           if (!id)
             return {
@@ -127,7 +132,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             };
           }
           try {
-            const memory = await store.updateSuperMemory(id, patch);
+            const memory = await superMemory.updateSuperMemory(id, patch);
             return {
               message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
             };
@@ -137,16 +142,16 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'delete':
         case 'del': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('delete');
+          if (!superMemory) return requiresSuperMemory('delete');
           const id = rest[0];
           if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
           const reason = rest.slice(1).join(' ').trim() || undefined;
           try {
-            const existing = await store.getSuperMemory(id);
+            const existing = await superMemory.getSuperMemory(id);
             if (!existing) return { message: `No memory with id \`${id}\`.` };
             // `/memory delete` is an explicit user command, so it satisfies
             // Super Memory's destructive-operation authorization contract.
-            await store.deleteSuperMemory(id, reason, { force: true });
+            await superMemory.deleteSuperMemory(id, reason, { force: true });
             return { message: `Deleted \`${id}\`.` };
           } catch (err) {
             return { message: `Could not delete: ${toErrorMessage(err)}` };
@@ -193,7 +198,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         // Optional cursor line range boosts symbol-anchored memories that
         // overlap the caret position.
         case 'for-file': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('for-file');
+          if (!superMemory?.findMemoriesForFile) return requiresSuperMemory('for-file');
           if (!restJoined)
             return {
               message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]',
@@ -215,7 +220,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           }
           const { singleLine, limit, showDeleted } = forFileFlags;
           try {
-            const response = await store.findMemoriesForFile(pathArg, {
+            const response = await superMemory.findMemoriesForFile(pathArg, {
               ...(singleLine !== undefined ? { lineStart: singleLine, lineEnd: singleLine } : {}),
               limit,
               includeDeleted: showDeleted || undefined,
@@ -229,7 +234,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'search': {
           if (!restJoined) return { message: 'Usage: /memory search <query>' };
-          if (!isSuperMemoryStore(store)) {
+          if (!superMemory) {
             const entries = await store.search(restJoined, 'project-memory', 20);
             return {
               message: formatLegacyEntries(
@@ -240,30 +245,32 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           }
           return {
             message: formatSuperMemories(
-              await store.searchSuper(restJoined, { limit: 20 }),
+              await superMemory.searchSuper(restJoined, { limit: 20 }),
               `Search: ${restJoined}`,
             ),
           };
         }
         case 'graph': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('graph');
+          if (!superMemory?.graphFor) return requiresSuperMemory('graph');
           if (!restJoined) return { message: 'Usage: /memory graph <memory-id|path|query>' };
-          return { message: formatGraph(await store.graphFor(restJoined, 2, 100), restJoined) };
+          return {
+            message: formatGraph(await superMemory.graphFor(restJoined, 2, 100), restJoined),
+          };
         }
         case 'verify': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('verify');
-          return { message: formatVerification(await store.verify(restJoined || undefined)) };
+          if (!superMemory?.verify) return requiresSuperMemory('verify');
+          return { message: formatVerification(await superMemory.verify(restJoined || undefined)) };
         }
         case 'hygiene': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('hygiene');
-          return { message: formatHygiene((await store.hygiene()) as SuperMemoryHygieneReport) };
+          if (!superMemory) return requiresSuperMemory('hygiene');
+          return { message: formatHygiene(await superMemory.hygiene()) };
         }
         case 'candidates': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('candidates');
+          if (!superMemory) return requiresSuperMemory('candidates');
           const action = rest[0]?.toLowerCase() ?? 'list';
           if (action === 'accept') {
             if (!rest[1]) return { message: 'Usage: /memory candidates accept <candidate-id>' };
-            const accepted = await store.acceptCandidate(rest[1]);
+            const accepted = await superMemory.acceptCandidate(rest[1]);
             return {
               message: accepted
                 ? `Accepted ${rest[1]} as ${accepted.id}.`
@@ -273,7 +280,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           if (action === 'reject') {
             if (!rest[1])
               return { message: 'Usage: /memory candidates reject <candidate-id> [reason]' };
-            const rejected = await store.rejectCandidate(
+            const rejected = await superMemory.rejectCandidate(
               rest[1],
               rest.slice(2).join(' ') || 'Rejected from /memory.',
             );
@@ -281,20 +288,22 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               message: rejected ? `Rejected ${rest[1]}.` : `Candidate ${rest[1]} was not found.`,
             };
           }
-          return { message: formatCandidates(await store.listCandidates(action === 'all')) };
+          return {
+            message: formatCandidates(await superMemory.listCandidates(action === 'all')),
+          };
         }
         case 'audit': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('audit');
-          return { message: formatAudit(await store.readAudit(50)) };
+          if (!superMemory?.readAudit) return requiresSuperMemory('audit');
+          return { message: formatAudit(await superMemory.readAudit(50)) };
         }
         case 'import-legacy': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('import-legacy');
+          if (!superMemory?.importLegacy) return requiresSuperMemory('import-legacy');
           const legacyPaths = [opts.paths?.projectMemory, opts.paths?.globalMemory].filter(
             (value): value is string => !!value,
           );
           if (legacyPaths.length === 0)
             return { message: 'Legacy memory paths are unavailable in this session.' };
-          return { message: formatLegacyImport(await store.importLegacy(legacyPaths)) };
+          return { message: formatLegacyImport(await superMemory.importLegacy(legacyPaths)) };
         }
         case 'clear': {
           const force = rest.includes('--force');
@@ -322,15 +331,15 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return runCompact(opts);
         }
         case 'compact-log': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('compact-log');
-          if (typeof store.compactLog !== 'function') {
+          if (!superMemory) return requiresSuperMemory('compact-log');
+          if (typeof superMemory.compactLog !== 'function') {
             return {
               message:
                 '🧹 Log compaction is only available on the JSONL backend. The SQLite backend compacts automatically via UPSERT.',
             };
           }
           try {
-            const result = await store.compactLog();
+            const result = await superMemory.compactLog();
             if (result.beforeRecords === result.afterRecords) {
               return {
                 message: `🧹 Log already compact — ${result.uniqueIds} records, 0 duplicates removed.`,
@@ -347,10 +356,10 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           }
         }
         case 'stats': {
-          if (isSuperMemoryStore(store)) {
+          if (superMemory) {
             const [stats, allMems] = await Promise.all([
-              store.stats(),
-              store.listSuper(['active', 'stale']),
+              superMemory.stats(),
+              superMemory.listSuper(['active', 'stale']),
             ]);
             const scopedCount = allMems.filter((m) => m.audience).length;
             const roles = new Set<string>();
@@ -363,9 +372,9 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             const roleList = [...roles].sort().join(', ');
             const statsLines = formatSuperStats(stats, scopedCount, roleList).split('\n');
             // Append log health if available (JSONL backend only)
-            if (typeof store.getLogStats === 'function') {
+            if (typeof superMemory.getLogStats === 'function') {
               try {
-                const logStats = await store.getLogStats();
+                const logStats = await superMemory.getLogStats();
                 const kbSize = (logStats.fileSizeBytes / 1024).toFixed(1);
                 const ratio = logStats.duplicateRatio.toFixed(1);
                 const healthIcon =
@@ -387,8 +396,8 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'audience':
         case 'role': {
-          if (!isSuperMemoryStore(store)) return requiresSuperMemory('audience');
-          return runAudienceMemory(store, rest);
+          if (!superMemory) return requiresSuperMemory('audience');
+          return runAudienceMemory(superMemory, rest);
         }
         default:
           return {
@@ -694,13 +703,14 @@ async function runPathMemory(
   targetPath: string,
   includeAncestors: boolean,
 ): Promise<{ message: string }> {
-  if (!isSuperMemoryStore(store)) {
+  const superMemory = getSuperMemorySurface(store);
+  if (!superMemory) {
     return {
       message:
         '`/memory file` requires the Super Memory backend. Enable `superMemory.enabled` and restart the session.',
     };
   }
-  const memories = await store.retrieveForPath({
+  const memories = await superMemory.retrieveForPath({
     path: targetPath,
     limit: 20,
     includeAncestors,
@@ -718,49 +728,6 @@ async function runPathMemory(
     lines.push(`- [${memory.kind}|${memory.status}] ${memory.text}${tags}${anchorText}`);
   }
   return { message: lines.join('\n') };
-}
-
-type CliSuperMemoryService = SuperMemoryServiceLike & {
-  stats(): Promise<SuperMemoryStats>;
-  listSuper(statuses?: string[]): Promise<SuperMemory[]>;
-  importLegacy(files: string[]): Promise<LegacyImportResult>;
-  readAudit(limit?: number): Promise<SuperMemoryAuditRecord[]>;
-  rememberSuper(
-    input: import('@wrongstack/super-memory').RememberSuperMemoryInput,
-  ): Promise<SuperMemory>;
-  updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
-  deleteSuperMemory(
-    id: string,
-    reason?: string,
-    options?: { force?: boolean; neverInject?: boolean },
-  ): Promise<void>;
-  compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }>;
-  getLogStats(): Promise<{
-    rawRecords: number;
-    uniqueIds: number;
-    duplicateRatio: number;
-    fileSizeBytes: number;
-  }>;
-  getSuperMemory(id: string): Promise<SuperMemory | null>;
-  retrieveForAudience(
-    context: { role?: string; taskType?: string; mode?: string },
-    limit?: number,
-  ): Promise<SuperMemory[]>;
-};
-
-function isSuperMemoryStore(
-  store: NonNullable<SlashCommandContext['memoryStore']>,
-): store is NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService {
-  const value = store as unknown as Record<string, unknown>;
-  return (
-    typeof value['retrieveForPath'] === 'function' &&
-    typeof value['searchSuper'] === 'function' &&
-    typeof value['graphFor'] === 'function' &&
-    typeof value['hygiene'] === 'function' &&
-    typeof value['listSuper'] === 'function' &&
-    typeof value['rememberSuper'] === 'function' &&
-    typeof value['updateSuperMemory'] === 'function'
-  );
 }
 
 // ── /memory audience — view and manage role-scoped memories ──────────
@@ -823,7 +790,7 @@ function formatAudienceSelector(audience: MemoryAudienceSelector): string {
 }
 
 async function runAudienceMemory(
-  store: NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService,
+  store: SuperMemorySurface,
   rest: string[],
 ): Promise<{ message: string }> {
   const sub = rest[0]?.toLowerCase() ?? 'list';
@@ -1398,7 +1365,7 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   // Super Memory is the live backend: pull structured memories directly so
   // operations target real memory ids (updateSuperMemory/deleteSuperMemory).
   // The legacy text-parsing path is only a fallback for a non-super store.
-  const superStore = isSuperMemoryStore(store) ? store : undefined;
+  const superStore = getSuperMemorySurface(store);
   let compactEntries: CompactEntry[];
   if (superStore) {
     const memories = await superStore.listSuper(['active', 'stale']);

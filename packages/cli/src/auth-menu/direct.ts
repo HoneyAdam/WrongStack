@@ -1,4 +1,4 @@
-import type { WireFamily } from '@wrongstack/core';
+import type { WireFamily } from '@wrongstack/core/types';
 import {
   mutateConfigProviders,
   normalizeKeys,

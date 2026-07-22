@@ -23,8 +23,9 @@
  * @module fleet/status-broadcast
  */
 
-import type { EventBus, Mailbox } from '@wrongstack/core';
-import type { FleetConfig } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Mailbox } from '@wrongstack/core/coordination';
+import type { FleetConfig } from '@wrongstack/core/types';
 
 export interface FleetStatusBroadcasterOptions {
   /** Host EventBus carrying the re-emitted `subagent.*` lifecycle events. */

@@ -49,6 +49,7 @@ describe('process WebSocket handlers', () => {
           startedAt: 5,
           killed: false,
           protected: true,
+          background: true,
         },
         { pid: 11, command: 'rg foo', name: 'grep', startedAt: 6, killed: true, protected: false },
       ]);
@@ -66,6 +67,7 @@ describe('process WebSocket handlers', () => {
               startedAt: 5,
               status: 'running',
               protected: true,
+              background: true,
             },
             {
               pid: 11,

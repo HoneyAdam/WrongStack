@@ -17,9 +17,9 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { DesignStack } from '@wrongstack/core';
 import {
   applyTokenOverrides,
+  clearPersistedActiveKit,
   getDesignKitLoader,
   getDesignState,
   isDesignStack,
@@ -27,10 +27,13 @@ import {
   materializeTokens,
   recordKitChoice,
   recordOverrides,
+  resolveSemanticTune,
+  type SemanticTune,
   runDesignVerify,
   setActiveKit,
   setDesignOverrides,
-} from '@wrongstack/core';
+  type DesignStack,
+} from '@wrongstack/core/design';
 import type { WebSocket } from 'ws';
 import { send } from './ws-utils.js';
 
@@ -194,6 +197,79 @@ export async function handleDesignSet(
     send(ws, { type: 'design.set', payload: { ok: true, overrides: merged } });
   } catch (err) {
     send(ws, { type: 'design.set', payload: { ok: false, error: String(err) } });
+  }
+}
+
+/** Resolve high-level knobs (radius/density/font/motion) into token overrides. */
+export async function handleDesignTune(
+  ws: WebSocket,
+  ctx: DesignContext,
+  msg: { payload?: unknown },
+): Promise<void> {
+  const raw = (msg.payload as { tune?: unknown })?.tune;
+  const tune = (raw && typeof raw === 'object' ? raw : {}) as SemanticTune;
+  const patch = resolveSemanticTune(tune);
+  if (Object.keys(patch).length === 0) {
+    send(ws, { type: 'design.tune', payload: { ok: false, error: 'No recognized knobs' } });
+    return;
+  }
+  try {
+    const merged = await recordOverrides(ctx.projectRoot, patch, new Date().toISOString());
+    if (!merged) {
+      send(ws, { type: 'design.tune', payload: { ok: false, error: 'No active kit' } });
+      return;
+    }
+    if (ctx.agentMeta) setDesignOverrides(ctx.agentMeta, merged);
+    send(ws, { type: 'design.tune', payload: { ok: true, resolved: patch, overrides: merged } });
+  } catch (err) {
+    send(ws, { type: 'design.tune', payload: { ok: false, error: String(err) } });
+  }
+}
+
+/** Switch to a different kit, dropping the prior kit's overrides. */
+export async function handleDesignSwap(
+  ws: WebSocket,
+  ctx: DesignContext,
+  msg: { payload?: unknown },
+): Promise<void> {
+  const payload = (msg.payload ?? {}) as { kit?: unknown; stack?: unknown };
+  const kitId = typeof payload.kit === 'string' ? payload.kit.trim() : '';
+  if (!kitId) {
+    send(ws, { type: 'design.swap', payload: { ok: false, error: 'No kit id provided' } });
+    return;
+  }
+  try {
+    const loader = getDesignKitLoader(ctx.projectRoot);
+    const kit = await loader.find(kitId);
+    if (!kit) {
+      send(ws, { type: 'design.swap', payload: { ok: false, kit: kitId, error: 'Kit not found' } });
+      return;
+    }
+    const stackArg = typeof payload.stack === 'string' ? payload.stack : undefined;
+    const stack: DesignStack =
+      stackArg && isDesignStack(stackArg) ? stackArg : (kit.stacks[0] ?? 'web');
+    // Fresh switch: drop old overrides before pinning.
+    await clearPersistedActiveKit(ctx.projectRoot);
+    if (ctx.agentMeta) setActiveKit(ctx.agentMeta, kit.id, stack, {});
+    await recordKitChoice(ctx.projectRoot, kit.id, stack, 'webui-swap', new Date().toISOString());
+    const body = await loader.readBody(kit.id, stack);
+    const tokens = await loader.readTokens(kit.id);
+    send(ws, {
+      type: 'design.swap',
+      payload: {
+        ok: true,
+        kit: kit.id,
+        name: kit.name,
+        aesthetic: kit.aesthetic,
+        stack,
+        body,
+        overrides: {},
+        light: tokens?.light ?? {},
+        dark: tokens?.dark ?? {},
+      },
+    });
+  } catch (err) {
+    send(ws, { type: 'design.swap', payload: { ok: false, kit: kitId, error: String(err) } });
   }
 }
 

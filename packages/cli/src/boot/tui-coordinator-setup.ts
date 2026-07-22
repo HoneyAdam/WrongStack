@@ -17,15 +17,11 @@
  * `state.coordinatorEvents` (both on the shared TuiRuntimeState).
  */
 import * as path from 'node:path';
-import {
-  AutonomousCoordinator,
-  type Context,
-  type Director,
-  type EventBus,
-  type LLMProvider,
-  type Mailbox,
-} from '@wrongstack/core';
-import type { WstackPaths } from '@wrongstack/core';
+import { AutonomousCoordinator, type Director, type Mailbox } from '@wrongstack/core/coordination';
+import { type Context } from '@wrongstack/core/agent';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { type LLMProvider } from '@wrongstack/core/coordination';
+import type { WstackPaths } from '@wrongstack/core/utils';
 import type { TuiRuntimeState } from './tui-runtime-state.js';
 
 export interface CoordinatorSetupContext {
@@ -184,7 +180,7 @@ export function setupAutonomousCoordinator(
       coordinatorController['onCoordinatorClaim'] = async (taskId: string) => {
         if (!state.autonomousCoordinator) return 'No coordinator is active.';
         await state.autonomousCoordinator.graph.load();
-        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
+        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core/coordination').GoalNode | undefined;
         if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
         if (goal.status !== 'pending') return `Task ${taskId.slice(0, 8)} is ${goal.status}, not claimable.`;
         const ok = await state.autonomousCoordinator.auction.claim(
@@ -196,7 +192,7 @@ export function setupAutonomousCoordinator(
       coordinatorController['onCoordinatorComplete'] = async (taskId: string, result?: string) => {
         if (!state.autonomousCoordinator) return 'No coordinator is active.';
         await state.autonomousCoordinator.graph.load();
-        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
+        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core/coordination').GoalNode | undefined;
         if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
         if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot complete.`;
         await state.autonomousCoordinator.reportTaskCompletion(taskId, result ?? 'Terminal worker completed the task');
@@ -205,7 +201,7 @@ export function setupAutonomousCoordinator(
       coordinatorController['onCoordinatorFail'] = async (taskId: string, error: string) => {
         if (!state.autonomousCoordinator) return 'No coordinator is active.';
         await state.autonomousCoordinator.graph.load();
-        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core').GoalNode | undefined;
+        const goal = state.autonomousCoordinator.graph.get(taskId) as import('@wrongstack/core/coordination').GoalNode | undefined;
         if (goal?.type !== 'goal') return `Task ${taskId.slice(0, 8)} not found.`;
         if (goal.status !== 'in_progress') return `Task ${taskId.slice(0, 8)} is ${goal.status}, cannot fail.`;
         await state.autonomousCoordinator.reportTaskFailure(taskId, error);

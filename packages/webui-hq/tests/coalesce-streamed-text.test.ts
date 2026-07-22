@@ -1,4 +1,4 @@
-import type { HqTranscriptEntry } from '@wrongstack/core';
+import type { HqTranscriptEntry } from '@wrongstack/core/hq';
 import { describe, expect, it } from 'vitest';
 import { coalesceStreamedText } from '../src/lib/use-session-transcript.js';
 

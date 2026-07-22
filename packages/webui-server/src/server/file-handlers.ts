@@ -12,7 +12,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import { atomicWrite, ToolValidationError } from '@wrongstack/core';
+import { ToolValidationError } from '@wrongstack/core/types';
+import { atomicWrite } from '@wrongstack/core/utils';
 import { SKIP_DIRS, isHiddenEntry, rankFiles } from './file-picker.js';
 import { isPathInside, resolveWorkingDirInsideProject } from './path-containment.js';
 import { send, errMessage } from './ws-utils.js';

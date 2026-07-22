@@ -34,7 +34,7 @@
 import type { Dirent, Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 const API_VERSION = '^0.1.10';
 

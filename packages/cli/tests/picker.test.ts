@@ -1,5 +1,5 @@
 import { Writable } from 'node:stream';
-import type { ModelsDevModel, ResolvedProvider } from '@wrongstack/core';
+import type { ModelsDevModel, ResolvedProvider } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyPickerKey,

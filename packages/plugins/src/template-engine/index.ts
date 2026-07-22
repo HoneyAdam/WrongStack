@@ -7,7 +7,7 @@
  * - template_create: Save a named template to the plugin store
  * - template_list: List all saved templates
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 

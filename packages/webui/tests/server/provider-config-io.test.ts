@@ -10,8 +10,11 @@ vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,
 }));
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/utils', () => ({
   atomicWrite: mockAtomicWrite,
+}));
+
+vi.mock('@wrongstack/core/types', () => ({
   // provider-config-io throws ConfigError on the corrupt / non-ENOENT paths;
   // the mock factory must surface it or access throws "no export defined".
   ConfigError: class ConfigError extends Error {

@@ -68,6 +68,8 @@ export interface ACPSessionOptions {
   terminalTimeoutMs?: number | undefined;
   /** Per-terminal output byte cap, default 1 MiB. */
   terminalOutputByteLimit?: number | undefined;
+  /** Maximum terminal records retained concurrently, default 32. */
+  terminalMaxCount?: number | undefined;
   /**
    * MCP server configs to include in session/new, session/load, and
    * session/resume. The agent will connect to these servers to provide
@@ -195,6 +197,7 @@ export class ACPSession {
   private readonly permissionPolicy: PermissionPolicy;
   private readonly timeoutMs: number;
   private readonly opts: ACPSessionOptions;
+  private transportOff: (() => void) | null = null;
 
   private state: State = 'init';
   private sessionId: SessionId | null = null;
@@ -228,6 +231,9 @@ export class ACPSession {
     }
     if (opts.terminalOutputByteLimit !== undefined) {
       termOpts.outputByteLimit = opts.terminalOutputByteLimit;
+    }
+    if (opts.terminalMaxCount !== undefined) {
+      termOpts.maxTerminals = opts.terminalMaxCount;
     }
     this.terminalServer = new TerminalServer(termOpts);
     if (opts.permissionPolicy && opts.trustBoundary) {
@@ -337,11 +343,13 @@ export class ACPSession {
     }
 
     const session = new ACPSession(opts, transport);
-    transport.onMessage((msg) => session.handleMessage(msg));
+    session.transportOff = transport.onMessage((msg) => session.handleMessage(msg));
 
     try {
       await session.initialize();
     } catch (err) {
+      session.transportOff?.();
+      session.transportOff = null;
       try {
         transport.stop();
       } catch {
@@ -906,6 +914,8 @@ export class ACPSession {
       p.reject(new ACPSessionError('closed', 'session was closed'));
     }
     this.pending.clear();
+    this.transportOff?.();
+    this.transportOff = null;
     try {
       this.transport.stop();
     } catch {

@@ -1,4 +1,4 @@
-import type { ModelsDevModel, ModelsDevProvider } from '@wrongstack/core';
+import type { ModelsDevModel, ModelsDevProvider } from '@wrongstack/core/types';
 
 /**
  * Auto-discovery of an OpenAI-compatible server's model catalog.

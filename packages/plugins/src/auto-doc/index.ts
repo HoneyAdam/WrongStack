@@ -14,7 +14,7 @@
  * the session default. Best-effort: any LLM failure (or a bad response)
  * falls back to the template for that entity — a doc comment always lands.
  */
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 const AUTO_DOC_API_VERSION = '^0.1.10';

@@ -2,7 +2,7 @@
 import { Box, Text, useInput } from '../ink.js';
 import { useEffect, useState } from 'react';
 import type React from 'react';
-import type { State } from '../app.js';
+import type { State } from '../app-state.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 import {

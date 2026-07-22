@@ -11,8 +11,9 @@
  * `needsSetup` flag, and the stub provider's exact shape are preserved
  * verbatim. The function throws on the same failures the inline code did.
  */
-import type { Provider, ProviderConfig, ProviderRegistry } from '@wrongstack/core';
-import { expectDefined } from '@wrongstack/core';
+import type { ProviderRegistry } from '@wrongstack/core/registry';
+import type { Provider, ProviderConfig } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { Config } from '@wrongstack/core/types';
 import { makeProviderFromConfig } from '@wrongstack/providers';

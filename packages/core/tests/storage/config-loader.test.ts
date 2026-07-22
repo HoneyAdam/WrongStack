@@ -1,7 +1,10 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DefaultConfigLoader } from '../../src/storage/config-loader.js';
+import {
+  DefaultConfigLoader,
+  repairConfigDefaults,
+} from '../../src/storage/config-loader.js';
 import { resolveWstackPaths } from '../../src/utils/wstack-paths.js';
 import { EventBus } from '../../src/kernel/events.js';
 
@@ -677,5 +680,42 @@ describe('DefaultConfigLoader', () => {
       outcome: 'failure',
       error: 'parse error or empty file',
     }));
+  });
+});
+
+describe('repairConfigDefaults', () => {
+  it('adds missing defaults, repairs incompatible shapes, and preserves identity settings', () => {
+    const report = repairConfigDefaults({
+      provider: 'custom-provider',
+      model: 'custom-model',
+      maxConcurrent: 'invalid',
+      context: { mode: 'balanced' },
+      extensions: { custom: { enabled: true } },
+    });
+
+    expect(report.changed).toBe(true);
+    expect(report.fixed['provider']).toBe('custom-provider');
+    expect(report.fixed['model']).toBe('custom-model');
+    expect(report.fixed['maxConcurrent']).toBe(4);
+    expect(report.fixed['context']).toMatchObject({
+      mode: 'balanced',
+      autoCompact: true,
+      strategy: 'hybrid',
+    });
+    expect(report.fixed['extensions']).toEqual({ custom: { enabled: true } });
+    expect(report.changes).toEqual(
+      expect.arrayContaining([
+        { path: 'maxConcurrent', action: 'replaced' },
+        { path: 'context.autoCompact', action: 'added' },
+      ]),
+    );
+  });
+
+  it('is idempotent after defaults are materialized', () => {
+    const first = repairConfigDefaults({ provider: 'p', model: 'm' });
+    const second = repairConfigDefaults(first.fixed);
+
+    expect(second.changed).toBe(false);
+    expect(second.changes).toEqual([]);
   });
 });

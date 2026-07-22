@@ -10,6 +10,7 @@
     "coordination": { "classification": "feature-runtime", "targetOwner": "coordination" },
     "core": { "classification": "agent-domain", "targetOwner": "core" },
     "defaults": { "classification": "compatibility", "targetOwner": "runtime-or-retire" },
+    "design": { "classification": "product-feature", "targetOwner": "core-focused-facade" },
     "execution": {
       "classification": "application-runtime",
       "targetOwner": "runtime-review-required"

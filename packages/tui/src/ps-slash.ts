@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { getProcessRegistry } from '@wrongstack/tools';
 
 /**
@@ -38,8 +38,9 @@ function renderList(): string {
   for (const p of all) {
     const age = ((now - p.startedAt) / 1000).toFixed(1);
     const killedTag = p.killed ? ' [killed]' : '';
+    const backgroundTag = p.background ? ' [background · preserved on exit]' : '';
     const cmd = p.command.length > 80 ? p.command.slice(0, 77) + '…' : p.command;
-    lines.push(`  ${p.pid}  ${p.name}  ${age}s  ${cmd}${killedTag}`);
+    lines.push(`  ${p.pid}  ${p.name}  ${age}s  ${cmd}${backgroundTag}${killedTag}`);
   }
   return lines.join('\n');
 }

@@ -12,7 +12,7 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 const API_VERSION = '^0.1.10';
 

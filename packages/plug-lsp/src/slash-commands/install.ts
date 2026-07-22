@@ -1,4 +1,4 @@
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { commandExistsOnPath, resolveServerCommand } from '../utils/command-resolver.js';

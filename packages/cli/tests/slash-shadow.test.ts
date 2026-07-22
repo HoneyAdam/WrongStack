@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { buildShadowCommand } from '../src/slash-commands/shadow.js';
 
 function ctx(): Context {

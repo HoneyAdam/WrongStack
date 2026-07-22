@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../src/kernel/events.js';
-import { QueueStore } from '../../src/storage/queue-store.js';
+import { QUEUE_MAX_BYTES, QUEUE_MAX_ITEMS, QueueStore } from '../../src/storage/queue-store.js';
 
 // vi.mock is hoisted above imports.  We use vi.importActual inside the factory
 // to lazily get the real module, avoiding TDZ issues.  The returned plain object
@@ -23,19 +23,37 @@ vi.mock('node:fs/promises', async () => {
       if (store[filepath] !== undefined) return store[filepath];
       return await real.readFile(filepath, 'utf8');
     }),
+    stat: vi.fn(async (filepath: string) => {
+      if (store[filepath] !== undefined)
+        return { size: Buffer.byteLength(store[filepath], 'utf8') };
+      return await real.stat(filepath);
+    }),
     writeFile: vi.fn(async (filepath: string, data: string) => {
       store[filepath] = data;
-      try { await real.writeFile(filepath, data, 'utf8'); } catch { /* best-effort real write */ }
+      try {
+        await real.writeFile(filepath, data, 'utf8');
+      } catch {
+        /* best-effort real write */
+      }
     }),
     rename: real.rename,
     unlink: vi.fn(async (filepath: string) => {
       delete store[filepath];
-      try { await real.unlink(filepath); } catch { /* best-effort */ }
+      try {
+        await real.unlink(filepath);
+      } catch {
+        /* best-effort */
+      }
     }),
     access: vi.fn(async (filepath: string) => {
       if (store[filepath] !== undefined) return;
-      try { await real.access(filepath); } catch { /* fall through to check in-memory */ }
-      if (store[filepath] === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      try {
+        await real.access(filepath);
+      } catch {
+        /* fall through to check in-memory */
+      }
+      if (store[filepath] === undefined)
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     }),
     mkdir: real.mkdir,
     readdir: real.readdir,
@@ -48,7 +66,11 @@ vi.mock('node:fs/promises', async () => {
       } else {
         delete store[filepath];
       }
-      try { await real.rm(filepath, opts); } catch { /* best-effort */ }
+      try {
+        await real.rm(filepath, opts);
+      } catch {
+        /* best-effort */
+      }
     }),
     chmod: real.chmod,
   };
@@ -66,6 +88,7 @@ describe('QueueStore', () => {
   beforeEach(async () => {
     dir = await mktmp();
     fsp.readFile.mockReset();
+    fsp.stat.mockReset();
     fsp.writeFile.mockReset();
     fsp.unlink.mockReset();
     fsp.access.mockReset();
@@ -150,6 +173,24 @@ describe('QueueStore', () => {
     expect(out[0]?.displayText).toBe('only');
   });
 
+  it('caps persisted queue snapshots by item count', async () => {
+    const store = new QueueStore({ dir });
+    const items = Array.from({ length: QUEUE_MAX_ITEMS + 5 }, (_, index) => ({
+      displayText: `item-${index}`,
+      blocks: [{ type: 'text' as const, text: `item-${index}` }],
+    }));
+    await store.write(items);
+    expect(await store.read()).toHaveLength(QUEUE_MAX_ITEMS);
+  });
+
+  it('rejects an oversized queue file before readFile allocates it', async () => {
+    const store = new QueueStore({ dir });
+    fsp.stat.mockResolvedValueOnce({ size: QUEUE_MAX_BYTES + 1 } as never);
+    const readsBefore = fsp.readFile.mock.calls.length;
+    expect(await store.read()).toEqual([]);
+    expect(fsp.readFile.mock.calls.length).toBe(readsBefore);
+  });
+
   // ── storage.* event tests ─────────────────────────────────────────────────
 
   it('emits storage.read with outcome success when read() finds no file (ENOENT)', async () => {
@@ -157,11 +198,14 @@ describe('QueueStore', () => {
     const store = new QueueStore({ dir, events });
     const out = await store.read();
     expect(out).toEqual([]);
-    expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
-      store: 'queue',
-      operation: 'read',
-      outcome: 'success',
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.read',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'read',
+        outcome: 'success',
+      }),
+    );
   });
 
   it('emits storage.read with outcome failure when read() finds malformed JSON', async () => {
@@ -171,12 +215,15 @@ describe('QueueStore', () => {
     const store = new QueueStore({ dir, events });
     const out = await store.read();
     expect(out).toEqual([]);
-    expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
-      store: 'queue',
-      operation: 'read',
-      outcome: 'failure',
-      error: 'parse_failed',
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.read',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'read',
+        outcome: 'failure',
+        error: 'parse_failed',
+      }),
+    );
   });
 
   it('emits storage.read with outcome failure when read() finds non-array root', async () => {
@@ -186,39 +233,49 @@ describe('QueueStore', () => {
     const store = new QueueStore({ dir, events });
     const out = await store.read();
     expect(out).toEqual([]);
-    expect(events.emit).toHaveBeenCalledWith('storage.read', expect.objectContaining({
-      store: 'queue',
-      operation: 'read',
-      outcome: 'failure',
-      error: 'invalid_schema',
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.read',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'read',
+        outcome: 'failure',
+        error: 'invalid_schema',
+      }),
+    );
   });
 
   it('emits storage.error when read() encounters a disk I/O error', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
+    fsp.stat.mockResolvedValueOnce({ size: 1 } as never);
     fsp.readFile.mockRejectedValueOnce(
       Object.assign(new Error('EACCES permission denied'), { code: 'EACCES' }),
     );
     const out = await store.read();
     expect(out).toEqual([]);
-    expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
-      store: 'queue',
-      operation: 'read',
-      outcome: 'failure',
-      error: expect.stringContaining('EACCES'),
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.error',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'read',
+        outcome: 'failure',
+        error: expect.stringContaining('EACCES'),
+      }),
+    );
   });
 
   it('emits storage.write with outcome success when write() succeeds', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const store = new QueueStore({ dir, events });
     await store.write([{ displayText: 'hello', blocks: [{ type: 'text', text: 'hello' }] }]);
-    expect(events.emit).toHaveBeenCalledWith('storage.write', expect.objectContaining({
-      store: 'queue',
-      operation: 'write',
-      outcome: 'success',
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.write',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'write',
+        outcome: 'success',
+      }),
+    );
   });
 
   it('emits storage.error when write() encounters a disk I/O error', async () => {
@@ -228,12 +285,15 @@ describe('QueueStore', () => {
       Object.assign(new Error('ENOSPC no space left'), { code: 'ENOSPC' }),
     );
     await store.write([{ displayText: 'hello', blocks: [{ type: 'text', text: 'hello' }] }]);
-    expect(events.emit).toHaveBeenCalledWith('storage.error', expect.objectContaining({
-      store: 'queue',
-      operation: 'write',
-      outcome: 'failure',
-      error: expect.stringContaining('ENOSPC'),
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.error',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'write',
+        outcome: 'failure',
+        error: expect.stringContaining('ENOSPC'),
+      }),
+    );
   });
 
   it('emits storage.write with outcome success when clear() succeeds', async () => {
@@ -242,10 +302,13 @@ describe('QueueStore', () => {
     await store.write([{ displayText: 'x', blocks: [{ type: 'text', text: 'x' }] }]);
     events.emit = vi.fn(); // reset after write's emission
     await store.clear();
-    expect(events.emit).toHaveBeenCalledWith('storage.write', expect.objectContaining({
-      store: 'queue',
-      operation: 'clear',
-      outcome: 'success',
-    }));
+    expect(events.emit).toHaveBeenCalledWith(
+      'storage.write',
+      expect.objectContaining({
+        store: 'queue',
+        operation: 'clear',
+        outcome: 'success',
+      }),
+    );
   });
 });

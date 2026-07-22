@@ -18,8 +18,9 @@
  * discovery.
  */
 
-import { resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
-import type { Config, Logger } from '@wrongstack/core';
+import { resolveProjectDir } from '@wrongstack/core/coordination';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
+import type { Config, Logger } from '@wrongstack/core/types';
 import {
   tryAcquireMailboxBridge,
   type MailboxBridgeHandle,

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { ToolValidationError } from '@wrongstack/core';
+import { ToolValidationError } from '@wrongstack/core/types';
 
 export function isPathInside(root: string, target: string): boolean {
   const relative = path.relative(root, target);

@@ -871,8 +871,19 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.super.update', payload: { id, ...patch } }, options);
   }
 
+  /**
+   * Delete a Super Memory record.
+   * @param reason - Optional human-readable reason. Uses `!== undefined` (not
+   *   truthy) so an empty string `''` is intentionally included — the caller
+   *   may want to record an explicit blank reason rather than omitting the
+   *   field. This is consistent with the `updateSuperMemory` style which
+   *   spreads the entire `patch` unconditionally.
+   */
   deleteSuperMemory(id: string, reason?: string) {
-    this.send({ type: 'memory.super.delete', payload: { id, reason } });
+    this.send({
+      type: 'memory.super.delete',
+      payload: { id, ...(reason !== undefined ? { reason } : {}) },
+    });
   }
 
   rememberSuperMemory(
@@ -1199,7 +1210,7 @@ let client: WrongStackWebSocketClient | null = null;
  * Subtle gotcha on Windows: when the page is loaded from `http://localhost:3456`,
  * the browser resolves `localhost` *itself* and on Windows it tries IPv6 `[::1]`
  * before IPv4 `127.0.0.1`. If the backend listens only on `127.0.0.1`, every
- * connection attempt to `ws://localhost:3457` first hits the IPv6 socket
+ * connection attempt to `ws://localhost:3456` first hits the IPv6 socket
  * (refused) and then either gives up or flaps — symptom: "ws disconnect hep".
  *
  * Fix: when the page is on a loopback host (`localhost` / `127.0.0.1` / `::1`),

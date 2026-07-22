@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import {
   buildProviderConfigFromPreset,
   rehydrateCanonicalProviderConfig,
@@ -19,7 +19,7 @@ import {
  * Extracted from `index.ts`; transforms mutate the passed record in place, the
  * same way the original handlers did before calling `saveProviders`.
  */
-import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
+import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core/types';
 export type ProvidersRecord = Record<string, ProviderConfig>;
 
 export interface KeyOpResult {

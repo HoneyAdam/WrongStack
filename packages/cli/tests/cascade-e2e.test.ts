@@ -13,13 +13,10 @@
  * mocked so no real LLM calls happen.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { EventBus } from '@wrongstack/core';
-import { createAutoReviewPlugin } from '@wrongstack/core';
-import type {
-  ChimeraCascadeNeededPayload,
-  ChimeraReviewCompletePayload,
-  ReviewContextBundle,
-} from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
+import { createAutoReviewPlugin } from '@wrongstack/core/plugin';
+import type { ChimeraCascadeNeededPayload, ChimeraReviewCompletePayload } from '@wrongstack/core/plugin';
+import type { ReviewContextBundle } from '@wrongstack/core/types';
 
 // ── A Critical review report with a security finding (SQL injection) ──
 // Matches the chimera-review.md report format that parseReviewSeverity expects.

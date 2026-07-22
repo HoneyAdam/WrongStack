@@ -1,4 +1,4 @@
-import type { StreamEvent } from '@wrongstack/core';
+import type { StreamEvent } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { aggregateStream } from '../src/aggregate.js';
 import { createSseLineFoldingTransform, parseSSE } from '../src/sse.js';

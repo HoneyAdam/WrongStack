@@ -7,12 +7,8 @@
  * returns an error string (panel hint) or null on success.
  */
 
-import type {
-  BrainConfigPatch,
-  BrainCouncilVoterConfig,
-  BrainModelEntry,
-  BrainRuntime,
-} from '@wrongstack/core';
+import type { BrainConfigPatch, BrainRuntime } from '@wrongstack/core/execution';
+import type { BrainCouncilVoterConfig, BrainModelEntry } from '@wrongstack/core/types';
 import type { BrainPanelHost, BrainPanelSettings } from '@wrongstack/tui';
 
 export interface BrainPanelServiceDeps {

@@ -179,6 +179,10 @@ export interface ProtocolHandlerOptions {
    * the model resumes, not just the client UI.
    */
   seedFor?: ((sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => void) | undefined;
+  /** Release per-session agent/history resources after close, delete, or handler teardown. */
+  disposeFor?: ((sessionId: string) => void) | undefined;
+  /** Maximum sessions retained concurrently by one protocol handler. Default 64. */
+  maxSessions?: number | undefined;
   /**
    * Optional durable session store. When set, sessions + their recorded
    * history are persisted on create/prompt and restored on `session/load`,
@@ -201,4 +205,3 @@ export interface SessionPersistence {
     | null
   >;
 }
-

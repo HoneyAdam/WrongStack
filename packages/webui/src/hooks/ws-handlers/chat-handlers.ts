@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import { parseNextSteps } from '@wrongstack/tools/next-steps';
 import { projectChatMessage, projectToolMessage } from '@wrongstack/webui-server/protocol';
 import { toWireImages } from '@/components/ChatInput/image-attachments';

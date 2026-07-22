@@ -1,10 +1,10 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistTelegramConfig } from '../settings-menu.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { classifyTelegramChatId } from './telegram-setup.js';
 
 /**

@@ -1,7 +1,7 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { loadConfigProviders } from '../provider-config-utils.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /** Levenshtein distance, capped iteration for short provider ids. */

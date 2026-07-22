@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type * as http from 'node:http';
-import type { Provider } from '@wrongstack/core';
+import type { Provider } from '@wrongstack/core/types';
 import type {
   PackageOperation,
   Snapshot,

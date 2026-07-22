@@ -1,8 +1,7 @@
-import { expectDefined } from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core';
+import { expectDefined, toErrorMessage } from '@wrongstack/core/utils';
 import type { Specification, SpecRequirement, SpecSection } from '@wrongstack/core/types';
 import type { SpecStore } from './spec-store.js';
-import { SddError, ERROR_CODES } from '@wrongstack/core';
+import { SddError, ERROR_CODES } from '@wrongstack/core/types';
 
 // ─── Session Types ────────────────────────────────────────────────────────────
 
@@ -303,7 +302,7 @@ export class AISpecBuilder {
     try {
       const fsp = await import('node:fs/promises');
       const path = await import('node:path');
-      const { atomicWrite } = await import('@wrongstack/core');
+      const { atomicWrite } = await import('@wrongstack/core/utils');
       await fsp.mkdir(path.dirname(this.sessionPath), { recursive: true });
       // atomicWrite: torn save would corrupt the SDD session JSON and the
       // next load would silently fall back to a fresh session.

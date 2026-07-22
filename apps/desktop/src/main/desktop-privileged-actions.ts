@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Logger } from '@wrongstack/core/types';
 import {
   createCompatibilityTrustBoundary,
   isTrustDecisionAllowed,
@@ -20,6 +21,7 @@ export async function authorizeDesktopAction(
     cwd?: string | undefined;
     metadata?: Readonly<Record<string, string | number | boolean | null>> | undefined;
   },
+  logger?: Logger,
 ): Promise<{ allowed: boolean; reason: string }> {
   const request = {
     version: 1 as const,
@@ -34,17 +36,18 @@ export async function authorizeDesktopAction(
     ...(action.metadata ? { metadata: action.metadata } : {}),
   };
   const decision = await boundary.evaluate(request);
-  console.warn(
-    JSON.stringify({
-      level: 'info',
-      event: 'desktop.trust_boundary.decision',
-      requestId: request.requestId,
-      capability: request.capability,
-      decision: decision.kind,
-      policyId: decision.policyId,
-      timestamp: new Date().toISOString(),
-    }),
-  );
+  const auditEntry = {
+    event: 'desktop.trust_boundary.decision',
+    requestId: request.requestId,
+    capability: request.capability,
+    decision: decision.kind,
+    policyId: decision.policyId,
+  };
+  if (logger) {
+    logger.info('Trust boundary decision', auditEntry);
+  } else {
+    console.warn(JSON.stringify({ level: 'info', ...auditEntry, timestamp: new Date().toISOString() }));
+  }
   return { allowed: isTrustDecisionAllowed(decision), reason: decision.reason };
 }
 
@@ -74,8 +77,11 @@ export function authorizeDesktopRuntimeStop(
     capability: 'process.terminate',
     subject: {
       kind: 'process',
-      id: String(runtime.pid ?? runtime.id),
-      attributes: { runtimeId: runtime.id },
+      id: runtime.id,
+      attributes: {
+        ...(runtime.pid !== undefined ? { pid: runtime.pid } : {}),
+        runtimeId: runtime.id,
+      },
     },
     risk: 'high',
     cwd: runtime.root,

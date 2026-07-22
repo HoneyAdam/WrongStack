@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { DefaultSessionReader, expectDefined } from '@wrongstack/core';
+import { DefaultSessionReader } from '@wrongstack/core/storage';
+import { expectDefined } from '@wrongstack/core/utils';
 import type { SubcommandHandler } from '../index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 export const exportCmd: SubcommandHandler = async (args, deps) => {

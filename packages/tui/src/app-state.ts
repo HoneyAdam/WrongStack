@@ -1,12 +1,6 @@
 // State, Action, and supporting types extracted from app-reducer.ts.
 // This file has NO React or Ink dependencies — pure type definitions.
-import type {
-  AutonomyStage,
-  ContentBlock,
-  DesignKitEntry,
-  FleetChatVerbosity,
-  TokenSavingTier,
-} from '@wrongstack/core';
+import type { AutonomyStage, ContentBlock, DesignKitEntry, FleetChatVerbosity, TokenSavingTier } from '@wrongstack/core/types';
 import type { SddBoardSnapshot } from '@wrongstack/sdd';
 import type {
   AuthCatalogRow,
@@ -15,24 +9,10 @@ import type {
   AuthPanelState,
   AuthPanelView,
   AuthProviderRow,
-} from './components/auth-panel-model.js';
-import type { AutonomyOption } from './components/autonomy-picker.js';
-import type { HistoryEntry } from './components/history.js';
-import type { ProviderOption } from './components/model-picker.js';
-import type {
-  RefineFailureDecision,
-  RefineFailureModel,
-} from './components/refine-failure-panel.js';
-import type { HelpEntry } from './components/help-panel.js';
-import type { BrainLogEntry, BrainRiskLevel } from './components/brain-panel.js';
-import type { BrainPanelSettings } from './components/brain-panel-model.js';
-import type { McpPickerItem } from './components/mcp-picker.js';
-import type { PluginPickerItem } from './components/plugin-picker.js';
-import type { ToolPickerItem } from './components/tools-picker.js';
-import type { ShadowState } from './components/shadow-panel.js';
-import type { ProjectPickerItem } from './components/project-picker.js';
-import type { PromptPickEntry } from './components/prompt-picker.js';
-import type { SendMode } from './components/send-mode-picker.js';
+} from './auth-panel-model.js';
+import type { HistoryEntry } from './history-entry.js';
+import type { BrainLogEntry, BrainRiskLevel } from './brain-contracts.js';
+import type { BrainPanelSettings } from './brain-panel-model.js';
 import type {
   AuditLevel,
   CacheTtl,
@@ -43,9 +23,26 @@ import type {
   SettingsMode,
   SettingsPickerPatch,
   StatuslineMode,
-} from './components/settings-picker.js';
-import type { ChipMeta, StatuslineItem } from './components/statusline-picker.js';
-import type { WorktreeRow } from './components/worktree-panel.js';
+} from './settings-contracts.js';
+import type {
+  AutonomyOption,
+  ChipMeta,
+  HelpEntry,
+  LiveSessionEntry,
+  McpPickerItem,
+  ModeOption,
+  PluginPickerItem,
+  ProjectPickerItem,
+  PromptPickEntry,
+  ProviderOption,
+  RefineFailureDecision,
+  RefineFailureModel,
+  SendMode,
+  ShadowState,
+  StatuslineItem,
+  ToolPickerItem,
+  WorktreeRow,
+} from './ui-contracts.js';
 
 export interface QueueItem {
   id: number;
@@ -177,12 +174,8 @@ export type GoalSummary = {
 export type State = {
   entries: HistoryEntry[];
   /**
-   * Monotonic generation counter for WHOLESALE history replacements
-   * (session resume). Ink's <Static> tracks how many items it has already
-   * written by INDEX — replacing `entries` with a shorter array makes it
-   * silently skip the replayed entries. The History component keys <Static>
-   * on this so a replacement remounts it and the replayed transcript
-   * actually prints.
+   * Monotonic generation counter retained for wholesale history replacement
+   * compatibility and the legacy standalone History renderer.
    */
   historyGen: number;
   buffer: string;
@@ -297,7 +290,7 @@ export type State = {
   /** Agent mode picker — opened by `/mode`. Selects teach/brief/code-reviewer/etc. */
   modePicker: {
     open: boolean;
-    modes: import('./components/mode-picker.js').ModeOption[];
+    modes: ModeOption[];
     selected: number;
     hint?: string | undefined;
   };
@@ -611,6 +604,7 @@ export type State = {
   exitConfirm: {
     leaderActive: boolean;
     subagentCount: number;
+    backgroundCount?: number | undefined;
     resolve: (decision: boolean) => void;
   } | null;
   /** Generic slash-command confirmation rendered inside the TUI. */
@@ -721,7 +715,7 @@ export type State = {
   sessionsPanelOpen: boolean;
   /** Live session data for the sessions panel (F10). */
   sessionsPanel: {
-    sessions: import('./components/sessions-panel.js').LiveSessionEntry[];
+    sessions: LiveSessionEntry[];
     busy: boolean;
     /** Selected index for arrow-key navigation. -1 when nothing selected. */
     selected: number;
@@ -852,7 +846,6 @@ export type State = {
   };
   /**
    * In-app chat scroll state for the scrollable viewport.
-   * In the default `<Static>` path these are inert.
    *   scrollOffset    — rows scrolled up from the bottom; 0 = pinned to newest.
    *   totalLines      — last measured content height (rows), from onMeasure.
    *   viewportRows    — last computed viewport height (rows).
@@ -1031,7 +1024,7 @@ export type Action =
   | { type: 'autonomyPickerHint'; text?: string | undefined }
   | {
       type: 'modePickerOpen';
-      modes: import('./components/mode-picker.js').ModeOption[];
+      modes: ModeOption[];
     }
   | { type: 'modePickerClose' }
   | { type: 'modePickerMove'; delta: number }
@@ -1475,7 +1468,7 @@ export type Action =
   | { type: 'toggleSessionsPanel' }
   | {
       type: 'sessionsPanelSet';
-      sessions: import('./components/sessions-panel.js').LiveSessionEntry[];
+      sessions: LiveSessionEntry[];
     }
   | { type: 'sessionsPanelMove'; delta: number }
   | { type: 'sessionsPanelBusy'; on: boolean }

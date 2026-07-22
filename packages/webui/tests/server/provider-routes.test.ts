@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
-import type { ResolvedProvider } from '@wrongstack/core';
+import type { ResolvedProvider } from '@wrongstack/core/types';
 import { handleProviderRoute, type ProviderRouteHandlers } from '@wrongstack/webui-server';
 import {
   resolveProviderCatalogForModels,

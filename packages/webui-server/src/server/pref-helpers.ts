@@ -18,7 +18,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SecretVault } from '@wrongstack/core';
+import type { SecretVault } from '@wrongstack/core/types';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import { atomicWrite, backupConfigFile, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 

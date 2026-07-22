@@ -1,6 +1,6 @@
 import { Box, Text } from '../ink.js';
 import type React from 'react';
-import type { FleetEntry } from '../app.js';
+import type { FleetEntry } from '../app-state.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 import {

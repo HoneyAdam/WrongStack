@@ -1,4 +1,4 @@
-import type { Message, Request, TextBlock } from '@wrongstack/core';
+import type { Message, Request, TextBlock } from '@wrongstack/core/types';
 import type { Middleware } from '@wrongstack/core/kernel';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance } from '../retrieval/relevance.js';
@@ -6,9 +6,7 @@ import { normalizeTextKey, tokenize } from '../store-helpers.js';
 import { InjectionTracker } from './injection-tracker.js';
 import type { SuperMemorySearchLike } from './tool-call-memory.js';
 
-// Re-exported to keep the public API stable: callers import `tokenize` from
-// this module (or the package index). The single implementation lives in
-// store-helpers.ts — see its docblock for the tokenizer invariants.
+// Compatibility re-export; normalization authority lives in store-helpers.
 export { normalizeTextKey, tokenize };
 
 export interface SuperMemoryTurnMiddlewareOptions {

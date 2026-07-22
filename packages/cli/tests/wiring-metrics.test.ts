@@ -1,12 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { InMemoryMetricsSink } from '@wrongstack/core';
+import { InMemoryMetricsSink } from '@wrongstack/core/observability';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpHealthCheck, registerMcpMetrics, setupMetrics } from '../src/wiring/metrics.js';
 
 // We control startMetricsServer to assert wiring without binding a real socket.
 const startMetricsServerMock = vi.fn();
-vi.mock('@wrongstack/core', async (orig) => {
+vi.mock('@wrongstack/core/observability', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   return {
     ...actual,

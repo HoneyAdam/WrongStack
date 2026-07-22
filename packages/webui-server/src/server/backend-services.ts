@@ -21,80 +21,84 @@
  * `modelCapabilitiesRef` it just built).
  */
 import { join } from 'node:path';
+import type { AgentPipelines, Context } from '@wrongstack/core/agent';
+import type { CollaborationBus, ObservableBrainArbiter } from '@wrongstack/core/coordination';
 import type {
   AutoCompactionMiddleware,
   BrainAutoRisk,
-  CollaborationBus,
+  BrainRuntime,
+} from '@wrongstack/core/execution';
+import type { Container, EventBus } from '@wrongstack/core/kernel';
+import type { DefaultModeStore } from '@wrongstack/core/models';
+import type { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import type { SkillInstaller } from '@wrongstack/core/skills';
+import type { ConsolidatorSuperMemory, SessionReader } from '@wrongstack/core/storage';
+import type {
   Compactor,
-  Context,
-  ConsolidatorSuperMemory,
-  MemoryStore,
-  DefaultModeStore,
-  EventBus,
   Logger,
+  MemoryPort,
   ModelsRegistry,
-  ObservableBrainArbiter,
   PermissionPolicy,
   Provider,
-  ProviderRegistry,
   SessionStore,
-  SkillInstaller,
   SkillLoader,
-  ToolRegistry,
-  AgentPipelines,
-  Container,
-  SessionReader,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { TrustBoundary } from '@wrongstack/core/security';
+
 /** Session shape returned by `SessionStore.create()`. */
 type Session = Awaited<ReturnType<SessionStore['create']>>;
+
 import {
   Agent,
-  AutoCompactionMiddleware as AutoCompactionMiddlewareCtor,
+} from '@wrongstack/core/agent';
+import {
+  BrainDecisionLedger,
   BrainMonitor,
   CollaborationBus as CollaborationBusCtor,
-  DEFAULT_TOOLS_CONFIG,
-  createStrategyCompactor,
   collabInjectMiddleware,
   collabPauseMiddleware,
-  estimateRequestTokensCalibrated,
-  installDesignStudioMiddleware,
-  ObservableBrainArbiter as ObservableBrainArbiterCtor,
-  resolveContextWindowPolicy,
-  BrainDecisionLedger,
-  createBrainRuntime,
-  type BrainRuntime,
-  resolveBrainConfigDefaults,
   EscalationRoutingBrainArbiter,
   GlobalMailbox,
   mailboxSessionTag,
-  SessionMemoryConsolidator,
-  TOKENS,
+  ObservableBrainArbiter as ObservableBrainArbiterCtor,
+} from '@wrongstack/core/coordination';
+import { installDesignStudioMiddleware } from '@wrongstack/core/design';
+import { DEFAULT_TOOLS_CONFIG } from '@wrongstack/core/defaults';
+import {
+  AutoCompactionMiddleware as AutoCompactionMiddlewareCtor,
+  createBrainRuntime,
+  createStrategyCompactor,
+  resolveBrainConfigDefaults,
   ToolExecutor,
-  type AnnotationsStore,
-} from '@wrongstack/core';
+} from '@wrongstack/core/execution';
+import { TOKENS } from '@wrongstack/core/kernel';
+import { SessionMemoryConsolidator, type AnnotationsStore } from '@wrongstack/core/storage';
+import { resolveContextWindowPolicy, type Config, type ProviderConfig } from '@wrongstack/core/types';
+import {
+  estimateRequestTokensCalibrated,
+  toErrorMessage,
+  type WstackPaths,
+} from '@wrongstack/core/utils';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import { GoalWebSocketHandler } from './goal-ws-handler.js';
-import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
-import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
-import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
-import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
-import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
-import { SpecsWebSocketHandler } from './specs-ws-handler.js';
-import { TerminalWebSocketHandler } from './terminal-ws-handler.js';
-import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
-import { resolveProviderModelMetadata } from './model-catalog.js';
 import { makeLightSubagentFactory } from '@wrongstack/runtime';
 import {
   createSuperMemoryToolCallMiddleware,
   createSuperMemoryTurnMiddleware,
-  type SuperMemoryRetrieverLike,
+  getSuperMemoryRetrieval,
+  getSuperMemoryService,
 } from '@wrongstack/super-memory';
-import type { Config, ProviderConfig } from '@wrongstack/core/types';
-import type { WstackPaths } from '@wrongstack/core/utils';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
+import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
+import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
+import { GoalWebSocketHandler } from './goal-ws-handler.js';
+import { resolveProviderModelMetadata } from './model-catalog.js';
+import { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
+import { buildSddWizardDeps } from './sdd-wizard-wiring.js';
+import { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+import { SpecsWebSocketHandler } from './specs-ws-handler.js';
+import { TerminalWebSocketHandler } from './terminal-ws-handler.js';
+import { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 
 interface AgentServicesInput {
   trustBoundary: TrustBoundary;
@@ -112,7 +116,7 @@ interface AgentServicesInput {
   modelsRegistry: ModelsRegistry;
   events: EventBus;
   mcpRegistry: MCPRegistry;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   modeStore: DefaultModeStore;
   customModeStore: import('./custom-context-modes.js').CustomModeStore;
   skillLoader: SkillLoader | undefined;
@@ -132,7 +136,9 @@ interface AgentServicesInput {
    * behind startWebUI's config write lock). Absent = Brain edits are
    * live-only.
    */
-  persistBrainConfig?: ((config: import('@wrongstack/core/types').BrainConfig) => Promise<void>) | undefined;
+  persistBrainConfig?:
+    | ((config: import('@wrongstack/core/types').BrainConfig) => Promise<void>)
+    | undefined;
 }
 
 interface AgentServices {
@@ -211,21 +217,24 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   pipelines.toolCall.prepend(collabPause);
   // Design Studio — per-turn UI-intent detection + kit-menu injection.
   installDesignStudioMiddleware({ pipelines, ctx: context });
+  const memoryRetrieval = getSuperMemoryRetrieval(memoryStore);
   if (
-    config.features.memory !== false
-    && config.superMemory?.enabled !== false
-    && isSuperMemoryRetriever(memoryStore)
+    config.features.memory !== false &&
+    config.superMemory?.enabled !== false &&
+    memoryRetrieval
   ) {
     if (config.superMemory?.inject?.toolResults !== false) {
-      pipelines.toolCall.use(createSuperMemoryToolCallMiddleware({
-        memory: memoryStore,
-        maxHintsPerTool: config.superMemory?.inject?.maxHintsPerTool,
-        maxCharsPerTool: config.superMemory?.inject?.maxCharsPerTool,
-        minScore: config.superMemory?.inject?.minScore,
-        repeatCooldownMs: config.superMemory?.inject?.repeatCooldownMs,
-        verifyOnMutation: config.superMemory?.hygiene?.autoOnFileChange,
-        triggers: config.superMemory?.inject?.triggers,
-      }));
+      pipelines.toolCall.use(
+        createSuperMemoryToolCallMiddleware({
+          memory: memoryRetrieval,
+          maxHintsPerTool: config.superMemory?.inject?.maxHintsPerTool,
+          maxCharsPerTool: config.superMemory?.inject?.maxCharsPerTool,
+          minScore: config.superMemory?.inject?.minScore,
+          repeatCooldownMs: config.superMemory?.inject?.repeatCooldownMs,
+          verifyOnMutation: config.superMemory?.hygiene?.autoOnFileChange,
+          triggers: config.superMemory?.inject?.triggers,
+        }),
+      );
     }
     // Opt-in only (default OFF), matching the CLI wiring. Turn-context injection
     // appends a query-dependent block to the system prompt every turn, which
@@ -233,12 +242,14 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     // default retrieval path is the contextual tool-result injection above plus
     // the on-demand memory_* tools. See wiring/super-memory.ts.
     if (config.superMemory?.inject?.turnContext === true) {
-      pipelines.request.use(createSuperMemoryTurnMiddleware({
-        memory: memoryStore,
-        maxMemories: config.superMemory?.inject?.maxTurnMemories,
-        maxChars: config.superMemory?.inject?.maxCharsPerTurn,
-        minScore: config.superMemory?.inject?.minScore,
-      }));
+      pipelines.request.use(
+        createSuperMemoryTurnMiddleware({
+          memory: memoryRetrieval,
+          maxMemories: config.superMemory?.inject?.maxTurnMemories,
+          maxChars: config.superMemory?.inject?.maxCharsPerTurn,
+          minScore: config.superMemory?.inject?.minScore,
+        }),
+      );
     }
   }
   const codebaseIndexing = setupWebUICodebaseIndexing({
@@ -319,7 +330,8 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
       );
     });
     const currentConfig = input.config;
-    let newMaxContext = currentConfig.context?.effectiveMaxContext ?? newProvider.capabilities.maxContext;
+    let newMaxContext =
+      currentConfig.context?.effectiveMaxContext ?? newProvider.capabilities.maxContext;
     try {
       const m = await resolveProviderModelMetadata(
         modelsRegistry,
@@ -405,13 +417,15 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     toolExecutor,
   });
   if (config.features.memory && config.features.memoryConsolidation !== false) {
-    const consSuperMemory = typeof (memoryStore as unknown as Record<string, unknown>)['rememberSuper'] === 'function'
-      ? (memoryStore as unknown as ConsolidatorSuperMemory)
-      : undefined;
-    agent.extensions.register(new SessionMemoryConsolidator({
-      memoryStore,
-      ...(consSuperMemory ? { superMemory: consSuperMemory } : {}),
-    }));
+    const consSuperMemory = getSuperMemoryService(memoryStore) as
+      | ConsolidatorSuperMemory
+      | undefined;
+    agent.extensions.register(
+      new SessionMemoryConsolidator({
+        memoryStore,
+        ...(consSuperMemory ? { superMemory: consSuperMemory } : {}),
+      }),
+    );
   }
   console.log('[WebUI] Agent initialized');
 
@@ -442,7 +456,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     sessionProvider: () => provider,
     sessionModel: () => context.model,
     resolveProvider: (providerId) => {
-      const savedCfg: Partial<import('@wrongstack/core').ProviderConfig> =
+      const savedCfg: Partial<import('@wrongstack/core/types').ProviderConfig> =
         config.providers?.[providerId] ?? {};
       return providerRegistry.create({
         ...savedCfg,
@@ -633,10 +647,4 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     collabHandler,
     updateAutoCompactionMaxContext,
   };
-}
-
-function isSuperMemoryRetriever(memoryStore: MemoryStore): memoryStore is MemoryStore & SuperMemoryRetrieverLike {
-  const value = memoryStore as unknown as Record<string, unknown>;
-  return typeof value['retrieveForPath'] === 'function'
-    && typeof value['searchSuper'] === 'function';
 }

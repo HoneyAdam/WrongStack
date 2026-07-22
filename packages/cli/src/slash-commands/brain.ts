@@ -25,16 +25,13 @@
  */
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type {
-  BrainAutoRisk,
-  BrainConfigPatch,
-  BrainConfigSnapshot,
-  BrainCouncilVoterConfig,
-  BrainLedgerEntry,
-  SlashCommand,
-} from '@wrongstack/core';
-import { color, parseModelRef } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { BrainAutoRisk, BrainConfigPatch } from '@wrongstack/core/execution';
+import type { BrainConfigSnapshot } from '@wrongstack/core/execution';
+import type { BrainCouncilVoterConfig, SlashCommand } from '@wrongstack/core/types';
+import type { BrainLedgerEntry } from '@wrongstack/core/coordination';
+import { color } from '@wrongstack/core/utils';
+import { parseModelRef } from '@wrongstack/core/agent';
+import type { SlashCommandContext } from './command-context.js';
 
 const RISK_LEVELS: ReadonlySet<string> = new Set(['off', 'low', 'medium', 'high', 'all']);
 const COUNCIL_RISKS: ReadonlySet<string> = new Set(['medium', 'high', 'critical']);

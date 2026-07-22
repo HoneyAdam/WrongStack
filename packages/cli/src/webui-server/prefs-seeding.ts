@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { DefaultSecretVault } from '@wrongstack/core';
-import type { Config, ModelBlackoutRule } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core/security';
+import type { Config } from '@wrongstack/core/types';
+import type { ModelBlackoutRule } from '@wrongstack/core/models';
 import {
   type ConfigWriteLockHolder,
   PREF_KEYS,

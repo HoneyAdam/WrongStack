@@ -1,17 +1,12 @@
 import * as path from 'node:path';
-import {
-  type AutonomyStage,
-  type Config,
-  type Director,
-  type EventBus,
-  type EternalAutonomyEngine,
-  type ParallelEternalEngine,
-  expectDefined,
-  type SessionWriter,
-} from '@wrongstack/core';
+import { type AutonomyStage, type Config, type SessionWriter } from '@wrongstack/core/types';
+import { type Director } from '@wrongstack/core/coordination';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { type EternalAutonomyEngine, type ParallelEternalEngine } from '@wrongstack/core/execution';
+import { expectDefined } from '@wrongstack/core/utils';
 import { type AgentMonitorService, createAgentMonitorService } from '@wrongstack/core/coordination';
 import { sessionScopedPath } from '@wrongstack/core/utils';
-import type { WstackPaths } from '@wrongstack/core';
+import type { WstackPaths } from '@wrongstack/core/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +17,7 @@ import type { WstackPaths } from '@wrongstack/core';
  * `autonomyModeRef.current`. Matches the shape created in cli-main.ts.
  */
 export interface AutonomyModeRef {
-  current: import('../slash-commands/autonomy.js').AutonomyMode;
+  current: import('../services/autonomy-mode.js').AutonomyMode;
 }
 
 export interface DirectorAutonomyDeps {
@@ -38,13 +33,13 @@ export interface DirectorAutonomyResult {
   director: Director | null;
   directorMode: boolean;
   maxConcurrent: number | undefined;
-  autonomyMode: import('../slash-commands/autonomy.js').AutonomyMode;
+  autonomyMode: import('../services/autonomy-mode.js').AutonomyMode;
   nextPredictEnabled: boolean;
   currentSuggestions: string[];
   eternalEngine: EternalAutonomyEngine | null;
   parallelEngine: ParallelEternalEngine | null;
-  eternalListeners: Set<(entry: import('@wrongstack/core').JournalEntry) => void>;
-  broadcastEternalIteration: (entry: import('@wrongstack/core').JournalEntry) => void;
+  eternalListeners: Set<(entry: import('@wrongstack/core/goal').JournalEntry) => void>;
+  broadcastEternalIteration: (entry: import('@wrongstack/core/goal').JournalEntry) => void;
   stageListeners: Set<(stage: AutonomyStage) => void>;
   broadcastAutonomyStage: (stage: AutonomyStage) => void;
   fleetRoot: string | undefined;
@@ -99,11 +94,11 @@ export function setupDirectorAndAutonomy(deps: DirectorAutonomyDeps): DirectorAu
           : undefined;
 
   // ── Autonomy mode ──────────────────────────────────────────────────────
-  const autonomyMode: import('../slash-commands/autonomy.js').AutonomyMode = (() => {
+  const autonomyMode: import('../services/autonomy-mode.js').AutonomyMode = (() => {
     const v = flags['autonomy'];
     if (v === 'auto' || v === 'suggest' || v === 'eternal' || v === 'eternal-parallel') return v;
     if (v === 'off') return 'off';
-    return (config.autonomy?.defaultMode ?? 'off') as import('../slash-commands/autonomy.js').AutonomyMode;
+    return (config.autonomy?.defaultMode ?? 'off') as import('../services/autonomy-mode.js').AutonomyMode;
   })();
   autonomyModeRef.current = autonomyMode;
 
@@ -113,8 +108,8 @@ export function setupDirectorAndAutonomy(deps: DirectorAutonomyDeps): DirectorAu
   // ── Eternal / parallel engine scaffolding ──────────────────────────────
   const eternalEngine: EternalAutonomyEngine | null = null;
   const parallelEngine: ParallelEternalEngine | null = null;
-  const eternalListeners = new Set<(entry: import('@wrongstack/core').JournalEntry) => void>();
-  const broadcastEternalIteration = (entry: import('@wrongstack/core').JournalEntry): void => {
+  const eternalListeners = new Set<(entry: import('@wrongstack/core/goal').JournalEntry) => void>();
+  const broadcastEternalIteration = (entry: import('@wrongstack/core/goal').JournalEntry): void => {
     for (const fn of eternalListeners) {
       try {
         fn(entry);

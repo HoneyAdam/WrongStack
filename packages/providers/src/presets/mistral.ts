@@ -7,8 +7,8 @@
  * For exotic providers the same pattern still applies — only the
  * `parseStreamEvent` body changes.
  */
-import type { Capabilities, Request, StopReason, StreamEvent } from '@wrongstack/core';
-import { safeParse } from '@wrongstack/core';
+import type { Capabilities, Request, StopReason, StreamEvent } from '@wrongstack/core/types';
+import { safeParse } from '@wrongstack/core/utils';
 import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';

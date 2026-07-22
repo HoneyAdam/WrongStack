@@ -1,4 +1,4 @@
-import type { ContextBreakdown } from '@wrongstack/core';
+import type { ContextBreakdown } from '@wrongstack/core/utils';
 import type React from 'react';
 import { useState } from 'react';
 import { Box, Text, useInput } from '../ink.js';

@@ -1,4 +1,4 @@
-import { normalizedEqual } from '@wrongstack/core';
+import { normalizedEqual } from '@wrongstack/core/execution';
 import type { PhaseItem } from '@/components/PhasePanel';
 import { toast } from '@/components/Toaster';
 import { getWSClient } from '@/lib/ws-client';

@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 
 export function renderDiff(diff: string): string {
   if (!diff) return '';

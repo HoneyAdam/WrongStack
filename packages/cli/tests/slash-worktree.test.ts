@@ -1,4 +1,4 @@
-import type { SlashCommandContext } from '@wrongstack/core';
+import type { SlashCommandContext } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { TokenCounter, ToolRegistry } from '../src/slash-commands/index.js';
 import { buildBuiltinSlashCommands } from '../src/slash-commands/index.js';
@@ -7,7 +7,7 @@ import { buildWorktreeCommand } from '../src/slash-commands/worktree.js';
 function ctx(extra: object = {}): SlashCommandContext {
   return {
     session: { id: 's1' },
-    toolRegistry: { list: () => [] } as ToolRegistry,
+    toolRegistry: { list: () => [] } as unknown as ToolRegistry,
     renderer: {
       write: () => {},
       writeWarning: () => {},

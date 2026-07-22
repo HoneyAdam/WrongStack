@@ -27,7 +27,7 @@ vi.mock('../src/cli-update-notice.js', () => ({
 // returned by runPreflight.
 
 import { applyNodeEnvDefault, applySessionShellDefault, runPreflight } from '../src/preflight.js';
-import type { Config } from '@wrongstack/core';
+import type { Config } from '@wrongstack/core/types';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {

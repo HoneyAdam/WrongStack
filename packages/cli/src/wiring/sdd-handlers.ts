@@ -16,7 +16,7 @@
  * circular dependency). The call site casts via `as never`.
  */
 import { spawn } from 'node:child_process';
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 
 type SddParallelRunGlobal = typeof globalThis & {
   __sddParallelRun?: import('@wrongstack/sdd').SddParallelRun | undefined;
@@ -55,11 +55,12 @@ export function createSddHandlers(deps: Record<string, any>): Record<string, (..
     if (!graph) {
       return 'No task graph found for the current SDD session.';
     }
-    const core = await import('@wrongstack/core');
+    const agentCore = await import('@wrongstack/core/agent');
+    const worktreeCore = await import('@wrongstack/core/worktree');
     const sddApi = await import('@wrongstack/sdd');
 
     // Per-task git-worktree isolation.
-    let worktrees: import('@wrongstack/core').WorktreeManager | undefined;
+    let worktrees: import('@wrongstack/core/worktree').WorktreeManager | undefined;
     if (process.env['WRONGSTACK_SDD_WORKTREES'] !== '0') {
       const inGit = await new Promise<boolean>((resolve) => {
         let resolved = false;
@@ -100,7 +101,7 @@ export function createSddHandlers(deps: Record<string, any>): Record<string, (..
         await sddApi
           .cleanupStaleSddWorktrees({ projectRoot, boardsDir: wpaths.projectSddBoards })
           .catch(() => undefined);
-        worktrees = new core.WorktreeManager({
+        worktrees = new worktreeCore.WorktreeManager({
           projectRoot,
           events,
           sessionId: () => sessionRef.current?.id ?? session.id,
@@ -113,7 +114,7 @@ export function createSddHandlers(deps: Record<string, any>): Record<string, (..
 
     const sddSupervisor = new sddApi.SddSupervisor({
       brain,
-      reassignModels: core.effectiveFallbackChain(config),
+      reassignModels: agentCore.effectiveFallbackChain(config),
     });
 
     const sddSubagentFactory = multiAgentHost.makeSubagentFactory(config);

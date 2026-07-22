@@ -247,9 +247,14 @@ curl -X POST http://127.0.0.1:34827/mailbox/send \
     "type": "broadcast",
     "subject": "Hello from outside",
     "body": "External agent has joined the conversation.",
+    "audience": "leaders",
     "priority": "normal"
   }'
 ```
+
+Use optional `"audience": "leaders"` when a project/session message is
+operator context that only main agents should consume. Subagent inbox/check
+delivery filters it out; omitting the field preserves normal all-agent delivery.
 
 ### Register so the external agent appears in the WebUI
 

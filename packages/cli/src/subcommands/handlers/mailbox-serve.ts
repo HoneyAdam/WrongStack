@@ -67,21 +67,10 @@
  */
 import { createServer } from 'node:http';
 import * as path from 'node:path';
-import {
-  authorizeMailboxBearerToken,
-  createMailboxHttpRouter,
-  GlobalMailbox,
-  MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
-  MailboxEventEmitter,
-  MailboxHttpRateLimiter,
-  resolveProjectDir,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
-import {
-  acquireOrJoin,
-  finalize,
-  release,
-} from '@wrongstack/core/coordination';
+import { authorizeMailboxBearerToken, GlobalMailbox, MailboxEventEmitter, MailboxHttpRateLimiter, resolveProjectDir } from '@wrongstack/core/coordination';
+import { createMailboxHttpRouter, MAILBOX_HTTP_DEFAULT_MAX_AGE_MS } from '@wrongstack/core/coordination';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
+import { acquireOrJoin, finalize, release } from '@wrongstack/core/coordination';
 import { startCliHqConnection, type CliHqConnection } from '../../hq-publisher.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 

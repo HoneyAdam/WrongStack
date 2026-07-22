@@ -35,7 +35,7 @@
  *
  * @public
  */
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Config

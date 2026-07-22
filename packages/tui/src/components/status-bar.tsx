@@ -1,5 +1,6 @@
-import type { AutonomyStage, EventBus, TokenCounter, TokenSavingTier } from '@wrongstack/core';
-import { expectDefined } from '@wrongstack/core';
+import type { AutonomyStage, TokenCounter, TokenSavingTier } from '@wrongstack/core/types';
+import type { EventBus } from '@wrongstack/core/kernel';
+import { expectDefined } from '@wrongstack/core/utils';
 import type React from 'react';
 import { isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitInfo } from '../git-info.js';

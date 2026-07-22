@@ -54,12 +54,14 @@ const LINE_COUNT_CHUNK_BYTES = 256 * 1024;
  */
 class BestEffortBatchQueue<T> {
   private readonly pending: T[] = [];
-  private writeChain: Promise<void> = Promise.resolve();
+  private activeWrite: Promise<void> | null = null;
   private drainScheduled = false;
+  private static readonly MAX_PENDING = 10_000;
 
   constructor(private readonly writeBatch: (items: T[]) => Promise<void>) {}
 
   enqueue(item: T): void {
+    if (this.pending.length >= BestEffortBatchQueue.MAX_PENDING) this.pending.shift();
     this.pending.push(item);
     if (this.drainScheduled) return;
     this.drainScheduled = true;
@@ -69,24 +71,17 @@ class BestEffortBatchQueue<T> {
   async drain(): Promise<void> {
     for (;;) {
       this.flushPending();
-      const observed = this.writeChain;
-      await observed;
-      // One more loop pass: a synchronous `enqueue()` from a caller holding
-      // the awaited promise can have appended to `pending` and scheduled a
-      // microtask before we observed the chain settling, so re-check before
-      // returning. Without this, the awaiter could resolve with a freshly
-      // enqueued item still in flight.
-      this.flushPending();
-      if (observed === this.writeChain && this.pending.length === 0) return;
+      const observed = this.activeWrite;
+      if (observed) await observed;
+      if (!this.activeWrite && this.pending.length === 0) return;
     }
   }
 
   private flushPending(): void {
     this.drainScheduled = false;
-    if (this.pending.length === 0) return;
+    if (this.activeWrite || this.pending.length === 0) return;
     const batch = this.pending.splice(0);
-    this.writeChain = this.writeChain
-      .then(() => this.writeBatch(batch))
+    const active = this.writeBatch(batch)
       .catch((err: unknown) => {
         /* best-effort: a failed batch must not break the write chain, but
          * surface the error to stderr so a silent write death is observable.
@@ -95,14 +90,19 @@ class BestEffortBatchQueue<T> {
           `[BestEffortBatchQueue] failed to write batch of ${batch.length} item(s):`,
           err,
         );
+      })
+      .finally(() => {
+        if (this.activeWrite === active) this.activeWrite = null;
+        if (this.pending.length > 0) this.flushPending();
       });
+    this.activeWrite = active;
   }
 }
 
 /** Coalesce queued checkpoints so only the newest not-yet-started value writes. */
 class BestEffortLatestQueue<T> {
   private pending: T | undefined;
-  private writeChain: Promise<void> = Promise.resolve();
+  private activeWrite: Promise<void> | null = null;
   private drainScheduled = false;
 
   constructor(private readonly writeLatest: (value: T) => Promise<void>) {}
@@ -117,31 +117,29 @@ class BestEffortLatestQueue<T> {
   async drain(): Promise<void> {
     for (;;) {
       this.flushPending();
-      const observed = this.writeChain;
-      await observed;
-      // One more loop pass: a synchronous `enqueue()` from a caller holding
-      // the awaited promise can have assigned to `pending` and scheduled a
-      // microtask before we observed the chain settling, so re-check before
-      // returning. Without this, the awaiter could resolve with the freshly
-      // coalesced value still in flight.
-      this.flushPending();
-      if (observed === this.writeChain && this.pending === undefined) return;
+      const observed = this.activeWrite;
+      if (observed) await observed;
+      if (!this.activeWrite && this.pending === undefined) return;
     }
   }
 
   private flushPending(): void {
     this.drainScheduled = false;
-    if (this.pending === undefined) return;
+    if (this.activeWrite || this.pending === undefined) return;
     const latest = this.pending;
     this.pending = undefined;
-    this.writeChain = this.writeChain
-      .then(() => this.writeLatest(latest))
+    const active = this.writeLatest(latest)
       .catch((err: unknown) => {
         /* best-effort: a failed write must not break the write chain, but
          * surface the error to stderr so a silent write death is observable.
          * Programmer errors (TypeError, etc.) should not go unnoticed. */
         console.error('[BestEffortLatestQueue] failed to write latest value:', err);
+      })
+      .finally(() => {
+        if (this.activeWrite === active) this.activeWrite = null;
+        if (this.pending !== undefined) this.flushPending();
       });
+    this.activeWrite = active;
   }
 }
 

@@ -1,7 +1,8 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { type AnnotationsStoreOptions, color, truncate } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { type AnnotationsStoreOptions } from '@wrongstack/core/storage';
+import { color, truncate } from '@wrongstack/core/utils';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
@@ -75,10 +76,10 @@ function inviteCommand(sessionId: string | undefined): { message: string } {
   if (!sessionId) {
     return { message: color.yellow('No active session to invite to.') };
   }
-  // The webui binds to 127.0.0.1:3457 by default (see packages/webui-server/src/server/entry.ts).
+  // The webui binds to 127.0.0.1:3456 by default (WS shares the HTTP port).
   // For a teammate to join, the operator must be running the webui and
   // expose the port; we print the canonical URL the webui logs on start.
-  const url = `http://127.0.0.1:3457/?session=${encodeURIComponent(sessionId)}`;
+  const url = `http://127.0.0.1:3456/?session=${encodeURIComponent(sessionId)}`;
   const lines: string[] = [
     color.bold('Live-collaboration invite'),
     `  Session ID: ${color.cyan(sessionId)}`,
@@ -106,7 +107,7 @@ async function historyCommand(
   }
   // Reuse the same reader shape the webui uses, scoped to the in-memory
   // session store the REPL is currently writing to.
-  const { DefaultSessionReader } = await import('@wrongstack/core');
+  const { DefaultSessionReader } = await import('@wrongstack/core/storage');
   const reader = new DefaultSessionReader({ store: opts.sessionStore });
   const events: unknown[] = [];
   try {
@@ -153,7 +154,7 @@ async function annotationsCommand(
   // In the CLI we don't have direct access to the webui's wpaths, so
   // we fall back to the session store's dir (they are colocated in
   // the same `.wrongstack/sessions/` tree under normal setups).
-  const { DefaultSessionReader, AnnotationsStore } = await import('@wrongstack/core');
+  const { DefaultSessionReader, AnnotationsStore } = await import('@wrongstack/core/storage');
   const reader = new DefaultSessionReader({ store: opts.sessionStore });
   // We need the store's dir to instantiate AnnotationsStore. The
   // SessionStore interface doesn't expose `dir` directly, so we

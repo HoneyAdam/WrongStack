@@ -8,9 +8,17 @@
  * Legacy startup marker support remains for older internal harnesses, but
  * standard ACP agents must not write non-JSON data to stdout.
  */
-import { expectDefined, writeErr } from '@wrongstack/core';
+import { expectDefined, writeErr } from '@wrongstack/core/utils';
 import type { ACPMessage } from '../types/acp-messages.js';
 import { buildWin32CmdShimInvocation } from '../win32-cmd.js';
+
+const DEFAULT_MAX_FRAME_CHARS = 20 * 1024 * 1024;
+const DEFAULT_MAX_QUEUED_MESSAGES = 1_000;
+
+function positiveLimit(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.floor(value as number) : fallback;
+}
+
 export interface AgentServerTransport {
   send(msg: ACPMessage): Promise<void>;
   sendRaw(chunk: string): void;
@@ -41,8 +49,15 @@ export class StdioTransport implements AgentServerTransport {
   private closed = false;
   private resolveRead: ((msg: ACPMessage | null) => void) | null = null;
   private messageQueue: ACPMessage[] = [];
+  private readonly maxFrameChars: number;
+  private readonly maxQueuedMessages: number;
 
-  constructor() {
+  constructor(opts: { maxFrameChars?: number; maxQueuedMessages?: number } = {}) {
+    this.maxFrameChars = positiveLimit(opts.maxFrameChars, DEFAULT_MAX_FRAME_CHARS);
+    this.maxQueuedMessages = positiveLimit(
+      opts.maxQueuedMessages,
+      DEFAULT_MAX_QUEUED_MESSAGES,
+    );
     this.stdin.resume();
     this.stdin.setEncoding('utf8');
     this.stdin.on('data', (chunk: string) => this.onData(chunk));
@@ -84,6 +99,9 @@ export class StdioTransport implements AgentServerTransport {
     this.stdin.pause();
     this.resolveRead?.(null);
     this.resolveRead = null;
+    this.buffer = '';
+    this.messageQueue.length = 0;
+    this.handlers.clear();
   }
 
   private onData(chunk: string): void {
@@ -91,9 +109,25 @@ export class StdioTransport implements AgentServerTransport {
     const lines = this.buffer.split('\n');
     /* v8 ignore next -- split() always yields ≥1 element, so pop() is never undefined; the ?? '' is defensive. */
     this.buffer = lines.pop() ?? '';
+    if (this.buffer.length > this.maxFrameChars) {
+      this.stderr.write(
+        `[wstack-acp frame error] pending frame exceeds ${this.maxFrameChars} characters\n`,
+        'utf8',
+      );
+      this.close();
+      return;
+    }
 
     for (const raw of lines) {
       if (!raw.trim()) continue;
+      if (raw.length > this.maxFrameChars) {
+        this.stderr.write(
+          `[wstack-acp frame error] frame exceeds ${this.maxFrameChars} characters\n`,
+          'utf8',
+        );
+        this.close();
+        return;
+      }
       try {
         this.dispatch(JSON.parse(raw) as ACPMessage);
       } catch (err) {
@@ -108,6 +142,14 @@ export class StdioTransport implements AgentServerTransport {
       this.resolveRead = null;
       resolve(msg);
     } else {
+      if (this.messageQueue.length >= this.maxQueuedMessages) {
+        this.stderr.write(
+          `[wstack-acp queue error] pending message queue exceeds ${this.maxQueuedMessages} entries\n`,
+          'utf8',
+        );
+        this.close();
+        return;
+      }
       this.messageQueue.push(msg);
     }
     for (const handler of this.handlers) {
@@ -120,9 +162,7 @@ export class StdioTransport implements AgentServerTransport {
   }
 
   private handleClose(): void {
-    this.closed = true;
-    this.resolveRead?.(null);
-    this.resolveRead = null;
+    this.close();
   }
 
   private failAll(err: Error): void {
@@ -150,6 +190,10 @@ export interface ClientTransportOptions {
    * server-side transport (the default) keeps the marker check.
    */
   skipHandshakeMarker?: boolean | undefined;
+  /** Maximum pending newline-delimited JSON frame size. Default 20 MiB. */
+  maxFrameChars?: number | undefined;
+  /** Maximum messages retained for the optional read() API. Default 1000. */
+  maxQueuedMessages?: number | undefined;
 }
 
 export interface ACPChildProcess extends EventEmitter {
@@ -169,19 +213,26 @@ export class ClientTransport implements ACPClientTransport {
   private messageQueue: ACPMessage[] = [];
   private readonly opts: Required<Pick<ClientTransportOptions, 'handshakeTimeoutMs'>> &
     ClientTransportOptions;
+  private readonly maxFrameChars: number;
+  private readonly maxQueuedMessages: number;
 
   constructor(options: ClientTransportOptions) {
     this.opts = {
       handshakeTimeoutMs: 30_000,
       ...options,
     };
+    this.maxFrameChars = positiveLimit(options.maxFrameChars, DEFAULT_MAX_FRAME_CHARS);
+    this.maxQueuedMessages = positiveLimit(
+      options.maxQueuedMessages,
+      DEFAULT_MAX_QUEUED_MESSAGES,
+    );
   }
 
   async start(): Promise<void> {
     if (this.child) return;
     const [{ spawn }, { buildChildEnv }, os] = await Promise.all([
       import('node:child_process'),
-      import('@wrongstack/core'),
+      import('@wrongstack/core/utils'),
       import('node:os'),
     ]);
     return new Promise((resolve, reject) => {
@@ -309,10 +360,16 @@ export class ClientTransport implements ACPClientTransport {
   }
 
   stop(): void {
-    if (!this.child) return;
     this.closed = true;
+    this.resolveRead?.(null);
+    this.resolveRead = null;
+    this.buffer = '';
+    this.messageQueue.length = 0;
+    this.handlers.clear();
+    const child = this.child;
+    if (!child) return;
     try {
-      this.child.kill();
+      child.kill();
     } catch {
       // already dead
     }
@@ -324,9 +381,19 @@ export class ClientTransport implements ACPClientTransport {
     const lines = this.buffer.split('\n');
     /* v8 ignore next -- split() always yields ≥1 element, so pop() is never undefined; the ?? '' is defensive. */
     this.buffer = lines.pop() ?? '';
+    if (this.buffer.length > this.maxFrameChars) {
+      writeErr(`[acp-child pending frame exceeds ${this.maxFrameChars} characters]\n`);
+      this.stop();
+      return;
+    }
 
     for (const raw of lines) {
       if (!raw.trim()) continue;
+      if (raw.length > this.maxFrameChars) {
+        writeErr(`[acp-child frame exceeds ${this.maxFrameChars} characters]\n`);
+        this.stop();
+        return;
+      }
       try {
         this.dispatch(JSON.parse(raw) as ACPMessage);
       } catch {
@@ -343,6 +410,9 @@ export class ClientTransport implements ACPClientTransport {
     this.closed = true;
     this.resolveRead?.(null);
     this.resolveRead = null;
+    this.buffer = '';
+    this.messageQueue.length = 0;
+    this.handlers.clear();
     if (code !== 0 && code !== null) {
       writeErr(`[acp-child exited with code ${code}]\n`);
     }
@@ -353,7 +423,12 @@ export class ClientTransport implements ACPClientTransport {
       const resolve = this.resolveRead;
       this.resolveRead = null;
       resolve(msg);
-    } else {
+    } else if (this.handlers.size === 0) {
+      if (this.messageQueue.length >= this.maxQueuedMessages) {
+        writeErr(`[acp-child message queue exceeds ${this.maxQueuedMessages} entries]\n`);
+        this.stop();
+        return;
+      }
       this.messageQueue.push(msg);
     }
     for (const handler of this.handlers) {

@@ -2,8 +2,9 @@
 // @wrongstack/kanban package; only the Tool contract and the task-graph
 // serialization types still come from core.
 import { randomUUID } from 'node:crypto';
-import type { SerializableTaskGraph, SerializedTaskGraph, Tool } from '@wrongstack/core';
-import { deserializeTaskGraph, loadTasks, serializeTaskGraph } from '@wrongstack/core';
+import { deserializeTaskGraph, serializeTaskGraph } from '@wrongstack/core/tasking';
+import type { SerializableTaskGraph, SerializedTaskGraph, Tool } from '@wrongstack/core/types';
+import { loadTasks } from '@wrongstack/core/storage';
 import type {
   AssignKanbanTaskInput,
   KanbanAgentAssignment,

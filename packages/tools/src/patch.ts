@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildChildEnv } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import type { Tool } from '@wrongstack/core/types';
 import { safeResolve, sha256hex } from './_util.js';
 
 interface PatchInput {

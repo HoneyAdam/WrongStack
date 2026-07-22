@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { DefaultSecretScrubber } from '../security/secret-scrubber.js';
 import type { ContentBlock } from '../types/blocks.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
+import type { SessionData, SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
 import type {
   DefaultSessionReaderOptions,
   SessionExportOptions,
@@ -11,10 +12,9 @@ import type {
   SessionSearchQuery,
   SessionSummaryLite,
 } from '../types/session-reader.js';
-import { compileUserRegex } from '../utils/regex-guard.js';
 import { expectDefined } from '../utils/expect-defined.js';
+import { compileUserRegex } from '../utils/regex-guard.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
-import type { SessionData, SessionEvent, SessionMetadata, SessionStore } from '../types/session.js';
 import {
   scrubPersistedSessionData,
   scrubPersistedSessionEvent,
@@ -31,7 +31,10 @@ export class DefaultSessionReader implements SessionReader {
   private readonly secretScrubber: SecretScrubber;
   private readonly eventCache = new Map<string, SessionData>();
   private readonly eventCacheMtimes = new Map<string, number>();
+  private readonly eventCacheSizes = new Map<string, number>();
+  private eventCacheBytes = 0;
   private static readonly EVENT_CACHE_MAX_ENTRIES = 32;
+  private static readonly EVENT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 
   constructor(opts: DefaultSessionReaderOptions) {
     this.store = opts.store;
@@ -49,12 +52,13 @@ export class DefaultSessionReader implements SessionReader {
     }
     const sessionPath = sessionScopedPath(rootDir, sessionId, '.jsonl');
     let mtimeMs: number | null = null;
+    let fileSize = 0;
     try {
       const stat = await fs.stat(sessionPath);
       mtimeMs = stat.mtimeMs;
+      fileSize = stat.size;
     } catch {
-      this.eventCache.delete(sessionId);
-      this.eventCacheMtimes.delete(sessionId);
+      this.deleteEventCacheEntry(sessionId);
       return scrubPersistedSessionData(await this.store.load(sessionId), this.secretScrubber);
     }
 
@@ -63,24 +67,28 @@ export class DefaultSessionReader implements SessionReader {
     if (cachedData && cachedMtime === mtimeMs) {
       this.eventCache.delete(sessionId);
       this.eventCacheMtimes.delete(sessionId);
+      this.eventCacheSizes.delete(sessionId);
       this.eventCache.set(sessionId, cachedData);
       this.eventCacheMtimes.set(sessionId, mtimeMs);
+      this.eventCacheSizes.set(sessionId, fileSize);
       return cachedData;
     }
 
-    const data = scrubPersistedSessionData(
-      await this.store.load(sessionId),
-      this.secretScrubber,
-    );
-    this.eventCache.delete(sessionId);
-    this.eventCacheMtimes.delete(sessionId);
-    this.eventCache.set(sessionId, data);
-    this.eventCacheMtimes.set(sessionId, mtimeMs);
-    while (this.eventCache.size > DefaultSessionReader.EVENT_CACHE_MAX_ENTRIES) {
-      const oldest = this.eventCache.keys().next().value;
-      if (oldest === undefined) break;
-      this.eventCache.delete(oldest);
-      this.eventCacheMtimes.delete(oldest);
+    const data = scrubPersistedSessionData(await this.store.load(sessionId), this.secretScrubber);
+    this.deleteEventCacheEntry(sessionId);
+    if (fileSize <= DefaultSessionReader.EVENT_CACHE_MAX_BYTES) {
+      while (
+        this.eventCache.size >= DefaultSessionReader.EVENT_CACHE_MAX_ENTRIES ||
+        this.eventCacheBytes + fileSize > DefaultSessionReader.EVENT_CACHE_MAX_BYTES
+      ) {
+        const oldest = this.eventCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.deleteEventCacheEntry(oldest);
+      }
+      this.eventCache.set(sessionId, data);
+      this.eventCacheMtimes.set(sessionId, mtimeMs);
+      this.eventCacheSizes.set(sessionId, fileSize);
+      this.eventCacheBytes += fileSize;
     }
 
     if (data.metadata.endedAt) {
@@ -90,19 +98,29 @@ export class DefaultSessionReader implements SessionReader {
     return data;
   }
 
+  private deleteEventCacheEntry(sessionId: string): void {
+    const size = this.eventCacheSizes.get(sessionId) ?? 0;
+    this.eventCache.delete(sessionId);
+    this.eventCacheMtimes.delete(sessionId);
+    this.eventCacheSizes.delete(sessionId);
+    this.eventCacheBytes = Math.max(0, this.eventCacheBytes - size);
+  }
+
   async query(q: SessionQuery = {}): Promise<SessionSummaryLite[]> {
     // Prefer the store's filtered list when available — it pushes the
     // filter into the cached index instead of fetching 1000 + linear scan.
     const storeWithFilter = this.store as SessionStore & {
-      listFiltered?: ((criteria: {
-        since?: string | undefined;
-        until?: string | undefined;
-        provider?: string | undefined;
-        model?: string | undefined;
-        minTokens?: number | undefined;
-        titleContains?: string | undefined;
-        limit?: number | undefined;
-      }) => Promise<import('../types/session.js').SessionSummary[]>) | undefined;
+      listFiltered?:
+        | ((criteria: {
+            since?: string | undefined;
+            until?: string | undefined;
+            provider?: string | undefined;
+            model?: string | undefined;
+            minTokens?: number | undefined;
+            titleContains?: string | undefined;
+            limit?: number | undefined;
+          }) => Promise<import('../types/session.js').SessionSummary[]>)
+        | undefined;
     };
     let raw: import('../types/session.js').SessionSummary[];
     if (typeof storeWithFilter.listFiltered === 'function') {
@@ -147,7 +165,11 @@ export class DefaultSessionReader implements SessionReader {
     for (const e of data.events) yield e;
   }
 
-  async search(q: SessionSearchQuery, sessionId?: string | undefined, sessionQuery?: SessionQuery): Promise<SessionSearchHit[]> {
+  async search(
+    q: SessionSearchQuery,
+    sessionId?: string | undefined,
+    sessionQuery?: SessionQuery,
+  ): Promise<SessionSearchHit[]> {
     const limit = q.limit ?? 100;
     const matcher = buildMatcher(q);
     const allowedTypes = q.types ? new Set(q.types) : null;
@@ -161,15 +183,17 @@ export class DefaultSessionReader implements SessionReader {
       // Prefer the store's filtered list when available — avoids fetching
       // 1000 sessions and linear-filtering in-process.
       const storeWithFilter = this.store as SessionStore & {
-        listFiltered?: ((criteria: {
-          since?: string | undefined;
-          until?: string | undefined;
-          provider?: string | undefined;
-          model?: string | undefined;
-          minTokens?: number | undefined;
-          titleContains?: string | undefined;
-          limit?: number | undefined;
-        }) => Promise<import('../types/session.js').SessionSummary[]>) | undefined;
+        listFiltered?:
+          | ((criteria: {
+              since?: string | undefined;
+              until?: string | undefined;
+              provider?: string | undefined;
+              model?: string | undefined;
+              minTokens?: number | undefined;
+              titleContains?: string | undefined;
+              limit?: number | undefined;
+            }) => Promise<import('../types/session.js').SessionSummary[]>)
+          | undefined;
       };
       let sessions: import('../types/session.js').SessionSummary[];
       if (typeof storeWithFilter.listFiltered === 'function') {
@@ -190,7 +214,8 @@ export class DefaultSessionReader implements SessionReader {
           if (sessionQuery?.until && s.startedAt > sessionQuery.until) return false;
           if (sessionQuery?.provider && s.provider !== sessionQuery.provider) return false;
           if (sessionQuery?.model && s.model !== sessionQuery.model) return false;
-          if (sessionQuery?.minTokens !== undefined && s.tokenTotal < sessionQuery.minTokens) return false;
+          if (sessionQuery?.minTokens !== undefined && s.tokenTotal < sessionQuery.minTokens)
+            return false;
           if (titleNeedle && !s.title.toLowerCase().includes(titleNeedle)) return false;
           return true;
         });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   AGENT_CATALOG,
   AGENTS_BY_PHASE,
@@ -35,9 +35,9 @@ const KEBAB = /^[a-z][a-z0-9-]*$/;
 const TOOL_ID = /^[a-z][a-z0-9_-]*$/;
 
 describe('agent catalog integrity', () => {
-  it('has 51 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
-    expect(ALL_AGENT_DEFINITIONS.length).toBe(51);
-    expect(Object.keys(AGENT_CATALOG).length).toBe(51);
+  it('has 75 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
+    expect(ALL_AGENT_DEFINITIONS.length).toBe(75);
+    expect(Object.keys(AGENT_CATALOG).length).toBe(75);
     for (const def of ALL_AGENT_DEFINITIONS) {
       expect(AGENT_CATALOG[def.config.role as string]).toBe(def);
     }
@@ -53,6 +53,11 @@ describe('agent catalog integrity', () => {
       expect(config.name?.length ?? 0).toBeGreaterThan(0);
       // Prompts are real role briefs, not stubs.
       expect((config.prompt ?? '').length, `prompt for ${role}`).toBeGreaterThan(50);
+
+      // Skills: every role has a diverse, duplicate-free curated set.
+      const skills = config.skillNames ?? [];
+      expect(skills.length, `skills for ${role}`).toBeGreaterThanOrEqual(3);
+      expect(new Set(skills).size, `duplicate skill in ${role}`).toBe(skills.length);
 
       // Tools: non-empty, unique, well-formed ids.
       const tools = config.tools ?? [];
@@ -78,7 +83,7 @@ describe('agent catalog integrity', () => {
     }
   });
 
-  it('groups every catalog agent into exactly one phase and the groups sum to 51', () => {
+  it('groups every catalog agent into exactly one phase and the groups sum to 75', () => {
     let total = 0;
     const seen = new Set<string>();
     for (const phase of PHASES) {
@@ -91,8 +96,45 @@ describe('agent catalog integrity', () => {
       }
       total += group.length;
     }
-    expect(total).toBe(51);
-    expect(seen.size).toBe(51);
+    expect(total).toBe(75);
+    expect(seen.size).toBe(75);
+  });
+
+  it('every built-in role carries a non-empty technology policy suffix in its prompt', async () => {
+    // The policy block is opt-in via `WRONGSTACK_AGENT_POLICY=on`. The loader
+    // exposes a `globalThis.__WS_DISABLE_PROMPT_CACHE__` test hook that
+    // bypasses the in-process prompt cache so the assertion sees the
+    // policy-injected prompt even when an earlier test cached the
+    // pre-policy variant. We also clear `promptCache` after the run so
+    // downstream consumers do not observe the un-cached bypass state.
+    const previousPolicy = process.env['WRONGSTACK_AGENT_POLICY'];
+    const previousBypass = (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean })
+      .__WS_DISABLE_PROMPT_CACHE__;
+    process.env['WRONGSTACK_AGENT_POLICY'] = 'on';
+    (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean }).__WS_DISABLE_PROMPT_CACHE__ = true;
+    try {
+      const mod = await import(
+        '../../src/coordination/agents/agent-prompts.js'
+      );
+      for (const def of ALL_AGENT_DEFINITIONS) {
+        const role = def.config.role as string;
+        const prompt = mod.agentPrompt(role);
+        expect(prompt, `${role} must receive the modern technology policy`).toContain(
+          'Mandatory modern technology policy',
+        );
+        expect(prompt, `${role} must enforce latest-stable versions`).toContain(
+          'Latest stable by default',
+        );
+      }
+    } finally {
+      if (previousPolicy === undefined) {
+        delete process.env['WRONGSTACK_AGENT_POLICY'];
+      } else {
+        process.env['WRONGSTACK_AGENT_POLICY'] = previousPolicy;
+      }
+      (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean }).__WS_DISABLE_PROMPT_CACHE__ =
+        previousBypass;
+    }
   });
 
   it('getAgentDefinition resolves known roles and rejects unknown ones', () => {
@@ -103,7 +145,7 @@ describe('agent catalog integrity', () => {
 
 describe('fleet roster derivation', () => {
   it('FLEET_ROSTER is the catalog plus the standalone shadow-agent role', () => {
-    expect(Object.keys(FLEET_ROSTER).length).toBe(52);
+    expect(Object.keys(FLEET_ROSTER).length).toBe(76);
     // Legacy four are preserved alongside the catalog.
     for (const legacy of ['audit-log', 'bug-hunter', 'refactor-planner', 'security-scanner']) {
       expect(FLEET_ROSTER[legacy]).toBeDefined();
@@ -125,12 +167,15 @@ describe('fleet roster derivation', () => {
     }
   });
 
-  it('shadow-agent has a realistic one-shot token budget', () => {
+  it('shadow-agent has a realistic one-shot token budget and operational skills', () => {
     const resolved = applyRosterBudget({ ...FLEET_ROSTER['shadow-agent']!, role: 'shadow-agent' });
     expect(resolved.maxTokens).toBe(96_000);
     expect(resolved.maxCostUsd).toBe(0.5);
     expect(resolved.timeoutMs).toBeUndefined();
     expect(resolved.idleTimeoutMs).toBeGreaterThan(0);
+    expect(resolved.skillNames).toEqual(
+      expect.arrayContaining(['wrongstack-mailbox', 'multi-agent', 'audit-log', 'observability']),
+    );
   });
 });
 
@@ -162,10 +207,10 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
       spawnedIds.push(result.subagentId!);
     }
 
-    // All 52 produced distinct subagent ids (instantiateRosterConfig must not
+    // All 76 produced distinct subagent ids (instantiateRosterConfig must not
     // reuse the template id) and the director registered each one.
-    expect(new Set(spawnedIds).size).toBe(52);
-    expect(director.status().subagents.length).toBe(52);
+    expect(new Set(spawnedIds).size).toBe(76);
+    expect(director.status().subagents.length).toBe(76);
   });
 
   it('reports a clean error for an unknown role instead of throwing', async () => {

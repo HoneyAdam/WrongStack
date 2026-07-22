@@ -1,6 +1,6 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { color, getToolDescriptionMode } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color, getToolDescriptionMode } from '@wrongstack/core/utils';
+import type { SlashCommandContext } from './command-context.js';
 
 function fit(text: string, width: number): string {
   if (text.length <= width) return text.padEnd(width);

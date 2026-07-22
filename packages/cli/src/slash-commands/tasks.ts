@@ -1,24 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { SlashCommand } from '@wrongstack/core';
-import {
-  addPlanItem,
-  emptyPlan,
-  formatPlan,
-  formatTaskList,
-  formatTaskProgress,
-  loadPlan,
-  loadTasks,
-  mutateTasks,
-  recordCompletedWorkEvidence,
-  saveCompletedWorkCheckpoint,
-  savePlan,
-  type TaskItem,
-  type TaskPriority,
-  type TaskStatus,
-  type TaskType,
-} from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { addPlanItem, emptyPlan } from '@wrongstack/core/storage';
+import { type TaskItem } from '@wrongstack/core/utils';
+import { type TaskPriority, type TaskStatus, type TaskType } from '@wrongstack/core/types';
+import { formatPlan } from '@wrongstack/core/storage';
+import { formatTaskList, formatTaskProgress, recordCompletedWorkEvidence } from '@wrongstack/core/utils';
+import { loadPlan, loadTasks, mutateTasks, saveCompletedWorkCheckpoint, savePlan } from '@wrongstack/core/storage';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 function findTask(tasks: TaskItem[], query: string): { idx: number; item: TaskItem } | null {
   const asIndex = Number.parseInt(query, 10);

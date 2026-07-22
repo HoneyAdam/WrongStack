@@ -409,6 +409,7 @@ export const ALLOWED_ENTRY_KINDS = new Set([
   'memory-lifecycle',
   'banner',
   'divider',
+  'model-switch',
 ]);
 
 /** Fleet subagent status values. */

@@ -1,6 +1,7 @@
-import type { Context, InputReader, Mode, ModeStore, SlashCommand } from '@wrongstack/core';
-import { color, writeOut } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { Context } from '@wrongstack/core/agent';
+import type { InputReader, Mode, ModeStore, SlashCommand } from '@wrongstack/core/types';
+import { color, writeOut } from '@wrongstack/core/utils';
+import type { SlashCommandContext } from './command-context.js';
 
 /**
  * Persist a `mode_changed` event onto the active session writer so a resumed

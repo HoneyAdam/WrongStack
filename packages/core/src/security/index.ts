@@ -7,6 +7,7 @@ export {
   hasDangerousCapabilityForSubagents,
   ToolCapabilities,
   type ToolCapability,
+  WIDE_SUBAGENT_CAPABILITIES,
 } from './capabilities.js';
 export { decryptConfigSecrets, encryptConfigSecrets, isSecretField } from './config-secrets.js';
 export {
@@ -28,6 +29,7 @@ export {
   validateTrustPolicy,
 } from './permission-policy-schema.js';
 export { DefaultSecretScrubber } from './secret-scrubber.js';
+export { noOpVault } from '../types/secret-vault.js';
 export {
   ReadOnlyPermissionPolicy,
 } from './readonly-permission-policy.js';

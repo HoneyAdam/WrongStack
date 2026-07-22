@@ -1,5 +1,6 @@
-import { expectDefined, FetchError, ToolValidationError } from '@wrongstack/core';
-import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import { FetchError, ToolValidationError } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core/types';
 import { guardedFetch } from './_fetch-guard.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 

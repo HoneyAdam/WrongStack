@@ -1,17 +1,9 @@
 import * as path from 'node:path';
-import {
-  type Config,
-  type EventBus,
-  type GlobalMailbox,
-  type HqPublisher,
-  type SessionWriter,
-  startCostTelemetryBridge,
-  startSessionTelemetryBridge,
-  startFleetTelemetryBridge,
-  startBrainTelemetryBridge,
-  startWorktreeTelemetryBridge,
-  startToolTelemetryBridge,
-} from '@wrongstack/core';
+import { type Config, type SessionWriter } from '@wrongstack/core/types';
+import { type HqPublisher } from '@wrongstack/core/hq';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { type GlobalMailbox } from '@wrongstack/core/coordination';
+import { startCostTelemetryBridge, startSessionTelemetryBridge, startFleetTelemetryBridge, startBrainTelemetryBridge, startWorktreeTelemetryBridge, startToolTelemetryBridge } from '@wrongstack/core/hq';
 import type { AgentMonitorService } from '@wrongstack/core/coordination';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { startCliHqConnection } from '../hq-publisher.js';

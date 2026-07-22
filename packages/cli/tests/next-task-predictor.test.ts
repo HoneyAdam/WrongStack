@@ -1,4 +1,4 @@
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type PredictLLMProvider,

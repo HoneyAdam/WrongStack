@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   GOVERNED_TOOL_EXECUTOR_META_KEY,
   type GovernedToolExecutor,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { ToolExecutor } from '../../core/src/execution/tool-executor.js';
 import { batchToolUseTool } from '../src/batch-tool-use.js';
 

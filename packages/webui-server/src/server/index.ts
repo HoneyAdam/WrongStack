@@ -72,6 +72,8 @@ export {
   handleDesignMaterialize,
   handleDesignSet,
   handleDesignState,
+  handleDesignSwap,
+  handleDesignTune,
   handleDesignUse,
   handleDesignVerify,
 } from './design-handlers.js';
@@ -145,6 +147,10 @@ export { handleKanbanHostRoute, type KanbanHostRouteHandlers } from './kanban-ho
 export type { KanbanBoardPage, KanbanRouteContext } from './kanban-routes.js';
 export { handleKanbanRoute, paginateKanbanBoards } from './kanban-routes.js';
 export { createShutdown, registerShutdownHandlers } from './lifecycle.js';
+export {
+  handleConfigDoctor,
+  type ConfigDoctorDeps,
+} from './config-doctor.js';
 export {
   getMailboxForDeps,
   handleMailboxAgents,

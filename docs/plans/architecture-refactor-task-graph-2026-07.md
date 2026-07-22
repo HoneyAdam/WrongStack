@@ -294,7 +294,7 @@ The highest-risk ordering constraints are:
 - **Deliverables:** owner, reason, issue/task, review date, expiry/removal condition; CI expiry check
 - **Exit gate:** no temporary exception exists without complete metadata; expired exceptions fail CI
 - **Historical links:** `009`, `016`
-- **Evidence (2026-07-21):** `architecture/exceptions.json` and `pnpm check:architecture` require exact members, owner, reason, canonical task, introduction/review dates, and a removal condition; expired, stale, widened, or unowned exceptions fail. Runtime/type SCCs and the former 14-file slash-command allowlist use the registry; hotspot debt is governed by the exact reviewed ratchet.
+- **Evidence (2026-07-21):** `architecture/exceptions.json` and `pnpm check:architecture` require exact members, owner, reason, canonical task, introduction/review dates, and a removal condition; expired, stale, widened, or unowned exceptions fail. Runtime/type SCCs use the registry and hotspot debt uses the exact reviewed ratchet. C2 subsequently removed the slash-import exception entirely and replaced it with a zero-tolerance direction check.
 
 ### Wave 1 — Trust and lifecycle boundaries
 
@@ -485,82 +485,120 @@ The highest-risk ordering constraints are:
 
 #### M5 — Give security-scanner one real CLI composition path
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P2
 - **Hard dependencies:** `M2`
 - **Deliverables:** CLI-owned adapter, real backend or explicit removal of false no-op claims, command parity
 - **Exit gate:** one discoverable production path invokes the scanner; dead command/plugin paths are removed
 
+- **M5 completion evidence (2026-07-21):** `/security` is now a CLI-owned adapter over the package-owned `@wrongstack/security-scanner` command and invokes the real orchestrator for `scan`, the package audit plus source scan for `audit`, dependency-only execution for `audit-deps`, project-rooted report discovery for `report`, and the production secret scrubber for `redact-test`; stable `--json` output remains at `metadata.security`. The former CLI-only pnpm parser/bug-hunter dispatch instructions and the no-op `wstack-security` Core plugin, factory, audit row, tests, and WebUI toggle were removed, leaving one discoverable production route and no command collision. The scanner package now owns the shared redaction diagnostic and recognizes Markdown, JSON, and HTML reports. Security-scanner typecheck/build and all 20 package test files / 220 tests pass; six focused CLI composition files / 45 tests and the full CLI suite (249 passed files / 3,199 tests, 12 skipped) pass. All 22 publishable package contracts, plugin projection drift, seven-locale i18n parity, repository diff checks, and test-type verification across 22 projects pass with zero new diagnostics. Architecture health passes across 2,016 production files / 1,774 tests with zero runtime cycles and 20 reviewed type-only cycles.
+
 ### Wave 4 — Behavioral hotspot decomposition
 
 #### T1 — Add a real top-level TUI journey harness
 
-- **Status:** `pending`
+- **Status:** `completed`
 - **Priority:** P0
 - **Hard dependencies:** `V4`
 - **Deliverables:** top-level App submit/history journey; keyboard/picker/resume scenarios; reliable provider harness
 - **Exit gate:** tests exercise the production App/controller composition rather than only extracted component seams
 - **Historical links:** `005`
 
+- **T1 completion evidence (2026-07-21):** Added a reusable top-level App journey harness with contract-complete Agent context, EventBus, AttachmentStore, and the production SlashCommandRegistry. Production App composition now has explicit journeys for boot prompt submission through `agent.run` into user/assistant history and for resumed-message rehydration, while the baseline mount waits through passive hook setup so effect-time fixture failures are visible. Supporting keyboard, slash menu, input history, model/mode picker, and resume scenarios pass together (11 files / 157 tests); the three App integration files pass 4/4 tests, and TUI source typecheck passes. The completed full TUI run passes 209 files / 3,373 tests.
+
 #### T2 — Extract TUI key, submit/run, and overlay decision seams
 
-- **Status:** `pending`
+- **Status:** `completed`
 - **Priority:** P1
 - **Hard dependencies:** `T1`, `G2`
 - **Deliverables:** key router; submit/run controller; picker/overlay controllers; grouped `TuiHostCapabilities`
 - **Exit gate:** first two slices reduce `app.tsx` LOC or cross-domain imports by at least 20% with no flake increase
 - **Historical links:** `001`
 
+- **T2 completion evidence (2026-07-21):** Extracted typed composer input routing (`input-key-router.ts`), foreground agent/queue execution (`run-blocks-controller.ts`), prompt refinement and submit orchestration (`submit-prompt-refinement.ts`, `submit-controller.ts`), modal/settings/pointer/interrupt overlay routing (`overlay-key-router.ts`), and a cycle-free grouped host contract (`tui-host-capabilities.ts`). The production App journey still crosses the extracted submit and run controllers. `app.tsx` shrank from the ratcheted 7,672 lines to 6,129 lines (20.1%) without increasing its 115 relative-import fan-out; every new controller stays below the 800-line hotspot threshold. TUI source typecheck, 20 focused files / 275 behavior tests, the full 209-file / 3,373-test TUI suite, and the TUI test-type ratchet with zero new diagnostics pass. Architecture analysis remains at zero runtime and 20 reviewed type-only cycles; unrelated concurrent Core/WebUI hotspot changes still require their own ratchet updates.
+
 #### T3 — Compose TUI domain reducers and shrink the root shell
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `T2`
 - **Deliverables:** domain reducer modules; state types independent of components; thin root reducer/shell
 - **Exit gate:** domain reducers under 600 lines; root `app.tsx` target under 1,500 lines; exact behavior parity
 - **Historical links:** `001`, `002`
+- **Completion evidence (2026-07-22):** the typed reducer root is 82 lines,
+  ten domain reducers are 146–556 lines, and `app-state.ts` / `app-props.ts`
+  have no component type imports. `app.tsx` is 1,455 physical lines (down from
+  6,129); keyboard routing is 674 lines, the picker controller is 317 lines,
+  and the render regions are 621 and 391 lines. Source typecheck, all 210 TUI
+  test files / 3,376 tests, focused App journeys, and the test-type ratchet
+  with zero new diagnostics pass. Architecture analysis has zero runtime
+  cycles, the two T3 type-cycle exceptions were removed, and no extracted
+  replacement module is a new 800-line hotspot.
 
 #### C1 — Complete CLI boot/dispatch journeys
 
-- **Status:** `partial`
+- **Status:** `done`
 - **Priority:** P0
 - **Hard dependencies:** `V4`
-- **Existing evidence:** baseline and plugin-management tests exist; full dispatch matrix remains incomplete
 - **Deliverables:** single-shot, TUI, WebUI, plugin-management, and no-TTY/no-stdin non-hanging paths
 - **Exit gate:** each production dispatch path has one reliable integration journey
 - **Historical links:** `006`
 
+- **C1 completion evidence (2026-07-22):** execution-surface precedence now has
+  one production authority (`resolveExecutionMode`), and the lazy TUI import is
+  isolated behind a typed production dispatch boundary. The journey suite runs
+  a real single-shot agent turn, verifies TUI loading/invocation, verifies WebUI
+  flag-to-server mapping and shutdown, and enters plugin management through
+  `boot()` before runtime composition. The existing WebUI baseline still boots
+  a real loopback HTTP/WebSocket server and closes it through the production
+  signal path. The no-TTY/no-stdin smoke test calls `main()` end to end with an
+  enforced 30-second ceiling. CLI typecheck and six focused files / 123 tests
+  pass.
+
 #### C2 — Move shared CLI logic out of slash commands
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `C1`, `G3`
 - **Deliverables:** service modules; shrinking allowlist; import-direction enforcement
 - **Exit gate:** no temporary non-command importer remains without dated exception; no new violation can land
 - **Historical links:** `009`
 
+- **C2 completion evidence (2026-07-22):** reusable autonomy, statusline,
+  suggestion, project-manifest, commit/dispatch LLM, MCP-management, and SDD
+  behavior moved to `packages/cli/src/services/`; compatibility command paths
+  are thin exports. All 13 temporary reverse-import members were migrated and
+  `ARCH-SLASH-IMPORT-01` was deleted. The command host contract moved out of
+  the catalog into `command-context.ts`, so 71 adapters no longer import the
+  catalog that imports them and the giant slash-command type SCC disappeared.
+  Architecture verification now blocks new non-command slash imports directly
+  and reports zero such imports and zero runtime cycles. CLI typecheck, the
+  architecture scanner tests, and all 250 CLI test files / 3,204 tests pass.
+
 #### C3 — Convert CLI into explicit bootstrap/runtime/surface/shutdown phases
 
-- **Status:** `partial`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `C2`, `L1`, `P3`
-- **Existing evidence:** multiple wiring modules have already been extracted; `cli-main.ts` remains a large composition root
+- **Completion evidence (2026-07-22):** `cli-main.ts` fell from 2,675 to 1,187 physical lines and from 47 to 44 relative imports. Typed wiring modules now own command-host state/adapters, fleet/session commands, provider waiting-room persistence and utility tools, eternal controls, live runtime controllers, picker projection, lifecycle disposal, and final dispatch preparation; the root retains ordering and hand-off only. CLI typecheck passes, all 250 CLI test files / 3,204 tests pass (2 files / 12 tests skipped), architecture scanner tests pass 8/8, CLI test-type verification has zero new diagnostics, and architecture health reports zero runtime cycles and zero non-command slash imports.
 - **Deliverables:** typed phase results; disposal ownership; thin surface dispatch
 - **Exit gate:** `cli-main.ts` under 1,200 lines and no reusable domain logic remains in the root
 - **Historical links:** `003`
 
 #### D1 — Add realistic multi-agent journeys
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P0
 - **Hard dependencies:** `V4`
 - **Deliverables:** spawn→assign→await, quality repair, collab debug, mailbox-result propagation journeys
 - **Exit gate:** tests assert user-visible outcomes and cleanup, not only event emission
 - **Historical links:** `013`
 
+- **Completion evidence (2026-07-22):** A deterministic four-journey suite exercises the real Director, quality-gate repair loop, CollabSession/FleetBus report assembly, and project mailbox persistence while replacing only the LLM runner. Assertions cover returned implementation text, accepted post-repair verdict, assembled bug/plan/critic report, mailbox-delivered result, and fleet cleanup. The journey found and fixed CollabSession awaiting subagent IDs instead of assigned task IDs. Core typecheck passes; the focused journey/collab/director-tool set passes 4 files / 73 tests; touched test-type diagnostics are zero.
+
 #### D2 — Stabilize Director tool and policy contracts
 
-- **Status:** `partial`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `D1`
 - **Existing evidence:** collaboration and BTW responsibilities have partial extractions; Director/tool contracts still overlap
@@ -568,62 +606,76 @@ The highest-risk ordering constraints are:
 - **Exit gate:** Director and director-tools no longer need coordinated edits for unrelated policy changes
 - **Historical links:** `004`
 
+- **Completion evidence (2026-07-22):** Director-facing tools now depend on structural spawn/admission, budget, assignment, repair, lease/recovery, lifecycle, read-model, answer-store, collaboration, and publishing ports instead of the concrete `Director` class. `CollabSession` uses its own six-member host contract, and the shared model-matrix source type moved out of `director.ts`. These cuts removed the five-module Director type SCC and retired `ARCH-CYCLE-TYPE-10`, reducing active type-inclusive cycles from 17 to 16 while runtime cycles remain zero. Core typecheck passes; 12 focused Director/tool/collab/fleet suites pass 184 tests; architecture scanner tests pass 8/8. The full Core collection passes 442 files / 7,050 tests (6 skipped); only the pre-existing stale slash-import guardrail and concurrent sync-plugin suites remain red.
+
 #### D3 — Decompose Director lifecycle behind stable contracts
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `D2`, `G2`
 - **Deliverables:** focused modules and orchestration shell
 - **Exit gate:** two slices achieve the 20% coupling/LOC target; long-term Director target under 1,200 lines
 - **Historical links:** `004`
 
+- **Completion evidence (2026-07-22):** Two state-owning lifecycle slices moved behind the D2 contracts. `DirectorTaskRegistry` is now the sole authority for task ids, assignment metadata, ownership, completed-result retention, all/any waiters, retargeting, internal tasks, rollups, and shutdown waiter resolution. `DirectorBudgetPolicy` owns threshold subscriptions, timeout/idle heartbeats, bounded extensions, Brain-mediated cost decisions, extension history, and disposal. Obsolete assign/await/terminate/remove copies were removed from `fleet-spawn.ts`, leaving it spawn-only. The Director shell fell from 2,178 to 1,705 scanner lines (21.7%) and the extracted modules are 308 and 241 physical lines. Core typecheck and Biome pass; 16 focused lifecycle/budget/collab suites pass 196 tests; architecture scanner tests pass 8/8 with zero runtime cycles and 16 type-inclusive cycles. The long-term under-1,200 target remains an explicit ratchet for later persistence/admission extraction rather than a prerequisite for these two D3 slices.
+
 ### Wave 5 — Core/Runtime/storage/memory ownership
 
 #### R1 — Decide Core export/config ownership before moving code
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `V2`, `G1`
 - **Deliverables:** top-level vs subpath export policy; config contract domains; Runtime complete-vs-fold pilot definition
 - **Exit gate:** API snapshot and usage scan exist; no arbitrary export-count target drives removal
 - **Historical links:** `010`, `011`
 
+- **Completion evidence (2026-07-22):** ADR-004 accepts the Core root as compatibility-only, requires declared owned subpaths, partitions configuration contracts into nine domains, and defines a measured metrics/health Runtime pilot with explicit pass/kill criteria. `scripts/snapshot-core-public-api.mjs` reproducibly records 20 package export keys, 481 source export declarations, all 28 classified Core directories, and every in-scope Core package-specifier consumer. The baseline finds 1,061 root-import files plus unsupported deep imports; `pnpm check:architecture` now checks both generated snapshots before scanning architecture health. No runtime export was removed and no numeric export target was introduced.
+
 #### R2 — Extract a dependency-free persistence primitive
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `R1`
 - **Deliverables:** shared atomic write, lock, stale/retry/watch semantics below Core and Kanban
 - **Exit gate:** Core and Kanban adapters pass the same adversarial suite; workspace DAG remains acyclic
 
+- **Completion evidence (2026-07-22):** `@wrongstack/persistence` is a zero-workspace-dependency package and is now the sole implementation authority for atomic replacement, directory creation, lock acquisition/release, stale-lock recovery, watcher-assisted contention waits, bounded timeouts, orphan-lock cleanup, mode preservation, and transient Windows rename retries. Core retains an error-translating compatibility adapter and Kanban retains a direct re-export adapter; no on-disk format changed. One table-driven adversarial suite executes the same six scenarios against the authority, Core adapter, and Kanban adapter. The focused persistence/Core/Kanban run passed 5 files and 66 tests; all three production typechecks plus the persistence test project passed. The architecture scan reports `@wrongstack/persistence` with no workspace dependencies, Core/Kanban edges pointing down to it, 0 runtime module cycles, and an acyclic workspace graph. The full architecture command remains red only on pre-existing/concurrent hotspot ratchet drift outside R2 scope.
+
 #### R3 — Split SuperMemory and establish one MemoryPort
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `R1`
 - **Deliverables:** persistence/index/graph/retrieval/lifecycle modules; legacy backend adapters; new-use prohibition
 - **Exit gate:** hosts consume one MemoryPort and legacy implementations have no new direct callers
 
+- **Completion evidence (2026-07-22):** Core now defines one host-facing `MemoryPort` with deterministic initialize/health/dispose lifecycle and typed optional capabilities. Super Memory owns SQLite, JSONL-compatibility, and legacy adapters; Runtime constructs the SQLite port without a contract cast, while CLI, TUI, and WebUI Server consume only the port and capability accessors. The adapter normalizes the formerly incompatible SQLite path-retrieval signature at the boundary. Persistence/migration, graph, retrieval, shared index/text normalization, middleware injection policy, and port lifecycle have explicit modules; the middleware normalization cycle was removed. A new architecture test prohibits production construction of concrete stores, consumer-local backend guards, and unsafe `MemoryStore` casts. The focused cross-host run passed 9 files/85 tests, the full Super Memory suite passed 28 files/636 tests, all five affected production package typechecks passed, and the API snapshot is current. Architecture evidence remains at 0 runtime cycles and 15 type-inclusive cycles; the full health command is red only for separately tracked concurrent hotspot/exception ratchet drift. Concrete store classes remain exported solely for the documented compatibility window and are scheduled for R8 retirement.
+
 #### R4 — Run one complete Runtime subsystem pilot
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P1
 - **Hard dependencies:** `R2`, `R3`
 - **Deliverables:** physical move of one complete concrete subsystem, Core compatibility shims, before/after coupling metrics
 - **Exit gate:** clean build/test/API snapshot and measurable host/Core coupling reduction
 - **Historical links:** `010`
 
+- **Completion evidence (2026-07-22):** the metrics/health subsystem was inventoried as five concrete Core modules totaling 706 physical lines, with one non-test production composition consumer (CLI). Runtime already has a hard package dependency on Core across its real container/host/platform implementations. Preserving the published Core observability surface after a physical Runtime move would therefore require `Core -> Runtime -> Core`; retaining a copy would create two authorities, and immediate removal would violate ADR-004 compatibility policy. The pilot consequently hit the reverse-edge and pass-through kill criteria before a safe mergeable move existed. The reproducible evidence and rejected alternatives are recorded in `maintainability-refactor-2026-07/09-runtime-pilot-decision.md`; no behavior or data format was changed merely to manufacture a transient move.
+
 #### R5 — Decide Runtime direction from pilot evidence
 
-- **Status:** `pending`
+- **Status:** `done — kill branch selected`
 - **Priority:** P1
 - **Hard dependencies:** `R4`
 - **Pass branch:** continue to `R6`
 - **Kill branch:** continue to `R7` if more than 50% remains passthrough, reverse edges appear, or import/change cost worsens
 
+- **Decision evidence (2026-07-22):** Core compatibility would introduce a reverse workspace edge and 100% of a compatibility-preserving Runtime observability surface would be pass-through. Continue to R7; R6 is not applicable.
+
 #### R6 — Migrate concrete defaults to Runtime subsystem by subsystem
 
-- **Status:** `pending`
+- **Status:** `not applicable — R5 selected the kill branch`
 - **Priority:** P2
 - **Hard dependencies:** `R5` pass
 - **Deliverables:** storage/security/config/observability/models/compaction/skills moves with compatibility shims
@@ -631,20 +683,26 @@ The highest-risk ordering constraints are:
 
 #### R7 — Fold the Runtime facade when the pilot fails
 
-- **Status:** `pending`
+- **Status:** `done`
 - **Priority:** P2
 - **Hard dependencies:** `R5` kill branch
 - **Deliverables:** remove redundant facade exports; keep genuinely independent Runtime features in an appropriately named package or Core subpaths
 - **Exit gate:** no transitional ownership claim remains
 
+- **Completion evidence (2026-07-22):** Runtime root no longer re-exports the Core root, Core defaults barrel, or Core infrastructure classes. Its documentation and entrypoint now name only implementations physically owned by Runtime: host/container composition, tool registration, vision, clipboard, local-model probing, packs, and fleet assembly. Repository search finds no remaining Runtime-to-Core re-export. Runtime source typecheck/build and 5 focused files/35 tests pass; the Core API snapshot is current, package contracts pass, and architecture analysis remains at 0 runtime cycles and 15 type-inclusive cycles. Metrics/health stay at their truthful focused Core owner.
+
 #### R8 — Retire compatibility exports and adapters
 
-- **Status:** `pending`
+- **Status:** `done — in-repository retirement complete; public root retained only for the next-major compatibility window`
 - **Priority:** P2
 - **Hard dependencies:** `R6` or `R7`
 - **Deliverables:** usage scan; deprecation release; removal; migration notes
 - **Exit gate:** downstream/package smoke passes with canonical imports only
 - **Historical links:** `011`
+
+- **Progress evidence (2026-07-22):** the Runtime Core/defaults pass-through surface has been removed and documented in `docs/migration/v0.296.0-architecture-boundaries.md`. Declared `@wrongstack/core/observability`, `@wrongstack/core/agent`, `@wrongstack/core/agent-catalog`, `@wrongstack/core/worktree`, `@wrongstack/core/registry`, `@wrongstack/core/extension`, `@wrongstack/core/plugin`, `@wrongstack/core/notifications`, `@wrongstack/core/hq`, and `@wrongstack/core/design` owners now replace compatibility-root imports; tasking, coordination, security, types, models, infrastructure, execution, and utils already have focused owners. `core/types` no longer re-exports the concrete storage `DefaultSessionReader`; task-graph runtime helpers moved to `core/tasking`, and an architecture test rejects implementation re-exports from outside `src/types`. CLI metrics wiring plus all SDD, security-scanner, ACP, Bench, TechStack, Desktop, Runtime, Super Memory, MCP, Telegram, plug-lsp, WebUI, WebUI-HQ, and WebUI Server production/test consumers migrated to canonical subpaths, with package-level behavior/type gates. Runtime passes 10 files/113 tests, Super Memory 28/636, MCP 20/369, Telegram 20/288, plug-lsp 18/106 with one file/test skipped, WebUI-HQ 28/303, and WebUI Server 88/967; each package has zero internal Core-root imports and its production typecheck passes. WebUI's full 216-file run passed 214 files before the final two authority fixes, then both affected files passed 35/35 on focused rerun; both production typechecks pass. Super Memory's duplicate module augmentation was removed, the LSP event augmentation now targets the canonical kernel module, task-graph value consumers use the tasking owner, and WebUI model-matrix routes are generated from the agent catalog instead of a drifting copy. The usage generator parses actual static, dynamic, side-effect, and type imports rather than counting fixture strings or alias-map keys. Providers also has zero root imports and passes typecheck plus 39 files/580 tests. Plugins also has zero root imports and passes typecheck plus 94 files/1,793 tests. The corrected root-import ratchet is 592 files and is enforced exactly by `architecture/core-api-policy.json`; any decrease must tighten it and any increase fails. Direct memory backend classes carry compiler-visible deprecation notices and production construction remains prohibited. Final public removal remains intentionally open until a maintainer publishes the compatibility release required by ADR-004.
+
+- **Final completion evidence (2026-07-22):** all in-scope production, test, and script consumers now use declared domain subpaths, including static imports, dynamic imports, `require`, and type queries. The generated usage snapshot reports **0** `@wrongstack/core` root-import files, down from the corrected 1,061-file baseline, and `architecture/core-api-policy.json` locks the exact ratchet at zero. The CLI command host reaches its command catalog only through the dedicated wiring bridge, leaving zero non-command slash imports. Core, Tools, TUI, WebUI Server, and CLI production typechecks pass. Core/Tools/WebUI Server verification passes 658 files and 9,956 tests with 7 reviewed skips; TUI passes 210 files and 3,380 tests; CLI passes 250 files and 3,211 tests with 2 files/12 tests skipped. Architecture health passes with 24 in-scope packages, zero runtime cycles, 15 reviewed type-inclusive cycles, complete test-project ownership, and no blocking errors. The published Core root remains compatibility-only until the ADR-004 next-major gate; no repository code depends on it. Full evidence is in `maintainability-refactor-2026-07/10-completion-report.md`.
 
 ## Parallel execution lanes
 
@@ -667,19 +725,19 @@ The table below maps every item in `docs/backlog/2026-07-architecture-review/` t
 
 | ID | Historical item | Status | Current evidence / rationale | Successor tasks |
 |---:|---|---|---|---|
-| 001 | Split TUI `app.tsx` | `partial` | Many hooks/components exist, but the ~7.8K root still owns routing, effects, controllers, and composition; top-level journey protection is incomplete | `T1`, `T2`, `T3` |
-| 002 | Split TUI `app-reducer.ts` | `pending` | Reducer remains a large multi-domain action switch; extracted state has not become composed domain reducers | `T2`, `T3` |
-| 003 | Continue CLI main decomposition | `partial` | Numerous wiring modules are present, but `cli-main.ts` remains a large composition root and shutdown/plugin disposal is not closed | `C1`, `C2`, `C3`, `L1`, `P3` |
-| 004 | Split Director responsibilities | `partial` | Collaboration/BTW and helper responsibilities have partial extractions; Director still mixes admission, budgets, lifecycle, recovery, and publishing | `D1`, `D2`, `D3` |
+| 001 | Split TUI `app.tsx` | `done` | T1–T3 protect real journeys and reduce the root to 1,455 lines with all extracted modules below the hotspot threshold | `T1`, `T2`, `T3` |
+| 002 | Split TUI `app-reducer.ts` | `done` | The 82-line root composes ten typed domain reducers, each below 600 lines, over render-neutral state contracts | `T2`, `T3` |
+| 003 | Continue CLI main decomposition | `done` | The 1,187-line root is orchestration-only; typed command-host, provider, runtime, surface, and lifecycle modules own implementation behavior and disposal | `C1`, `C2`, `C3`, `L1`, `P3` |
+| 004 | Split Director responsibilities | `partial` | D1 protects four journeys, D2 removes the Director tool/policy SCC, and D3 moves task-registry/waiter and budget-policy state into focused owners while reducing the shell 21.7%; persistence/admission extraction and the under-1,200 long-term target remain | `D1`, `D2`, `D3` |
 | 005 | Strengthen TUI integration coverage | `partial` | Focused hook/component interaction tests improved, but no complete top-level App submit/run journey was found and test discovery/type coverage is incomplete | `V2`, `V4`, `T1` |
-| 006 | Expand CLI boot/dispatch tests | `partial` | Baseline/plugin tests exist, but the stated single-shot/TUI/WebUI/no-TTY matrix is not complete | `V4`, `C1` |
+| 006 | Expand CLI boot/dispatch tests | `done` | Production mode precedence and single-shot/TUI/WebUI/plugin/no-TTY journeys are covered with bounded runtimes; the real WebUI socket lifecycle remains covered | `V4`, `C1` |
 | 007 | Ratcheting hotspot guardrails | `done` | All 800+ in-scope production files have blocking exact line/fan-out ratchets; new or changed hotspots require a reviewed baseline diff | `G1`, `G2` |
 | 008 | Refresh hotspot docs manually | `superseded` | Manual line-count refresh would drift again; measurements and statuses will be generated from one registry | `V1`, `G1`, `G2` |
-| 009 | Extract CLI services from slash commands | `pending` | Temporary importer allowlist still exists and lacks complete owner/expiry policy | `G3`, `C2` |
+| 009 | Extract CLI services from slash commands | `done` | Eight shared service authorities replace command-owned runtime logic; the 13-file exception and command-catalog type SCC are gone, and CI blocks reverse imports | `G3`, `C2` |
 | 010 | Make Runtime a real boundary | `superseded` | The need is valid, but unconditional movement is rejected; Runtime must pass a complete-subsystem pilot or be folded | `R1`, `R4`, `R5`, `R6`, `R7` |
-| 011 | Reduce Core export sprawl | `partial` | Subpath exports exist, but the top-level compatibility barrel remains broad; numeric export reduction without usage/deprecation evidence is rejected | `R1`, `R8` |
+| 011 | Reduce Core export sprawl | `partial` | ADR-004 establishes the compatibility-only root policy and a generated 1,061-file usage/API snapshot; actual consumer migration, deprecation, and removal remain for R8 | `R1`, `R8` |
 | 012 | Architecture health reporting | `partial` | A package/source/test/DAG/SCC/hotspot generator and report now exist; task status generation and visualization remain open | `V1`, `G1` |
-| 013 | Multi-agent E2E tests | `pending` | Unit/event tests exist, but the four requested realistic journeys are not present as a complete outcome-oriented suite | `V4`, `D1` |
+| 013 | Multi-agent E2E tests | `done` | Four deterministic real-Director journeys cover spawn/assign/await, quality repair, collab report assembly, mailbox result propagation, visible outcomes, and cleanup | `V4`, `D1` |
 | 014 | Hotspot drift detection | `done` | Architecture health compares all tracked 800+ files against live line and relative-import measurements and fails on drift | `G1`, `G2` |
 | 015 | Unify shared app services | `superseded` | The objective is too broad as written; it is replaced by explicit protocol, transport, backend, metadata, and projection authorities | `P1`, `P2`, `P3`, `M1`, `M3`, `P6` |
 | 016 | Temporary exception policy | `done` | Cycle and slash-import exceptions have exact scope, owner, review date, removal gate, and CI expiry/staleness enforcement; hotspots use an explicit reviewed ratchet | `G3` |
@@ -691,10 +749,10 @@ The table below maps every item in `docs/backlog/2026-07-architecture-review/` t
 
 | Status | Count | Items |
 |---|---:|---|
-| `done` | 5 | 007, 014, 016, 018, 019 |
-| `partial` | 7 | 001, 003, 004, 005, 006, 011, 012 |
+| `done` | 11 | 001, 002, 003, 006, 007, 009, 013, 014, 016, 018, 019 |
+| `partial` | 4 | 004, 005, 011, 012 |
 | `superseded` | 3 | 008, 010, 015 |
-| `pending` | 4 | 002, 009, 013, 017 |
+| `pending` | 1 | 017 |
 | `killed` | 0 | — |
 
 No historical item is marked `killed` because each still contains useful evidence or an underlying need. Specific implementation directions are killed by ADR-003 instead:

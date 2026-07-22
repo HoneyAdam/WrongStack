@@ -15,6 +15,7 @@ export default defineConfig({
       // of going through the package's "exports" field which points to dist/.
       // The dist/ output is only needed for published consumers; local vitest
       // workers (fork pool) need to import from source directly.
+      '@wrongstack/core/agent': path.resolve(__dirname, './packages/core/src/core'),
       '@wrongstack/core': path.resolve(__dirname, './packages/core/src'),
       // Same for @wrongstack/tools: CLI tests import wiring that reaches the
       // tools package, and root Vitest must not require a prebuilt dist/.
@@ -24,6 +25,7 @@ export default defineConfig({
       // resolved from source as well.
       '@wrongstack/sdd': path.resolve(__dirname, './packages/sdd/src'),
       '@wrongstack/kanban': path.resolve(__dirname, './packages/kanban/src'),
+      '@wrongstack/persistence': path.resolve(__dirname, './packages/persistence/src'),
       '@wrongstack/security-scanner': path.resolve(__dirname, './packages/security-scanner/src'),
     },
   },
@@ -76,10 +78,7 @@ export default defineConfig({
     // `.tsx` is included explicitly: the Ink component tests in tui/ and
     // simpleui/ are .tsx, and a `*.test.ts`-only glob silently skipped all of
     // them — they passed CI by never running.
-    include: [
-      'packages/**/tests/**/*.test.{ts,tsx}',
-      'apps/**/tests/**/*.test.{ts,tsx}',
-    ],
+    include: ['packages/**/tests/**/*.test.{ts,tsx}', 'apps/**/tests/**/*.test.{ts,tsx}'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

@@ -3,7 +3,7 @@
 // atomic write of the resolved choices back to the global config.
 
 import * as fs from 'node:fs/promises';
-import { atomicWrite, color } from '@wrongstack/core';
+import { atomicWrite, color } from '@wrongstack/core/utils';
 import type { ReadlineInputReader } from '../input-reader.js';
 import type { TerminalRenderer } from '../renderer.js';
 

@@ -1,11 +1,6 @@
 import { toErrorMessage } from '@wrongstack/core/utils';
-import {
-  color,
-  DefaultSessionRewinder,
-  DefaultSessionStore,
-  expectDefined,
-  resolveWstackPaths,
-} from '@wrongstack/core';
+import { color, expectDefined, resolveWstackPaths } from '@wrongstack/core/utils';
+import { DefaultSessionRewinder, DefaultSessionStore } from '@wrongstack/core/storage';
 import type { SubcommandHandler } from '../index.js';
 
 interface RewindFlags {

@@ -3,7 +3,7 @@
  * Fed by `hq.alert` WS messages + /api/alerts history.
  */
 
-import type { HqAlert } from '@wrongstack/core';
+import type { HqAlert } from '@wrongstack/core/hq';
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';

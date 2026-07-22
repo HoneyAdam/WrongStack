@@ -22,7 +22,7 @@ import {
   type AuthFlowResult,
   type AuthPanelHost,
   authPanelRows,
-} from '../components/auth-panel-model.js';
+} from '../auth-panel-model.js';
 
 export interface UseAuthPanelOptions {
   authHost: AuthPanelHost | undefined;

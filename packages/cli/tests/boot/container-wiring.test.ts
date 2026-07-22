@@ -44,9 +44,10 @@ vi.mock('@wrongstack/runtime', async () => {
 });
 
 const { wireContainer } = await import('../../src/boot/container-wiring.js');
-import { TOKENS } from '@wrongstack/core';
-import type { Config, Logger, ModelsRegistry, Renderer, WstackPaths } from '@wrongstack/core';
-import type { InputReader } from '@wrongstack/core';
+import { TOKENS } from '@wrongstack/core/kernel';
+import type { Config, Logger, ModelsRegistry, Renderer } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { InputReader } from '@wrongstack/core/types';
 
 function makeLogger(): Logger {
   const calls: Array<{ level: string; msg: string }> = [];

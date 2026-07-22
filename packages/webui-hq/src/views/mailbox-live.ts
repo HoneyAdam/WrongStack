@@ -26,7 +26,7 @@ import type {
   HqMailboxMessageType,
   HqMailboxPriority,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { type FlatMessage, groupMailboxEvents } from './mailbox-grouping.js';
 
 export interface LiveFeedFilters {

@@ -17,7 +17,7 @@ import type { TaskNode, TaskPriority, TaskType } from '@wrongstack/core/types';
 import {
   readBundledInstructionText,
   renderInstructionTemplate,
-} from '@wrongstack/core';
+} from '@wrongstack/core/utils';
 import type { SddSubtaskSpec } from './sdd-parallel-run.js';
 
 const TASK_TYPES = new Set<TaskType>(['feature', 'bugfix', 'refactor', 'docs', 'test', 'chore']);

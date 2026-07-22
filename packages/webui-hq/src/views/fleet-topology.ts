@@ -5,7 +5,7 @@ import type {
   HqSessionAgentSummary,
   HqSessionSnapshotPayload,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 
 export type FleetTopologyNodeKind = 'machine' | 'project' | 'terminal' | 'agent';
 

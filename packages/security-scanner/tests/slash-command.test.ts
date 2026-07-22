@@ -301,12 +301,14 @@ describe('createSecuritySlashCommand', () => {
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, 'security-report-2026-01-01.md'), '# Old');
       await fs.writeFile(path.join(dir, 'security-report-2026-05-22.md'), '# Recent');
+      await fs.writeFile(path.join(dir, 'security-report-2026-06-01.html'), '<h1>Newest</h1>');
       await fs.writeFile(path.join(dir, 'unrelated.txt'), 'skip');
       const cmd = createSecuritySlashCommand();
       const res = await cmd.run('report', fakeCtx());
       expect(res?.message).toContain('Available Security Reports');
       expect(res?.message).toContain('2026-05-22');
       expect(res?.message).toContain('2026-01-01');
+      expect(res?.message).toContain('2026-06-01');
       expect(res?.message).not.toContain('unrelated');
     });
 

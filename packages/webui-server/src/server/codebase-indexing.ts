@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Context, EventBus, IndexingConfig, Logger } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { IndexingConfig, Logger } from '@wrongstack/core/types';
 import {
   cancelPendingReindexes,
   enqueueReindex,
@@ -20,6 +22,8 @@ const IGNORE_DIRS = new Set([
   '__snapshots__',
   '.nyc_output',
 ]);
+const WATCHER_DEDUP_TTL_MS = 60_000;
+const WATCHER_DEDUP_MAX_PATHS = 4_096;
 
 export interface WebUICodebaseIndexingDeps {
   config: { indexing?: IndexingConfig | undefined };
@@ -78,8 +82,23 @@ export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): Web
         const abs = path.resolve(deps.projectRoot, rel);
         if (!isInside(deps.projectRoot, abs) || !isIndexableFile(abs)) return;
         const now = Date.now();
-        if (now - (lastWatcherEvent.get(abs) ?? 0) > 75) {
+        const previousEventAt = lastWatcherEvent.get(abs) ?? 0;
+        if (now - previousEventAt > 75) {
+          // Treat the map as a small LRU and opportunistically evict expired
+          // paths. Generated files can otherwise leave one permanent entry per
+          // unique filename in a long-running WebUI process.
+          lastWatcherEvent.delete(abs);
           lastWatcherEvent.set(abs, now);
+          if (lastWatcherEvent.size > WATCHER_DEDUP_MAX_PATHS) {
+            for (const [cachedPath, seenAt] of lastWatcherEvent) {
+              if (now - seenAt > WATCHER_DEDUP_TTL_MS) lastWatcherEvent.delete(cachedPath);
+            }
+            while (lastWatcherEvent.size > WATCHER_DEDUP_MAX_PATHS) {
+              const oldest = lastWatcherEvent.keys().next().value;
+              if (oldest === undefined) break;
+              lastWatcherEvent.delete(oldest);
+            }
+          }
           let operation: 'delete' | 'edit' = 'edit';
           if (eventType === 'rename') {
             try {
@@ -147,6 +166,7 @@ export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): Web
       if (idx?.onEdit) enqueueFile(abs);
     },
     dispose() {
+      lastWatcherEvent.clear();
       try {
         watcher?.close();
       } catch {

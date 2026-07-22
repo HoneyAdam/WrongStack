@@ -32,7 +32,7 @@ beforeAll(async () => {
 
   // Resolve the project's slug the same way the server does, so the entry's
   // projectSlug matches resolveWstackPaths' projectDir (the mailbox location).
-  const { resolveWstackPaths } = await import('@wrongstack/core');
+  const { resolveWstackPaths } = await import('@wrongstack/core/utils');
   const paths = resolveWstackPaths({ projectRoot, globalRoot });
 
   const entry = {

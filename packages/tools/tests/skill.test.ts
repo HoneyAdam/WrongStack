@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SkillLoader, SkillManifest } from '@wrongstack/core';
+import type { SkillLoader, SkillManifest } from '@wrongstack/core/types';
 import { makeSkillTool } from '../src/skill.js';
 
 let tmp: string;

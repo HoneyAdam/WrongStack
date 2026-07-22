@@ -14,11 +14,16 @@
 import type { DesignKitTokens } from '../types/design-kit.js';
 import { colorToHex, isColorToken } from './design-color.js';
 
+/** Which design axis a violation belongs to. */
+export type DesignAxis = 'color' | 'radius' | 'spacing' | 'type' | 'motion';
+
 export interface DesignViolation {
   file: string;
   line: number;
   snippet: string;
   reason: string;
+  /** The design axis this drift belongs to. Defaults to 'color' (legacy). */
+  axis?: DesignAxis;
 }
 
 export interface DesignVerifyReport {
@@ -35,6 +40,15 @@ export interface DesignVerifyReport {
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 const FUNC_COLOR_RE = /\b(?:oklch|rgb|rgba|hsl|hsla)\([^)]*\)/gi;
+// Arbitrary-value Tailwind utilities BYPASS the token scale — a strong drift
+// signal regardless of the exact value. Radius: `rounded-[7px]`. Spacing:
+// `p-[13px]`, `mt-[5px]`, `gap-[10px]`. Utilities like `rounded-lg` / `p-4`
+// resolve to the kit's `@theme` scale, so they are NOT flagged.
+const ARBITRARY_RADIUS_RE = /\brounded(?:-[a-z]+)?-\[[^\]]+\]/g;
+const ARBITRARY_SPACING_RE = /\b(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap(?:-[xy])?|space-[xy])-\[[^\]]+\]/g;
+// Raw hardcoded `border-radius:` length (CSS/inline style) that isn't a token
+// var or a trivial value (0, 50%, 9999px, full-round).
+const RAW_RADIUS_RE = /border-radius:\s*([^;{}]+)/gi;
 // Generic Tailwind palette utilities (bg-/text-/border-/ring-/from-/to-/via- + named scale).
 const TW_GENERIC_RE =
   /\b(?:bg|text|border|ring|from|to|via|fill|stroke|decoration|outline|shadow|accent|caret|divide)-(?:slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:50|100|200|300|400|500|600|700|800|900|950)\b/g;
@@ -81,8 +95,8 @@ export function verifyFiles(
     const lines = text.split('\n');
     lines.forEach((lineText, i) => {
       const lineNo = i + 1;
-      const flag = (snippet: string, reason: string) => {
-        violations.push({ file: path, line: lineNo, snippet: snippet.slice(0, 80), reason });
+      const flag = (snippet: string, reason: string, axis: DesignAxis = 'color') => {
+        violations.push({ file: path, line: lineNo, snippet: snippet.slice(0, 80), reason, axis });
       };
 
       // Hardcoded hex + function colors → on/off palette.
@@ -106,6 +120,25 @@ export function verifyFiles(
       for (const m of lineText.matchAll(TW_GENERIC_RE)) {
         offPalette++;
         flag(m[0], 'generic Tailwind palette utility — use kit token colors');
+      }
+
+      // ── Non-color axes: radius / spacing bypass ──────────────────────────
+      // These push violations but do NOT affect the color `score` (which stays
+      // a pure palette-adherence ratio); consumers break down by `axis`.
+      ARBITRARY_RADIUS_RE.lastIndex = 0;
+      for (const m of lineText.matchAll(ARBITRARY_RADIUS_RE)) {
+        flag(m[0], 'arbitrary radius — use a kit radius scale token (rounded-sm…rounded-full)', 'radius');
+      }
+      ARBITRARY_SPACING_RE.lastIndex = 0;
+      for (const m of lineText.matchAll(ARBITRARY_SPACING_RE)) {
+        flag(m[0], 'arbitrary spacing — use a kit spacing scale token (p-1…p-12)', 'spacing');
+      }
+      RAW_RADIUS_RE.lastIndex = 0;
+      for (const m of lineText.matchAll(RAW_RADIUS_RE)) {
+        const val = (m[1] ?? '').trim();
+        if (!val || val.startsWith('var(')) continue;
+        if (/^(0|0px|9999px|50%|inherit|initial|unset|full)$/i.test(val)) continue;
+        flag(`border-radius: ${val}`, 'hardcoded radius — use var(--radius-*) / a kit radius token', 'radius');
       }
 
       // Count token-name usages as on-palette signals (var(--primary), bg-primary…).

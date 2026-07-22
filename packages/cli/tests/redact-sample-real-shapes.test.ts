@@ -18,13 +18,9 @@
 // and url is a MongoDB URI (which matches the mongodb_uri pattern).
 // Every secret-shaped field now demonstrates a redaction; `normal` is
 // the only field that passes through.
-import {
-  type Context,
-  type Message,
-  SlashCommandRegistry,
-  type TodoItem,
-  ToolRegistry,
-} from '@wrongstack/core';
+import { type Context, type TodoItem } from '@wrongstack/core/agent';
+import { type Message } from '@wrongstack/core/types';
+import { SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import { HybridCompactor } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it } from 'vitest';

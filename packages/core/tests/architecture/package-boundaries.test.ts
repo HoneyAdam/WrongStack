@@ -1,5 +1,5 @@
-import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -20,12 +20,12 @@ const ALLOWED_SELF_IMPORTS = new Set([
   // widened to `./tasking/*`, or (b) the file moves to `./index.ts`.
   '@wrongstack/core/tasking/task-tracker.js',
   '@wrongstack/core/tasking/task-store.js',
-  // @wrongstack/kanban was extracted from core and sits BELOW it in the
-  // dependency graph (kanban has no @wrongstack dependencies; core declares
-  // it in package.json). Static imports are therefore not upward imports.
+  // @wrongstack/kanban and @wrongstack/persistence sit below Core in the
+  // workspace graph. Kanban itself depends only on persistence.
   // Note: @wrongstack/sdd stays ABOVE core (it depends on core) and must not
   // appear here — core reaches it only via lazy createRequire in goal/.
   '@wrongstack/kanban',
+  '@wrongstack/persistence',
 ]);
 
 /**
@@ -70,7 +70,8 @@ function isUpwardRuntimeImport(
  * Matches import specifiers: `from '...'`, `import '...'`, `import(...)`.
  * Captures the specifier string (without quotes).
  */
-const IMPORT_RE = /(?:from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+const IMPORT_RE =
+  /(?:from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
 
 /**
  * Returns the import specifier if the match is a relative internal import
@@ -236,7 +237,9 @@ describe('core internal layer rules', () => {
       if (myLayer === 'observability') {
         const forbidden = new Set<LayerName>(['core', 'execution', 'storage', 'coordination']);
         if (forbidden.has(targetLayer) && !typeOnly) {
-          violations.push(`observability/ imports runtime value from '${targetDir}/' — forbidden by Rule 4`);
+          violations.push(
+            `observability/ imports runtime value from '${targetDir}/' — forbidden by Rule 4`,
+          );
         }
         continue;
       }
@@ -245,7 +248,9 @@ describe('core internal layer rules', () => {
       if (myLayer === 'security') {
         const forbidden = new Set<LayerName>(['execution', 'storage', 'coordination']);
         if (forbidden.has(targetLayer) && !typeOnly) {
-          violations.push(`security/ imports runtime value from '${targetDir}/' — forbidden by Rule 5`);
+          violations.push(
+            `security/ imports runtime value from '${targetDir}/' — forbidden by Rule 5`,
+          );
         }
         continue;
       }
@@ -254,7 +259,9 @@ describe('core internal layer rules', () => {
       if (myLayer === 'registry') {
         const forbidden = new Set<LayerName>(['execution', 'storage', 'coordination']);
         if (forbidden.has(targetLayer) && !typeOnly) {
-          violations.push(`registry/ imports runtime value from '${targetDir}/' — forbidden by Rule 6`);
+          violations.push(
+            `registry/ imports runtime value from '${targetDir}/' — forbidden by Rule 6`,
+          );
         }
         continue;
       }
@@ -293,7 +300,9 @@ describe('core internal layer rules', () => {
       if (myLayer === 'models') {
         const forbidden = new Set<LayerName>(['execution', 'storage', 'coordination']);
         if (forbidden.has(targetLayer) && !typeOnly) {
-          violations.push(`models/ imports runtime value from '${targetDir}/' — forbidden by Rule 8`);
+          violations.push(
+            `models/ imports runtime value from '${targetDir}/' — forbidden by Rule 8`,
+          );
         }
         continue;
       }
@@ -304,7 +313,9 @@ describe('core internal layer rules', () => {
       if (myLayer === 'extension') {
         const forbidden = new Set<LayerName>(['execution', 'storage', 'coordination']);
         if (forbidden.has(targetLayer) && !typeOnly) {
-          violations.push(`extension/ imports runtime value from '${targetDir}/' — forbidden by Rule 9`);
+          violations.push(
+            `extension/ imports runtime value from '${targetDir}/' — forbidden by Rule 9`,
+          );
         }
         continue;
       }
@@ -627,11 +638,7 @@ describe('workspace DAG (PR-11)', () => {
         optionalDependencies?: Record<string, string>;
         peerDependencies?: Record<string, string>;
       };
-      const depFields = [
-        pkg.dependencies,
-        pkg.optionalDependencies,
-        pkg.peerDependencies,
-      ];
+      const depFields = [pkg.dependencies, pkg.optionalDependencies, pkg.peerDependencies];
       for (const field of depFields) {
         for (const depName of Object.keys(field ?? {})) {
           if (depName.startsWith('@wrongstack/')) {
@@ -658,7 +665,9 @@ describe('workspace DAG (PR-11)', () => {
     }
 
     // DFS cycle detection (white-gray-black).
-    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const WHITE = 0,
+      GRAY = 1,
+      BLACK = 2;
     const colour = new Map<string, number>();
     for (const n of nodeSet) colour.set(n, WHITE);
     const cycles: string[] = [];

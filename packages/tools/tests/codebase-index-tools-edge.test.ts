@@ -1,4 +1,4 @@
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Control the index host's reported state so each status-gate branch of the

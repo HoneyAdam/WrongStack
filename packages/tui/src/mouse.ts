@@ -1,7 +1,7 @@
 /**
  * SGR mouse protocol (xterm DEC private modes). These are INDEPENDENT of the
  * alternate screen buffer (?1049h): we enable tracking while staying in the
- * normal buffer so the terminal's native scrollback survives.
+ * normal buffer. Chat history itself lives in a bounded managed viewport.
  *
  *   ?1000h — button press/release tracking (clicks + wheel)
  *   ?1002h — button-event tracking: adds drag (motion while a button is held)
@@ -11,9 +11,8 @@
  *
  * Trade-off: with ANY of these on, the terminal reports the wheel to us as
  * buttons 64/65 instead of scrolling its own scrollback. Shift+wheel (and
- * Shift+PgUp) still reach native scrollback in every mainstream terminal, so
- * users keep a way to scroll history — but plain wheel-scroll of history is
- * gone while tracking is active. Keep tracking opt-in / overlay-scoped.
+ * users keep access to terminal scrollback — but plain wheel events are owned
+ * by the app while tracking is active. Keep tracking opt-in / overlay-scoped.
  */
 
 const ESC = String.fromCharCode(27);

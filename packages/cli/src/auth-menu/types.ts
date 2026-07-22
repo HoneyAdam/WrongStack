@@ -1,4 +1,4 @@
-import type { ModelsRegistry, SecretScrubber, SecretVault } from '@wrongstack/core';
+import type { ModelsRegistry, SecretScrubber, SecretVault } from '@wrongstack/core/types';
 
 /**
  * Minimal output surface the auth-menu flows need. `TerminalRenderer`

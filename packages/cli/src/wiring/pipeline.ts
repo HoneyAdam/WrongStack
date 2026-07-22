@@ -1,24 +1,12 @@
-import {
-  Agent,
-  type AgentPipelines,
-  applyModelRuntime,
-  AutoCompactionMiddleware,
-  type Config,
-  type Context,
-  createDefaultPipelines,
-  createSessionEventBridge,
-  type EventBus,
-  estimateRequestTokensCalibrated,
-  type Logger,
-  type ModelsRegistry,
-  type Provider,
-  type ProviderRegistry,
-  resolveAuditLevel,
-  resolveContextWindowPolicy,
-  type SessionEventBridge,
-  TOKENS,
-  type ToolRegistry,
-} from '@wrongstack/core';
+import { Agent, type AgentPipelines, type Context, createDefaultPipelines } from '@wrongstack/core/agent';
+import { applyModelRuntime, AutoCompactionMiddleware } from '@wrongstack/core/execution';
+import { type Config, type Logger, type ModelsRegistry, type Provider } from '@wrongstack/core/types';
+import type { SessionEventBridge } from '@wrongstack/core/storage';
+import { createSessionEventBridge, resolveAuditLevel } from '@wrongstack/core/storage';
+import { type EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { estimateRequestTokensCalibrated } from '@wrongstack/core/utils';
+import { resolveContextWindowPolicy } from '@wrongstack/core/types';
+import { type ProviderRegistry, type ToolRegistry } from '@wrongstack/core/registry';
 import { ToolExecutor } from '@wrongstack/core/execution';
 import { resolveRuntimeMaxContext } from '../context-limit.js';
 import { bootstrapMailboxBridgeAtStartup } from './mailbox-bridge-bootstrap.js';
@@ -34,9 +22,9 @@ export function setupPipelines(params: {
    * provider `Request`, gated by the active model's capabilities.
    */
   modelRuntime?: {
-    getSettings(): import('@wrongstack/core').ModelRuntimeConfig | undefined;
-    getReasoningConfig(): import('@wrongstack/core').ReasoningConfig | undefined;
-    getCapabilities?(): import('@wrongstack/core').Capabilities | undefined;
+    getSettings(): import('@wrongstack/core/types').ModelRuntimeConfig | undefined;
+    getReasoningConfig(): import('@wrongstack/core/types').ReasoningConfig | undefined;
+    getCapabilities?(): import('@wrongstack/core/types').Capabilities | undefined;
     onWarning?: ((message: string) => void) | undefined;
   } | undefined;
 }): AgentPipelines {
@@ -50,7 +38,7 @@ export function setupPipelines(params: {
     const mr = params.modelRuntime;
     pipelines.request.use({
       name: 'ModelRuntimeSettings',
-      async handler(req: import('@wrongstack/core').Request) {
+      async handler(req: import('@wrongstack/core/types').Request) {
         return applyModelRuntime(req, {
           getSettings: mr.getSettings,
           getReasoningConfig: mr.getReasoningConfig,
@@ -100,9 +88,9 @@ export async function setupCompaction(params: {
   config: {
     provider?: string | undefined;
     model?: string | undefined;
-    providers?: import('@wrongstack/core').Config['providers'] | undefined;
+    providers?: import('@wrongstack/core/types').Config['providers'] | undefined;
     context: {
-      mode?: import('@wrongstack/core').ContextWindowModeId | undefined;
+      mode?: import('@wrongstack/core/types').ContextWindowModeId | undefined;
       autoCompact?: boolean | undefined;
       warnThreshold: number;
       softThreshold: number;
@@ -121,7 +109,7 @@ export async function setupCompaction(params: {
     | { session?: { auditLevel?: 'minimal' | 'standard' | 'full' | undefined } | undefined }
     | undefined;
   /** Real SessionWriter (used if no pre-created bridge is passed). */
-  sessionWriter?: import('@wrongstack/core').SessionWriter | undefined;
+  sessionWriter?: import('@wrongstack/core/types').SessionWriter | undefined;
   /** Pre-created SessionEventBridge (preferred for sharing across error + compaction + future events). */
   sessionBridge?: SessionEventBridge | undefined;
 }): Promise<{
@@ -210,7 +198,7 @@ export async function setupCompaction(params: {
 }
 
 export function createAgent(params: {
-  container: import('@wrongstack/core').Container;
+  container: import('@wrongstack/core/kernel').Container;
   tools: ToolRegistry;
   providers: ProviderRegistry;
   events: EventBus;
@@ -224,14 +212,14 @@ export function createAgent(params: {
       maxToolTimeoutMs?: number | undefined;
       defaultExecutionStrategy: 'parallel' | 'sequential' | 'smart';
       perIterationOutputCapBytes: number;
-      loopDetection?: import('@wrongstack/core').LoopDetectionConfig | undefined;
+      loopDetection?: import('@wrongstack/core/types').LoopDetectionConfig | undefined;
     };
   };
-  confirmAwaiter: import('@wrongstack/core').AgentInit['confirmAwaiter'];
-  permissionPolicy?: import('@wrongstack/core').PermissionPolicy | undefined;
-  tracer?: import('@wrongstack/core').Tracer | undefined;
+  confirmAwaiter: import('@wrongstack/core/agent').AgentInit['confirmAwaiter'];
+  permissionPolicy?: import('@wrongstack/core/types').PermissionPolicy | undefined;
+  tracer?: import('@wrongstack/core/types').Tracer | undefined;
   /** Optional lifecycle hook runner — wired into the tool executor (PreToolUse/PostToolUse). */
-  hookRunner?: import('@wrongstack/core').HookRunner | undefined;
+  hookRunner?: import('@wrongstack/core/hooks').HookRunner | undefined;
   /**
    * Full Config object, used for `features.mailboxBridge` gating and
    * forwarded to `bootstrapMailboxBridgeAtStartup`. Optional — when

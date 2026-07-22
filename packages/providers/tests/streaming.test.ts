@@ -1,4 +1,4 @@
-import type { StreamEvent } from '@wrongstack/core';
+import type { StreamEvent } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { AnthropicProvider } from '../src/anthropic.js';
 import { GoogleProvider } from '../src/google.js';

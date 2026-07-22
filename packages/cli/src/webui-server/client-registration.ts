@@ -1,4 +1,4 @@
-import type { HqClientCapability } from '@wrongstack/core';
+import type { HqClientCapability } from '@wrongstack/core/hq';
 import { createWebuiClientPresence } from '@wrongstack/webui-server';
 import { createHqCommandDispatcher, type HqCommandController } from '../hq-command-controller.js';
 import { startCliHqConnection } from '../hq-publisher.js';
@@ -13,8 +13,8 @@ export interface WebuiHqControlHooks {
 
 export interface WebuiClientRegistrationDeps {
   projectRoot: string | undefined;
-  appConfig: import('@wrongstack/core').Config | undefined;
-  events: import('@wrongstack/core').EventBus;
+  appConfig: import('@wrongstack/core/types').Config | undefined;
+  events: import('@wrongstack/core/kernel').EventBus;
   hqSessionId: string;
   getSessionId: () => string;
   hqControl?: WebuiHqControlHooks | undefined;

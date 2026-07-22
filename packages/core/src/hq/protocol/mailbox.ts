@@ -11,6 +11,7 @@ export type HqMailboxMessageType =
   | 'control';
 
 export type HqMailboxPriority = 'low' | 'normal' | 'high';
+export type HqMailboxAudience = 'all' | 'leaders';
 
 export type HqMailboxAgentStatus =
   | 'idle'
@@ -33,6 +34,7 @@ export interface HqMailboxMessageSummary {
   /** Session id from `to` when `scope === 'session'`. */
   recipientSessionId?: string;
   type: HqMailboxMessageType;
+  audience?: HqMailboxAudience;
   subject: string;
   priority: HqMailboxPriority;
   timestamp: string;

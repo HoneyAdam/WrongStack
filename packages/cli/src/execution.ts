@@ -34,29 +34,21 @@
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  attachTodosCheckpoint,
-  type CascadeAgentKind,
-  CHIMERA_REVIEW_PROMPT,
-  type ChimeraCascadeNeededPayload,
-  type ChimeraReviewCompletePayload,
-  type ChimeraReviewNeededPayload,
-  type CoordinatorEvent,
-  DEFAULT_REVIEW_FALLBACK_MODELS,
-  type FleetChatVerbosity,
-  fallbackProfileChain,
-  mergeCustomModelDefs,
-  normalizeTokenSavingTier,
-  parseModelRef,
-  type SubagentConfig,
-  setQueuedMessagesSnapshot,
-  type TokenSavingTier,
-  WIDE_SUBAGENT_CAPABILITIES,
-} from '@wrongstack/core';
+import { attachTodosCheckpoint } from '@wrongstack/core/storage';
+import { type CascadeAgentKind, CHIMERA_REVIEW_PROMPT, type ChimeraCascadeNeededPayload, type ChimeraReviewCompletePayload, type ChimeraReviewNeededPayload, DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core/plugin';
+import { type CoordinatorEvent } from '@wrongstack/core/coordination';
+import { type FleetChatVerbosity, type SubagentConfig, type TokenSavingTier } from '@wrongstack/core/types';
+import { fallbackProfileChain, setQueuedMessagesSnapshot } from '@wrongstack/core/agent';
+import { mergeCustomModelDefs } from '@wrongstack/core/utils';
+import { normalizeTokenSavingTier } from '@wrongstack/core/types';
+import { parseModelRef } from '@wrongstack/core/agent';
+import { WIDE_SUBAGENT_CAPABILITIES } from '@wrongstack/core/security';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
+import { runTuiDispatch } from './boot/dispatch-tui.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
+import { resolveExecutionMode } from './boot/execution-mode.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
 import {
   registerDebugStreamCallback,
@@ -87,7 +79,7 @@ import { FleetStatusLine } from './fleet-statusline.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { resolveActiveApiKey } from './provider-config-utils.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
-import { setSuggestions } from './slash-commands/suggestion-store.js';
+import { setSuggestions } from './services/suggestion-store.js';
 import type { UpdateInfo } from './update-check.js';
 import { CLI_VERSION } from './version.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
@@ -576,7 +568,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             type: 'llm_response',
             ts: new Date().toISOString(),
             content: [{ type: 'text', text: reviewText }],
-            stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+            stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
             usage: { input: 0, output: 0 },
           });
 
@@ -599,8 +591,9 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           try {
             await mailbox.send({
               from: 'chimera-review',
-              to: '*',
+              to: 'leader',
               type: mailboxType,
+              audience: 'leaders',
               subject,
               body:
                 reviewText.length > 8000
@@ -667,7 +660,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   content: [
                     { type: 'text', text: `Chimera fix subagent completed: ${fixResult.result}` },
                   ],
-                  stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+                  stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
                   usage: { input: 0, output: 0 },
                 });
               } else {
@@ -824,7 +817,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   text: `🦂 Chimera cascade (${agentKind}) — ${resultText}`,
                 },
               ],
-              stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+              stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
               usage: { input: 0, output: 0 },
             });
           } else {
@@ -891,7 +884,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   text: `🦂 Chimera cascade re-review (depth ${currentDepth + 1}/${maxDepth}) — re-reviewing ${reReadFiles.length} file(s) after fixes`,
                 },
               ],
-              stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+              stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
               usage: { input: 0, output: 0 },
             });
 
@@ -921,7 +914,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               text: `🦂 Chimera cascade stopped at depth limit (${currentDepth}/${maxDepth}) — manual review recommended if issues persist`,
             },
           ],
-          stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+          stopReason: 'end_turn' as import('@wrongstack/core/types').StopReason,
           usage: { input: 0, output: 0 },
         });
       }
@@ -967,13 +960,13 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     // Live fleet status line for the plain terminal. The TUI owns its own
     // per-agent surface (and Ink owns stdout), so only run this on the
     // non-TUI paths: single-shot, plain REPL, and webui-backed REPL.
-    const enteringTui =
-      !(positional.length > 0 || promptFlag) && !!flags.tui && flags['no-tui'] !== true;
+    const executionMode = resolveExecutionMode(positional, flags);
+    const enteringTui = executionMode === 'tui';
     if (!enteringTui) {
       fleetStatusLine = new FleetStatusLine({ events, version: CLI_VERSION });
       fleetStatusLine.start();
     }
-    if (positional.length > 0 || promptFlag) {
+    if (executionMode === 'single-shot') {
       code = await runSingleShotDispatch({
         agent,
         query: positional.join(' '),
@@ -981,7 +974,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         tokenCounter,
         renderer,
       });
-    } else if (flags.tui && !flags['no-tui'] && !flags.webui) {
+    } else if (executionMode === 'tui') {
       // --webui takes precedence over the TUI: both want exclusive ownership of
       // stdout, and the webui branch (below) runs the REPL + browser server. The
       // `!flags.webui` guard ensures a stray --tui (or a default) can't shadow it.
@@ -991,9 +984,6 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       // the input deadlocked. After this call, tool.confirm_needed events
       // fire instead, which the TUI's ConfirmPrompt component handles.
       agent.disableInteractiveConfirmation();
-      const { runTui } = (await import('@wrongstack/tui')) as {
-        runTui: (opts: import('@wrongstack/tui').RunTuiOptions) => Promise<number>;
-      };
       renderer.setSilent(true);
 
       // Shared mutable runtime state for extracted TUI sub-modules.
@@ -1108,7 +1098,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       };
 
       try {
-        code = await runTui({
+        code = await runTuiDispatch({
           agent,
           events,
           slashRegistry,
@@ -1280,7 +1270,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             if (!coordinator) return 'No coordinator is active.';
             await coordinator.graph.load();
             const goal = coordinator.graph.get(taskId) as
-              | import('@wrongstack/core').GoalNode
+              | import('@wrongstack/core/coordination').GoalNode
               | undefined;
             if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
@@ -1303,7 +1293,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             if (!coordinator) return 'No coordinator is active.';
             await coordinator.graph.load();
             const goal = coordinator.graph.get(taskId) as
-              | import('@wrongstack/core').GoalNode
+              | import('@wrongstack/core/coordination').GoalNode
               | undefined;
             if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
@@ -1322,7 +1312,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             if (!coordinator) return 'No coordinator is active.';
             await coordinator.graph.load();
             const goal = coordinator.graph.get(taskId) as
-              | import('@wrongstack/core').GoalNode
+              | import('@wrongstack/core/coordination').GoalNode
               | undefined;
             if (goal?.type !== 'goal') {
               return `Task ${taskId.slice(0, 8)} not found in the coordinator graph.`;
@@ -1495,7 +1485,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         // Cleanup: stop Director lifecycle listener so the coordinator no-op guard fires.
         offDirectorSpawned();
       }
-    } else if (flags.webui) {
+    } else if (executionMode === 'webui') {
       code = await runWebUIDispatch({
         agent,
         events,

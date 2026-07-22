@@ -1,5 +1,5 @@
 import { Writable } from 'node:stream';
-import { stripAnsi } from '@wrongstack/core';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { describe, expect, it } from 'vitest';
 import { renderDiff } from '../src/diff-renderer.js';
 import { TerminalRenderer } from '../src/renderer.js';

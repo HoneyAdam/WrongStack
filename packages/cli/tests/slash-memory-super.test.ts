@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { JsonlMemoryPort } from '@wrongstack/super-memory';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SuperMemoryStore } from '@wrongstack/super-memory';
 import { buildMemoryCommand } from '../src/slash-commands/memory.js';
 
 let root: string;
@@ -15,12 +15,12 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-function command(store: SuperMemoryStore) {
+function command(store: JsonlMemoryPort) {
   return buildMemoryCommand({ memoryStore: store, projectRoot: root, cwd: root } as never);
 }
 
 /** Build a /memory command with a stubbed LLM provider for `compact`. */
-function commandWithLlm(store: SuperMemoryStore, opsJson: unknown) {
+function commandWithLlm(store: JsonlMemoryPort, opsJson: unknown) {
   const provider = {
     async complete() {
       return { content: [{ type: 'text', text: JSON.stringify(opsJson) }] };
@@ -38,7 +38,7 @@ function commandWithLlm(store: SuperMemoryStore, opsJson: unknown) {
 describe('/memory Super Memory commands', () => {
   it('searches, traverses graph, verifies, runs hygiene, and reports stats', async () => {
     await fs.writeFile(path.join(root, 'source.ts'), 'export const stableSymbol = true;\n');
-    const store = new SuperMemoryStore({ projectRoot: root });
+    const store = new JsonlMemoryPort({ projectRoot: root });
     const memory = await store.rememberSuper({
       text: 'stableSymbol is part of the public contract.',
       kind: 'decision',
@@ -56,11 +56,13 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('remembers with structured flags, then updates and deletes by id', async () => {
-    const store = new SuperMemoryStore({ projectRoot: root });
+    const store = new JsonlMemoryPort({ projectRoot: root });
     const cmd = command(store);
 
     // remember with full structured args
-    const remembered = await cmd.run('remember Project uses pnpm v9 --kind convention --tag pnpm,build --importance 0.9');
+    const remembered = await cmd.run(
+      'remember Project uses pnpm v9 --kind convention --tag pnpm,build --importance 0.9',
+    );
     expect(remembered?.message).toContain('[convention]');
     expect(remembered?.message).toContain('#pnpm');
 
@@ -72,7 +74,9 @@ describe('/memory Super Memory commands', () => {
     expect(created.importance).toBeCloseTo(0.9, 5);
 
     // update status + text by id
-    const updated = await cmd.run(`update ${created.id} --status stale --text Project pins pnpm v9`);
+    const updated = await cmd.run(
+      `update ${created.id} --status stale --text Project pins pnpm v9`,
+    );
     expect(updated?.message).toContain('stale');
     const afterUpdate = await store.getSuperMemory(created.id);
     expect(afterUpdate?.status).toBe('stale');
@@ -86,7 +90,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('rejects an invalid --kind with a helpful message', async () => {
-    const store = new SuperMemoryStore({ projectRoot: root });
+    const store = new JsonlMemoryPort({ projectRoot: root });
     const cmd = command(store);
     const out = await cmd.run('remember something --kind bogus');
     expect(out?.message).toContain('--kind must be one of');
@@ -94,14 +98,22 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('compact operates on real super ids (merge + delete), not the broken legacy parse', async () => {
-    const store = new SuperMemoryStore({ projectRoot: root });
-    const a = await store.rememberSuper({ text: 'Project uses pnpm workspaces.', kind: 'convention' });
+    const store = new JsonlMemoryPort({ projectRoot: root });
+    const a = await store.rememberSuper({
+      text: 'Project uses pnpm workspaces.',
+      kind: 'convention',
+    });
     const b = await store.rememberSuper({ text: 'pnpm is the package manager.', kind: 'fact' });
     const c = await store.rememberSuper({ text: 'Temporary debug note.', kind: 'fact' });
 
     const cmd = commandWithLlm(store, {
       operations: [
-        { action: 'merge', targets: [a.id, b.id], newText: 'Project uses pnpm workspaces as its package manager.', reason: 'dupes' },
+        {
+          action: 'merge',
+          targets: [a.id, b.id],
+          newText: 'Project uses pnpm workspaces as its package manager.',
+          reason: 'dupes',
+        },
         { action: 'delete', targets: [c.id], reason: 'obsolete' },
       ],
       summary: '3 → 1',
@@ -120,7 +132,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('lists and resolves candidates', async () => {
-    const store = new SuperMemoryStore({ projectRoot: root });
+    const store = new JsonlMemoryPort({ projectRoot: root });
     const candidate = await store.createCandidate({ text: 'Candidate invariant.' });
     const cmd = command(store);
     expect((await cmd.run('candidates'))?.message).toContain(candidate.id);
@@ -130,7 +142,7 @@ describe('/memory Super Memory commands', () => {
 
   describe('/memory audience', () => {
     it('remembers, lists, searches, and clears audience-scoped memories', async () => {
-      const store = new SuperMemoryStore({ projectRoot: root });
+      const store = new JsonlMemoryPort({ projectRoot: root });
       const cmd = command(store);
 
       await store.rememberSuper({
@@ -176,7 +188,7 @@ describe('/memory Super Memory commands', () => {
     });
 
     it('remember requires at least one selector', async () => {
-      const store = new SuperMemoryStore({ projectRoot: root });
+      const store = new JsonlMemoryPort({ projectRoot: root });
       const cmd = command(store);
       const out = await cmd.run('audience remember some text');
       expect(out?.message).toContain('At least one of --role');

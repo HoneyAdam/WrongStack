@@ -70,10 +70,10 @@ describe('CLI wiring controllers', () => {
       'utf8',
     );
     expect(runTui).toMatch(/agentTranscripts:\s*opts\.agentTranscripts/);
-    const app = readFileSync(
-      path.join(__dirname, '..', '..', 'tui', 'src', 'app.tsx'),
+    const statusRegion = readFileSync(
+      path.join(__dirname, '..', '..', 'tui', 'src', 'app-status-region.tsx'),
       'utf8',
     );
-    expect(app).toMatch(/transcripts=\{agentTranscripts\}/);
+    expect(statusRegion).toMatch(/transcripts=\{agentTranscripts\}/);
   });
 });

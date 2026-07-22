@@ -1,6 +1,6 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { LogLevel, Logger } from '../types/logger.js';
+import type { Logger, LogLevel } from '../types/logger.js';
 import { color } from '../utils/color.js';
 import { writeErr } from '../utils/term.js';
 
@@ -55,6 +55,8 @@ export interface DefaultLoggerOptions {
 export class DefaultLogger implements Logger {
   /** How many file writes between rotation size checks (statSync is not free). */
   private static readonly ROTATE_CHECK_EVERY = 100;
+  private static readonly MAX_PENDING_FILE_WRITES = 2_000;
+  private static readonly MAX_PENDING_FILE_BYTES = 8 * 1024 * 1024;
 
   level: LogLevel;
   private file?: string | undefined;
@@ -79,6 +81,12 @@ export class DefaultLogger implements Logger {
    */
   private tail: Promise<void> = Promise.resolve();
   private parent: DefaultLogger | null = null;
+  private pendingFileWrites = 0;
+  private pendingFileBytes = 0;
+
+  private get root(): DefaultLogger {
+    return this.parent ? this.parent.root : this;
+  }
 
   /**
    * Resolve the current tail. For the root logger this is the field;
@@ -212,11 +220,25 @@ export class DefaultLogger implements Logger {
     // sync file I/O. Children route through their parent's tail, so
     // a parent's `flush()` waits for every chained child append.
     if (this.file) {
-      this.enqueueRotate(this.file);
       const line = `${JSON.stringify(entry)}\n`;
-      this._tail = this._tail
-        .then(() => fsp.appendFile(this.file!, line))
-        .catch(() => undefined);
+      const bytes = Buffer.byteLength(line, 'utf8');
+      const root = this.root;
+      if (
+        root.pendingFileWrites < DefaultLogger.MAX_PENDING_FILE_WRITES &&
+        bytes <= DefaultLogger.MAX_PENDING_FILE_BYTES &&
+        root.pendingFileBytes + bytes <= DefaultLogger.MAX_PENDING_FILE_BYTES
+      ) {
+        root.pendingFileWrites += 1;
+        root.pendingFileBytes += bytes;
+        this.enqueueRotate(this.file);
+        this._tail = this._tail
+          .then(() => fsp.appendFile(this.file!, line))
+          .catch(() => undefined)
+          .finally(() => {
+            root.pendingFileWrites = Math.max(0, root.pendingFileWrites - 1);
+            root.pendingFileBytes = Math.max(0, root.pendingFileBytes - bytes);
+          });
+      }
     }
     // Stderr: pretty or json. Suppressed when this.stderr is false (TUI mode)
     // so plugin/library log messages don't interleave with Ink's rendering.

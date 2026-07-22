@@ -1,15 +1,16 @@
 /**
  * @vitest-environment node
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   clearAnalyticsBuffer,
   getAnalyticsBuffer,
   handleApiAnalyticsGet,
   handleApiAnalyticsPost,
   handleApiAnalyticsSummary,
-} from '@wrongstack/webui-server';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+} from '../src/server/http-server/analytics-handler.js';
 
 function createMockReq(body: unknown, method = 'POST'): IncomingMessage {
   const _chunks: Buffer[] = [];
@@ -144,6 +145,37 @@ describe('handleApiAnalyticsPost', () => {
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.body!);
     expect(body.error).toBe('Invalid JSON body');
+  });
+
+  it('returns 413 before retaining an oversized request body', async () => {
+    const req = createMockReq({
+      event: 'oversized',
+      category: 'test',
+      timestamp: new Date().toISOString(),
+      metadata: { payload: 'x'.repeat(300_000) },
+    });
+    const res = createMockRes();
+
+    await handleApiAnalyticsPost(res, req);
+
+    expect(res.statusCode).toBe(413);
+    expect(getAnalyticsBuffer()).toHaveLength(0);
+  });
+
+  it('rejects a single event that exceeds the retained-event budget', async () => {
+    const req = createMockReq({
+      event: 'large_event',
+      category: 'test',
+      timestamp: new Date().toISOString(),
+      metadata: { payload: 'x'.repeat(40_000) },
+    });
+    const res = createMockRes();
+
+    await handleApiAnalyticsPost(res, req);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body!).rejected).toBe(1);
+    expect(getAnalyticsBuffer()).toHaveLength(0);
   });
 });
 

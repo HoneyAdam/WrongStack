@@ -1,4 +1,4 @@
-import type { Usage } from '@wrongstack/core';
+import type { Usage } from '@wrongstack/core/types';
 import type {
   KanbanBoard,
   KanbanBoardPresence,
@@ -1028,6 +1028,33 @@ export interface WSDesignSet {
   payload: {
     ok: boolean;
     overrides?: Record<string, string> | undefined;
+    error?: string | undefined;
+  };
+}
+
+export interface WSDesignTune {
+  type: 'design.tune';
+  payload: {
+    ok: boolean;
+    /** The concrete token overrides the knobs resolved to. */
+    resolved?: Record<string, string> | undefined;
+    overrides?: Record<string, string> | undefined;
+    error?: string | undefined;
+  };
+}
+
+export interface WSDesignSwap {
+  type: 'design.swap';
+  payload: {
+    ok: boolean;
+    kit?: string | undefined;
+    name?: string | undefined;
+    aesthetic?: string | undefined;
+    stack?: string | undefined;
+    body?: string | undefined;
+    overrides?: Record<string, string> | undefined;
+    light?: Record<string, string> | undefined;
+    dark?: Record<string, string> | undefined;
     error?: string | undefined;
   };
 }
@@ -2231,6 +2258,19 @@ export type WSClientMessageCore =
   | WSCollabGrantControl
   | WSCollabInjectTool
   | {
+      type: 'mailbox.send';
+      payload: {
+        requestId: string;
+        to: string;
+        type: 'note' | 'ask' | 'assign' | 'steer' | 'btw' | 'broadcast' | 'status' | 'result' | 'review';
+        audience: 'all' | 'leaders';
+        subject: string;
+        body: string;
+        priority: 'low' | 'normal' | 'high';
+        replyTo?: string | undefined;
+      };
+    }
+  | {
       type: 'mailbox.messages';
       payload: {
         limit?: number | undefined;
@@ -2296,10 +2336,26 @@ export type WSClientMessageCore =
   | { type: 'design.state' }
   | { type: 'design.set'; payload: { overrides: Record<string, string> } }
   | {
+      type: 'design.tune';
+      payload: {
+        tune: {
+          radius?: string | undefined;
+          density?: string | undefined;
+          font?: string | undefined;
+          motion?: string | undefined;
+        };
+      };
+    }
+  | {
+      type: 'design.swap';
+      payload: { kit: string; stack?: string | undefined };
+    }
+  | {
       type: 'design.materialize';
       payload?: { stack?: string | undefined; out?: string | undefined } | undefined;
     }
   | { type: 'design.verify' }
+  | { type: 'config.doctor'; payload?: { apply?: boolean } | undefined }
   // ── MCP client messages (requests to server) ─────────────────────────────────
   | { type: 'mcp.list' }
   | {
@@ -2313,6 +2369,9 @@ export type WSClientMessageCore =
         args?: string[];
         env?: Record<string, string>;
         allowedTools?: string[];
+        url?: string;
+        headers?: Record<string, string>;
+        lazy?: boolean;
       };
     }
   | { type: 'mcp.remove'; payload: { name: string } }
@@ -2327,6 +2386,9 @@ export type WSClientMessageCore =
         args?: string[];
         env?: Record<string, string>;
         allowedTools?: string[];
+        url?: string;
+        headers?: Record<string, string>;
+        lazy?: boolean;
       };
     }
   | { type: 'mcp.wake'; payload: { name: string } }
@@ -2418,6 +2480,8 @@ export type WSServerMessage =
   | WSDesignUse
   | WSDesignState
   | WSDesignSet
+  | WSDesignTune
+  | WSDesignSwap
   | WSDesignMaterialize
   | WSDesignVerify
   | WSSkillsInstalled
@@ -2568,6 +2632,17 @@ export type WSServerMessage =
       type: 'mailbox.agents';
       payload: { agents: Array<Record<string, unknown>>; error?: string | undefined };
     }
+  | {
+      type: 'mailbox.sent';
+      payload: {
+        requestId: string;
+        success: boolean;
+        messageId?: string | undefined;
+        to?: string | undefined;
+        audience?: 'all' | 'leaders' | undefined;
+        error?: string | undefined;
+      };
+    }
   // Reply to a client `ping` (liveness probe). The payload is absent on the
   // wire; typed as optional so union-wide `msg.payload` access keeps
   // compiling.
@@ -2582,6 +2657,7 @@ export type WSServerMessage =
           startedAt: number;
           status: 'running' | 'exited' | 'killed';
           protected?: boolean | undefined;
+          background?: boolean | undefined;
         }>;
       };
     }
@@ -2826,6 +2902,18 @@ export type WSServerMessage =
   | { type: 'tool.enabled'; payload: { name: string; ok: boolean } }
   // ── MCP server events ───────────────────────────────────────────────────────
   | {
+      type: 'config.doctor.result';
+      payload: {
+        success: boolean;
+        applied: boolean;
+        changed: boolean;
+        changes: Array<{ path: string; action: 'added' | 'replaced' }>;
+        configPath: string;
+        backupPath?: string;
+        error?: string;
+      };
+    }
+  | {
       type: 'mcp.list';
       payload: {
         servers: Array<{
@@ -2837,6 +2925,11 @@ export type WSServerMessage =
           tools?: string[];
           error?: string;
           pid?: number;
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
           health?: {
             healthState: 'disabled' | 'dormant' | 'connecting' | 'healthy' | 'degraded' | 'failed';
             consecutiveFailures: number;
@@ -2862,6 +2955,11 @@ export type WSServerMessage =
           enabled: boolean;
           description?: string;
           tools?: string[];
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
         };
       };
     }
@@ -2876,6 +2974,11 @@ export type WSServerMessage =
           enabled: boolean;
           description?: string;
           tools?: string[];
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
         };
       };
     }

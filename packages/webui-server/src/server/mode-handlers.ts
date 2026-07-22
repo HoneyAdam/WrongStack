@@ -1,11 +1,8 @@
-import type {
-  Context,
-  DefaultModeStore,
-  MemoryStore,
-  SkillLoader,
-  ToolRegistry,
-} from '@wrongstack/core';
-import { DefaultSystemPromptBuilder, resolveWstackPaths } from '@wrongstack/core';
+import { DefaultSystemPromptBuilder, type Context } from '@wrongstack/core/agent';
+import type { DefaultModeStore } from '@wrongstack/core/models';
+import type { ToolRegistry } from '@wrongstack/core/registry';
+import type { MemoryPort, SkillLoader } from '@wrongstack/core/types';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import { createModeRouteHandlers } from './mode-routes.js';
 import type { ConnectedClient } from './types.js';
@@ -31,7 +28,7 @@ type ModelCapabilities = NonNullable<
 
 export interface ModeHandlersContext {
   modeStore: DefaultModeStore;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   skillLoader: SkillLoader | undefined;
   modelCapabilities: ModelCapabilities;
   context: Context;

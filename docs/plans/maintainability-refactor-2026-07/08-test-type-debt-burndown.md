@@ -12,7 +12,7 @@ The ratchet hashes the normalized project, file, TypeScript code, and message, a
 
 ### Reviewed baseline maintenance
 
-- **2026-07-21 — Brain contract expansion:** Test fixtures were updated to remove 55 stale diagnostics. Eight `TS6059` identities were recorded for the Tools and WebUI test projects because their known cross-package source-resolution debt now reaches the new Brain heuristic, telemetry, and rule modules. No compiler option or production contract was weakened; these identities leave with the package test-project/rootDir burn-down.
+- **2026-07-21 — Brain contract expansion:** Test fixtures were updated to remove 55 stale diagnostics. Eight `TS6059` identities were recorded for the Tools and WebUI test projects because their known cross-package source-resolution debt now reaches the new Brain heuristic, telemetry, and rule modules. No compiler option or production contract was weakened; these identities leave with the package test-project/rootDir burn-down. WebUI's pre-expansion count was 332; the expansion added 4 TS6059 identities, bringing the total to 336. This is reflected in the per-lane counts below.
 
 ## Rules
 
@@ -52,7 +52,7 @@ Resolve shared fixture and mock patterns before editing individual assertions re
 
 ### Lane 3 — Large debt sets
 
-1. WebUI — 332
+1. WebUI — 336
 2. Tools — 375
 3. Plugins — 404
 4. CLI — 427

@@ -7,7 +7,7 @@
  * platform.claude.com/v1/oauth/token, loopback callback on :53692/callback.
  */
 
-import { FetchError, ParseError, type ProviderApiKey } from '@wrongstack/core';
+import { FetchError, ParseError, type ProviderApiKey } from '@wrongstack/core/types';
 import {
   generatePkce,
   type LoopbackServer,

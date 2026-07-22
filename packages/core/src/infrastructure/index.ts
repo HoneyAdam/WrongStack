@@ -2,6 +2,7 @@
 export { DefaultLogger, type DefaultLoggerOptions, type LogFormat } from './logger.js';
 export { DefaultPathResolver } from './path-resolver.js';
 export { DefaultTokenCounter } from './token-counter.js';
+export { ProviderCacheLedger } from './provider-cache-ledger.js';
 export {
   filesystemServer,
   githubServer,
@@ -27,3 +28,10 @@ export {
   type ContextManagerAction,
   type ContextManagerToolOptions,
 } from './context-manager.js';
+export {
+  assertProjectRootOutsideStateDir,
+  bootConfig,
+  flagsToConfigPatch,
+  type BootConfigOptions,
+  type BootConfigResult,
+} from '../boot.js';

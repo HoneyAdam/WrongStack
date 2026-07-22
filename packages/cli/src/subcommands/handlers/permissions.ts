@@ -1,9 +1,7 @@
-import {
-  DefaultPermissionPolicy,
-  type PermissionTrace,
-  resolveWstackPaths,
-} from '@wrongstack/core';
-import type { Context } from '@wrongstack/core';
+import { DefaultPermissionPolicy } from '@wrongstack/core/security';
+import { type PermissionTrace } from '@wrongstack/core/types';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
+import type { Context } from '@wrongstack/core/agent';
 import type { SubcommandHandler } from '../index.js';
 
 /**

@@ -1,4 +1,6 @@
-import type { Director, SlashCommand } from '@wrongstack/core';
+import type { Director } from '@wrongstack/core/coordination';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { getProcessRegistry } from '@wrongstack/tools';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
@@ -103,7 +105,11 @@ export function useExitCommand({
   }, [getDirector, interruptController, sessionGenerationRef]);
 
   const confirmExit = useCallback(
-    (info: { leaderActive: boolean; subagentCount: number }): Promise<boolean> => {
+    (info: {
+      leaderActive: boolean;
+      subagentCount: number;
+      backgroundCount?: number | undefined;
+    }): Promise<boolean> => {
       // If nothing is running, exit immediately — there is no lifecycle work
       // to await and no need to open the confirmation panel.
       if (!info.leaderActive && info.subagentCount === 0) {
@@ -118,6 +124,7 @@ export function useExitCommand({
           info: {
             leaderActive: info.leaderActive,
             subagentCount: info.subagentCount,
+            ...(info.backgroundCount ? { backgroundCount: info.backgroundCount } : {}),
             resolve: (decision) => {
               if (pendingResolveRef.current !== resolve) return;
               pendingResolveRef.current = null;
@@ -145,6 +152,7 @@ export function useExitCommand({
         interruptController?.isRunning?.() ?? stateRef.current.status !== 'idle',
       countRunningSubagents: () =>
         Object.values(stateRef.current.fleet).filter((e) => e.status === 'running').length,
+      countBackgroundProcesses: () => getProcessRegistry().activeBackgroundCount,
       confirmExit,
       runExitLifecycle: hostExitCommandRef.current?.run.bind(hostExitCommandRef.current),
     });

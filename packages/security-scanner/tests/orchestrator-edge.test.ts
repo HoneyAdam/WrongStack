@@ -13,7 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SecurityScannerOrchestrator } from '../src/orchestrator.js';
-import type { Provider, Response } from '@wrongstack/core';
+import type { Provider, Response } from '@wrongstack/core/types';
 
 const textResponse = (text: string): Response =>
   ({

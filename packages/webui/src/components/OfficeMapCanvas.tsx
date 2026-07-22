@@ -1504,6 +1504,9 @@ export function OfficeMapCanvas() {
                                   </div>
                                   <div className="truncate font-mono text-[9px] text-muted-foreground">
                                     {m.from} → {m.to} · {fmtAgo(m.timestamp, now)}
+                                    {m.audience === 'leaders'
+                                      ? ` · ${t('activity:mailbox.audienceLeaders')}`
+                                      : ''}
                                   </div>
                                 </div>
                               </div>

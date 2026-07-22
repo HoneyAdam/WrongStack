@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ToolCapabilities } from '@wrongstack/core';
+import { ToolCapabilities } from '@wrongstack/core/security';
 import { builtinTools } from '../src/builtin.js';
 
 /**

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventBus } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
 import { describe, expect, it } from 'vitest';
 import { createSuperMemoryContextMonitorMiddleware } from '../src/middleware/context-monitor.js';
 import { InjectionTracker } from '../src/middleware/injection-tracker.js';

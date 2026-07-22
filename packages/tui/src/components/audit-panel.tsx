@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink';
-import type { SideEffect } from '@wrongstack/core';
+import type { SideEffect } from '@wrongstack/core/types';
 
 interface AuditPanelProps {
   /** Side effects from ctx.sideEffects, passed from the host. */

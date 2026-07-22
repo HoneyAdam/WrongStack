@@ -31,8 +31,10 @@
  * @module brain-trace
  */
 
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { access, appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
 import type { BrainDecision, BrainDecisionRequest } from './brain.js';
 import type { BrainDecisionTier } from './brain-telemetry.js';
@@ -225,6 +227,10 @@ export class BrainTraceRecorder {
   private readonly open = new Map<string, OpenRecord>();
   private readonly unsubscribers: Array<() => void> = [];
   private writeChain: Promise<unknown> = Promise.resolve();
+  private pendingWriteCount = 0;
+  private pendingWriteBytes = 0;
+  private static readonly MAX_PENDING_WRITES = 1_000;
+  private static readonly MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
   private dirReady = false;
 
   private readonly content: BrainTraceContentMode;
@@ -411,39 +417,67 @@ export class BrainTraceRecorder {
   }
 
   private append(record: BrainTraceRecord): void {
+    let line: string;
+    try {
+      line = `${JSON.stringify(record)}\n`;
+    } catch {
+      return;
+    }
+    const bytes = Buffer.byteLength(line, 'utf8');
+    if (
+      this.pendingWriteCount >= BrainTraceRecorder.MAX_PENDING_WRITES ||
+      bytes > BrainTraceRecorder.MAX_PENDING_WRITE_BYTES ||
+      this.pendingWriteBytes + bytes > BrainTraceRecorder.MAX_PENDING_WRITE_BYTES
+    ) {
+      return;
+    }
+    this.pendingWriteCount += 1;
+    this.pendingWriteBytes += bytes;
     this.writeChain = this.writeChain
       .then(async () => {
         if (!this.dirReady) {
           await mkdir(dirname(this.opts.filePath), { recursive: true });
           this.dirReady = true;
         }
-        await appendFile(this.opts.filePath, `${JSON.stringify(record)}\n`, 'utf8');
+        await appendFile(this.opts.filePath, line, 'utf8');
       })
       .catch(() => {
         // Tracing is best-effort — it must never destabilize the host.
+      })
+      .finally(() => {
+        this.pendingWriteCount = Math.max(0, this.pendingWriteCount - 1);
+        this.pendingWriteBytes = Math.max(0, this.pendingWriteBytes - bytes);
       });
   }
 }
 
 /** Read trace records back from a JSONL file, skipping corrupt rows. */
 export async function readBrainTrace(filePath: string): Promise<BrainTraceRecord[]> {
-  let raw: string;
   try {
-    raw = await readFile(filePath, 'utf8');
+    await access(filePath);
   } catch {
     return [];
   }
   const records: BrainTraceRecord[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line) as BrainTraceRecord;
-      if (parsed?.version === BRAIN_TRACE_VERSION && typeof parsed.requestId === 'string') {
-        records.push(parsed);
+  const input = createReadStream(filePath, { encoding: 'utf8' });
+  const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+  try {
+    for await (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as BrainTraceRecord;
+        if (parsed?.version === BRAIN_TRACE_VERSION && typeof parsed.requestId === 'string') {
+          records.push(parsed);
+        }
+      } catch {
+        // A partial tail is still useful history.
       }
-    } catch {
-      // A partial tail is still useful history.
     }
+  } catch {
+    return records;
+  } finally {
+    lines.close();
+    input.destroy();
   }
   return records;
 }

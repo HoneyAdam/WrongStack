@@ -7,3 +7,12 @@ export {
   type TaskTrackerOptions,
   type TaskTransition,
 } from './task-tracker.js';
+export {
+  computeTaskProgress,
+  deserializeTaskGraph,
+  serializeTaskGraph,
+  topologicalSort,
+  type TaskGraph,
+  type TaskNode,
+  type TaskProgress,
+} from '../types/task-graph.js';

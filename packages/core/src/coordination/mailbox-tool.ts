@@ -20,8 +20,10 @@ import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 import { resolveSendTypeSafe } from './mailbox-message-codec.js';
 import {
+  isMailboxMessageVisibleTo,
   normalizeRecipient,
   type Mailbox,
+  type MailboxAudience,
   type MailboxMessage,
   type MailboxMessageType,
 } from './mailbox-types.js';
@@ -103,6 +105,33 @@ export function resolveMailboxIdentity(
   return { baseId, callerId, name, role, sessionId };
 }
 
+/**
+ * Apply sender-specific delivery restrictions before a message is persisted.
+ * Chimera workers report only to main agents; enforcing that here keeps the
+ * invariant intact even if a model requests a peer or project broadcast.
+ */
+export function applyMailboxSendPolicy(
+  ctx: Context,
+  identity: Pick<ReturnType<typeof resolveMailboxIdentity>, 'baseId' | 'name'>,
+  requestedTo: string,
+  requestedAudience?: MailboxAudience,
+): { to: string; audience?: MailboxAudience } {
+  const policy = ctx.meta['mailboxSendPolicy'];
+  const isChimeraIdentity = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'chimera' || normalized.startsWith('chimera-');
+  };
+  const chimeraSender =
+    isChimeraIdentity(identity.baseId) || isChimeraIdentity(identity.name);
+  if (policy === 'leaders-only' || chimeraSender) {
+    return { to: 'leader', audience: 'leaders' };
+  }
+  return {
+    to: requestedTo,
+    ...(requestedAudience !== undefined ? { audience: requestedAudience } : {}),
+  };
+}
+
 export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
   const resolveMailbox = opts.resolveMailbox ?? ((ctx: Context) => {
     const dir = opts.projectDir ?? defaultResolveProjectDir(ctx);
@@ -140,6 +169,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
         subject: { type: 'string', description: 'Short subject line.' },
         body: { type: 'string', description: 'Full message content.' },
         priority: { type: 'string', enum: ['low', 'normal', 'high'] },
+        audience: { type: 'string', enum: ['all', 'leaders'], description: 'Delivery audience. "leaders" prevents subagent consumption.' },
         replyTo: { type: 'string', description: 'Reply to a specific message id.' },
         messageId: { type: 'string', description: "Message id to acknowledge. Required for 'ack'." },
         read: { type: 'boolean', description: 'Mark as read (adds read receipt).' },
@@ -188,19 +218,19 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
 
       switch (action) {
         case 'check':
-          return executeCheck(mb, callerId, callerSessionId, [baseCallerId], i);
+          return executeCheck(mb, callerId, callerSessionId, [baseCallerId], identity.role, i);
         case 'send':
-          return executeSend(mb, callerId, callerSessionId, i);
+          return executeSend(mb, identity, callerSessionId, i, ctx);
         case 'ack':
           return executeAck(mb, callerId, i);
         case 'query':
-          return executeQuery(mb, i);
+          return executeQuery(mb, callerId, identity.role, i);
         case 'status':
           return executeStatus(mb);
         case 'online':
           return executeOnline(mb);
         case 'unread':
-          return executeUnread(mb, callerId, callerSessionId, [baseCallerId]);
+          return executeUnread(mb, callerId, callerSessionId, [baseCallerId], identity.role);
         default:
           return { ok: false, error: `Unknown action: "${action}". Use check, send, ack, query, status, online, or unread.` };
       }
@@ -215,6 +245,7 @@ async function executeCheck(
   agentId: string,
   sessionId: string,
   aliases: string[],
+  role: string | undefined,
   i: Record<string, unknown>,
 ) {
   const limit = (i.limit as number) ?? 20;
@@ -230,12 +261,13 @@ async function executeCheck(
   ];
   const batches = await Promise.all(
     targets.map((to) =>
-      mb.query({ to, unreadBy: agentId, limit, minPriority: 'low' }).catch(() => []),
+      mb.query({ to, unreadBy: agentId, readerRole: role, limit, minPriority: 'low' }).catch(() => []),
     ),
   );
   const seen = new Set<string>();
   const messages = batches.flat().filter((m) => {
     if (seen.has(m.id)) return false;
+    if (!isMailboxMessageVisibleTo(m, agentId, role)) return false;
     seen.add(m.id);
     return true;
   });
@@ -266,12 +298,17 @@ async function executeCheck(
 }
 
 async function executeSend(
-  mb: Mailbox, agentId: string, sessionId: string, i: Record<string, unknown>,
+  mb: Mailbox,
+  identity: ReturnType<typeof resolveMailboxIdentity>,
+  sessionId: string,
+  i: Record<string, unknown>,
+  ctx: Context,
 ) {
   const to = i.to as string | undefined;
   const tp = i.type as string | undefined;
   const subject = i.subject as string | undefined;
   const body = i.body as string | undefined;
+  const audience = i.audience as MailboxAudience | undefined;
 
   if (!to) return { ok: false, error: '"to" is required.' };
   if (!tp) return { ok: false, error: '"type" is required.' };
@@ -279,6 +316,9 @@ async function executeSend(
   // Empty string is a legitimate body (e.g. subject-only status pings) —
   // only reject when the field is genuinely absent.
   if (body === undefined || body === null) return { ok: false, error: '"body" is required.' };
+  if (audience !== undefined && audience !== 'all' && audience !== 'leaders') {
+    return { ok: false, error: '"audience" must be "all" or "leaders".' };
+  }
 
   // Resolve and validate the (type, to) pair using the canonical helper.
   // This enforces: control is reserved, assign/steer to "*" is rejected.
@@ -288,12 +328,14 @@ async function executeSend(
   } catch (err) {
     return { ok: false, error: `"to" is invalid: ${toErrorMessage(err)}` };
   }
-  const typeResult = resolveSendTypeSafe(tp as MailboxMessageType, normalizedTo);
+  const delivery = applyMailboxSendPolicy(ctx, identity, normalizedTo, audience);
+  const typeResult = resolveSendTypeSafe(tp as MailboxMessageType, delivery.to);
   if (!typeResult.ok) return { ok: false, error: `"type" is invalid: ${typeResult.error}` };
 
   const msg = await mb.send({
-    from: agentId,
-    to: normalizedTo, type: typeResult.type, subject, body,
+    from: identity.callerId,
+    to: delivery.to, type: typeResult.type, subject, body,
+    audience: delivery.audience,
     priority: (i.priority as 'low' | 'normal' | 'high') ?? 'normal',
     replyTo: i.replyTo as string | undefined,
     senderSessionId: sessionId,
@@ -330,7 +372,12 @@ async function executeAck(mb: Mailbox, agentId: string, i: Record<string, unknow
   };
 }
 
-async function executeQuery(mb: Mailbox, i: Record<string, unknown>) {
+async function executeQuery(
+  mb: Mailbox,
+  agentId: string,
+  role: string | undefined,
+  i: Record<string, unknown>,
+) {
   const limit = (i.limit as number) ?? 50;
   const messages = await mb.query({
     to: i.to as string | undefined,
@@ -343,7 +390,8 @@ async function executeQuery(mb: Mailbox, i: Record<string, unknown>) {
     sessionId: i.sessionId as string | undefined,
     limit,
   });
-  return { ok: true, count: messages.length, messages, summary: `${messages.length} message(s).` };
+  const visible = messages.filter((message) => isMailboxMessageVisibleTo(message, agentId, role));
+  return { ok: true, count: visible.length, messages: visible, summary: `${visible.length} message(s).` };
 }
 
 async function executeStatus(mb: Mailbox) {
@@ -378,6 +426,7 @@ async function executeUnread(
   agentId: string,
   sessionId: string,
   aliases: string[] = [],
+  role?: string,
 ) {
   // Count unique id + base aliases + same-session broadcast; project
   // broadcasts match every query and are deduped by id.
@@ -387,9 +436,11 @@ async function executeUnread(
     `@session:${sessionId}`,
   ];
   const batches = await Promise.all(
-    targets.map((to) => mb.query({ to, unreadBy: agentId, limit: 200 }).catch(() => [])),
+    targets.map((to) => mb.query({ to, unreadBy: agentId, readerRole: role, limit: 200 }).catch(() => [])),
   );
-  const ids = new Set(batches.flat().map((m) => m.id));
+  const ids = new Set(
+    batches.flat().filter((m) => isMailboxMessageVisibleTo(m, agentId, role)).map((m) => m.id),
+  );
   return { ok: true, count: ids.size, summary: `${ids.size} unread message(s) for you.` };
 }
 
@@ -399,7 +450,7 @@ function formatMessage(m: MailboxMessage, readerId: string) {
   const maxBody = 2000;
   const truncated = m.body.length > maxBody ? `${m.body.slice(0, maxBody)}… [truncated]` : m.body;
   return {
-    id: m.id, from: m.from, to: m.to, type: m.type,
+    id: m.id, from: m.from, to: m.to, type: m.type, audience: m.audience ?? 'all',
     subject: m.subject, body: truncated, priority: m.priority,
     readByMe: readerId in m.readBy,
     readByCount: Object.keys(m.readBy).length,

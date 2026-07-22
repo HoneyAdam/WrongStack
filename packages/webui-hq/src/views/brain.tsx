@@ -4,7 +4,7 @@
  * fresh browser sees history immediately, then fed live by `brain.event`
  * envelopes.
  */
-import type { HqBrainEventPayload } from '@wrongstack/core';
+import type { HqBrainEventPayload } from '@wrongstack/core/hq';
 import { Brain, CheckCircle2, CircleHelp, CircleSlash, Hand, UserRound, Zap } from 'lucide-react';
 import type React from 'react';
 import { useBackfilledEvents } from '../lib/use-backfilled-events.js';

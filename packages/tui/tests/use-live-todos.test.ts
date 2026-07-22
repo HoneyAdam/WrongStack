@@ -1,4 +1,4 @@
-import { Context } from '@wrongstack/core';
+import { Context } from '@wrongstack/core/agent';
 import { render } from 'ink-testing-library';
 import React, { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';

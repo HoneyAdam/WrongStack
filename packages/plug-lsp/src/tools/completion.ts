@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import type { CompletionItem, CompletionList } from 'vscode-languageserver-protocol';
 import { LSP_CONSTANTS } from '../constants.js';
 import { humanToLSP } from '../position.js';

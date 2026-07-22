@@ -1,4 +1,5 @@
-import type { EventBus, Message, Request } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Message, Request } from '@wrongstack/core/types';
 import type { Middleware } from '@wrongstack/core/kernel';
 import type { InjectionTracker } from './injection-tracker.js';
 

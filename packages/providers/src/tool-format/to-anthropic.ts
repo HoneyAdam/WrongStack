@@ -1,4 +1,5 @@
-import { compactToolDefinitionForWire, type Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
+import { compactToolDefinitionForWire } from '@wrongstack/core/utils';
 
 export interface AnthropicToolSchema {
   name: string;

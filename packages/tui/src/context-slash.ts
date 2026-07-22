@@ -1,4 +1,5 @@
-import type { Context, SlashCommand } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommand } from '@wrongstack/core/types';
 
 export interface ContextSlashDeps {
   /** Bridge from slash-command execution to the mounted TUI reducer. */

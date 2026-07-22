@@ -35,7 +35,7 @@ describe('buildCollabCommand', () => {
   it('/collab invite prints a join URL with the session id', async () => {
     const cmd = buildCollabCommand(fakeOpts());
     const res = await cmd.run('invite', fakeCtx('sess-C'));
-    expect(res?.message).toContain('http://127.0.0.1:3457/');
+    expect(res?.message).toContain('http://127.0.0.1:3456/');
     expect(res?.message).toContain('sess-C');
   });
 

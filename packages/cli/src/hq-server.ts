@@ -14,29 +14,11 @@ import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
-import {
-  createCompatibilityTrustBoundary,
-  type TrustBoundary,
-} from '@wrongstack/core/security';
-import {
-  createHqPersistence,
-  createMailboxHttpRouter,
-  MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
-  type EnsureHqFirstRunAuthResult,
-  GlobalMailbox,
-  type HqAlert,
-  HqAlertEngine,
-  type HqAlertRuleConfig,
-  type HqCommandAuditEntry,
-  HqCommandAuditLog,
-  type HqEventEnvelope,
-  type HqTranscriptEntry,
-  MailboxEventEmitter,
-  MailboxHttpRateLimiter,
-  toAlertMessage,
-  type MailboxHttpAccessDecision,
-  watchHqAuthFile,
-} from '@wrongstack/core';
+import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
+import { createHqPersistence, toAlertMessage, watchHqAuthFile } from '@wrongstack/core/hq';
+import { createMailboxHttpRouter, MAILBOX_HTTP_DEFAULT_MAX_AGE_MS } from '@wrongstack/core/coordination';
+import { type EnsureHqFirstRunAuthResult, type HqAlert, HqAlertEngine, type HqAlertRuleConfig, type HqCommandAuditEntry, HqCommandAuditLog, type HqEventEnvelope, type HqTranscriptEntry } from '@wrongstack/core/hq';
+import { GlobalMailbox, MailboxEventEmitter, MailboxHttpRateLimiter, type MailboxHttpAccessDecision } from '@wrongstack/core/coordination';
 import { HQ_HTML } from './hq-recovery-html.js';
 import * as HqServerAuth from './hq-server/auth.js';
 import * as HqServerSnapshot from './hq-server/snapshot.js';
@@ -70,7 +52,7 @@ import { prepareHqServerStart } from './hq-server/preflight.js';
 import type { ConnectedClient, TranscriptRing } from './hq-server/types.js';
 export type { ConnectedClient, TranscriptRing };
 
-export { HqInsecureExposureError } from '@wrongstack/core';
+export { HqInsecureExposureError } from '@wrongstack/core/hq';
 
 // ── Re-exports for backward compatibility ──────────────────────────────────
 
@@ -233,7 +215,7 @@ function startHqServerWithAuth(
     void (async () => {
       const projectsDir = path.join(path.dirname(dataDir), 'projects');
       const entries = await fs.readdir(projectsDir, { withFileTypes: true }).catch(() => []);
-      const { GlobalMailbox } = await import('@wrongstack/core');
+      const { GlobalMailbox } = await import('@wrongstack/core/coordination');
       await Promise.all(
         entries
           .filter((entry) => entry.isDirectory())

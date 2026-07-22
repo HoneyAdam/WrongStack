@@ -1,4 +1,4 @@
-import type { DesignKitEntry } from '@wrongstack/core';
+import type { DesignKitEntry } from '@wrongstack/core/types';
 import type React from 'react';
 import { Box, Text } from '../ink.js';
 

@@ -109,6 +109,7 @@ not silently install or change system fonts.
 | `Ctrl+C` (twice) | Exit |
 | `Ctrl+D` (empty buffer) | Exit |
 | `↑` / `↓` | History navigation when buffer empty |
+| `PgUp` / `PgDn` | Scroll bounded chat history |
 | `@` | File picker |
 | `/` (at start) | Slash command picker |
 | `?` (empty prompt) | Keyboard shortcuts help overlay |

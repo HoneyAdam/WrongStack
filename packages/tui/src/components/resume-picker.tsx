@@ -1,6 +1,6 @@
 import { Box, Text } from '../ink.js';
 import type React from 'react';
-import type { ResumeSessionEntry } from '../app.js';
+import type { ResumeSessionEntry } from '../app-state.js';
 
 export interface ResumePickerProps {
   sessions: ResumeSessionEntry[];

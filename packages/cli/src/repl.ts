@@ -1,29 +1,14 @@
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import type {
-  Agent,
-  AttachmentStore,
-  GoalFile,
-  SlashCommandRegistry,
-  TokenCounter,
-  TodoItem,
-} from '@wrongstack/core';
-import {
-  color,
-  detectContinueIntent,
-  estimateRequestTokensCalibrated,
-  expectDefined,
-  GlobalMailbox,
-  goalFilePath,
-  hasOpenTodos,
-  InputBuilder,
-  loadGoal,
-  resolveContinuation,
-  resolveProjectDir,
-  summarizeUsage,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
+import type { Agent, TodoItem } from '@wrongstack/core/agent';
+import type { AttachmentStore, TokenCounter } from '@wrongstack/core/types';
+import type { GoalFile } from '@wrongstack/core/goal';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
+import { color, estimateRequestTokensCalibrated, expectDefined, hasOpenTodos, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { detectContinueIntent, InputBuilder, resolveContinuation } from '@wrongstack/core/agent';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import { goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core/goal';
 import { readClipboardImage, routeImagesForModel, type VisionAdapters } from '@wrongstack/runtime';
 import { parseNextSteps } from '@wrongstack/tools/next-steps';
 import { contextOverflowHint } from './context-overflow-diagnostic.js';
@@ -43,7 +28,7 @@ import {
   trySaveImplementationPlan,
   trySaveSpecFromAIOutput,
   trySaveTasksFromAIOutput,
-} from './slash-commands/sdd.js';
+} from './services/sdd-runtime.js';
 import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
@@ -51,7 +36,7 @@ import {
   getSuggestions,
   setAutoSuggestions,
   setSuggestions,
-} from './slash-commands/suggestion-store.js';
+} from './services/suggestion-store.js';
 import {
   type AutoProceedLoopGuard,
   createAutoProceedLoopGuard,
@@ -121,9 +106,9 @@ export interface ReplOptions {
   tokenCounter?: TokenCounter | undefined;
   visionAdapters?: VisionAdapters | undefined;
   /** Autonomy mode state getter. */
-  getAutonomy?: (() => import('./slash-commands/autonomy.js').AutonomyMode) | undefined;
+  getAutonomy?: (() => import('./services/autonomy-mode.js').AutonomyMode) | undefined;
   /** Set autonomy mode (used by SIGINT handler to flip back to 'off'). */
-  onAutonomy?: ((mode: import('./slash-commands/autonomy.js').AutonomyMode) => void) | undefined;
+  onAutonomy?: ((mode: import('./services/autonomy-mode.js').AutonomyMode) => void) | undefined;
   /**
    * Whether next-task prediction is enabled. When true, the REPL runs a
    * lightweight single-shot prediction after each completed turn and shows
@@ -181,13 +166,13 @@ export interface ReplOptions {
    * iterations from this loop — so the engine and the REPL never compete
    * for the shared Context. Returns null until /autonomy eternal primes it.
    */
-  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
+  getEternalEngine?: (() => import('@wrongstack/core/execution').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode is 'eternal-parallel'
    * the REPL drives this engine instead of reading user input.
    * Returns null until /autonomy parallel primes it.
    */
-  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
+  getParallelEngine?: (() => import('@wrongstack/core/execution').ParallelEternalEngine | null) | undefined;
   /**
    * Access the active SDD parallel run's control surface (or null). A running
    * `/sdd parallel` blocks the prompt while it awaits completion, so this is the
@@ -203,13 +188,13 @@ export interface ReplOptions {
   /** Absolute project root — used to locate .wrongstack/goal.json for the goal banner. */
   projectRoot?: string | undefined;
   /** Full app config, used for HQ client publishing settings. */
-  appConfig?: import('@wrongstack/core').Config | undefined;
+  appConfig?: import('@wrongstack/core/types').Config | undefined;
   /** Live active session id for cross-surface client registration. */
   getSessionId?: (() => string | undefined) | undefined;
   /** Resolve current model vision support. Falls back to provider capability when omitted. */
   supportsVision?: (() => boolean | Promise<boolean>) | undefined;
   /** Skill loader for the skill generator wizard. */
-  skillLoader?: import('@wrongstack/core').SkillLoader | undefined;
+  skillLoader?: import('@wrongstack/core/types').SkillLoader | undefined;
   /** Controller for the agents monitor overlay. */
   agentsMonitorController?:
     | {
@@ -220,8 +205,8 @@ export interface ReplOptions {
   /** Controller for fleet stream (subagent output to history). */
   fleetStreamController?:
     | {
-        mode: import('@wrongstack/core').FleetChatVerbosity;
-        setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
+        mode: import('@wrongstack/core/types').FleetChatVerbosity;
+        setMode: (mode: import('@wrongstack/core/types').FleetChatVerbosity) => void;
       }
     | undefined;
   /**

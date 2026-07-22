@@ -1,4 +1,4 @@
-import { stripAnsi } from '@wrongstack/core';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 import { buildInterruptCommand } from '../src/slash-commands/interrupt.js';

@@ -9,7 +9,7 @@ export type {
   AuthOAuthKind,
   AuthPanelHost,
   AuthProviderRow,
-} from './components/auth-panel-model.js';
+} from './auth-panel-model.js';
 export type {
   BrainDenyIsTerminal,
   BrainHeuristicKey,
@@ -19,7 +19,7 @@ export type {
   BrainPanelVoter,
   BrainTerminalPolicyValue,
   BrainTraceContent,
-} from './components/brain-panel-model.js';
+} from './brain-panel-model.js';
 export { replaySessionEvents, replaySessionMessages } from './components/history/replay.js';
 export type { PluginPickerItem } from './components/plugin-picker.js';
 export type { ParsedNextStep, ParseNextStepsResult } from './components/suggestions.js';

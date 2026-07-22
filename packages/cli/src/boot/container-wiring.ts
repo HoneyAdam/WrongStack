@@ -37,8 +37,10 @@
 //     container's services. It will land in a follow-up PR
 //     (system-prompt.ts or similar).
 
-import type { Config, EventBus, Logger, Renderer, ModelsRegistry, WstackPaths } from '@wrongstack/core';
-import { EventBus as CoreEventBus, TOKENS } from '@wrongstack/core';
+import type { Config, Logger, Renderer, ModelsRegistry } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { EventBus } from '@wrongstack/core/kernel';
+import { EventBus as CoreEventBus, TOKENS } from '@wrongstack/core/kernel';
 import { DefaultPathResolver } from '@wrongstack/core/infrastructure';
 import { createDefaultContainer } from '@wrongstack/runtime';
 import { makePromptDelegate } from '../permission-prompt.js';

@@ -1,4 +1,4 @@
-import type { ToolRegistry } from '@wrongstack/core';
+import type { ToolRegistry } from '@wrongstack/core/registry';
 import { describe, expect, it, vi } from 'vitest';
 import { buildToolsCommand } from '../src/slash-commands/tools.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

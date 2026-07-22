@@ -247,6 +247,7 @@ describe('DefaultSystemPromptBuilder — H-area guidance section gating', () => 
       // One-liner contains "Use `mail_inbox` for new messages" but
       // NOT "### Your identity" (a full-block subheader).
       expect(mailboxSection).toContain('Use `mail_inbox`');
+      expect(mailboxSection).toContain('to="leader" audience="leaders"');
       expect(mailboxSection).not.toContain('### Your identity');
     });
 

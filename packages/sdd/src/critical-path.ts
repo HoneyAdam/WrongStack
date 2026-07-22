@@ -1,6 +1,6 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import type { TaskGraph } from '@wrongstack/core/types';
-import { topologicalSort } from '@wrongstack/core/types';
+import { topologicalSort } from '@wrongstack/core/tasking';
 /**
  * Enhanced critical path analysis with bottleneck detection,
  * parallel execution groups, and time estimation.

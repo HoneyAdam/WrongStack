@@ -1,5 +1,5 @@
 import * as os from 'node:os';
-import type { ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
+import type { ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { bashTool } from '../src/bash.js';
 import { getProcessRegistry } from '../src/process-registry.js';
@@ -130,6 +130,7 @@ describe('bashTool', () => {
       expect(out.pid).toBeDefined();
       const spawned = registry.bySession('test').find((p) => p.pid === out.pid);
       expect(spawned).toBeDefined();
+      expect(spawned?.background).toBe(true);
 
       ac.abort();
       await new Promise((resolve) => setTimeout(resolve, 25));

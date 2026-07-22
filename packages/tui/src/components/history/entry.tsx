@@ -1,5 +1,6 @@
 import { Box, Text } from '../../ink.js';
-import { hasOpenTodos, type TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
+import { hasOpenTodos } from '@wrongstack/core/utils';
 import React, { useEffect, useMemo } from 'react';
 import { theme } from '../../theme.js';
 import { getToolVisual } from '../../tool-glyph.js';
@@ -72,6 +73,56 @@ function brainRiskColor(risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']):
     case 'critical':
       return 'red';
   }
+}
+
+/**
+ * Full-bordered notice card for `warn`/`error` entries. A rounded box with an
+ * icon + label header in the accent color and the message body below, wrapped
+ * to the terminal width and split across lines so multi-line diagnostics stay
+ * readable instead of overflowing a single-line strip. Slash-command output
+ * that carries raw ANSI (bold/colors) is passed through untouched — the same
+ * rule the `info` renderer uses — so pre-styled text isn't double-wrapped.
+ */
+function NoticeCard({
+  icon,
+  label,
+  color,
+  text,
+  termWidth,
+}: {
+  icon: string;
+  label: string;
+  color: string;
+  text: string;
+  termWidth: number;
+}): React.ReactElement {
+  // 2 border columns + 2 paddingX columns of chrome.
+  const contentWidth = Math.max(20, termWidth - 4);
+  const hasAnsi = /\x1b\[/.test(text);
+  const lines = text.split('\n');
+  return (
+    <Box
+      flexDirection="column"
+      marginX={0}
+      marginY={1}
+      borderStyle="round"
+      borderColor={color}
+      paddingX={1}
+    >
+      <Text bold color={color}>{`${icon} ${label}`}</Text>
+      <Box flexDirection="column" width={contentWidth}>
+        {hasAnsi ? (
+          <Text>{text}</Text>
+        ) : (
+          lines.map((line, i) => (
+            <Text key={i} color={color}>
+              {line.length > 0 ? line : ' '}
+            </Text>
+          ))
+        )}
+      </Box>
+    </Box>
+  );
 }
 
 // ── Entry ──
@@ -570,42 +621,26 @@ export const Entry = React.memo(function Entry({
       );
     }
     case 'warn':
+      // Compact single-line tag for warnings. Previously rendered as a
+      // full-bordered NoticeCard that took 4+ lines — now a one-liner so
+      // common warnings (retries, rate-limits) don't dominate the history.
       return (
-        <Box
-          marginX={0}
-          borderStyle="single"
-          borderTop={false}
-          borderRight={false}
-          borderBottom={false}
-          borderColor={theme.warn}
-          paddingLeft={1}
-        >
+        <Box flexDirection="row" marginY={0} height={1}>
           <Text>
-            <Text bold color={theme.warn}>
-              {'⚠ WARN '}
-            </Text>
+            <Text bold color={theme.warn}>{'⚠ '}</Text>
             <Text color={theme.warn}>{entry.text}</Text>
           </Text>
         </Box>
       );
     case 'error':
       return (
-        <Box
-          marginX={0}
-          borderStyle="single"
-          borderTop={false}
-          borderRight={false}
-          borderBottom={false}
-          borderColor={theme.error}
-          paddingLeft={1}
-        >
-          <Text>
-            <Text bold color={theme.error}>
-              {'✗ ERROR '}
-            </Text>
-            <Text color={theme.error}>{entry.text}</Text>
-          </Text>
-        </Box>
+        <NoticeCard
+          icon="✗"
+          label="ERROR"
+          color={theme.error}
+          text={entry.text}
+          termWidth={termWidth}
+        />
       );
     case 'turn-summary':
       return (
@@ -622,6 +657,64 @@ export const Entry = React.memo(function Entry({
           </Text>
         </Box>
       );
+    case 'model-switch': {
+      const shrink =
+        entry.fromContext !== undefined &&
+        entry.toContext !== undefined &&
+        entry.toContext > 0 &&
+        entry.toContext < entry.fromContext;
+      const accent = shrink ? theme.warn : theme.accent;
+      const ctxChip = (ctx: number | undefined): string =>
+        ctx && ctx > 0 ? `${fmtTok(ctx)} ctx` : '';
+      const fromRef =
+        entry.fromProvider && entry.fromModel
+          ? `${entry.fromProvider} / ${entry.fromModel}`
+          : undefined;
+      const toRef = `${entry.toProvider} / ${entry.toModel}`;
+      const fromChip = ctxChip(entry.fromContext);
+      const toChip = ctxChip(entry.toContext);
+      const pct =
+        shrink && entry.requestTokens && entry.requestTokens > 0 && entry.toContext
+          ? Math.round((entry.requestTokens / entry.toContext) * 100)
+          : undefined;
+      return (
+        <Box
+          flexDirection="column"
+          marginX={0}
+          marginY={1}
+          borderStyle="round"
+          borderColor={accent}
+          paddingX={1}
+        >
+          <Text bold color={accent}>{'🔄 MODEL SWITCHED'}</Text>
+          {fromRef ? (
+            <Text>
+              <Text dimColor>{'  from  '}</Text>
+              <Text dimColor>{fromRef}</Text>
+              {fromChip ? <Text dimColor>{`   ${fromChip}`}</Text> : null}
+            </Text>
+          ) : null}
+          <Text>
+            <Text dimColor>{fromRef ? '  to    ' : '  now   '}</Text>
+            <Text bold color={theme.assistant}>{toRef}</Text>
+            {toChip ? (
+              <Text color={shrink ? theme.warn : theme.success}>{`   ${toChip}`}</Text>
+            ) : null}
+          </Text>
+          {shrink ? (
+            <Text color={theme.warn}>
+              {`  ⚠ smaller window: ${fmtTok(entry.fromContext as number)} → ${fmtTok(
+                entry.toContext as number,
+              )}${
+                pct !== undefined
+                  ? ` · request ≈ ${fmtTok(entry.requestTokens as number)} (${pct}% of new window)`
+                  : ''
+              }`}
+            </Text>
+          ) : null}
+        </Box>
+      );
+    }
     case 'brain': {
       const statusStyle = brainStatusStyle(entry.status);
       const riskColor = brainRiskColor(entry.risk);

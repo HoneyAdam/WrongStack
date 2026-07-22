@@ -1,4 +1,4 @@
-import type { MemoryStore } from '@wrongstack/core';
+import type { MemoryStore } from '@wrongstack/core/types';
 import type { SuperMemoryServiceLike } from './service-contract.js';
 
 const SUPER_MEMORY_METHODS = [

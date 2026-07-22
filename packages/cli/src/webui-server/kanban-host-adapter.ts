@@ -1,14 +1,10 @@
-import {
-  type Agent,
-  type AgentFactory,
-  type BrainArbiter,
-  type Config,
-  type EventBus,
-  PhaseGraphBuilder,
-  type PhaseTemplate,
-  resolveWstackPaths,
-  type SkillLoader,
-} from '@wrongstack/core';
+import { type Agent } from '@wrongstack/core/agent';
+import { type AgentFactory, type BrainArbiter } from '@wrongstack/core/coordination';
+import { type Config, type SkillLoader } from '@wrongstack/core/types';
+import { type PhaseTemplate } from '@wrongstack/core/goal';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { PhaseGraphBuilder } from '@wrongstack/core/goal';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { exportBoardToTaskGraph } from '@wrongstack/kanban';
 import {
   type GoalWebSocketHandler,

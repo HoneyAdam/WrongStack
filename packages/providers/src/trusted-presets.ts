@@ -20,7 +20,7 @@
  * (omniroute, LiteLLM, etc.) still rely on user-supplied baseUrl/models.
  */
 
-import type { ProviderConfig } from '@wrongstack/core';
+import type { ProviderConfig } from '@wrongstack/core/types';
 import type { ProviderDefinition } from './provider-definition-types.js';
 
 /**

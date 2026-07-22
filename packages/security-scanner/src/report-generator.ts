@@ -1,6 +1,6 @@
 import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite } from '@wrongstack/core/utils';
 import type { Finding, ScanResult } from './scanner.js';
 
 export interface ReportOptions {

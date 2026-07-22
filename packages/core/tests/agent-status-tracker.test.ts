@@ -51,7 +51,7 @@ describe('AgentStatusTracker', () => {
     events = mockEventBus();
     registry = mockRegistry();
     tracker = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: registry as never as SessionRegistry,
     });
   });
@@ -366,7 +366,7 @@ describe('AgentStatusTracker', () => {
 
   it('ignores session-scoped events for other sessions', () => {
     tracker = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: registry as never as SessionRegistry,
       sessionId: 's1',
     });
@@ -659,7 +659,7 @@ describe('AgentStatusTracker', () => {
 
   it('uses custom leader name when provided', () => {
     const customTracker = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: registry as never as SessionRegistry,
       leaderName: 'commander',
     });
@@ -733,7 +733,7 @@ describe('AgentStatusTracker', () => {
       updateAgents: vi.fn().mockRejectedValue(new Error('disk full')),
     } as never as SessionRegistry;
     const t = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: failingRegistry,
     });
     t.start();
@@ -799,7 +799,7 @@ describe('AgentStatusTracker', () => {
 
   it('accepts non-object payloads when a sessionId is configured', () => {
     tracker = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: registry as never as SessionRegistry,
       sessionId: 's1',
     });
@@ -828,7 +828,7 @@ describe('AgentStatusTracker', () => {
   it('onUpdate fires after a successful registry write', async () => {
     let updated = false;
     tracker = new AgentStatusTracker({
-      events: events as never as import('@wrongstack/core').EventBus,
+      events: events as never as import('@wrongstack/core/kernel').EventBus,
       registry: registry as never as SessionRegistry,
       onUpdate: () => {
         updated = true;

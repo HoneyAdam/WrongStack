@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import {
   isTrustDecisionAllowed,
   type TrustBoundary,

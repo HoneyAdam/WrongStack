@@ -1,7 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { describe, expect, it } from 'vitest';
 import {
   COMMAND_OUTPUT_MAX_BYTES,

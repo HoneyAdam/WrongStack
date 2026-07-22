@@ -3,7 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createChimeraPlugin, resolveChimeraConfig } from '../../src/plugins/chimera-plugin.js';
+import {
+  CHIMERA_REVIEW_PROMPT,
+  createChimeraPlugin,
+  resolveChimeraConfig,
+} from '../../src/plugins/chimera-plugin.js';
 import type { SlashCommand } from '../../src/index.js';
 
 let tmp: string;
@@ -43,6 +47,12 @@ afterEach(async () => {
 });
 
 describe('resolveChimeraConfig', () => {
+  it('instructs Chimera to send mail only to leaders', () => {
+    expect(CHIMERA_REVIEW_PROMPT).toContain('to="leader"');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('audience="leaders"');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('Never address Chimera mail to a peer');
+  });
+
   it('applies defaults and honors overrides', () => {
     expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off', cascadeOn: 'off', maxCascadeDepth: 2 });
     expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, autoFix: 'off', cascadeOn: 'off', maxCascadeDepth: 2 });

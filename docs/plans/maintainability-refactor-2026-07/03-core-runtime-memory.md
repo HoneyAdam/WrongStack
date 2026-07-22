@@ -19,12 +19,12 @@ Reduce Core to an honest foundation, settle Runtime ownership through an evidenc
 ### Problems
 
 - The root barrel exposes a large fraction of Core and encourages broad imports.
-- `types` exports implementation modules.
-- the internal layer registry omits actual source areas;
-- event payloads depend on the complete mutable Context type;
+- The `types` barrel exports implementation modules.
+- The internal layer registry omits actual source areas;
+- Event payloads depend on the complete mutable Context type;
 - Core contains both singular `plugin/` infrastructure and plural `plugins/` feature implementations;
 - `defaults` remains a broad compatibility barrel;
-- lower-level utilities import broad barrels and create hidden cycles.
+- Lower-level utilities import broad barrels and create hidden cycles.
 
 ### Planned slices
 
@@ -178,14 +178,24 @@ persistence primitive
 
 ### Planned slices
 
-1. Inventory persistence primitives and error dependencies.
-2. Break the errors/utils barrel cycle with direct low-level imports.
-3. Define a dependency-free persistence interface and failure model.
+1. Inventory persistence primitives and error dependencies. **Completed by R2.**
+2. Break the errors/utils ownership problem with a lower-level package and thin host adapter. **Completed by R2.**
+3. Define a dependency-free persistence interface and failure model. **Completed by R2.**
 4. Pilot one repository without changing its on-disk format.
 5. Add golden filesystem fixtures and fault-injection tests.
 6. Migrate repositories individually.
 7. Separate cloud synchronization from local persistence.
 8. Reduce session-store to a repository facade or split read/write/migration responsibilities.
+
+### R2 completion record
+
+`packages/persistence` now owns the shared filesystem mechanics without any
+workspace dependency. Core injects its existing structured `FsError` at the
+adapter boundary; Kanban preserves its historical `FsError` export as an alias
+of the neutral package error. Both adapters and the authority pass the same
+adversarial contract suite. This slice deliberately does not move repository
+formats, serialization envelopes, migrations, or cloud synchronization; those
+remain incremental repository work after the ownership/runtime pilot.
 
 ### Data safety gates
 
@@ -229,17 +239,25 @@ Optional features use capabilities, not `instanceof` or `isSuperMemoryStore`.
 
 Define `MemoryPort`, capability model, errors, and behavior fixtures. Run the suite against legacy and Super Memory adapters.
 
+**Completed 2026-07-22.** Core owns `MemoryPort`, `MemoryCapability`, and lifecycle/health contracts. One conformance suite exercises SQLite, JSONL, and the legacy adapter.
+
 #### E2 — Explicit legacy adapter
 
 Wrap the legacy implementation behind `MemoryPort`. Keep conversion helpers inside the adapter package/module. Remove consumer-side backend detection incrementally.
+
+**Completed 2026-07-22.** `LegacyMemoryPortAdapter` is the only supported bridge for historical or third-party `MemoryStore` implementations.
 
 #### E3 — Runtime composition
 
 Construct one `MemoryPort` implementation without unsafe casting. Hosts receive only the port and optional administrative capability interfaces.
 
+**Completed 2026-07-22.** Runtime constructs `createSqliteMemoryPort(...)`; host wiring carries `MemoryPort` and requests typed optional capabilities.
+
 #### E4 — Consumer migration
 
 Migrate WebUI Server memory handlers, CLI slash memory, execution services, and other consumers one at a time. Delete local duck types after each migration.
+
+**Completed 2026-07-22.** Runtime, CLI, TUI, and WebUI Server no longer identify a concrete backend or maintain local Super Memory duck types.
 
 #### E5 — Split Super Memory internals
 
@@ -259,9 +277,13 @@ super-memory/
 
 Move shared text normalization out of turn-memory to break the injection cycle.
 
+**Completed 2026-07-22.** The package has explicit port/lifecycle, JSONL and SQLite persistence/migration, graph, retrieval, shared normalization/index, middleware injection, anchors, embeddings, and tool adapter modules. Shared normalization is owned by `store-helpers.ts`, removing the middleware cycle. The two concrete backend classes remain compatibility implementations rather than host-facing facades; further compatibility export removal is an R8 concern.
+
 #### E6 — Legacy retirement
 
 After all consumers use the port, stop creating legacy stores by default. Keep the adapter for the documented release window, measure usage, then remove legacy Core memory implementation.
+
+**Compatibility window started 2026-07-22.** Production composition no longer constructs legacy stores. Architecture tests reject new direct callers; export removal is deferred to R8 so it follows the published compatibility policy.
 
 ### Exit gate
 

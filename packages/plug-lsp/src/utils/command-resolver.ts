@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 
 export async function resolveServerCommand(command: string, cwd: string): Promise<string | null> {
   const local = await findLocalBinary(cwd, command);

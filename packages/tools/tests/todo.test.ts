@@ -6,7 +6,7 @@ import {
   savePlan,
   saveTasks,
   type TaskFile,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { todoTool } from '../src/todo.js';
 import { mkSandbox, newSignal, type Sandbox } from './fixtures.js';

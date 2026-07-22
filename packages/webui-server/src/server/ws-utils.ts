@@ -11,14 +11,44 @@ import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import type { ConnectedClient } from './types.js';
 
+/** Maximum unsent data retained by one client before it is disconnected. */
+export const WEBUI_WS_MAX_BUFFERED_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Send an already serialized frame while enforcing per-client backpressure.
+ * A socket above the cap cannot be trusted to catch up: keeping it alive would
+ * let `ws` retain every subsequent broadcast in memory.
+ */
+export function sendSerialized(ws: WebSocket, data: string): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false;
+  const buffered = Number.isFinite(ws.bufferedAmount) ? ws.bufferedAmount : 0;
+  const frameBytes = Buffer.byteLength(data, 'utf8');
+  if (buffered + frameBytes > WEBUI_WS_MAX_BUFFERED_BYTES) {
+    try {
+      ws.terminate();
+    } catch {
+      try {
+        ws.close(1013, 'client cannot keep up');
+      } catch {
+        // Socket is already gone.
+      }
+    }
+    return false;
+  }
+  try {
+    ws.send(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Send a JSON message to a single WebSocket client.
  * No-op when the socket is not in OPEN state (disconnected / closing).
  */
 export function send(ws: WebSocket, msg: object): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
+  sendSerialized(ws, JSON.stringify(msg));
 }
 
 /**
@@ -32,14 +62,7 @@ export function broadcast(
 ): void {
   const data = JSON.stringify(msg);
   for (const [ws] of clients) {
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(data);
-      } catch {
-        // Client disconnected between the readyState check and the send —
-        // let the 'close' handler remove it from the map naturally.
-      }
-    }
+    sendSerialized(ws, data);
   }
 }
 

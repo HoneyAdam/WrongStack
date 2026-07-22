@@ -10,7 +10,7 @@
  * socket using the existing protocol envelopes.
  */
 
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
 import { getProcessRegistry } from '@wrongstack/tools';
 import type { WebSocket } from 'ws';
@@ -32,6 +32,7 @@ export function handleProcessList(ws: WebSocket): void {
           startedAt: p.startedAt,
           status: p.killed ? ('killed' as const) : ('running' as const),
           protected: p.protected,
+          background: p.background,
         })),
       },
     });

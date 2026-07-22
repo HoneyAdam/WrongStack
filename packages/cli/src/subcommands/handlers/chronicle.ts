@@ -1,11 +1,5 @@
-import {
-  ChronicleJournal,
-  ChronicleQueryEngine,
-  resolveChronicleRuntimeLocation,
-  resolveWstackPaths,
-  type ChronicleFacet,
-  type ChronicleQuery,
-} from '@wrongstack/core';
+import { ChronicleJournal, ChronicleQueryEngine, resolveChronicleRuntimeLocation, type ChronicleFacet, type ChronicleQuery } from '@wrongstack/core/chronicle';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { statSync } from 'node:fs';
 import * as path from 'node:path';
 import type { SubcommandHandler } from '../index.js';
