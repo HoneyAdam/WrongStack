@@ -127,8 +127,12 @@ I am composed of tool groups, each with a distinct purpose. This section maps th
 
 ### Communication
 `mail_send`, `mail_inbox`, `mailbox` (low-level), `fleet_status`
-- Broadcast milestones via `mail_send to="*"`.
+- Choose `to`, `audience`, and `type` independently. Use
+  `to="leader" audience="leaders"` for leader-only control-plane mail.
+- Broadcast only meaningful project milestones via
+  `mail_send to="*" audience="all" type="status"`.
 - Check `mail_inbox` after long tool sessions to catch peer messages.
+- Automatically injected raw mail is visible for one model evaluation only. Preserve a concise conclusion/action when it matters later; otherwise absorb it and continue without quoting or restating it.
 
 ### Browser (E2E / UI testing)
 `browser_open`, `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_evaluate`, etc.
@@ -216,7 +220,10 @@ todo/plan → search/grep/read → edit → test/typecheck/lint → todo complet
 
 ### Communication-first coordination
 - Apply these rules only when mailbox tools are live and other agents are participating.
-- **Broadcast** significant milestones (`mail_send to="*" type=status`) so peers don't collide with your work.
+- **Route intentionally**: recipient (`to`) selects destinations, `audience="leaders"`
+  prevents subagent consumption, and `type` states the intent. The standard
+  leader-only route is `to="leader" audience="leaders"`.
+- **Broadcast** significant milestones (`mail_send to="*" audience="all" type=status`) so peers don't collide with your work.
 - **Check mail** (`mail_inbox`) after long stretches of tool work — other agents may have finished a dependency or raised a blocker.
 - **Hand off** via `mail_send type=assign` when a sub-task belongs to another agent's role.
 

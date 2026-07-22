@@ -35,6 +35,7 @@ export function MessageRow({ flat, defaultExpanded }: MessageRowProps): React.Re
           <TypeIcon size={13} />
         </span>
         <span className={'hq-pill ' + typeMeta.tone}>{m.type}</span>
+        {m.audience === 'leaders' && <span className="hq-pill info">leaders only</span>}
         {m.priority === 'high' && <span className="hq-pill error">high</span>}
         {m.priority === 'low' && <span className="hq-pill idle">low</span>}
         <span className="hq-msg-subject" title={m.subject}>

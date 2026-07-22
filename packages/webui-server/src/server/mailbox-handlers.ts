@@ -7,7 +7,14 @@
  */
 
 import type { WebSocket } from 'ws';
-import { GlobalMailbox, resolveProjectDir, type EventBus } from '@wrongstack/core';
+import {
+  GlobalMailbox,
+  isMailboxMessageVisibleTo,
+  mailboxIdentityBase,
+  resolveProjectDir,
+  type EventBus,
+} from '@wrongstack/core';
+import type { MailboxSendPayload } from './ws-payload-validation.js';
 import { send, errMessage } from './ws-utils.js';
 
 export interface MailboxHandlerDeps {
@@ -49,6 +56,57 @@ export function getMailboxForDeps(deps: MailboxHandlerDeps): GlobalMailbox | nul
 
 // ── Handlers ──────────────────────────────────────────────────────────
 
+/** Persist a human-authored WebUI message in the shared project mailbox. */
+export async function handleMailboxSend(
+  ws: WebSocket,
+  deps: MailboxHandlerDeps,
+  payload: MailboxSendPayload,
+): Promise<void> {
+  const mb = getMailboxForDeps(deps);
+  if (!mb) {
+    send(ws, {
+      type: 'mailbox.sent',
+      payload: {
+        requestId: payload.requestId,
+        success: false,
+        error: 'No project root available',
+      },
+    });
+    return;
+  }
+  try {
+    const message = await mb.send({
+      from: 'webui',
+      to: payload.to,
+      type: payload.type,
+      audience: payload.audience,
+      subject: payload.subject,
+      body: payload.body,
+      priority: payload.priority,
+      replyTo: payload.replyTo,
+    });
+    send(ws, {
+      type: 'mailbox.sent',
+      payload: {
+        requestId: payload.requestId,
+        success: true,
+        messageId: message.id,
+        to: message.to,
+        audience: message.audience ?? 'all',
+      },
+    });
+  } catch (err) {
+    send(ws, {
+      type: 'mailbox.sent',
+      payload: {
+        requestId: payload.requestId,
+        success: false,
+        error: errMessage(err),
+      },
+    });
+  }
+}
+
 /**
  * List recent mailbox messages. Frontend sends:
  *   { type: 'mailbox.messages', limit?: number, incompleteOnly?: boolean }
@@ -75,6 +133,14 @@ export async function handleMailboxMessages(
   try {
     const limit = payload?.limit ?? 30;
     const unreadForAgent = payload?.unreadOnly === true && payload.agentId !== undefined;
+    const readerRole =
+      payload?.agentId !== undefined
+        ? (await mb.getAgentStatuses()).find(
+            (agent) =>
+              agent.agentId === payload.agentId ||
+              mailboxIdentityBase(agent.agentId) === mailboxIdentityBase(payload.agentId as string),
+          )?.role
+        : undefined;
     const messages = await mb.query({
       limit:
         payload?.unreadOnly === true && payload.agentId === undefined
@@ -82,12 +148,19 @@ export async function handleMailboxMessages(
           : limit,
       to: payload?.agentId,
       unreadBy: unreadForAgent ? payload.agentId : undefined,
+      readerRole,
       incompleteOnly: payload?.incompleteOnly ?? false,
     });
+    const audienceVisible =
+      payload?.agentId !== undefined
+        ? messages.filter((message) =>
+            isMailboxMessageVisibleTo(message, payload.agentId as string, readerRole),
+          )
+        : messages;
     const visibleMessages =
       payload?.unreadOnly === true && payload.agentId === undefined
-        ? messages.filter((m) => Object.keys(m.readBy).length === 0).slice(0, limit)
-        : messages;
+        ? audienceVisible.filter((m) => Object.keys(m.readBy).length === 0).slice(0, limit)
+        : audienceVisible;
     send(ws, {
       type: 'mailbox.messages',
       payload: {
@@ -96,6 +169,7 @@ export async function handleMailboxMessages(
           from: m.from,
           to: m.to,
           type: m.type,
+          audience: m.audience ?? 'all',
           subject: m.subject,
           body: m.body,
           priority: m.priority,

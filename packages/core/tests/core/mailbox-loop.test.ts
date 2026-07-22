@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  isMailboxMessageVisibleTo,
+  type Mailbox,
+  type MailboxMessage,
+  type MailboxQuery,
+} from '../../src/coordination/mailbox-types.js';
+import { removeInjectedMailboxBlocks } from '../../src/core/mailbox-loop.js';
+import {
   buildMailboxBlock,
   buildMailboxBtwAwarenessBlock,
   createMailboxChecker,
   injectPendingMailboxMessages,
 } from '../../src/index.js';
-import type { Mailbox } from '../../src/coordination/mailbox-types.js';
-import type { MailboxMessage } from '../../src/coordination/mailbox-types.js';
 
 function msg(partial: Partial<MailboxMessage> & Pick<MailboxMessage, 'type'>): MailboxMessage {
   return {
@@ -14,6 +19,7 @@ function msg(partial: Partial<MailboxMessage> & Pick<MailboxMessage, 'type'>): M
     from: partial.from ?? 'human@webui',
     to: partial.to ?? 'leader@abcd',
     type: partial.type,
+    ...(partial.audience !== undefined ? { audience: partial.audience } : {}),
     subject: partial.subject ?? 's',
     body: partial.body ?? 'b',
     priority: partial.priority ?? 'high',
@@ -132,6 +138,7 @@ describe('buildMailboxBtwAwarenessBlock', () => {
     expect(text).toContain('Do not stop your current work');
     expect(text).toContain('only for awareness');
     expect(text).toContain('WrongStack mailbox system');
+    expect(text).toContain('raw awareness block is request-scoped');
     expect(text).toContain('[END MAILBOX BTW]');
   });
 
@@ -161,6 +168,14 @@ describe('buildMailboxBlock', () => {
     const text = buildMailboxBlock([msg({ type: 'note' })]).text;
     expect(text.startsWith('[MAILBOX] New message(s) from other agents:')).toBe(true);
     expect(text.endsWith('[END MAILBOX]')).toBe(true);
+  });
+
+  it('explains that raw mail is request-scoped and only a concise consequence should persist', () => {
+    const text = buildMailboxBlock([msg({ type: 'result', body: 'large raw report' })]).text;
+    expect(text).toContain('raw mailbox block is request-scoped');
+    expect(text).toContain('removed after you evaluate it');
+    expect(text).toContain('retain only one concise conclusion/action');
+    expect(text).toContain('otherwise acknowledge it internally and continue');
   });
 
   it('renders each message with its type emoji, from, subject and body', () => {
@@ -328,6 +343,53 @@ describe('buildMailboxBlock', () => {
   });
 });
 
+describe('removeInjectedMailboxBlocks', () => {
+  it('removes only the injected raw mail while preserving the original user content', () => {
+    const mailboxBlock = buildMailboxBlock([msg({ type: 'result', body: 'raw report' })]);
+    const messages = [
+      {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: 'original request' }, mailboxBlock],
+        _estTokens: 999,
+      },
+    ];
+
+    const cleaned = removeInjectedMailboxBlocks(messages, [mailboxBlock]);
+
+    expect(cleaned.changed).toBe(true);
+    expect(cleaned.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'original request' }] },
+    ]);
+  });
+
+  it('drops a synthetic user message that contained only raw mail', () => {
+    const mailboxBlock = buildMailboxBlock([msg({ type: 'note', body: 'read and move on' })]);
+    const messages = [
+      { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'working' }] },
+      { role: 'user' as const, content: [mailboxBlock] },
+    ];
+
+    const cleaned = removeInjectedMailboxBlocks(messages, [mailboxBlock]);
+
+    expect(cleaned.messages).toEqual([messages[0]]);
+  });
+
+  it('leaves assistant conclusions and tool history untouched', () => {
+    const mailboxBlock = buildMailboxBlock([msg({ type: 'steer', body: 'use plan B' })]);
+    const messages = [
+      { role: 'user' as const, content: [mailboxBlock] },
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'Durable conclusion: use plan B.' }],
+      },
+    ];
+
+    const cleaned = removeInjectedMailboxBlocks(messages, [mailboxBlock]);
+
+    expect(cleaned.messages).toEqual([messages[1]]);
+  });
+});
+
 // ── createMailboxChecker ──────────────────────────────────────────────────
 // Tests for the per-iteration mailbox probe. The checker is created once
 // per agent (attachMailboxChecker) and called at the top of every iteration
@@ -347,8 +409,13 @@ describe('buildMailboxBlock', () => {
 function fakeMailbox(
   queryResponses: MailboxMessage[][],
 ): Mailbox & { queryMock: ReturnType<typeof vi.fn>; ackManyMock: ReturnType<typeof vi.fn> } {
-  const queryMock = vi.fn(async () => {
-    return queryResponses.shift() ?? [];
+  const queryMock = vi.fn(async (query: MailboxQuery) => {
+    const messages = queryResponses.shift() ?? [];
+    const readerId = query.unreadBy;
+    if (!readerId) return messages;
+    return messages.filter((message) =>
+      isMailboxMessageVisibleTo(message, readerId, query.readerRole),
+    );
   });
   const ackManyMock = vi.fn(async (input: { acks: Array<{ messageId: string }> }) =>
     input.acks.map((a) =>
@@ -402,6 +469,33 @@ describe('createMailboxChecker', () => {
     const check = createMailboxChecker({ mailbox: mb, agentId: 'leader@a1b2' });
     const result = await check();
     expect(result.map((m) => m.id)).toEqual([messages[0]!.id, messages[1]!.id]);
+  });
+
+  it('does not deliver leaders-only mail to a subagent', async () => {
+    const leadersOnly = msg({ type: 'broadcast', to: '*', audience: 'leaders', id: 'm_leaders' });
+    const mb = fakeMailbox([[leadersOnly]]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'worker@a1b2',
+      role: 'executor',
+      broadcastFloor: '1970-01-01T00:00:00.000Z',
+    });
+
+    expect(await check()).toEqual([]);
+    expect(mb.ackManyMock).not.toHaveBeenCalled();
+  });
+
+  it('delivers leaders-only mail to the leader on any surface', async () => {
+    const leadersOnly = msg({ type: 'broadcast', to: '*', audience: 'leaders', id: 'm_leaders' });
+    const mb = fakeMailbox([[leadersOnly]]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@a1b2',
+      broadcastFloor: '1970-01-01T00:00:00.000Z',
+    });
+
+    expect((await check()).map((m) => m.id)).toEqual(['m_leaders']);
+    expect(mb.ackManyMock).toHaveBeenCalledTimes(1);
   });
 
   it('queries the current session address in addition to agentId and aliases', async () => {

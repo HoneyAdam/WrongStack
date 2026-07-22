@@ -63,7 +63,17 @@ CRITICAL CONSTRAINT — NO FURTHER DELEGATION:
 Inter-agent mailbox (if you have the `mail_send`/`mail_inbox`/`mailbox` tools):
   - Your identity is `<your-name>@<session-tag>` (unique per session). Mail
     addressed to you, your bare name, or broadcast to `*` is injected into
-    your conversation automatically before each step.
+    your next model evaluation automatically. The raw block is then removed:
+    retain only a concise durable conclusion/action if it matters later;
+    otherwise acknowledge it internally and continue without quoting it.
+  - Choose `to`, `audience`, and `type` separately. `to` selects recipients;
+    `audience` controls who may see the message. Use the default `all` audience
+    for agent coordination. For strategy/operator context that other subagents
+    must ignore, use `to="leader" audience="leaders"`. Never assume that
+    `audience="leaders"` chooses the leader recipient by itself.
+  - Use `ask` only when a reply is required, `assign` for owned work, `steer`
+    for a course correction, `review` for passive inspection, `result` for
+    completed output/evidence, and `status` for meaningful checkpoints.
   - Broadcast milestones: on completing significant work, `mail_send to="*"`
     a one-line summary so parallel agents don't collide with or duplicate it.
   - Hand off follow-ups that fit another agent's role better (discover ids
@@ -75,4 +85,5 @@ Inter-agent mailbox (if you have the `mail_send`/`mail_inbox`/`mailbox` tools):
     call; milestones only.
   - Mail to the director/leader (`ask`, `result`, `assign`) is injected
     inline into their conversation before their next step, even mid-task —
-    use `mail_send` to reliably reach them instead of waiting.
+    use `mail_send to="leader"` to reliably reach them instead of waiting.
+    Add `audience="leaders"` when the content is for leaders only.

@@ -957,6 +957,7 @@ async function handleApiMailboxSend(
     subject?: string;
     body?: string;
     priority?: string;
+    audience?: string;
   };
   try {
     mbody = JSON.parse(await readRequestBody(_req));
@@ -972,6 +973,11 @@ async function handleApiMailboxSend(
   if (typeof mbody.sessionId !== 'string' && typeof mbody.projectId !== 'string') {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
+    return;
+  }
+  if (mbody.audience !== undefined && mbody.audience !== 'all' && mbody.audience !== 'leaders') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'audience must be all or leaders' }));
     return;
   }
 
@@ -990,21 +996,24 @@ async function handleApiMailboxSend(
   const subject = typeof mbody.subject === 'string' ? mbody.subject : 'HQ prompt';
   const priority =
     mbody.priority === 'high' ? 'high' : mbody.priority === 'low' ? 'low' : 'normal';
-  const validated = validateHqCommand({
-    commandId: randomUUID(),
-    type: mbody.type,
-    createdAt: new Date().toISOString(),
-    payload: { to, subject, body: mbody.body, priority },
-    requiresAck: false,
-  });
+  const audience = mbody.audience === 'leaders' ? 'leaders' : 'all';
   const mailboxType =
-    validated?.type === 'steer' || validated?.type === 'btw'
-      ? validated.type
-      : validated?.type === 'queue'
-        ? 'note'
-        : validated?.type === 'broadcast'
-          ? 'broadcast'
-          : undefined;
+    mbody.type === 'queue'
+      ? 'note'
+      : ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review'].includes(
+            mbody.type,
+          )
+        ? (mbody.type as
+            | 'note'
+            | 'ask'
+            | 'assign'
+            | 'steer'
+            | 'btw'
+            | 'broadcast'
+            | 'status'
+            | 'result'
+            | 'review')
+        : undefined;
   if (mailboxType === undefined) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(
@@ -1015,22 +1024,38 @@ async function handleApiMailboxSend(
     );
     return;
   }
+  if (
+    (mailboxType === 'assign' || mailboxType === 'steer') &&
+    (to === '*' || to.trim().toLowerCase() === 'all')
+  ) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `${mailboxType} requires a specific recipient` }));
+    return;
+  }
 
   try {
     const projectDir = resolveProjectDir(projectRoot, mbGlobalRoot);
     const mailbox = getMailboxGateway(projectDir).mailbox;
     const from = `hq@${hqSessionTag}`;
+    const deliveryTo = mailboxType === 'broadcast' ? 'all' : to;
     const sent = await mailbox.send({
       from,
-      to: mailboxType === 'broadcast' ? 'all' : to,
+      to: deliveryTo,
       type: mailboxType,
       subject,
       body: mbody.body,
       priority,
+      audience,
     });
     res.writeHead(202, { 'Content-Type': 'application/json' });
     res.end(
-      JSON.stringify({ delivered: true, messageId: sent?.id, to, type: mailboxType }),
+      JSON.stringify({
+        delivered: true,
+        messageId: sent?.id,
+        to: sent?.to ?? deliveryTo,
+        type: mailboxType,
+        audience,
+      }),
     );
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'application/json' });

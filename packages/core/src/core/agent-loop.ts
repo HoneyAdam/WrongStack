@@ -18,8 +18,8 @@ import {
   estimateMessageTokens,
   estimateRequestTokens,
   getCalibrationState,
-  realAnchoredInputTokens,
   type RequestTokenBreakdown,
+  realAnchoredInputTokens,
   recordActualUsage,
 } from '../utils/token-estimate.js';
 import type { AgentInternals } from './agent-internals.js';
@@ -30,7 +30,7 @@ import { buildBtwBlock, consumeBtwNotes } from './btw.js';
 import type { RunOptions } from './context.js';
 import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
 import { requestLimitExtension } from './iteration-limit.js';
-import { injectPendingMailboxMessages } from './mailbox-loop.js';
+import { injectPendingMailboxMessages, removeInjectedMailboxBlocks } from './mailbox-loop.js';
 import { runProviderWithRetry } from './provider-runner.js';
 import { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate } from './queued-messages.js';
 
@@ -481,11 +481,25 @@ export function createAgentLoopHandler(
     return h.toString(36);
   }
 
-  /** Fold pending /btw notes into conversation before each iteration. */
-  function injectPendingBtwNotes(): void {
+  /**
+   * Fold pending /btw notes into conversation before each iteration.
+   * Mailbox awareness uses the same queue for safe-boundary delivery, but its
+   * raw body remains request-scoped and is therefore folded as a separate
+   * block that the run can remove after evaluation.
+   */
+  function injectPendingBtwNotes(onMailboxBlock?: (block: TextBlock) => void): void {
     const notes = consumeBtwNotes(a.ctx);
     if (notes.length === 0) return;
-    foldBlockIntoConversation({ type: 'text', text: buildBtwBlock(notes) });
+    const mailboxNotes = notes.filter((note) => note.startsWith('[MAILBOX BTW]'));
+    const regularNotes = notes.filter((note) => !note.startsWith('[MAILBOX BTW]'));
+    if (regularNotes.length > 0) {
+      foldBlockIntoConversation({ type: 'text', text: buildBtwBlock(regularNotes) });
+    }
+    if (mailboxNotes.length > 0) {
+      const block: TextBlock = { type: 'text', text: buildBtwBlock(mailboxNotes) };
+      foldBlockIntoConversation(block);
+      onMailboxBlock?.(block);
+    }
   }
 
   /**
@@ -540,12 +554,15 @@ export function createAgentLoopHandler(
   ): Promise<RunResult> {
     await a.pipelines.userInput.run(inputPayload);
     recordUserIntentEvidence(a.ctx, inputPayload.text);
-    a.ctx.state.appendMessage({ role: 'user', content: inputPayload.content });
+    // Persist the semantic event before its exact-state projection. The
+    // conversation journal drains independently, so mutating state first can
+    // otherwise race `message_appended` ahead of `user_input` on disk.
     await a.ctx.session.append({
       type: 'user_input',
       ts: new Date().toISOString(),
       content: inputPayload.content,
     });
+    a.ctx.state.appendMessage({ role: 'user', content: inputPayload.content });
     const promptIndex = a.ctx.messages.filter((m) => m.role === 'user').length - 1;
     const preview = inputPayload.text.slice(0, 80) + (inputPayload.text.length > 80 ? '…' : '');
     await a.ctx.session.writeCheckpoint(promptIndex, preview);
@@ -567,6 +584,27 @@ export function createAgentLoopHandler(
     let effectiveLimit = opts.maxIterations ?? a.maxIterations;
     const hasHardLimit = effectiveLimit > 0 && Number.isFinite(effectiveLimit);
     let recoveryRetries = 0;
+    const pendingMailboxBlocks: TextBlock[] = [];
+
+    /**
+     * Raw mail is useful for exactly one successful provider evaluation. Its
+     * consequences remain in assistant/tool/task state; the original bodies do
+     * not stay in every later request.
+     */
+    function clearEvaluatedMailboxBlocks(): void {
+      if (pendingMailboxBlocks.length === 0) return;
+      const cleaned = removeInjectedMailboxBlocks(a.ctx.messages, pendingMailboxBlocks);
+      pendingMailboxBlocks.length = 0;
+      if (cleaned.changed) {
+        a.ctx.state.replaceMessages(cleaned.messages);
+        // The pre-flight stash included the raw mail. Re-anchor immediately so
+        // the context bar and post-response compaction do not keep charging for
+        // text that no longer exists.
+        a.ctx.lastRealInputTokens = undefined;
+        delete a.ctx.meta['realAnchorMsgCount'];
+        refreshContextRequestTokenStash({ force: true });
+      }
+    }
 
     // ── Loop detection state ──────────────────────────────────────
     // Two complementary detectors, tuned via `tools.loopDetection`:
@@ -685,7 +723,7 @@ export function createAgentLoopHandler(
         await a.extensions.runBeforeIteration(a.ctx, i);
         a.events.emit('iteration.started', { sessionId: a.ctx.session.id, ctx: a.ctx, index: i });
 
-        injectPendingBtwNotes();
+        injectPendingBtwNotes((block) => pendingMailboxBlocks.push(block));
         injectQueueAwareness();
 
         // Deliver the loop-detector steer queued by the previous iteration.
@@ -713,7 +751,10 @@ export function createAgentLoopHandler(
         // Non-blocking best-effort — a broken mailbox must not stop the agent.
         const mailboxResult = await injectPendingMailboxMessages(
           checkMailbox,
-          foldBlockIntoConversation,
+          (block) => {
+            foldBlockIntoConversation(block);
+            pendingMailboxBlocks.push(block);
+          },
           {
             events: {
               emit: (type, payload) => {
@@ -874,6 +915,11 @@ export function createAgentLoopHandler(
           recoveryRetries = 0;
           res = recovered.response;
         }
+
+        // The provider has now seen and evaluated every pending raw mailbox
+        // block. Remove them before appending its response so only the useful
+        // consequence (assistant text, tool work, todos, etc.) survives.
+        clearEvaluatedMailboxBlocks();
 
         const responseResult = await handlers.response.processResponse(res, req);
         if (responseResult.aborted) {
@@ -1107,6 +1153,10 @@ export function createAgentLoopHandler(
         }
       }
     } finally {
+      // A failed/aborted run must not leave request-scoped mail in a resumed
+      // session. Retry/continue paths keep it until either a response arrives
+      // or this final teardown executes.
+      clearEvaluatedMailboxBlocks();
       offSubagentDone();
       const reason: 'clean' | 'aborted' = controller.signal.aborted ? 'aborted' : 'clean';
       try {

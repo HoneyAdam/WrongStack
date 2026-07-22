@@ -164,11 +164,22 @@ export const useHqStore = create<HqState & HqActions>()((set) => ({
 export interface MailboxSendInput {
   projectId?: string | undefined;
   sessionId?: string | undefined;
-  type: 'steer' | 'btw' | 'queue' | 'broadcast';
+  type:
+    | 'note'
+    | 'ask'
+    | 'assign'
+    | 'steer'
+    | 'btw'
+    | 'queue'
+    | 'broadcast'
+    | 'status'
+    | 'result'
+    | 'review';
   to?: string | undefined;
   subject?: string | undefined;
   body: string;
   priority?: 'high' | 'normal' | 'low' | undefined;
+  audience?: 'all' | 'leaders' | undefined;
 }
 
 export interface MailboxSendResult {
@@ -176,6 +187,7 @@ export interface MailboxSendResult {
   messageId?: string;
   to: string;
   type: string;
+  audience?: 'all' | 'leaders' | undefined;
 }
 
 export async function fetchJson<T>(path: string): Promise<T> {

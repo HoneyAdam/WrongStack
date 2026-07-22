@@ -134,6 +134,21 @@ describe('/mailbox slash command', () => {
     expect(all[0]!.body).toBe('some message');
   });
 
+  it('broadcast supports audience=leaders', async () => {
+    const cmd = buildMailboxCommand(opts);
+    const res = await cmd.run(
+      'broadcast audience=leaders terminal and WebUI leader context',
+      opts.context,
+    );
+
+    expect(stripAnsi(res?.message ?? '')).toContain('Broadcast to leader agents');
+    const all = await mailbox.query({ to: '*', limit: 10 });
+    expect(all[0]).toMatchObject({
+      audience: 'leaders',
+      body: 'terminal and WebUI leader context',
+    });
+  });
+
   it('inbox shows messages addressed to the unique id, base alias, and broadcasts — then marks them read', async () => {
     await mailbox.send({ from: 'worker#42', to: 'leader#999', type: 'note', subject: 'direct', body: 'direct msg' });
     await mailbox.send({ from: 'worker#42', to: 'leader', type: 'note', subject: 'alias', body: 'alias msg' });

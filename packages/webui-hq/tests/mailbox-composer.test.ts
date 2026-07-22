@@ -126,6 +126,7 @@ describe('MailboxComposer', () => {
       subject: 'After current task',
       body: 'run the full test suite next',
       priority: 'normal',
+      audience: 'all',
     });
     expect(container.querySelector('.hq-composer-status.ok')?.textContent).toContain('msg-1234');
     // Body is cleared for the next message.
@@ -154,6 +155,7 @@ describe('MailboxComposer', () => {
       subject: 'HQ prompt',
       body: 'stop all work',
       priority: 'high',
+      audience: 'all',
     });
   });
 
@@ -167,6 +169,32 @@ describe('MailboxComposer', () => {
 
     expect(container.querySelector('.hq-composer-status.err')?.textContent).toContain(
       'could not resolve target project mailbox',
+    );
+  });
+
+  it('can restrict a project message to leader agents', async () => {
+    const sender = vi.fn().mockResolvedValue({ delivered: true, to: 'all', type: 'broadcast' });
+    const { container } = mount({ projects: PROJECTS, sender });
+    expand(container);
+
+    const audienceSelect = Array.from(container.querySelectorAll<HTMLSelectElement>('select')).find(
+      (select) => Array.from(select.options).some((option) => option.value === 'leaders'),
+    );
+    const typeSelect = Array.from(container.querySelectorAll<HTMLSelectElement>('select')).find(
+      (select) => Array.from(select.options).some((option) => option.value === 'result'),
+    );
+    setValue(typeSelect as HTMLSelectElement, 'result');
+    setValue(audienceSelect as HTMLSelectElement, 'leaders');
+    setValue(container.querySelector('textarea') as HTMLTextAreaElement, 'leader-only context');
+    click(findButton(container, 'Send'));
+    await act(async () => {});
+
+    expect(sender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'result',
+        audience: 'leaders',
+        body: 'leader-only context',
+      }),
     );
   });
 

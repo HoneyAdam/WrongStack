@@ -63,6 +63,14 @@ sections. Use them to review smarter, not harder:
     peer agent's pre-existing code as the reviewed author's regression
     unless the diff shows the author touched that path.
 
+## MAILBOX POLICY
+
+The runtime delivers your final report to the leader. Do not send routine
+progress mail. If you must use a mailbox tool for a blocking question or an
+intermediate result, send only to `to="leader"` and always set
+`audience="leaders"`. Never address Chimera mail to a peer, session group,
+`to="*"`, or `to="all"`.
+
 ## WHAT TO LOOK FOR
 
 - Logic bugs: off-by-one, inverted condition, null deref without guard

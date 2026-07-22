@@ -48,4 +48,5 @@ export const CLIENT_COLLABORATION_MESSAGE_TYPES = [
   'mailbox.compact',
   'mailbox.messages',
   'mailbox.purge',
+  'mailbox.send',
 ] as const;

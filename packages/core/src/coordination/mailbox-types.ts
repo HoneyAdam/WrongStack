@@ -111,6 +111,9 @@
  *    messages). `DefaultMailbox.getAgentStatuses()` (per-session) derives
  *    a registry snapshot from `status`-type messages as a fallback when no
  *    shared registry file exists.
+ * 8. **Request-scoped context**: delivered raw mailbox blocks are removed
+ *    after one successful provider evaluation. Durable assistant/tool/task
+ *    consequences remain; routine mail does not occupy later requests.
  *
  * When a type is missing from any dispatch table, the fallback is:
  * - Render with `📨 <TYPE>` label (generic emoji prefix)
@@ -129,6 +132,34 @@ export type MailboxMessageType =
   | 'result' // Task completion notice — evidence for next decision
   | 'review' // Passive review request — inspect when convenient
   | 'control'; // Out-of-band signal — never folded into conversation content
+
+/**
+ * Which class of agent may consume a mailbox message.
+ *
+ * `leaders` is a delivery boundary, not merely a UI hint: agent-loop and
+ * inbox readers must exclude these messages for subagents. The optional
+ * persisted field keeps older JSONL records backwards-compatible (`all`).
+ */
+export type MailboxAudience = 'all' | 'leaders';
+
+/** Return the stable base portion of a session-qualified mailbox identity. */
+export function mailboxIdentityBase(agentId: string): string {
+  return agentId.split(/[@#]/, 1)[0]!.trim().toLowerCase();
+}
+
+/** Whether a mailbox identity belongs to the session's main/leader agent. */
+export function isMailboxLeader(agentId: string, role?: string): boolean {
+  return mailboxIdentityBase(agentId) === 'leader' || role?.trim().toLowerCase() === 'leader';
+}
+
+/** Whether a message may be consumed by the supplied agent identity. */
+export function isMailboxMessageVisibleTo(
+  message: Pick<MailboxMessage, 'audience'>,
+  agentId: string,
+  role?: string,
+): boolean {
+  return message.audience !== 'leaders' || isMailboxLeader(agentId, role);
+}
 
 /**
  * Semantic category a mail type belongs to — determines its handling
@@ -347,6 +378,8 @@ export interface MailboxMessage {
   to: string;
   /** Message category. */
   type: MailboxMessageType;
+  /** Delivery audience. Omitted legacy values mean `all`. */
+  audience?: MailboxAudience | undefined;
   /** Short subject line — one sentence. */
   subject: string;
   /** Full message content. */
@@ -481,6 +514,8 @@ export interface MailboxQuery {
   from?: string | undefined;
   /** Only messages unread by this agent. */
   unreadBy?: string | undefined;
+  /** Trusted caller role used with `unreadBy` for audience filtering. */
+  readerRole?: string | undefined;
   /** Only incomplete messages. */
   incompleteOnly?: boolean | undefined;
   /** Filter by message type. */
@@ -539,6 +574,8 @@ export interface MailboxSendInput {
   to: string;
   /** Message category. */
   type: MailboxMessageType;
+  /** Restrict consumption to main/leader agents. Default: `all`. */
+  audience?: MailboxAudience | undefined;
   /** Short subject line. */
   subject: string;
   /** Full message content. */

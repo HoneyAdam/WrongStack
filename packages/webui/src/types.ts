@@ -2258,6 +2258,19 @@ export type WSClientMessageCore =
   | WSCollabGrantControl
   | WSCollabInjectTool
   | {
+      type: 'mailbox.send';
+      payload: {
+        requestId: string;
+        to: string;
+        type: 'note' | 'ask' | 'assign' | 'steer' | 'btw' | 'broadcast' | 'status' | 'result' | 'review';
+        audience: 'all' | 'leaders';
+        subject: string;
+        body: string;
+        priority: 'low' | 'normal' | 'high';
+        replyTo?: string | undefined;
+      };
+    }
+  | {
       type: 'mailbox.messages';
       payload: {
         limit?: number | undefined;
@@ -2611,6 +2624,17 @@ export type WSServerMessage =
   | {
       type: 'mailbox.agents';
       payload: { agents: Array<Record<string, unknown>>; error?: string | undefined };
+    }
+  | {
+      type: 'mailbox.sent';
+      payload: {
+        requestId: string;
+        success: boolean;
+        messageId?: string | undefined;
+        to?: string | undefined;
+        audience?: 'all' | 'leaders' | undefined;
+        error?: string | undefined;
+      };
     }
   // Reply to a client `ping` (liveness probe). The payload is absent on the
   // wire; typed as optional so union-wide `msg.payload` access keeps

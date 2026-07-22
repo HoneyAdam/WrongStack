@@ -74,7 +74,8 @@ EventBus for distress signals and engages the Brain proactively:
 When the Brain decides to intervene, a high-priority `steer` mail is sent
 from `brain@<sessionTag>` to this session's leader
 (`leader@<sessionTag>`); the mailbox loop injects it into the agent's
-conversation before its next step. Every engagement — intervening or not —
+next model evaluation before its next step, then removes the raw mail block.
+Every engagement — intervening or not —
 emits a `brain.intervention` event and is rate-limited by a 120-second
 per-signal cooldown.
 

@@ -246,6 +246,7 @@ export type {
 } from './coordination/mailbox-events.js';
 export { MailboxEventEmitter } from './coordination/mailbox-events.js';
 export {
+  applyMailboxSendPolicy,
   type MailboxResolver,
   type MailboxToolOptions,
   mailboxSessionTag,
@@ -260,6 +261,7 @@ export type {
   Mailbox,
   MailboxAckInput,
   MailboxAgentStatus,
+  MailboxAudience,
   MailboxMessage,
   MailboxMessageType,
   MailboxQuery,
@@ -268,7 +270,12 @@ export type {
   ReadReceipts,
   RegisteredAgent,
 } from './coordination/mailbox-types.js';
-export { normalizeRecipient } from './coordination/mailbox-types.js';
+export {
+  isMailboxLeader,
+  isMailboxMessageVisibleTo,
+  mailboxIdentityBase,
+  normalizeRecipient,
+} from './coordination/mailbox-types.js';
 export {
   isValidMatrixKey,
   MATRIX_PHASE_KEYS,

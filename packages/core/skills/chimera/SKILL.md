@@ -32,6 +32,13 @@ issues the session agent may have missed.
 6. **One finding per line.** Each finding must have: severity, file:line, and a
    one-sentence fix.
 
+## Mailbox policy
+
+The runtime delivers the final review to the leader. Do not send routine
+progress mail. If a blocking question or intermediate result must be mailed,
+send it only with `to="leader" audience="leaders"`. Never send Chimera mail to
+a peer, a session group, `to="*"`, or `to="all"`.
+
 ## Output format
 
 Write your report as a single message appended to the chat. Use this structure:

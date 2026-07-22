@@ -255,6 +255,7 @@ export {
   type MailboxHooksOptions,
 } from './mailbox-hooks.js';
 export {
+  applyMailboxSendPolicy,
   type MailboxResolver,
   type MailboxToolOptions,
   mailboxSessionTag,
@@ -272,6 +273,7 @@ export type {
   MailboxAckBatchInput,
   MailboxAckInput,
   MailboxAgentStatus,
+  MailboxAudience,
   MailboxMessage,
   MailboxMessageType,
   MailboxQuery,
@@ -282,7 +284,14 @@ export type {
   ReadReceipts,
   RegisteredAgent,
 } from './mailbox-types.js';
-export { normalizeRecipient, SESSION_RECIPIENT_PREFIX, sessionRecipient } from './mailbox-types.js';
+export {
+  isMailboxLeader,
+  isMailboxMessageVisibleTo,
+  mailboxIdentityBase,
+  normalizeRecipient,
+  SESSION_RECIPIENT_PREFIX,
+  sessionRecipient,
+} from './mailbox-types.js';
 export {
   isValidMatrixKey,
   MATRIX_PHASE_KEYS,

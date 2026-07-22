@@ -13,8 +13,10 @@ import {
   FileText,
   HelpCircle,
   Send,
+  MailPlus,
   Bell,
   RotateCw,
+  Search,
   UserCheck,
   Trash2,
   Sparkles,
@@ -27,6 +29,35 @@ import { classifyMailboxRecipient } from '@/stores/mailbox-store';
 import { usePagination } from '@/hooks/usePagination';
 import { Pagination } from '@/components/ui/pagination';
 
+type MailboxComposeType =
+  | 'note'
+  | 'ask'
+  | 'assign'
+  | 'steer'
+  | 'btw'
+  | 'broadcast'
+  | 'status'
+  | 'result'
+  | 'review';
+
+type MailboxSendState =
+  | { phase: 'idle' }
+  | { phase: 'sending'; requestId: string }
+  | { phase: 'sent'; messageId?: string | undefined }
+  | { phase: 'error'; message: string };
+
+const COMPOSE_TYPES: MailboxComposeType[] = [
+  'note',
+  'ask',
+  'assign',
+  'steer',
+  'btw',
+  'broadcast',
+  'status',
+  'result',
+  'review',
+];
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 const TYPE_ICONS: Record<string, typeof MessageSquare> = {
@@ -38,6 +69,7 @@ const TYPE_ICONS: Record<string, typeof MessageSquare> = {
   broadcast: Send,
   status: Circle,
   result: CheckCircle2,
+  review: Search,
 };
 
 function fmtTime(iso: string): string {
@@ -63,6 +95,14 @@ export function MailboxPanel({ className }: { className?: string }) {
   const [deleting, setDeleting] = useState(false);
   const [purging, setPurging] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeTo, setComposeTo] = useState('leader');
+  const [composeType, setComposeType] = useState<MailboxComposeType>('note');
+  const [composeAudience, setComposeAudience] = useState<'all' | 'leaders'>('all');
+  const [composePriority, setComposePriority] = useState<'low' | 'normal' | 'high'>('normal');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [sendState, setSendState] = useState<MailboxSendState>({ phase: 'idle' });
   const { client } = useWebSocket();
   const { t } = useAppTranslation();
   // Track the socket lifecycle so the initial queries fire once the
@@ -72,6 +112,25 @@ export function MailboxPanel({ className }: { className?: string }) {
     const off = client.onStatus((s) => setReady(s.state === 'open'));
     return () => off();
   }, [client]);
+
+  useEffect(() => {
+    return client.on('mailbox.sent', (message) => {
+      const payload = message.payload as {
+        requestId?: string;
+        success?: boolean;
+        messageId?: string;
+        error?: string;
+      };
+      setSendState((current) => {
+        if (current.phase !== 'sending' || payload.requestId !== current.requestId) return current;
+        if (payload.success === true) {
+          setComposeBody('');
+          return { phase: 'sent', messageId: payload.messageId };
+        }
+        return { phase: 'error', message: payload.error ?? t('activity:mailbox.sendFailed') };
+      });
+    });
+  }, [client, t]);
 
   // Query mailbox on mount and when WS becomes ready
   useEffect(() => {
@@ -152,6 +211,26 @@ export function MailboxPanel({ className }: { className?: string }) {
     }
   }, [compacting]);
 
+  function handleSendMail() {
+    const body = composeBody.trim();
+    const to = composeType === 'broadcast' ? '*' : composeTo.trim();
+    if (!ready || body.length === 0 || to.length === 0 || sendState.phase === 'sending') return;
+    const requestId = `webui-mail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setSendState({ phase: 'sending', requestId });
+    client.send({
+      type: 'mailbox.send',
+      payload: {
+        requestId,
+        to,
+        type: composeType,
+        audience: composeAudience,
+        subject: composeSubject.trim() || t('activity:mailbox.defaultSubject'),
+        body,
+        priority: composePriority,
+      },
+    });
+  }
+
   return (
     <div className={cn('rounded-lg border border-border bg-card/60 backdrop-blur-sm', className)}>
       {/* Header */}
@@ -176,6 +255,127 @@ export function MailboxPanel({ className }: { className?: string }) {
 
       {!collapsed && (
         <div className="px-3 pb-3 space-y-2">
+          <div className="border-b border-border pb-2">
+            <button
+              type="button"
+              onClick={() => setComposeOpen((value) => !value)}
+              className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[10px] font-semibold text-primary hover:bg-primary/5"
+              aria-expanded={composeOpen}
+            >
+              <MailPlus className="h-3.5 w-3.5" />
+              {t('activity:mailbox.compose')}
+              <span className="ml-auto text-muted-foreground">{composeOpen ? '−' : '+'}</span>
+            </button>
+            {composeOpen && (
+              <div className="mt-2 space-y-2 rounded-md border border-border bg-background/60 p-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="space-y-1 text-[10px] text-muted-foreground">
+                    <span>{t('activity:mailbox.recipient')}</span>
+                    <input
+                      className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground disabled:opacity-50"
+                      value={composeType === 'broadcast' ? '*' : composeTo}
+                      list="mailbox-agent-recipients"
+                      disabled={composeType === 'broadcast'}
+                      placeholder="leader"
+                      onChange={(event) => setComposeTo(event.target.value)}
+                    />
+                    <datalist id="mailbox-agent-recipients">
+                      <option value="leader" />
+                      <option value="*" />
+                      {agents.map((agent) => (
+                        <option key={agent.agentId} value={agent.agentId} />
+                      ))}
+                    </datalist>
+                  </label>
+                  <label className="space-y-1 text-[10px] text-muted-foreground">
+                    <span>{t('activity:mailbox.messageType')}</span>
+                    <select
+                      className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                      value={composeType}
+                      onChange={(event) => setComposeType(event.target.value as MailboxComposeType)}
+                    >
+                      {COMPOSE_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {t(`activity:mailbox.type.${type}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-[10px] text-muted-foreground">
+                    <span>{t('activity:mailbox.audience')}</span>
+                    <select
+                      className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                      value={composeAudience}
+                      onChange={(event) => setComposeAudience(event.target.value as 'all' | 'leaders')}
+                    >
+                      <option value="all">{t('activity:mailbox.audienceAll')}</option>
+                      <option value="leaders">{t('activity:mailbox.audienceLeaders')}</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-[10px] text-muted-foreground">
+                    <span>{t('activity:mailbox.priority')}</span>
+                    <select
+                      className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                      value={composePriority}
+                      onChange={(event) => setComposePriority(event.target.value as 'low' | 'normal' | 'high')}
+                    >
+                      <option value="low">{t('activity:mailbox.priorityLow')}</option>
+                      <option value="normal">{t('activity:mailbox.priorityNormal')}</option>
+                      <option value="high">{t('activity:mailbox.priorityHigh')}</option>
+                    </select>
+                  </label>
+                </div>
+                <input
+                  className="h-7 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                  value={composeSubject}
+                  placeholder={t('activity:mailbox.subjectPlaceholder')}
+                  onChange={(event) => setComposeSubject(event.target.value)}
+                />
+                <textarea
+                  className="min-h-16 w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+                  value={composeBody}
+                  placeholder={t('activity:mailbox.bodyPlaceholder')}
+                  onChange={(event) => setComposeBody(event.target.value)}
+                />
+                {composeAudience === 'leaders' && (
+                  <div className="flex items-center gap-1 text-[10px] text-primary">
+                    <Lock className="h-3 w-3" />
+                    {t('activity:mailbox.leadersOnlyHint')}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center gap-1 rounded bg-primary px-2 text-[10px] font-semibold text-primary-foreground disabled:opacity-40"
+                    disabled={
+                      !ready ||
+                      composeBody.trim().length === 0 ||
+                      (composeType !== 'broadcast' && composeTo.trim().length === 0) ||
+                      sendState.phase === 'sending'
+                    }
+                    onClick={handleSendMail}
+                  >
+                    <Send className="h-3 w-3" />
+                    {sendState.phase === 'sending'
+                      ? t('activity:mailbox.sending')
+                      : t('activity:mailbox.send')}
+                  </button>
+                  {sendState.phase === 'sent' && (
+                    <span className="text-[10px] text-success">
+                      {t('activity:mailbox.sent')}
+                      {sendState.messageId ? ` · ${sendState.messageId.slice(0, 8)}` : ''}
+                    </span>
+                  )}
+                  {sendState.phase === 'error' && (
+                    <span className="truncate text-[10px] text-destructive" title={sendState.message}>
+                      {sendState.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Messages */}
           {messages.length > 0 ? (
             <div className="space-y-1">
@@ -251,6 +451,12 @@ export function MailboxPanel({ className }: { className?: string }) {
                           {m.from}
                         </span>
                         {m.completed && <CheckCircle2 className="h-3 w-3 text-success shrink-0" />}
+                        {m.audience === 'leaders' && (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">
+                            <Lock className="h-2.5 w-2.5" />
+                            {t('activity:mailbox.leadersLabel')}
+                          </span>
+                        )}
                         {!isRead && <span className="text-[9px] text-warning font-bold">{t('activity:mailbox.newLabel')}</span>}
                         {recipient.scope === 'session' && (
                           <span

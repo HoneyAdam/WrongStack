@@ -6,6 +6,7 @@ import {
   handleMailboxCompact,
   handleMailboxMessages,
   handleMailboxPurge,
+  handleMailboxSend,
   type MailboxHandlerDeps,
 } from './mailbox-handlers.js';
 import type { WSClientMessage } from './types.js';
@@ -13,10 +14,12 @@ import {
   validateMailboxAgentsPayload,
   validateMailboxMessagesPayload,
   validateMailboxPurgePayload,
+  validateMailboxSendPayload,
 } from './ws-payload-validation.js';
-import { sendResult } from './ws-utils.js';
+import { send, sendResult } from './ws-utils.js';
 
 export interface MailboxRouteHandlers {
+  send: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   messages: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   agents: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
   clear: (ws: WebSocket, msg: WSClientMessage) => Promise<void> | void;
@@ -37,6 +40,27 @@ export function createMailboxRouteHandlers(ctx: MailboxRouteContext): MailboxRou
     ...(ctx.events ? { events: ctx.events } : {}),
   };
   return {
+    send: (ws, msg) => {
+      const parsed = validateMailboxSendPayload(msg.payload);
+      if (!parsed.ok) {
+        const requestId =
+          typeof msg.payload === 'object' &&
+          msg.payload !== null &&
+          typeof (msg.payload as { requestId?: unknown }).requestId === 'string'
+            ? (msg.payload as { requestId: string }).requestId
+            : undefined;
+        if (requestId !== undefined) {
+          send(ws, {
+            type: 'mailbox.sent',
+            payload: { requestId, success: false, error: parsed.message },
+          });
+          return;
+        }
+        sendResult(ws, false, parsed.message);
+        return;
+      }
+      return handleMailboxSend(ws, deps, parsed.value);
+    },
     messages: (ws, msg) => {
       const parsed = validateMailboxMessagesPayload(msg.payload);
       if (!parsed.ok) {
@@ -82,6 +106,9 @@ export async function handleMailboxRoute(
   handlers: MailboxRouteHandlers,
 ): Promise<boolean> {
   switch (msg.type) {
+    case 'mailbox.send':
+      await handlers.send(ws, msg);
+      return true;
     case 'mailbox.messages':
       await handlers.messages(ws, msg);
       return true;

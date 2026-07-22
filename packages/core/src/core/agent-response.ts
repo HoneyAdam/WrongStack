@@ -178,6 +178,16 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
     // once journaled, the malformed turn survived every repair path. Partial
     // text, tool calls, and thinking content remain meaningful and are kept.
     if (hasMeaningfulContent(res.content)) {
+      // Persist the semantic provider response before its exact-state
+      // projection. The conversation journal drains independently, so state
+      // mutation first can race `message_appended` ahead of `llm_response`.
+      await a.ctx.session.append({
+        type: 'llm_response',
+        ts: new Date().toISOString(),
+        content: res.content,
+        stopReason: res.stopReason,
+        usage: res.usage,
+      });
       a.ctx.state.appendMessage({ role: 'assistant', content: res.content });
       // If the assistant emitted tool_use blocks, mark the message adjacency
       // as potentially needing repair before the next provider request.
@@ -189,13 +199,6 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
           }
         }
       }
-      await a.ctx.session.append({
-        type: 'llm_response',
-        ts: new Date().toISOString(),
-        content: res.content,
-        stopReason: res.stopReason,
-        usage: res.usage,
-      });
       // Tool execution is a side-effect boundary: ensure the response containing
       // its tool_use blocks has reached the session writer before any tool runs.
       // FileSessionWriter keeps failed batches queued for retry; alternate

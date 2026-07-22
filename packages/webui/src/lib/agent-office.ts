@@ -45,6 +45,7 @@ export interface OfficeMailboxMessage {
   from: string;
   to: string;
   type: string;
+  audience?: 'all' | 'leaders' | undefined;
   subject: string;
   body: string;
   priority: string;
@@ -498,7 +499,8 @@ export function buildAgentMailActivities(
       // N separate deliveries across a busy office.
       const terminalMail =
         to === '*' || to === 'all' || (sessionRecipient.length > 0 && to === sessionRecipient);
-      const incoming = endpoints.has(to) || (isLead && terminalMail);
+      const audienceAllowsIncoming = message.audience !== 'leaders' || isLead;
+      const incoming = audienceAllowsIncoming && (endpoints.has(to) || (isLead && terminalMail));
       if (!incoming && !outgoing) return [];
       const timestampMs = Date.parse(message.timestamp);
       return [

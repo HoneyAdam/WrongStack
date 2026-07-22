@@ -1,5 +1,6 @@
 import type {
   AckRecord,
+  MailboxAudience,
   MailboxMessage,
   MailboxMessageType,
   MailboxTaskContext,
@@ -21,6 +22,7 @@ const MESSAGE_TYPES = new Set<MailboxMessageType>([
 ]);
 
 const PRIORITIES = new Set<MailboxMessage['priority']>(['low', 'normal', 'high']);
+const AUDIENCES = new Set<MailboxAudience>(['all', 'leaders']);
 const TASK_STATUSES = new Set([
   'pending',
   'in_progress',
@@ -136,6 +138,14 @@ function parsePriority(value: unknown): MailboxMessage['priority'] {
   throw new TypeError('mailbox message field "priority" must be a string');
 }
 
+function parseAudience(value: unknown): MailboxAudience | undefined {
+  if (value === undefined || value === 'all') return undefined;
+  if (typeof value === 'string' && AUDIENCES.has(value as MailboxAudience)) {
+    return value as MailboxAudience;
+  }
+  throw new TypeError('mailbox message field "audience" is invalid');
+}
+
 function parseReadReceipts(record: Record<string, unknown>, to: string): ReadReceipts {
   const value = record['readBy'];
   if (value === undefined) {
@@ -194,11 +204,13 @@ export function parseMailboxMessage(value: unknown): MailboxMessage {
   }
 
   const taskContext = parseTaskContext(value['taskContext']);
+  const audience = parseAudience(value['audience']);
   return {
     id: requiredString(value, 'id'),
     from: requiredString(value, 'from'),
     to,
     type: parseMessageType(value['type']),
+    ...(audience === undefined ? {} : { audience }),
     subject: requiredString(value, 'subject'),
     body: requiredString(value, 'body'),
     priority: parsePriority(value['priority']),

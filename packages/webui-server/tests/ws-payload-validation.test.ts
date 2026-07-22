@@ -12,6 +12,7 @@ import {
   validateMailboxAgentsPayload,
   validateMailboxMessagesPayload,
   validateMailboxPurgePayload,
+  validateMailboxSendPayload,
   validateModelSwitchPayload,
   validateModeSwitchPayload,
   validatePlanTemplateUsePayload,
@@ -143,6 +144,65 @@ describe('WebUI payload validation', () => {
   });
 
   describe('optional mailbox payloads', () => {
+    it('validates mailbox sends and normalizes broadcast recipients', () => {
+      expect(
+        validateMailboxSendPayload({
+          requestId: 'req-1',
+          to: 'leader',
+          type: 'result',
+          audience: 'leaders',
+          subject: 'Done',
+          body: 'Evidence',
+          priority: 'normal',
+        }),
+      ).toEqual({
+        ok: true,
+        value: {
+          requestId: 'req-1',
+          to: 'leader',
+          type: 'result',
+          audience: 'leaders',
+          subject: 'Done',
+          body: 'Evidence',
+          priority: 'normal',
+        },
+      });
+      expect(
+        validateMailboxSendPayload({
+          requestId: 'req-2',
+          to: 'ignored',
+          type: 'broadcast',
+          audience: 'all',
+          subject: 'Status',
+          body: 'Milestone',
+          priority: 'low',
+        }),
+      ).toMatchObject({ ok: true, value: { to: '*' } });
+    });
+
+    it('rejects malformed, control, and ambiguous mailbox sends', () => {
+      const base = {
+        requestId: 'req',
+        to: 'leader',
+        type: 'note',
+        audience: 'all',
+        subject: 'Subject',
+        body: 'Body',
+        priority: 'normal',
+      };
+      expectInvalid(validateMailboxSendPayload, [
+        undefined,
+        { ...base, requestId: '' },
+        { ...base, to: '' },
+        { ...base, type: 'control' },
+        { ...base, audience: 'workers' },
+        { ...base, subject: '' },
+        { ...base, body: '' },
+        { ...base, priority: 'urgent' },
+        { ...base, type: 'steer', to: '*' },
+      ]);
+    });
+
     it('accepts omitted and fully populated mailbox message filters', () => {
       expect(validateMailboxMessagesPayload(undefined)).toEqual({ ok: true, value: undefined });
       expect(

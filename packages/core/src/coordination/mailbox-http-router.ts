@@ -11,12 +11,17 @@ import type {
   Mailbox,
   MailboxAckBatchInput,
   MailboxAckInput,
+  MailboxAudience,
   MailboxMessage,
   MailboxMessageType,
   MailboxQuery,
   MailboxSendInput,
 } from './mailbox-types.js';
-import { MAILBOX_TYPE_PROPERTIES, normalizeRecipient } from './mailbox-types.js';
+import {
+  isMailboxMessageVisibleTo,
+  MAILBOX_TYPE_PROPERTIES,
+  normalizeRecipient,
+} from './mailbox-types.js';
 
 export const MAILBOX_HTTP_MAX_BODY_BYTES = 256 * 1024;
 export const MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE = 120;
@@ -691,6 +696,7 @@ function optionalBoolean(object: unknown, key: string): boolean | undefined {
  */
 const VALID_TYPES = new Set(Object.keys(MAILBOX_TYPE_PROPERTIES) as MailboxMessageType[]);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
+const VALID_AUDIENCES = new Set<MailboxAudience>(['all', 'leaders']);
 const RESERVED_FROM_IDS = new Set([
   'leader',
   'fleet',
@@ -729,6 +735,10 @@ function validateSend(body: unknown): MailboxSendInput {
   if (priority !== undefined && !VALID_PRIORITIES.has(priority)) {
     throw validationError(`field "priority" must be one of ${[...VALID_PRIORITIES].join(', ')}`);
   }
+  const audience = optionalString(object, 'audience');
+  if (audience !== undefined && !VALID_AUDIENCES.has(audience as MailboxAudience)) {
+    throw validationError(`field "audience" must be one of ${[...VALID_AUDIENCES].join(', ')}`);
+  }
   const from = requireString(object, 'from');
   const fromBase = from.split('@')[0]!.toLowerCase();
   if (RESERVED_FROM_IDS.has(fromBase)) {
@@ -753,6 +763,7 @@ function validateSend(body: unknown): MailboxSendInput {
     subject: requireString(object, 'subject'),
     body: requireString(object, 'body'),
     priority: priority as MailboxSendInput['priority'],
+    ...(audience !== undefined ? { audience: audience as MailboxSendInput['audience'] } : {}),
   };
   const replyTo = optionalString(object, 'replyTo');
   if (replyTo !== undefined) result.replyTo = replyTo;
@@ -841,6 +852,7 @@ async function checkMailbox(
   const messages = withinWindow
     .filter((message) => {
       if (seen.has(message.id) || message.from === input.agentId) return false;
+      if (!isMailboxMessageVisibleTo(message, input.agentId)) return false;
       seen.add(message.id);
       return true;
     })

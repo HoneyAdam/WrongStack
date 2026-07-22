@@ -547,7 +547,7 @@ All routes take JSON bodies on POST (or no body on GET). All require
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/mailbox/send` | Send a message (supports optional `ttlMs` for auto-expiry) |
+| POST | `/mailbox/send` | Send a message (optional `ttlMs`; optional `audience: "leaders"` prevents subagent consumption) |
 | POST | `/mailbox/query` | Query messages (filters: `to`, `from`, `unreadBy`, `type`, `minPriority`, `incompleteOnly`, `limit`, `since`) |
 | POST | `/mailbox/check` | Read inbox mail for `agentId`/`baseId` plus broadcasts; optionally `markRead=false`, `completed=true`, `outcome` |
 | POST | `/mailbox/ack` | Acknowledge one message |

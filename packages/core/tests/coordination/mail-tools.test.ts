@@ -167,6 +167,41 @@ describe('makeMailSendTool', () => {
     expect(msgs[0]?.priority).toBe('high');
   });
 
+  it('persists the leaders-only audience', async () => {
+    const result = await tool.execute(
+      { to: '*', subject: 'operator note', body: 'leader context', audience: 'leaders' },
+      mockContext(),
+    );
+    expect(result.ok).toBe(true);
+    const msgs = await mailbox.query({ to: '*' });
+    expect(msgs[0]?.audience).toBe('leaders');
+  });
+
+  it('forces Chimera mail to the leader-only route', async () => {
+    const result = await tool.execute(
+      { to: '*', subject: 'review', body: 'finding', type: 'result' },
+      mockContext({
+        agentId: 'chimera-review',
+        agentName: 'chimera-review',
+        meta: {
+          agentId: 'chimera-review',
+          agentName: 'chimera-review',
+          sessionId: SESSION_ID,
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ ok: true, to: 'leader' });
+    const msgs = await mailbox.query({ to: 'leader' });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      to: 'leader',
+      audience: 'leaders',
+      type: 'result',
+    });
+    expect(await mailbox.query({ to: '*' })).toHaveLength(0);
+  });
+
   it('includes replyTo when provided', async () => {
     await tool.execute(
       { to: 'bob', subject: 'first', body: 'msg1', replyTo: 'abc-123' },
@@ -256,6 +291,30 @@ describe('makeMailInboxTool', () => {
     expect(result.count).toBe(1);
     expect(result.messages[0]?.subject).toBe('hello');
     expect(result.messages[0]?.body).toBe('world');
+  });
+
+  it('hides leaders-only broadcasts from subagents but delivers them to the leader', async () => {
+    await mailbox.send({
+      from: 'system',
+      to: '*',
+      type: 'broadcast',
+      audience: 'leaders',
+      subject: 'leader context',
+      body: 'do not inject into workers',
+    });
+
+    const workerResult = await inboxTool.execute({}, mockContext());
+    expect(workerResult.count).toBe(0);
+
+    const leaderResult = await inboxTool.execute(
+      {},
+      mockContext({ agentId: 'leader', meta: { agentId: 'leader', sessionId: SESSION_ID } }),
+    );
+    expect(leaderResult.count).toBe(1);
+    expect(leaderResult.messages[0]).toMatchObject({
+      subject: 'leader context',
+      audience: 'leaders',
+    });
   });
 
   it('returns broadcasts as well', async () => {

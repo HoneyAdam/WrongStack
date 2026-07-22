@@ -19,6 +19,7 @@ import {
   Circle,
   MessageSquare,
   Reply,
+  Search,
   X,
   Lock,
   Globe,
@@ -43,6 +44,7 @@ const TYPE_ICONS: Record<string, typeof MessageSquare> = {
   broadcast: Send,
   status: Circle,
   result: CheckCircle2,
+  review: Search,
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -193,6 +195,11 @@ export function MailboxDetailView({ className }: { className?: string }) {
             <span className={cn('rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase', priorityClass)}>
               {msg.priority || 'normal'}
             </span>
+            {msg.audience === 'leaders' && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                <Lock className="h-2.5 w-2.5" /> {t('activity:mailbox.audienceLeaders')}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <span className="min-w-0 truncate font-medium text-foreground/80">{msg.from}</span>

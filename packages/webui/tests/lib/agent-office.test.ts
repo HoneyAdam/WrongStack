@@ -232,6 +232,26 @@ describe('agent office tool model', () => {
       buildAgentMailActivities(messages, { serverId: 'worker-a', name: 'Worker' }, 'session-a'),
     ).toHaveLength(0);
   });
+
+  it('does not project leaders-only direct mail onto a worker desk', () => {
+    const messages = [
+      {
+        id: 'private-control',
+        from: 'webui',
+        to: 'worker-a',
+        type: 'note',
+        audience: 'leaders' as const,
+        subject: 'Leader context',
+        body: 'Hidden from workers',
+        priority: 'normal',
+        timestamp: '2026-07-17T10:00:00.000Z',
+      },
+    ];
+
+    expect(
+      buildAgentMailActivities(messages, { serverId: 'worker-a', name: 'Worker' }, 'session-a'),
+    ).toHaveLength(0);
+  });
 });
 
 describe('office mail routes', () => {

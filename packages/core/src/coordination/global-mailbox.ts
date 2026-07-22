@@ -64,7 +64,7 @@ import type {
   RegisteredAgent,
   RegisteredClient,
 } from './mailbox-types.js';
-import { normalizeRecipient, sessionRecipient } from './mailbox-types.js';
+import { isMailboxMessageVisibleTo, normalizeRecipient, sessionRecipient } from './mailbox-types.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -276,6 +276,9 @@ export class GlobalMailbox implements Mailbox {
       // sender's session before persistence so recipients can match it exactly.
       to: normalizeRecipient(input.to, input.senderSessionId),
       type: normalizeMailboxMessageType(input.type),
+      ...(input.audience !== undefined && input.audience !== 'all'
+        ? { audience: input.audience }
+        : {}),
       subject: input.subject,
       body: input.body,
       priority: input.priority ?? 'normal',
@@ -392,6 +395,7 @@ export class GlobalMailbox implements Mailbox {
       if (q.to !== undefined && m.to !== q.to && m.to !== '*') continue;
       if (q.from !== undefined && m.from !== q.from) continue;
       if (q.sessionId !== undefined && m.senderSessionId !== q.sessionId) continue;
+      if (q.unreadBy !== undefined && !isMailboxMessageVisibleTo(m, q.unreadBy, q.readerRole)) continue;
       if (q.unreadBy !== undefined && q.unreadBy in m.readBy) continue;
       if (q.incompleteOnly && m.completed) continue;
       if (queryType !== undefined && m.type !== queryType) continue;
@@ -592,13 +596,14 @@ export class GlobalMailbox implements Mailbox {
       }
       for (const i of indices) {
         const m = all[i]!;
-        if (!(forAgentId in m.readBy) && !m.completed) count++;
+        if (isMailboxMessageVisibleTo(m, forAgentId) && !(forAgentId in m.readBy) && !m.completed) count++;
       }
     } else {
       for (let i = 0; i < all.length; i++) {
         const m = all[i]!;
         if (
           (m.to === forAgentId || m.to === '*' || m.to === scopedSessionRecipient) &&
+          isMailboxMessageVisibleTo(m, forAgentId) &&
           !(forAgentId in m.readBy) &&
           !m.completed
         ) count++;
@@ -1154,17 +1159,18 @@ export class GlobalMailbox implements Mailbox {
     let incompletePurged = 0;
     let remaining = 0;
 
-    // Resolve the set of currently-online agent ids so we can check
+    // Resolve the currently-online agent identities so we can check
     // "has every online agent read this?" without a second file read.
-    // Online set is advisory — if the registry is temporarily empty we
+    // Online registry is advisory — if it is temporarily empty we
     // skip the read-by-all pass rather than purging everything.
-    let onlineAgentIds: Set<string> | null = null;
+    let onlineAgents: Map<string, string | undefined> | null = null;
     try {
       const statuses = await this.getAgentStatuses();
       const online = statuses.filter((s) => s.online);
-      onlineAgentIds = online.length > 0 ? new Set(online.map((s) => s.agentId)) : null;
+      onlineAgents =
+        online.length > 0 ? new Map(online.map((s) => [s.agentId, s.role])) : null;
     } catch {
-      onlineAgentIds = null;
+      onlineAgents = null;
     }
 
     await withFileLock(this.messagePath, async () => {
@@ -1193,9 +1199,12 @@ export class GlobalMailbox implements Mailbox {
         }
 
         // Pass 2: Read by ALL currently-online agents.
-        if (onlineAgentIds !== null && !msg.completed) {
+        if (onlineAgents !== null && !msg.completed) {
+          const eligibleAgentIds = [...onlineAgents]
+            .filter(([id, role]) => isMailboxMessageVisibleTo(msg, id, role))
+            .map(([id]) => id);
           const readByAll =
-            onlineAgentIds.size > 0 && [...onlineAgentIds].every((id) => id in msg.readBy);
+            eligibleAgentIds.length > 0 && eligibleAgentIds.every((id) => id in msg.readBy);
           if (readByAll) {
             // Check age of the most recent read receipt.
             const readTimes = Object.values(msg.readBy).map((t) => new Date(t).getTime());

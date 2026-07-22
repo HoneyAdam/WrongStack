@@ -102,6 +102,7 @@ function attachMailboxCheckerInner(
         .registerAgent({
           agentId: derived,
           name: `${identity.name} [${surface}]`,
+          role: identity.role,
           sessionId: a.ctx.session.id,
           pid: process.pid,
           source: surface,
@@ -143,6 +144,7 @@ function attachMailboxCheckerInner(
   const mailboxCheckerOptions = {
     mailbox: getMailbox,
     agentId: () => ensureRegistered(),
+    role: () => resolveMailboxIdentity(a.ctx).role,
     aliases: [baseIdOf()],
     sessionId: () => a.ctx.session.id,
   };

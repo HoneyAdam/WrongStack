@@ -599,8 +599,9 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           try {
             await mailbox.send({
               from: 'chimera-review',
-              to: '*',
+              to: 'leader',
               type: mailboxType,
+              audience: 'leaders',
               subject,
               body:
                 reviewText.length > 8000

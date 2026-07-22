@@ -28,7 +28,7 @@ replies addressed to it are folded into your agent's next iteration.
 | `/mailbox agents` | All registered agents on the project (`●` = live heartbeat). |
 | `/mailbox online` | Only agents with a live heartbeat (last 60s). |
 | `/mailbox send <id> <message>` | Direct message an agent (ids from `agents`). |
-| `/mailbox broadcast <message>` | Message every agent on the project. |
+| `/mailbox broadcast [audience=leaders] <message>` | Message every agent, or only leader agents. |
 | `/mailbox history [n]` | Last *n* messages on the project (default 20). |
 | `/mailbox clear` | Delete all messages from the mailbox. |
 
@@ -38,6 +38,7 @@ Alias: `/mb`.
 
 ```
 /mailbox broadcast pausing deploys, hold off on main
+/mailbox broadcast audience=leaders operator context for terminal/WebUI leaders only
 /mailbox send leader@a1b2c3d4 can you take the auth refactor?
 /mailbox agents
 ```
@@ -45,13 +46,21 @@ Alias: `/mb`.
 ## How agents receive messages
 
 Before each LLM call, the agent loop checks the mailbox for messages
-addressed to its unique id, its base alias, or `*`. `steer`/`btw`
-messages are injected inline into the conversation; other types are
-summarized. Agents write with `mail_send` (direct or `to="*"`), catch up
+addressed to its unique id, its base alias, or `*`. Fresh eligible mail is
+injected for one model evaluation and its raw block is then removed. Only a
+concise durable conclusion/action, assistant response, or resulting tool/task
+state needs to remain; routine mail can simply be absorbed and discarded.
+Agents write with `mail_send` (direct or `to="*"`), catch up
 with `mail_inbox` (reads + marks read), or use the multi-action
 `mailbox` power-tool — all registered in CLI and WebUI surfaces and
 available to fleet subagents. The system prompt grants this authority
 explicitly (identity model, broadcast-milestones etiquette,
 answer-your-mail).
+
+Set `audience="leaders"` on `mail_send`/`mailbox action=send`, or use
+`audience=leaders` with `/mailbox send` and `/mailbox broadcast`, for context
+that only the main agent should consume. The operator mailbox UI still shows
+these records, while subagent loop injection, inbox, unread count, and tool
+query results exclude them.
 
 See also: `/mailbox-demo` (test harness with a separate demo identity).

@@ -218,6 +218,7 @@ describe('mailbox HTTP router', () => {
           subject: 'mounted',
           body: 'through HQ',
           priority: 'high',
+          audience: 'leaders',
           ttlMs: 1_000,
         },
       }),
@@ -232,6 +233,7 @@ describe('mailbox HTTP router', () => {
       subject: 'mounted',
       body: 'through HQ',
       priority: 'high',
+      audience: 'leaders',
       ttlMs: 1_000,
     });
     expect(response.json()).toMatchObject({ id: 'sent-1', subject: 'mounted' });

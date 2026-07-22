@@ -89,6 +89,7 @@ export function mapMailboxMessageToHqSummary(
     scope: recipient.scope,
     ...(recipient.recipientSessionId !== undefined ? { recipientSessionId: recipient.recipientSessionId } : {}),
     type: message.type,
+    ...(message.audience !== undefined ? { audience: message.audience } : {}),
     subject: previewText(message.subject, previewLength, options.redactionPolicy) ?? '',
     priority: message.priority,
     timestamp: message.timestamp,

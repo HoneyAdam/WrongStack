@@ -100,6 +100,8 @@ describe('DefaultSystemPromptBuilder — full configuration', () => {
     expect(all).toContain('Inter-agent mailbox');
     expect(all).toContain('every client');
     expect(all).toContain('linked-Git-worktree boundaries');
+    expect(all).toContain('to="leader" audience="leaders"');
+    expect(all).toContain('Audience is a visibility filter');
     expect(all).toContain('Currently online (2 agents)');
     expect(all).toContain('Neo');
     expect(all).toContain('id: `Neo`');

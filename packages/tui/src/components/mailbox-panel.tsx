@@ -9,6 +9,7 @@ export interface MailboxMessageEntry {
   from: string;
   to: string;
   type: string;
+  audience?: 'all' | 'leaders';
   subject: string;
   body: string;
   priority: string;
@@ -132,6 +133,7 @@ export function MailboxPanel({
               </Text>
               <Text dimColor>{fmtBody(m.body, 40)}</Text>
               <Text dimColor>{fmtTime(m.timestamp)}</Text>
+              {m.audience === 'leaders' ? <Text color="cyan">🔒 leaders</Text> : null}
               {m.readByCount > 0 ? (
                 <Text dimColor>
                   👁 {m.readByCount}
