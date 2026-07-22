@@ -8,8 +8,8 @@ import {
   ProviderError,
   type SessionWriter,
   type Tool,
-  type UserInputPayload,
 } from '@wrongstack/core/types';
+import type { UserInputPayload } from '@wrongstack/core/agent';
 import { describe, expect, it } from 'vitest';
 import { makeLightSubagentFactory } from '../src/index.js';
 

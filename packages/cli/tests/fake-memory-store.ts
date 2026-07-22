@@ -1,16 +1,28 @@
-import type { MemoryEntry, MemoryRelevanceContext, MemoryScope, MemoryStore, ScoredEntry } from '@wrongstack/core/types';
+import type {
+  MemoryCapability,
+  MemoryEntry,
+  MemoryPort,
+  MemoryRelevanceContext,
+  MemoryScope,
+  ScoredEntry,
+} from '@wrongstack/core/types';
 
 /**
  * Minimal in-memory {@link MemoryStore} for tests. Replaces the deleted
  * `DefaultMemoryStore` as a lightweight, file-I/O-free store stub. Deterministic
  * and isolated per instance — no persistence, no cross-test contamination.
  */
-export function makeFakeMemoryStore(): MemoryStore & { getCapability(name: string): undefined } {
+export function makeFakeMemoryStore(): MemoryPort {
   const entries: MemoryEntry[] = [];
-  const store: MemoryStore & { getCapability(name: string): undefined } = {
-    getCapability() {
+  const store: MemoryPort = {
+    async initialize() {},
+    getCapability<T>(_capability: MemoryCapability<T>): T | undefined {
       return undefined;
     },
+    async health() {
+      return { status: 'ready', backend: 'test-memory' };
+    },
+    async dispose() {},
     async remember(text, scope = 'project-memory', metadata) {
       entries.unshift({
         scope,
