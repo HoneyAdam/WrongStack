@@ -7,8 +7,9 @@ vi.mock('@/lib/ws-client', () => ({
 
 import { WS_HANDLERS } from '../../src/hooks/ws-handlers';
 import { useMonitorStore } from '../../src/stores/monitor-store';
+import type { WSServerMessage } from '../../src/types';
 
-function fire(type: string, payload: Record<string, unknown>) {
+function fire(type: WSServerMessage['type'], payload: Record<string, unknown>) {
   WS_HANDLERS[type]?.({ type, payload } as never);
 }
 

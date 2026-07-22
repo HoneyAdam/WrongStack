@@ -73,6 +73,7 @@ function makeMessage(overrides: Partial<HqMailboxMessageSummary>): HqMailboxMess
     completed: false,
     hasBody: false,
     ...overrides,
+    scope: overrides.scope ?? 'project',
   };
 }
 
