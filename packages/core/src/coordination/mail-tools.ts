@@ -74,7 +74,7 @@ async function register(mb: Mailbox, ctx: Context): Promise<ReturnType<typeof re
   return identity;
 }
 
-export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
+export function makeMailSendTool(opts: MailToolsOptions = {}) {
   const resolveMailbox = makeResolver(opts);
   return {
     name: 'mail_send',
@@ -188,10 +188,10 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
         summary: `Mail sent to ${msg.to === '*' ? 'all agents' : msg.to} as ${identity.callerId}.`,
       };
     },
-  };
+  } satisfies Tool;
 }
 
-export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
+export function makeMailInboxTool(opts: MailToolsOptions = {}) {
   const resolveMailbox = makeResolver(opts);
   return {
     name: 'mail_inbox',
@@ -293,5 +293,5 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
             : `${messages.length} unread message(s)${markRead ? ' (marked read)' : ''}${completed ? ' (completed)' : ''}. Reply with mail_send using the sender id.`,
       };
     },
-  };
+  } satisfies Tool;
 }
