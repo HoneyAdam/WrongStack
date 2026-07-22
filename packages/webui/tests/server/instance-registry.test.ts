@@ -18,7 +18,6 @@ function record(over: Partial<WebUIInstanceRecord> = {}): WebUIInstanceRecord {
   return {
     pid: process.pid, // current process is guaranteed alive
     httpPort: 3456,
-    wsPort: 3457,
     host: '127.0.0.1',
     projectRoot: '/tmp/proj-a',
     projectName: 'proj-a',
@@ -52,10 +51,10 @@ describe('isPidAlive', () => {
 
 describe('register / list / unregister', () => {
   it('registers an instance and lists it back', async () => {
-    await registerInstance(record({ httpPort: 3466, wsPort: 3467 }), baseDir);
+    await registerInstance(record({ httpPort: 3466 }), baseDir);
     const list = await listInstances(baseDir);
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ httpPort: 3466, wsPort: 3467, pid: process.pid });
+    expect(list[0]).toMatchObject({ httpPort: 3466, pid: process.pid });
     // File lives where the user expects it.
     const raw = await fs.readFile(registryPath(baseDir), 'utf8');
     expect(JSON.parse(raw)).toMatchObject({ version: 1 });
@@ -104,10 +103,9 @@ describe('formatInstances', () => {
   });
   it('lists ports, pid, and project path', () => {
     const out = formatInstances([
-      record({ httpPort: 3466, wsPort: 3467, projectName: 'proj-b', url: 'http://127.0.0.1:3466' }),
+      record({ httpPort: 3466, projectName: 'proj-b', url: 'http://127.0.0.1:3466' }),
     ]);
     expect(out).toContain('3466');
-    expect(out).toContain('ws:3467');
     expect(out).toContain('proj-b');
     expect(out).toContain(String(process.pid));
   });

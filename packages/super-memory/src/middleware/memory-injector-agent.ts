@@ -1,4 +1,4 @@
-import type { ToolCallPipelinePayload } from '@wrongstack/core';
+import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
 
 export interface MemoryInjectorPlanInput {
   ctx: ToolCallPipelinePayload['ctx'];

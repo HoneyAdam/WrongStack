@@ -17,6 +17,7 @@ interface TrackedProcess {
   startedAt: number;
   status: 'running' | 'exited' | 'killed';
   protected?: boolean | undefined;
+  background?: boolean | undefined;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -65,19 +66,39 @@ export function ProcessMonitor({
     };
   }, [open, wsConnected, ws.client]);
 
+  const running = processes.filter((p) => p.status === 'running');
+
   const handleKill = useCallback(
-    (pid: number) => {
-      ws.client.send?.({ type: 'process.kill', payload: { pid } });
+    (proc: TrackedProcess) => {
+      if (
+        proc.background &&
+        !window.confirm(
+          t('activity:process.confirmKillBackground', {
+            pid: proc.pid,
+            defaultValue: `Terminate detached background process ${proc.pid}?`,
+          }),
+        )
+      ) {
+        return;
+      }
+      ws.client.send?.({ type: 'process.kill', payload: { pid: proc.pid } });
     },
-    [ws.client],
+    [t, ws.client],
   );
 
   const handleKillAll = useCallback(() => {
+    if (
+      !window.confirm(
+        t('activity:process.confirmKillAll', {
+          count: running.length,
+          defaultValue: `Terminate all ${running.length} running processes?`,
+        }),
+      )
+    ) {
+      return;
+    }
     ws.client.send?.({ type: 'process.killAll' });
-  }, [ws.client]);
-
-  const running = processes.filter((p) => p.status === 'running');
-
+  }, [running.length, t, ws.client]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -138,6 +159,7 @@ export function ProcessMonitor({
                   : null;
 
                 const isProtected = proc.protected === true;
+                const isBackground = proc.background === true;
 
                 return (
                   <div
@@ -175,6 +197,14 @@ export function ProcessMonitor({
                               {t('activity:process.protected')}
                             </span>
                           )}
+                          {isBackground && (
+                            <span
+                              className="inline-flex items-center px-1 py-0.5 rounded text-[9px] bg-success/10 text-success font-medium shrink-0"
+                              title={t('activity:process.backgroundTitle')}
+                            >
+                              {t('activity:process.background')}
+                            </span>
+                          )}
                         </div>
                         <code className="text-[10px] text-muted-foreground/70 truncate block mt-0.5 font-mono">
                           {proc.command}
@@ -190,7 +220,7 @@ export function ProcessMonitor({
                       {proc.status === 'running' && !isProtected && (
                         <button
                           type="button"
-                          onClick={() => handleKill(proc.pid)}
+                          onClick={() => handleKill(proc)}
                           className="p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors"
                           title={t('activity:process.killTitle', { pid: proc.pid })}
                         >

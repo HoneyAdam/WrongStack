@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 
 export const PROJECT_SWITCH_EXIT_CODE = 42;
 

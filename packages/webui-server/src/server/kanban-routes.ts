@@ -1,9 +1,6 @@
-import {
-  type Context,
-  deserializeTaskGraph,
-  type SerializableTaskGraph,
-  serializeTaskGraph,
-} from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { deserializeTaskGraph, serializeTaskGraph } from '@wrongstack/core/tasking';
+import type { SerializableTaskGraph } from '@wrongstack/core/types';
 import {
   addCheckToTask,
   addColumn,

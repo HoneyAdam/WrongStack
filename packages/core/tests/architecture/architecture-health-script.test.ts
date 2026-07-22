@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectModuleSpecifiers,
+  findNonCommandSlashImports,
   globToRegExp,
   stronglyConnectedComponents,
   validateHotspotBaseline,
@@ -66,6 +67,25 @@ describe('architecture health scanner', () => {
     expect(pattern.test('tests/direct.test.ts')).toBe(true);
     expect(pattern.test('tests/nested/example.test.ts')).toBe(true);
     expect(pattern.test('src/example.test.ts')).toBe(false);
+  });
+
+  it('blocks reusable CLI modules from importing command adapters', () => {
+    const edges = [
+      {
+        from: 'packages/cli/src/execution.ts',
+        to: 'packages/cli/src/slash-commands/statusline.ts',
+      },
+      {
+        from: 'packages/cli/src/cli-main.ts',
+        to: 'packages/cli/src/slash-commands/index.ts',
+      },
+      {
+        from: 'packages/cli/src/slash-commands/statusline.ts',
+        to: 'packages/cli/src/slash-commands/helpers.ts',
+      },
+    ];
+
+    expect(findNonCommandSlashImports(edges)).toEqual([edges[0]]);
   });
 
   it('requires reviewed hotspot baseline changes for growth and shrinkage', () => {

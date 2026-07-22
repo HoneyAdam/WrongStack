@@ -11,8 +11,8 @@
 // `fallback: 'continue'` policy resolves to a plain retry, so wiring a supervisor
 // never makes a run worse — it only adds intelligence when an LLM brain is wired.
 
-import type { BrainArbiter } from '@wrongstack/core';
-import { parseModelRef } from '@wrongstack/core';
+import { parseModelRef } from '@wrongstack/core/agent';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
 import type { TaskNode } from '@wrongstack/core/types';
 import type { SddSubtaskSpec, SddSupervisorVerdict } from './sdd-parallel-run.js';
 

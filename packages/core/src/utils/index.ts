@@ -43,6 +43,7 @@ export {
   parseIncomingImages,
 } from './incoming-images.js';
 export { assertNotPrivateHost, expandIPv6, isPrivateIPv4, isPrivateIPv6 } from './ip-guard.js';
+export { readBundledInstructionText, renderInstructionTemplate } from './instruction-file.js';
 export { completePartialObject } from './json-repair.js';
 export {
   type CoercionResult,
@@ -67,6 +68,7 @@ export { sessionScopedPath } from './session-scoped-path.js';
 export * from './sleep.js';
 export { slugify } from './slug.js';
 export * from './string.js';
+export { writeErr, writeOut } from './term.js';
 export * from './task-format.js';
 export {
   buildSgrSequence,
@@ -81,6 +83,10 @@ export {
   setTitle,
   type TerminalCapability,
   TerminalLifecycle,
+  isStdinTTY,
+  onResize,
+  setOutputLineGuard,
+  setRawMode,
 } from './term.js';
 export * from './todos-format.js';
 export {

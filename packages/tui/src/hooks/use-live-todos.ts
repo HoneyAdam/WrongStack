@@ -1,4 +1,4 @@
-import type { Agent, TodoItem } from '@wrongstack/core';
+import type { Agent, TodoItem } from '@wrongstack/core/agent';
 import { useEffect, useState } from 'react';
 
 /** React snapshot of canonical Context todos, updated on every replacement. */

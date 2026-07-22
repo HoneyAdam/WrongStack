@@ -345,6 +345,17 @@ export class AgentStatusTracker {
   private subagentPendingTools = new Map<string, PendingTool>();
   private seenIncomingMail = new Set<string>();
   private seenOutgoingMail = new Set<string>();
+  private static readonly SEEN_MAIL_LIMIT = 10_000;
+
+  private rememberMailId(seen: Set<string>, messageId: string): boolean {
+    if (seen.has(messageId)) return false;
+    seen.add(messageId);
+    if (seen.size > AgentStatusTracker.SEEN_MAIL_LIMIT) {
+      const oldest = seen.values().next().value;
+      if (oldest !== undefined) seen.delete(oldest);
+    }
+    return true;
+  }
 
   private unsubscribers: Array<() => void> = [];
   private readonly onUpdate: (() => void) | undefined;
@@ -502,8 +513,7 @@ export class AgentStatusTracker {
         | undefined;
       if (!p?.messageId) return;
       const seen = direction === 'incoming' ? this.seenIncomingMail : this.seenOutgoingMail;
-      if (seen.has(p.messageId)) return;
-      seen.add(p.messageId);
+      if (!this.rememberMailId(seen, p.messageId)) return;
       const receipt: AgentRecentMail = {
         id: p.messageId,
         direction,

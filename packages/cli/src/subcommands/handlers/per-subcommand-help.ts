@@ -184,7 +184,7 @@
  * below is the mechanism documentation. The three together form
  * a documentation graph for new contributors.
  */
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import type { TerminalRenderer } from '../../renderer.js';
 import { renderAuthLocalHelpToString } from './auth-local-help.js';
 import { renderModelsAddHelpToString } from './models-add-help.js';

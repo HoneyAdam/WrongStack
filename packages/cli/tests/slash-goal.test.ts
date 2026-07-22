@@ -1,7 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { type Context, SlashCommandRegistry, resolveWstackPaths } from '@wrongstack/core';
+import { type Context } from '@wrongstack/core/agent';
+import { SlashCommandRegistry } from '@wrongstack/core/registry';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGoalCommand } from '../src/slash-commands/goal.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

@@ -19,7 +19,7 @@ export async function handleApiSessions(
   }
 
   try {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     const registry = new SessionRegistry(globalRoot);
     const sessions = await registry.list();
 
@@ -65,7 +65,7 @@ export async function handleApiSessionAgents(
   }
 
   try {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId);
 
@@ -255,8 +255,9 @@ export async function handleApiSessionEvents(
   }
 
   try {
-    const { SessionRegistry, resolveWstackPaths, DefaultSessionStore, DefaultSessionReader } =
-      await import('@wrongstack/core');
+    const { SessionRegistry, DefaultSessionStore, DefaultSessionReader } =
+      await import('@wrongstack/core/storage');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId);
     if (!entry) {
@@ -371,8 +372,9 @@ export async function handleApiSessionMessage(
       : 'Message from Fleet HQ';
 
   try {
-    const { SessionRegistry, resolveWstackPaths, GlobalMailbox, mailboxSessionTag } =
-      await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
+    const { GlobalMailbox, mailboxSessionTag } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId);
     if (!entry) {
@@ -418,8 +420,9 @@ export async function handleApiSessionMailbox(
     return;
   }
   try {
-    const { SessionRegistry, resolveWstackPaths, GlobalMailbox, mailboxSessionTag } =
-      await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
+    const { GlobalMailbox, mailboxSessionTag } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId);
     if (!entry) {
@@ -504,8 +507,9 @@ export async function handleApiSessionInterrupt(
       ? (body['from'] as string).trim()
       : 'human@webui';
   try {
-    const { SessionRegistry, resolveWstackPaths, GlobalMailbox, mailboxSessionTag } =
-      await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
+    const { GlobalMailbox, mailboxSessionTag } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const registry = new SessionRegistry(globalRoot);
     const entry = await registry.get(sessionId);
     if (!entry) {
@@ -569,8 +573,9 @@ export async function handleApiFleetBroadcast(
       ? (body['from'] as string).trim()
       : 'human@webui';
   try {
-    const { SessionRegistry, resolveWstackPaths, GlobalMailbox, mailboxSessionTag } =
-      await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
+    const { GlobalMailbox, mailboxSessionTag } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const registry = new SessionRegistry(globalRoot);
     const all = await registry.list();
     // Scope to the WebUI host's own project (its pid's entry), like the live

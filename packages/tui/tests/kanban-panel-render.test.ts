@@ -190,13 +190,13 @@ describe('KanbanPanel header hint advertises Ctrl+J', () => {
     expect(source).toMatch(/Ctrl\+J\s*\n?\s*toggle|toggle[\s\S]*Ctrl\+J/);
   });
 
-  it('registers a Ctrl+J chord handler in app.tsx that toggles the kanban panel', async () => {
+  it('registers a Ctrl+J chord handler in the app key router that toggles the kanban panel', async () => {
     const { readFile } = await import('node:fs/promises');
     const path = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const here = fileURLToPath(import.meta.url);
-    const appPath = path.resolve(path.dirname(here), '../src/app.tsx');
-    const source = await readFile(appPath, 'utf8');
+    const routerPath = path.resolve(path.dirname(here), '../src/app-key-handler.ts');
+    const source = await readFile(routerPath, 'utf8');
     expect(source).toContain("key.ctrl && input === 'j'");
     // The handler must dispatch the kanban-specific toggle action — not
     // reuse an existing panel action — so it stays isolated from the

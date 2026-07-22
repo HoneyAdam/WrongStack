@@ -18,6 +18,7 @@
 import type { WebSocket } from 'ws';
 import { handlePrefsGet, handlePrefsUpdate, type PrefsHandlerContext } from './prefs-handlers.js';
 import type { WSClientMessage } from './types.js';
+import { send } from './ws-utils.js';
 
 export interface PrefsRouteHandlers {
   /** Respond to the WS client with the current pref snapshot. */
@@ -29,12 +30,18 @@ export interface PrefsRouteHandlers {
    * logger.level), then broadcast the full current snapshot to all clients.
    */
   updatePrefs: (ws: WebSocket, payload: Record<string, unknown>) => Promise<void>;
+  /** Preview/apply canonical defaults in the active profile config. */
+  doctorConfig?: ((ws: WebSocket, apply: boolean) => Promise<void>) | undefined;
 }
 
-export function createPrefsRouteHandlers(ctx: PrefsHandlerContext): PrefsRouteHandlers {
+export function createPrefsRouteHandlers(
+  ctx: PrefsHandlerContext,
+  doctorConfig?: PrefsRouteHandlers['doctorConfig'],
+): PrefsRouteHandlers {
   return {
     getPrefs: async (ws) => handlePrefsGet(ctx, ws),
     updatePrefs: async (ws, payload) => handlePrefsUpdate(ctx, ws, payload),
+    ...(doctorConfig !== undefined ? { doctorConfig } : {}),
   };
 }
 
@@ -47,6 +54,7 @@ export function createPrefsRouteHandlers(ctx: PrefsHandlerContext): PrefsRouteHa
  * Owned prefixes:
  *   - `prefs.get`
  *   - `prefs.update`
+ *   - `config.doctor`
  *
  * Regression-tested by packages/webui/tests/server/dispatcher-routing.test.ts.
  */
@@ -62,6 +70,28 @@ export async function handlePrefsRoute(
     }
     case 'prefs.update': {
       await handlers.updatePrefs(ws, (msg.payload ?? {}) as Record<string, unknown>);
+      return true;
+    }
+    case 'config.doctor': {
+      if (!handlers.doctorConfig) {
+        send(ws, {
+          type: 'config.doctor.result',
+          payload: {
+            success: false,
+            applied: false,
+            changed: false,
+            changes: [],
+            configPath: '',
+            backupPath: undefined,
+            error: 'config doctor unavailable on this server',
+          },
+        });
+        return true;
+      }
+      await handlers.doctorConfig(
+        ws,
+        (msg.payload as { apply?: unknown } | undefined)?.apply === true,
+      );
       return true;
     }
     default:

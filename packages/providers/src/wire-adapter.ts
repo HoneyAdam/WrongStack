@@ -1,5 +1,5 @@
-import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
-import { ConfigError, ParseError, ProviderError, StreamHangError } from '@wrongstack/core';
+import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core/types';
+import { ConfigError, ParseError, ProviderError, StreamHangError } from '@wrongstack/core/types';
 import { parseProviderHttpError, type HeadersLike } from './error-parse.js';
 import { isDebugStreamEnabled, pushDebugChunkStats } from './stream-debug-state.js';
 import { isNodeReadable } from './object-utils.js';

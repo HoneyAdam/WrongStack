@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { ConfigError } from '@wrongstack/core';
+import { ConfigError } from '@wrongstack/core/types';
 
 export function isTlsUnsafeAllowed(): boolean {
   return process.env['WRONGSTACK_UNSAFE_MCP_TLS'] === '1';

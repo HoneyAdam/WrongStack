@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import * as path from 'node:path';
-import { atomicWrite, ERROR_CODES, FsError, resolveWstackPaths, writeErr } from '@wrongstack/core';
+import { atomicWrite, resolveWstackPaths, writeErr } from '@wrongstack/core/utils';
+import { ERROR_CODES, FsError } from '@wrongstack/core/types';
 import { isSecretField } from '@wrongstack/core/security';
 import { toErrorMessage } from '@wrongstack/core/utils';
 

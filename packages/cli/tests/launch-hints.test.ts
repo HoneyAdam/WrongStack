@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { TextBlock } from '@wrongstack/core';
-import { stripAnsi } from '@wrongstack/core';
+import type { TextBlock } from '@wrongstack/core/types';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HINT_COUNT,

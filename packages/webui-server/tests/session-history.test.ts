@@ -1,4 +1,4 @@
-import type { SessionSummary } from '@wrongstack/core';
+import type { SessionSummary } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { toSessionHistoryEntries, toSessionHistoryEntry } from '../src/server/session-history.js';
 

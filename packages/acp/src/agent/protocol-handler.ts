@@ -89,6 +89,7 @@ const WRONGSTACK_AUTH_METHODS = [
 
 /** Single global mode id, sufficient for v1. */
 const DEFAULT_MODE_ID = 'code';
+const DEFAULT_MAX_SESSIONS = 64;
 
 const DEFAULT_MODES: readonly SessionMode[] = [
   {
@@ -112,6 +113,8 @@ export class ACPProtocolHandler {
   private readonly seedFor:
     | ((sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => void)
     | undefined;
+  private readonly disposeFor: ((sessionId: string) => void) | undefined;
+  private readonly maxSessions: number;
   private readonly store: SessionPersistence | undefined;
 
   private initialized = false;
@@ -137,6 +140,11 @@ export class ACPProtocolHandler {
     this.agentName = opts.agentName ?? 'wrongstack';
     this.replayFor = opts.replayFor;
     this.seedFor = opts.seedFor;
+    this.disposeFor = opts.disposeFor;
+    this.maxSessions =
+      Number.isFinite(opts.maxSessions) && (opts.maxSessions ?? 0) > 0
+        ? Math.floor(opts.maxSessions as number)
+        : DEFAULT_MAX_SESSIONS;
     this.store = opts.store;
     // Route inbound JSON-RPC responses (to our outbound requests)
     // independently of the server's read loop. StdioTransport fires
@@ -213,8 +221,9 @@ export class ACPProtocolHandler {
 
   /** Abort all active turns and drop session state. */
   close(): void {
-    for (const [, session] of this.sessions) {
+    for (const [sessionId, session] of this.sessions) {
       session.abort.abort();
+      this.disposeSession(sessionId);
     }
     this.sessions.clear();
     for (const [, p] of this.pendingOut) {
@@ -222,6 +231,14 @@ export class ACPProtocolHandler {
       p.reject(new Error('protocol handler closed'));
     }
     this.pendingOut.clear();
+  }
+
+  private disposeSession(sessionId: string): void {
+    try {
+      this.disposeFor?.(sessionId);
+    } catch {
+      // Session teardown must continue even if an integration hook fails.
+    }
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -368,6 +385,10 @@ export class ACPProtocolHandler {
   }
 
   private async handleSessionNew(id: string | number, params: unknown): Promise<boolean> {
+    if (this.sessions.size >= this.maxSessions) {
+      await this.sendError(id, -32000, `active session limit reached (${this.maxSessions})`);
+      return false;
+    }
     const p = (params ?? {}) as { cwd?: unknown; mcpServers?: unknown };
     const cwd = typeof p.cwd === 'string' ? p.cwd : this.defaultCwd;
     const sessionId = `sess_${this.allocId()}`;
@@ -428,6 +449,10 @@ export class ACPProtocolHandler {
     if (!existing && sessionId && this.store) {
       const persisted = await this.store.load(sessionId);
       if (persisted) {
+        if (this.sessions.size >= this.maxSessions) {
+          await this.sendError(id, -32000, `active session limit reached (${this.maxSessions})`);
+          return false;
+        }
         const restored: SessionState = {
           id: sessionId,
           cwd: persisted.cwd ?? loadCwd ?? this.defaultCwd,
@@ -538,7 +563,10 @@ export class ACPProtocolHandler {
 
     // Abort any in-flight turn and remove the session.
     session.abort.abort();
-    if (sessionId) this.sessions.delete(sessionId);
+    if (sessionId) {
+      this.sessions.delete(sessionId);
+      this.disposeSession(sessionId);
+    }
 
     await this.transport.send(toWire({
       jsonrpc: '2.0',
@@ -564,6 +592,7 @@ export class ACPProtocolHandler {
     const session = this.sessions.get(sessionId)!;
     session.abort.abort();
     this.sessions.delete(sessionId);
+    this.disposeSession(sessionId);
 
     await this.transport.send(toWire({
       jsonrpc: '2.0',
@@ -579,6 +608,10 @@ export class ACPProtocolHandler {
     const source = sourceId ? this.sessions.get(sourceId) : undefined;
     if (!sourceId || !source) {
       await this.sendError(id, -32000, `session not found: ${sourceId}`);
+      return false;
+    }
+    if (this.sessions.size >= this.maxSessions) {
+      await this.sendError(id, -32000, `active session limit reached (${this.maxSessions})`);
       return false;
     }
 

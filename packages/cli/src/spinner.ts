@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import { fmtTok } from './utils.js';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

@@ -1,13 +1,6 @@
 import os from 'node:os';
-import type { Config, ModelsDevModel, ModelsRegistry, ResolvedProvider } from '@wrongstack/core';
-import {
-  color,
-  expectDefined,
-  setOutputLineGuard,
-  setRawMode,
-  stripAnsi,
-  writeOut,
-} from '@wrongstack/core';
+import type { Config, ModelsDevModel, ModelsRegistry, ResolvedProvider } from '@wrongstack/core/types';
+import { color, expectDefined, setOutputLineGuard, setRawMode, stripAnsi, writeOut } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { LOCAL_LLM_PRESETS } from './auth-menu/local-presets.js';
 import { appendHistory, backupCurrent } from './config-history.js';
@@ -465,7 +458,7 @@ export async function saveToGlobalConfig(
   homeFn: () => string = () => process.env.HOME ?? os.homedir(),
 ): Promise<boolean> {
   try {
-    const { atomicWrite } = await import('@wrongstack/core');
+    const { atomicWrite } = await import('@wrongstack/core/utils');
     const fs = await import('node:fs/promises');
 
     let existing: Record<string, unknown> = {};

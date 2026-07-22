@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { Config, Logger } from '@wrongstack/core';
+import type { Config, Logger } from '@wrongstack/core/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetDeprecatedWarningsForTests,
@@ -355,8 +355,8 @@ vi.mock('@wrongstack/telegram', () => ({ default: { name: 'telegram', register: 
   virtual: true,
 });
 
-// Mock @wrongstack/core: replace loadPlugins so we can observe calls
-vi.mock('@wrongstack/core', async (orig) => {
+// Mock the plugin owner: replace loadPlugins so we can observe calls.
+vi.mock('@wrongstack/core/plugin', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   return { ...actual, loadPlugins: (...args: unknown[]) => loadPluginsMock(...args) };
 });

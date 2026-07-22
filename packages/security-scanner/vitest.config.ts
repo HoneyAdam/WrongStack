@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      '@wrongstack/core/agent': path.resolve(__dirname, '../core/src/core'),
       '@wrongstack/core': path.resolve(__dirname, '../core/src'),
       '@wrongstack/core/kernel': path.resolve(__dirname, '../core/src/kernel'),
       '@wrongstack/core/types': path.resolve(__dirname, '../core/src/types'),

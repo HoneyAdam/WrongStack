@@ -1,5 +1,6 @@
-import type { PluginAPI, SlashCommand } from '@wrongstack/core';
-import { expectDefined } from '@wrongstack/core';
+import type { PluginAPI } from '@wrongstack/core/plugin';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 import { type TelegramBot, truncateForTelegram } from '../bot.js';
 import type { TelegramPluginConfig } from '../config.js';
 import {

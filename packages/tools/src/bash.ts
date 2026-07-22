@@ -4,10 +4,9 @@ import {
   emitProcessCompleted,
   emitProcessOutput,
   emitProcessStarted,
-  type Context,
-  type Tool,
-  type ToolStreamEvent,
-} from '@wrongstack/core';
+} from '@wrongstack/core/observability';
+import type { Context } from '@wrongstack/core/agent';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core/types';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { normalizeCommandOutput } from './_util.js';
@@ -270,16 +269,15 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     const startedAt = Date.now();
 
     if (input.background) {
-      // Background mode: capture stdout/stderr with bounded buffers so a
-      // malicious command can't write unbounded output. Apply MAX_OUTPUT cap.
-      let buf = '';
-      let truncated = false;
+      // Background mode is fully detached from the host's output pipes. If
+      // stdout/stderr stayed piped, closing the CLI would close the read ends
+      // and a later write could terminate the preserved job with EPIPE/SIGPIPE.
       const child = spawn(shell, args, {
         cwd: ctx.projectRoot,
         env,
         // PowerShell takes the script on stdin (no argv quoting); cmd.exe
         // and POSIX shells ignore stdin when given the command inline.
-        stdio: [plan.useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        stdio: [plan.useStdin ? 'pipe' : 'ignore', 'ignore', 'ignore'],
         // win32: CreateProcess IGNORES CREATE_NO_WINDOW (windowsHide) when
         // DETACHED_PROCESS (detached: true) is set, so the console-less
         // cmd.exe's grandchildren (node, dev servers) each allocate a fresh
@@ -304,8 +302,8 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         }
       }
       const pid = child.pid;
-      let stdoutBytes = 0;
-      let stderrBytes = 0;
+      const stdoutBytes = 0;
+      const stderrBytes = 0;
       let telemetryCompleted = false;
       emitProcessStarted({
         ...(pid !== undefined ? { pid } : {}),
@@ -339,40 +337,14 @@ export const bashTool: Tool<BashInput, BashOutput> = {
           sessionId: ctx.session?.id,
           child,
           processGroupLeader: detached && child.pid === pid,
+          background: true,
         });
         // Register the close handler on the same tick as spawn() so the
         // handler is guaranteed to be in place before Node's event loop
         // can deliver the close event.
         child.on('close', () => registry.unregister(pid));
       }
-      const onBgData = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
-        if (stream === 'stdout') stdoutBytes += chunk.byteLength;
-        else stderrBytes += chunk.byteLength;
-        emitProcessOutput({ pid, stream, chunk });
-        if (truncated) return;
-        const remain = MAX_OUTPUT - buf.length;
-        if (remain > 0) {
-          buf += chunk.toString().slice(0, remain);
-        }
-        if (buf.length >= MAX_OUTPUT) {
-          truncated = true;
-          // Cap reached — stop accumulating. The streams stay in flowing
-          // mode so the rest of the output is read and discarded (pausing
-          // would fill the OS pipe buffer and block the background process).
-          child.stdout?.off('data', onBgStdout);
-          child.stderr?.off('data', onBgStderr);
-        }
-      };
-      const onBgStdout = (chunk: Buffer) => onBgData(chunk, 'stdout');
-      const onBgStderr = (chunk: Buffer) => onBgData(chunk, 'stderr');
-      child.stdout?.on('data', onBgStdout);
-      child.stderr?.on('data', onBgStderr);
-      const cleanupBackground = () => {
-        child.stdout?.off('data', onBgStdout);
-        child.stderr?.off('data', onBgStderr);
-      };
       child.on('error', () => {
-        cleanupBackground();
         if (typeof pid === 'number') registry.unregister(pid);
         registry.afterCall(Date.now() - startedAt, true, bypassBreaker);
         completeBackground(1);
@@ -382,7 +354,6 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       // does not release stdio. A one-shot (--print) run could never exit
       // while a background dev server kept its pipes open.
       child.on('close', (code, signal) => {
-        cleanupBackground();
         registry.afterCall(Date.now() - startedAt, false, bypassBreaker);
         completeBackground(code ?? (signal ? 1 : 0), signal ?? undefined);
       });
@@ -390,7 +361,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       yield {
         type: 'final',
         output: {
-          output: normalizeCommandOutput(buf),
+          output: '',
           exit_code: null,
           timed_out: false,
           pid,
@@ -728,6 +699,7 @@ export const bashTool: Tool<BashInput, BashOutput> = {
     for (const entry of registry.bySession(sessionId)) {
       if (entry.name !== 'bash') continue; // leave exec-spawned children alone
       if (entry.child.exitCode !== null) continue; // already reaped
+      if (entry.background) continue; // detached jobs intentionally outlive the run/session
       if (entry.protected) continue; // intentionally-backgrounded infra
       registry.kill(entry.pid, { force: true });
     }

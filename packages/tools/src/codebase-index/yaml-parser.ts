@@ -1,4 +1,4 @@
-import { expectDefined, truncate } from '@wrongstack/core';
+import { expectDefined, truncate } from '@wrongstack/core/utils';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 // ─── Public API ─────────────────────────────────────────────────────────────
 

@@ -1,16 +1,17 @@
-import type { Agent, Logger, MemoryStore } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { Logger, MemoryPort } from '@wrongstack/core/types';
 import type { TrustBoundary } from '@wrongstack/core/security';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import type { WebSocket } from 'ws';
 import { createAutonomyRouteHandlers } from './autonomy-routes.js';
 import {
+  type BrainHandlerContext,
   handleBrainAsk,
   handleBrainConfigGet,
   handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
-  type BrainHandlerContext,
 } from './brain-handlers.js';
 import type { BrainRouteHandlers } from './brain-routes.js';
 import type { ClientTransportRouteHandlers } from './client-transport-routes.js';
@@ -36,8 +37,8 @@ import type { GoalWebSocketHandler } from './goal-ws-handler.js';
 import type { WorklistContext } from './handlers/worklist-handlers.js';
 import type { HostRouteHandlers } from './host-routes.js';
 import type { IntrospectionRouteContext } from './introspection-routes.js';
-import type { KanbanHostRouteHandlers } from './kanban-host-routes.js';
 import type { KanbanTaskDispatcher } from './kanban-dispatch.js';
+import type { KanbanHostRouteHandlers } from './kanban-host-routes.js';
 import type { MailboxRouteHandlers } from './mailbox-routes.js';
 import {
   handleMcpAdd,
@@ -63,6 +64,7 @@ import { createPrefsRouteHandlers } from './prefs-routes.js';
 import { authorizeWebUIAction } from './privileged-actions.js';
 import { handleProcessKill, handleProcessKillAll, handleProcessList } from './process-handlers.js';
 import type { ProcessRouteHandlers } from './process-routes.js';
+import type { PromptsContext } from './prompts-handlers.js';
 import { createProviderOperations } from './provider-handlers.js';
 import type { ProviderRouteHandlers } from './provider-routes.js';
 import { createRouteFamilyDispatcher } from './route-family-dispatcher.js';
@@ -70,8 +72,8 @@ import type { SddBoardRouteHandlers } from './sdd-board-routes.js';
 import type { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
 import type { SddWizardRouteHandlers } from './sdd-wizard-routes.js';
 import type { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
-import { handleShellOpen } from './shell-open.js';
 import type { ShellGitRouteHandlers } from './shell-git-routes.js';
+import { handleShellOpen, normalizeShellOpenTarget, type ShellOpenTarget } from './shell-open.js';
 import type { SkillsContext } from './skills-handlers.js';
 import type { SpecsRouteHandlers } from './specs-routes.js';
 import type { SpecsWebSocketHandler } from './specs-ws-handler.js';
@@ -79,14 +81,13 @@ import type { TerminalWebSocketHandler } from './terminal-ws-handler.js';
 import type { WSClientMessage, WSServerMessage } from './types.js';
 import { createWorklistRouteHandlers } from './worklist-routes.js';
 import type { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
-import type { PromptsContext } from './prompts-handlers.js';
 
 export interface EmbeddedMessageRouterOptions {
   agent: Agent;
   projectRoot?: string | undefined;
   profileConfigPath: string;
   mcpRegistry?: MCPRegistry | undefined;
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: MemoryPort | undefined;
   onKanbanDispatch?: KanbanTaskDispatcher | undefined;
 }
 
@@ -136,25 +137,51 @@ export function createEmbeddedMessageRouter(
     await deps.terminalHandler.handleMessage(ws, message).catch((error) => {
       const text = error instanceof Error ? error.message : String(error);
       const id = (message.payload as { id?: string } | undefined)?.id ?? '';
-      send(ws, { type: 'terminal.output', payload: { id, data: `Internal terminal error: ${text}\r\n` } });
+      send(ws, {
+        type: 'terminal.output',
+        payload: { id, data: `Internal terminal error: ${text}\r\n` },
+      });
       send(ws, { type: 'terminal.exit', payload: { id, exitCode: -1 } });
     });
   };
 
   const guardedTypes = new Set([
-    'user_message', 'abort', 'tool.confirm_result', 'session.new', 'session.resume',
-    'session.save', 'session.checkpoints', 'session.rewind', 'context.clear',
-    'context.compact', 'context.repair', 'context.debug', 'context.modes.list',
-    'context.mode.switch', 'context.mode.create', 'context.mode.update',
-    'context.mode.delete', 'todos.get', 'todos.clear', 'todos.remove', 'todo.update',
-    'tasks.get', 'task.update', 'plan.get', 'plan.template_use', 'plan.item.update',
+    'user_message',
+    'abort',
+    'tool.confirm_result',
+    'session.new',
+    'session.resume',
+    'session.save',
+    'session.checkpoints',
+    'session.rewind',
+    'context.clear',
+    'context.compact',
+    'context.repair',
+    'context.debug',
+    'context.modes.list',
+    'context.mode.switch',
+    'context.mode.create',
+    'context.mode.update',
+    'context.mode.delete',
+    'todos.get',
+    'todos.clear',
+    'todos.remove',
+    'todo.update',
+    'tasks.get',
+    'task.update',
+    'plan.get',
+    'plan.template_use',
+    'plan.item.update',
   ]);
   const guardSession = (ws: WebSocket, message: WSClientMessage): boolean => {
     if (!guardedTypes.has(message.type)) return true;
     const payload = message.payload;
-    const requested = payload && typeof payload === 'object' &&
+    const requested =
+      payload &&
+      typeof payload === 'object' &&
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
-      ? (payload as { sessionId: string }).sessionId : undefined;
+        ? (payload as { sessionId: string }).sessionId
+        : undefined;
     const current = deps.currentSessionId();
     if (!requested || requested === current) return true;
     send(ws, {
@@ -181,34 +208,48 @@ export function createEmbeddedMessageRouter(
     discover: (ws, msg) => handleMcpDiscover(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     resources: (ws, msg) => handleMcpResources(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     prompts: (ws, msg) => handleMcpPrompts(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
-    resourceRead: (ws, msg) => handleMcpResourceRead(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    resourceRead: (ws, msg) =>
+      handleMcpResourceRead(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
   };
 
   const shellGit: ShellGitRouteHandlers = {
     gitInfo: (ws) => handleGitInfo(ws, projectRoot()),
     gitChanges: (ws) => handleGitChanges(ws, projectRoot()),
-    gitDiff: (ws, msg) => handleGitDiff(ws, projectRoot(), (msg.payload as { path?: string } | undefined)?.path ?? ''),
+    gitDiff: (ws, msg) =>
+      handleGitDiff(ws, projectRoot(), (msg.payload as { path?: string } | undefined)?.path ?? ''),
     shellOpen: async (ws, msg) => {
       const payload = msg.payload as { path?: unknown; target?: unknown } | undefined;
-      if (typeof payload?.path !== 'string') return sendResult(ws, false, 'shell.open path must be a string');
+      if (typeof payload?.path !== 'string')
+        return sendResult(ws, false, 'shell.open path must be a string');
       const targets = ['file', 'file-manager', 'terminal'] as const;
       if (payload.target !== undefined && !targets.includes(payload.target as never)) {
-        return sendResult(ws, false, `shell.open target must be one of: ${targets.join(', ')} when provided`);
+        return sendResult(
+          ws,
+          false,
+          `shell.open target must be one of: ${targets.join(', ')} when provided`,
+        );
       }
       const target = payload.target as (typeof targets)[number] | undefined;
+      // Normalize before authorization so the trust boundary audit log
+      // records the same target that handleShellOpen actually executes.
+      const normalizedTarget: ShellOpenTarget = normalizeShellOpenTarget(target);
       const authorization = await authorizeWebUIAction(deps.trustBoundary, {
-        capability: target === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
-        subject: target === 'terminal'
-          ? { kind: 'command', id: payload.path, attributes: { target: target ?? 'unknown' } }
-          : { kind: 'path', id: payload.path, attributes: { target: target ?? 'unknown' } },
+        capability:
+          normalizedTarget === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
+        subject: {
+          kind: normalizedTarget === 'terminal' ? 'command' : 'path',
+          id: payload.path,
+          attributes: { target: normalizedTarget },
+        },
         risk: 'elevated',
         cwd: projectRoot(),
         metadata: { backend: 'cli-embedded' },
       });
-      if (!authorization.allowed) return sendResult(ws, false, `Shell action denied: ${authorization.reason}`);
+      if (!authorization.allowed)
+        return sendResult(ws, false, `Shell action denied: ${authorization.reason}`);
       const result = await handleShellOpen(
-        { path: payload.path, target: target === 'terminal' ? 'terminal' : 'file-manager' },
+        { path: payload.path, target: normalizedTarget },
         deps.logger,
         { projectRoot: projectRoot() },
       );
@@ -244,7 +285,11 @@ export function createEmbeddedMessageRouter(
   const provider: ProviderRouteHandlers = {
     listProviders: (ws) => providerOperations.handleProvidersList(ws),
     listSavedProviders: (ws) => providerOperations.handleProvidersSaved(ws),
-    listProviderModels: (ws, msg) => providerOperations.handleProviderModels(ws, (msg.payload as { providerId: string }).providerId),
+    listProviderModels: (ws, msg) =>
+      providerOperations.handleProviderModels(
+        ws,
+        (msg.payload as { providerId: string }).providerId,
+      ),
     switchModel: (ws, msg) => modelOperations.switchModel(ws, msg.payload),
     refineModel: (ws, msg) => modelOperations.refineModel(ws, msg.payload as never),
     adoptDefaultProviderIfUnset: providerOperations.adoptDefaultProviderIfUnset,
@@ -256,17 +301,31 @@ export function createEmbeddedMessageRouter(
   const mode = createModeRouteHandlers({
     modeStore: deps.agentConfigCtx.modeStore,
     getSession: () => deps.agentConfigCtx.agent.ctx.session,
-    applyModeId: (id) => { deps.agentConfigCtx.agent.ctx.meta['mode'] = id; },
+    applyModeId: (id) => {
+      deps.agentConfigCtx.agent.ctx.meta['mode'] = id;
+    },
     send: deps.agentConfigCtx.send,
-    afterSwitch: async (id) => deps.agentConfigCtx.broadcast({
-      type: 'session.start', payload: await deps.agentConfigCtx.buildSessionStart({ mode: id }),
-    }),
+    afterSwitch: async (id) =>
+      deps.agentConfigCtx.broadcast({
+        type: 'session.start',
+        payload: await deps.agentConfigCtx.buildSessionStart({ mode: id }),
+      }),
   });
   const prefs = createPrefsRouteHandlers(deps.prefsCtx);
   const brain: BrainRouteHandlers = {
     status: (ws) => handleBrainStatus(deps.brainCtx, ws),
-    risk: (ws, msg) => handleBrainRisk(deps.brainCtx, ws, (msg.payload as { level?: string } | undefined)?.level ?? ''),
-    ask: (ws, msg) => handleBrainAsk(deps.brainCtx, ws, (msg.payload as { question?: string } | undefined)?.question),
+    risk: (ws, msg) =>
+      handleBrainRisk(
+        deps.brainCtx,
+        ws,
+        (msg.payload as { level?: string } | undefined)?.level ?? '',
+      ),
+    ask: (ws, msg) =>
+      handleBrainAsk(
+        deps.brainCtx,
+        ws,
+        (msg.payload as { question?: string } | undefined)?.question,
+      ),
     configGet: (ws) => handleBrainConfigGet(deps.brainCtx, ws),
     configSet: (ws, msg) => handleBrainConfigSet(deps.brainCtx, ws, msg.payload),
   };
@@ -284,43 +343,88 @@ export function createEmbeddedMessageRouter(
   });
   const processRoutes: ProcessRouteHandlers = {
     list: handleProcessList,
-    kill: (ws, msg) => handleProcessKill(ws, msg.payload, deps.trustBoundary, undefined, { backend: 'cli-embedded' }),
-    killAll: (ws) => handleProcessKillAll(ws, deps.trustBoundary, undefined, { backend: 'cli-embedded' }),
+    kill: (ws, msg) =>
+      handleProcessKill(ws, msg.payload, deps.trustBoundary, undefined, {
+        backend: 'cli-embedded',
+      }),
+    killAll: (ws) =>
+      handleProcessKillAll(ws, deps.trustBoundary, undefined, { backend: 'cli-embedded' }),
   };
   const host: HostRouteHandlers = {
     shutdown: async (ws) => {
       const result = await authorizeWebUIAction(deps.trustBoundary, {
-        capability: 'host.shutdown', subject: { kind: 'process', id: String(process.pid) },
-        risk: 'elevated', metadata: { backend: 'cli-embedded' },
+        capability: 'host.shutdown',
+        subject: { kind: 'process', id: String(process.pid) },
+        risk: 'elevated',
+        metadata: { backend: 'cli-embedded' },
       });
       if (result.allowed) deps.shutdown();
       else sendResult(ws, false, `Shutdown denied: ${result.reason}`);
     },
   };
   const clientTransport: ClientTransportRouteHandlers = {
-    collaboration: (ws, msg) => send(ws, { type: 'error', payload: { phase: msg.type, message: 'Collaboration not available in this surface' } }),
+    collaboration: (ws, msg) =>
+      send(ws, {
+        type: 'error',
+        payload: { phase: msg.type, message: 'Collaboration not available in this surface' },
+      }),
     terminal,
   };
   const completion: CompletionRouteHandlers = {
-    request: (ws, msg) => handleCompletionRequest(ws, msg, {
-      projectRoot: projectRoot(), provider: opts.agent.ctx.provider, model: opts.agent.ctx.model,
-      indexDir: typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string' ? opts.agent.ctx.meta['codebaseIndexDir'] : undefined,
-      lspCompletion: createToolLspCompletionSource(opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'), opts.agent.ctx),
-    }),
+    request: (ws, msg) =>
+      handleCompletionRequest(ws, msg, {
+        projectRoot: projectRoot(),
+        provider: opts.agent.ctx.provider,
+        model: opts.agent.ctx.model,
+        indexDir:
+          typeof opts.agent.ctx.meta['codebaseIndexDir'] === 'string'
+            ? opts.agent.ctx.meta['codebaseIndexDir']
+            : undefined,
+        lspCompletion: createToolLspCompletionSource(
+          opts.agent.ctx.tools.find((tool) => tool.name === 'lsp_completion'),
+          opts.agent.ctx,
+        ),
+      }),
   };
-  const goalSnapshot: GoalSnapshotRouteHandlers = { getSnapshot: async () => broadcastEmbeddedGoalSnapshot(deps.sessionCtx) };
+  const goalSnapshot: GoalSnapshotRouteHandlers = {
+    getSnapshot: async () => broadcastEmbeddedGoalSnapshot(deps.sessionCtx),
+  };
   const goal: GoalRouteHandlers = { handleMessage: (msg) => deps.goalHandler.handleMessage(msg) };
-  const specs: SpecsRouteHandlers = { handleMessage: (msg) => deps.specsHandler.handleMessage(msg) };
-  const sddBoard: SddBoardRouteHandlers = { handleMessage: (msg) => deps.sddBoardHandler.handleMessage(msg) };
-  const sddWizard: SddWizardRouteHandlers = { handleMessage: (msg) => deps.sddWizardHandler?.handleMessage(msg) ?? Promise.resolve() };
+  const specs: SpecsRouteHandlers = {
+    handleMessage: (msg) => deps.specsHandler.handleMessage(msg),
+  };
+  const sddBoard: SddBoardRouteHandlers = {
+    handleMessage: (msg) => deps.sddBoardHandler.handleMessage(msg),
+  };
+  const sddWizard: SddWizardRouteHandlers = {
+    handleMessage: (msg) => deps.sddWizardHandler?.handleMessage(msg) ?? Promise.resolve(),
+  };
 
   const dispatch = createRouteFamilyDispatcher({
     routes: {
-      shellGit, mailbox: deps.mailboxRoutes, mcp, provider, session, project, mode, prefs, brain,
-      worklist, process: processRoutes, host, clientTransport,
-      conversation: createEmbeddedConversationRoutes(deps.conversationCtx), completion,
-      autonomy: createAutonomyRouteHandlers(deps.prefsCtx), goalSnapshot, goal, specs, sddBoard,
-      sddWizard, worktree: deps.worktreeHandler, kanbanHost: deps.kanbanHostRoutes,
+      shellGit,
+      mailbox: deps.mailboxRoutes,
+      mcp,
+      provider,
+      session,
+      project,
+      mode,
+      prefs,
+      brain,
+      worklist,
+      process: processRoutes,
+      host,
+      clientTransport,
+      conversation: createEmbeddedConversationRoutes(deps.conversationCtx),
+      completion,
+      autonomy: createAutonomyRouteHandlers(deps.prefsCtx),
+      goalSnapshot,
+      goal,
+      specs,
+      sddBoard,
+      sddWizard,
+      worktree: deps.worktreeHandler,
+      kanbanHost: deps.kanbanHostRoutes,
     },
     memory: { getMemoryStore: () => opts.memoryStore, send, sendResult },
     content: {
@@ -332,13 +436,15 @@ export function createEmbeddedMessageRouter(
     chronicle: { getProjectRoot: projectRoot, send },
     introspection: deps.introspectionCtx,
     getKanbanContext: () => ({
-      projectRoot: opts.projectRoot ?? '', context: opts.agent.ctx,
+      projectRoot: opts.projectRoot ?? '',
+      context: opts.agent.ctx,
       broadcast: deps.providerCtx.broadcast,
       ...(opts.onKanbanDispatch ? { dispatchTask: opts.onKanbanDispatch } : {}),
     }),
     beforeDispatch: guardSession,
     onUnknown: (_ws, msg) => {
-      if (!msg.type.startsWith('chronicle.')) console.debug(`[WebUI] Unhandled message type: ${msg.type}`);
+      if (!msg.type.startsWith('chronicle.'))
+        console.debug(`[WebUI] Unhandled message type: ${msg.type}`);
     },
   });
   return async (ws, _client, message) => dispatch(ws, message);

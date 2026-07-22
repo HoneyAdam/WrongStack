@@ -11,13 +11,8 @@
 import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import {
-  color,
-  HQ_CLI_DEFAULT_HOST,
-  isLoopbackHost,
-  isPidAlive,
-  resolveHqDataDir,
-} from '@wrongstack/core';
+import { color, isPidAlive } from '@wrongstack/core/utils';
+import { HQ_CLI_DEFAULT_HOST, isLoopbackHost, resolveHqDataDir } from '@wrongstack/core/hq';
 import { DEFAULT_PORT } from '../hq-server.js';
 import type { HqQuickTunnelHandle } from '../hq-tunnel.js';
 

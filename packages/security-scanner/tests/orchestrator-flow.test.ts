@@ -3,8 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SecurityScannerOrchestrator } from '../src/orchestrator.js';
-import { ProviderError } from '@wrongstack/core';
-import type { Provider, Request, Response } from '@wrongstack/core';
+import { ProviderError } from '@wrongstack/core/types';
+import type { Provider, Request, Response } from '@wrongstack/core/types';
 import type { ErrorHandler, RetryPolicy } from '../src/_compat-types.js';
 
 const textResponse = (text: string): Response =>

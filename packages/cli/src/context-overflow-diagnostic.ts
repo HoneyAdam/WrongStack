@@ -1,4 +1,4 @@
-import { ERROR_CODES, type WrongStackError } from '@wrongstack/core';
+import { ERROR_CODES, type WrongStackError } from '@wrongstack/core/types';
 
 const CONTEXT_OVERFLOW_RE = /context window|exceeds the context|too many tokens|context.*tokens/i;
 

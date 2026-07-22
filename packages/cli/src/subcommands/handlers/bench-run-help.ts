@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import type { TerminalRenderer } from '../../renderer.js';
 
 /**

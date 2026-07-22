@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WebSocket } from 'ws';
-import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMailboxRouteHandlers, handleMailboxMessages } from '@wrongstack/webui-server';
 

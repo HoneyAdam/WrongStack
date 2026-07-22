@@ -1,4 +1,4 @@
-import { TOKENS } from '@wrongstack/core';
+import { TOKENS } from '@wrongstack/core/kernel';
 import { describe, expect, it } from 'vitest';
 import {
   PLUGIN_NAME,

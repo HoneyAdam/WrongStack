@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import type { ServerConfig } from '../types.js';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 
 export function safeSpawn(cfg: ServerConfig, cwd: string): ChildProcessWithoutNullStreams {
   /* v8 ignore next -- platform-specific branch differs between Windows and POSIX. */

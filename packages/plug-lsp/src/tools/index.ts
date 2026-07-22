@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { createCodebaseLspSearchTool } from './codebase-lsp-search.js';
 import { createCompletionTool } from './completion.js';
 import { createDefinitionTool } from './definition.js';

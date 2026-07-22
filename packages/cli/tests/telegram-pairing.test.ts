@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultSecretVault, decryptConfigSecrets } from '@wrongstack/core';
+import { DefaultSecretVault, decryptConfigSecrets } from '@wrongstack/core/security';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   discoverTelegramPairingCandidates,

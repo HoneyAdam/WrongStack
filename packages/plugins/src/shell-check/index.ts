@@ -8,7 +8,7 @@
  * via the `directory` + `pattern` parameters. Pass `files` for specific
  * files, or `directory` (optionally with `pattern`) for recursive scanning.
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { execFile } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';

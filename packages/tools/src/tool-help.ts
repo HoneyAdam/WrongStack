@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 
 interface ToolHelpInput {
   tool?: string | undefined;

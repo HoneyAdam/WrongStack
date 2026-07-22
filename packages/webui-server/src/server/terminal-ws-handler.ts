@@ -1,11 +1,12 @@
 import { spawn as spawnChild } from 'node:child_process';
 import { createRequire } from 'node:module';
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
 import { buildChildEnv, toErrorMessage } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import { authorizeWebUIAction } from './privileged-actions.js';
 import type { WSServerMessage } from './types.js';
+import { sendSerialized } from './ws-utils.js';
 
 /** Loose inbound shape — matches the server's internal WSClientMessage. */
 type IncomingMessage = { type: string; payload?: unknown };
@@ -264,7 +265,7 @@ export class TerminalWebSocketHandler {
 
   private send(ws: WebSocket, msg: WSServerMessage): void {
     try {
-      if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+      sendSerialized(ws, JSON.stringify(msg));
     } catch {
       /* client gone */
     }

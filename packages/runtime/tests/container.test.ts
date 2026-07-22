@@ -1,5 +1,7 @@
-import { Container, DefaultConfigStore, FallbackProfileManager, TOKENS } from '@wrongstack/core';
-import { SqliteSuperMemoryStore } from '@wrongstack/super-memory';
+import { FallbackProfileManager } from '@wrongstack/core/agent';
+import { Container, TOKENS } from '@wrongstack/core/kernel';
+import { DefaultConfigStore } from '@wrongstack/core/storage';
+import { SqliteMemoryPort } from '@wrongstack/super-memory';
 import { describe, expect, it } from 'vitest';
 import { createDefaultContainer } from '../src/container.js';
 
@@ -130,7 +132,7 @@ describe('createDefaultContainer', () => {
       modelsRegistry: mockModels,
     });
 
-    expect(c.resolve(TOKENS.MemoryStore)).toBeInstanceOf(SqliteSuperMemoryStore);
+    expect(c.resolve(TOKENS.MemoryStore)).toBeInstanceOf(SqliteMemoryPort);
   });
 
   it('ignores the removed JSONL engine setting and still uses SQLite', () => {
@@ -144,7 +146,7 @@ describe('createDefaultContainer', () => {
       modelsRegistry: mockModels,
     });
 
-    expect(c.resolve(TOKENS.MemoryStore)).toBeInstanceOf(SqliteSuperMemoryStore);
+    expect(c.resolve(TOKENS.MemoryStore)).toBeInstanceOf(SqliteMemoryPort);
   });
 
   it('resolves every default-bound token (exercises each factory)', () => {

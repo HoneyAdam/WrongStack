@@ -56,7 +56,7 @@
   },
   "connection": {
     "wsUrlLabel": "WebSocket Sunucu URL'si",
-    "wsUrlPlaceholder": "ws://localhost:3457",
+    "wsUrlPlaceholder": "ws://localhost:3456",
     "wsUrlHint": "Vekil WebSocket sunucusunun URL'si. Sunucu CLI ile birlikte çalışır.",
     "startingHeading": "WebSocket Sunucusunu Başlatma",
     "startingBody": "Geliştirme için repo kökünden ./dev.ps1 çalıştırın (isteğe bağlı olarak önce WS_HOST/WS_PORT ayarlayın). Aksi hâlde WebUI'yi CLI ile başlatın: wstack --webui."

@@ -1,8 +1,9 @@
-import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core';
-import { MEMORY_TYPE_LABELS, type MemoryPriority, type MemoryType } from '@wrongstack/core';
+import type { MemoryEntry, MemoryPort, MemoryScope } from '@wrongstack/core/types';
+import { MEMORY_TYPE_LABELS, type MemoryPriority, type MemoryType } from '@wrongstack/core/types';
+import { getSuperMemorySurface } from '@wrongstack/super-memory';
 
 export interface MemorySlashDeps {
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
 }
 
 // ── Scope labels ────────────────────────────────────────────────────────────
@@ -92,7 +93,12 @@ interface SuperMemoryLike {
   updatedAt: string;
   importance: number;
   confidence: number;
-  anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+  anchors: Array<{
+    type: string;
+    path?: string | undefined;
+    symbol?: string | undefined;
+    command?: string | undefined;
+  }>;
   sources: Array<{ type: string }>;
 }
 
@@ -110,18 +116,6 @@ interface MemoryAnchorLike {
   command?: string | undefined;
 }
 
-interface RememberSuperInput {
-  text: string;
-  kind?: string | undefined;
-  scope?: string | undefined;
-  tags?: string[] | undefined;
-  anchors?: MemoryAnchorLike[] | undefined;
-  importance?: number | undefined;
-  confidence?: number | undefined;
-  supersedes?: string[] | undefined;
-  contradicts?: string[] | undefined;
-}
-
 interface UpdateSuperInput {
   text?: string | undefined;
   kind?: string | undefined;
@@ -133,47 +127,6 @@ interface UpdateSuperInput {
   status?: string | undefined;
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
-}
-
-interface SuperMemoryStoreLike {
-  stats(): Promise<SuperMemoryStatsLike>;
-  listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
-  retrieveForPath(opts: {
-    path: string;
-    limit?: number;
-    includeAncestors?: boolean;
-  }): Promise<SuperMemoryLike[]>;
-  searchSuper(query: string, opts?: { limit?: number }): Promise<SuperMemoryLike[]>;
-  rememberSuper(input: RememberSuperInput): Promise<SuperMemoryLike>;
-  updateSuperMemory(id: string, patch: UpdateSuperInput): Promise<SuperMemoryLike>;
-  deleteSuperMemory(id: string, reason?: string): Promise<void>;
-  getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
-  graphFor?(
-    query: string,
-    maxDepth?: number,
-    limit?: number,
-  ): Promise<
-    Array<{
-      from: string;
-      to: string;
-      relation: string;
-      weight: number;
-      evidence?: string[] | undefined;
-    }>
-  >;
-}
-
-function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
-  const s = store as unknown as Record<string, unknown>;
-  return (
-    typeof s.stats === 'function' &&
-    typeof s.listSuper === 'function' &&
-    typeof s.retrieveForPath === 'function' &&
-    typeof s.rememberSuper === 'function' &&
-    typeof s.updateSuperMemory === 'function' &&
-    typeof s.getSuperMemory === 'function' &&
-    typeof s.deleteSuperMemory === 'function'
-  );
 }
 
 // ── Legacy statistics ───────────────────────────────────────────────────────
@@ -748,10 +701,11 @@ function memErr(err: unknown): string {
 }
 
 async function handleMemoryWrite(
-  store: MemoryStore,
+  store: MemoryPort,
   sub: string,
   rest: string[],
 ): Promise<{ message: string }> {
+  const superMemory = getSuperMemorySurface(store);
   // remember has a legacy fallback; every other write op needs Super Memory.
   if (sub === 'remember' || sub === 'add') {
     if (rest.length === 0) {
@@ -760,7 +714,7 @@ async function handleMemoryWrite(
           'Usage: /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--symbol path#Name] [--command cmd] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
       };
     }
-    if (!isSuperMemoryStore(store)) {
+    if (!superMemory) {
       const text = rest.join(' ').trim();
       if (!text) return { message: 'Usage: /memory remember <text>' };
       await store.remember(text);
@@ -772,7 +726,7 @@ async function handleMemoryWrite(
     if (!parsed.text)
       return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
     try {
-      const memory = await store.rememberSuper({
+      const memory = await superMemory.rememberSuper({
         text: parsed.text,
         ...(parsed.kind && { kind: parsed.kind }),
         ...(parsed.scope && { scope: parsed.scope }),
@@ -782,7 +736,7 @@ async function handleMemoryWrite(
         ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
         ...(parsed.supersedes && { supersedes: parsed.supersedes }),
         ...(parsed.contradicts && { contradicts: parsed.contradicts }),
-      });
+      } as never);
       const tags = memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
       return { message: `Remembered \`${memory.id}\` [${memory.kind}] ${memory.text}${tags}` };
     } catch (err) {
@@ -790,7 +744,7 @@ async function handleMemoryWrite(
     }
   }
 
-  if (!isSuperMemoryStore(store)) {
+  if (!superMemory) {
     return { message: `\`/memory ${sub}\` requires the Super Memory backend.` };
   }
 
@@ -822,7 +776,7 @@ async function handleMemoryWrite(
       };
     }
     try {
-      const memory = await store.updateSuperMemory(id, patch);
+      const memory = await superMemory.updateSuperMemory(id, patch as never);
       return {
         message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
       };
@@ -836,9 +790,9 @@ async function handleMemoryWrite(
     if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
     const reason = rest.slice(1).join(' ').trim() || undefined;
     try {
-      const existing = await store.getSuperMemory(id);
+      const existing = await superMemory.getSuperMemory(id);
       if (!existing) return { message: `No memory with id \`${id}\`.` };
-      await store.deleteSuperMemory(id, reason);
+      await superMemory.deleteSuperMemory(id, reason);
       return { message: `Deleted \`${id}\`.` };
     } catch (err) {
       return { message: `Could not delete: ${memErr(err)}` };
@@ -894,10 +848,11 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       if (sub === 'graph') {
         const query = tokens.slice(1).join(' ').trim();
         if (!query) return { message: 'Usage: /memory graph <memory-id|path|query>' };
-        if (!isSuperMemoryStore(store) || typeof store.graphFor !== 'function') {
+        const superMemory = getSuperMemorySurface(store);
+        if (!superMemory?.graphFor) {
           return { message: '`/memory graph` requires the Super Memory graph backend.' };
         }
-        const edges = await store.graphFor(query, 2, 100);
+        const edges = await superMemory.graphFor(query, 2, 100);
         if (edges.length === 0) return { message: `No graph relationships matched "${query}".` };
         return {
           message: [
@@ -915,9 +870,13 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
       try {
         // ── SuperMemory path ──────────────────────────────────────────────
-        if (isSuperMemoryStore(store)) {
+        const superMemory = getSuperMemorySurface(store);
+        if (superMemory) {
           // Fetch stats and full list
-          const [stats, allMemories] = await Promise.all([store.stats(), store.listSuper()]);
+          const [stats, allMemories] = await Promise.all([
+            superMemory.stats(),
+            superMemory.listSuper(),
+          ]);
 
           if (allMemories.length === 0) {
             return { message: '🧠 Super Memory is empty.' };
@@ -936,7 +895,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
           // Path filter — use retrieveForPath for path-based queries
           if (parsed.path) {
-            const pathMemories = await store.retrieveForPath({
+            const pathMemories = await superMemory.retrieveForPath({
               path: parsed.path,
               limit: 200,
               includeAncestors: true,

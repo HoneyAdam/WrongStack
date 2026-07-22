@@ -1,5 +1,6 @@
-import type { ModelsRegistry, ProviderConfig } from '@wrongstack/core';
-import { DefaultSecretScrubber, resolveProviderModelList } from '@wrongstack/core';
+import type { ModelsRegistry, ProviderConfig } from '@wrongstack/core/types';
+import { resolveProviderModelList } from '@wrongstack/core/models';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   beginOAuthLogin,
@@ -116,7 +117,7 @@ export async function probeModelDescriptors(
 export interface ProviderHandlerDeps {
   /** Path to the active profile config; the only provider mutation target. */
   profileConfigPath: string;
-  vault: import('@wrongstack/core').SecretVault;
+  vault: import('@wrongstack/core/types').SecretVault;
   /** Shared config write lock — serialized via chained promises */
   setConfigWriteLock: (lock: Promise<void>) => void;
   getConfigWriteLock: () => Promise<void>;

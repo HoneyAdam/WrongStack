@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
-import { assessCommitSafety, buildChildEnv } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import { assessCommitSafety } from '@wrongstack/core/coordination';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import type { Tool } from '@wrongstack/core/types';
 import { COMMAND_OUTPUT_MAX_BYTES, normalizeCommandOutput } from './_util.js';
 
 type GitSubcommand =

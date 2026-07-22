@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { EventBus, Logger } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
 import type {
   CodeAction,
   CodeActionParams,

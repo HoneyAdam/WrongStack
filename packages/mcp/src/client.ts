@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { MCPAuthorizationProvider } from './authorization.js';
 import { MCP_CONSTANTS } from './constants.js';

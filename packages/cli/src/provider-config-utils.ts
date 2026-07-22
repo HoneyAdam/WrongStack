@@ -1,4 +1,5 @@
-import { expectDefined, FsError } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
+import { FsError } from '@wrongstack/core/types';
 
 export { expectDefined };
 
@@ -9,8 +10,8 @@ export { expectDefined };
  * touches the config `providers` map.
  */
 import * as fs from 'node:fs/promises';
-import type { ProviderApiKey, ProviderConfig, SecretVault } from '@wrongstack/core';
-import { atomicWrite, color } from '@wrongstack/core';
+import type { ProviderApiKey, ProviderConfig, SecretVault } from '@wrongstack/core/types';
+import { atomicWrite, color } from '@wrongstack/core/utils';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 /**
  * Normalize a ProviderConfig to the canonical `apiKeys[]` form.

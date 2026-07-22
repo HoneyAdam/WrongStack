@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { compileGlob } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import { compileGlob } from '@wrongstack/core/utils';
+import type { Tool } from '@wrongstack/core/types';
 import { mapWithConcurrency } from './_concurrency.js';
 import { assertRealInsideRoot, safeResolveReal } from './_util.js';
 

@@ -252,18 +252,100 @@ export class Context implements RunEnv {
    * `onChange`. New code should prefer the wrapper API.
    */
   private _state: ConversationState | null = null;
-  private _conversationJournalTail: Promise<void> = Promise.resolve();
+  private readonly _conversationJournalQueue: Array<{
+    event: SessionEvent;
+    bytes: number;
+    writer: SessionWriter;
+  }> = [];
+  private _conversationJournalBytes = 0;
+  private _conversationJournalDrain: Promise<void> | null = null;
+  private static readonly CONVERSATION_JOURNAL_MAX_EVENTS = 256;
+  private static readonly CONVERSATION_JOURNAL_MAX_BYTES = 4 * 1024 * 1024;
 
   /** Wait until every exact conversation-state event queued so far is in the writer buffer. */
   async flushConversationJournal(): Promise<void> {
-    await this._conversationJournalTail;
+    for (;;) {
+      if (this._conversationJournalQueue.length > 0) this.startConversationJournalDrain();
+      const drain = this._conversationJournalDrain;
+      if (!drain) return;
+      await drain;
+    }
+  }
+
+  private conversationJournalBytes(event: SessionEvent): number {
+    try {
+      return Buffer.byteLength(JSON.stringify(event), 'utf8');
+    } catch {
+      return Context.CONVERSATION_JOURNAL_MAX_BYTES + 1;
+    }
+  }
+
+  private enqueueConversationJournal(event: SessionEvent, writer: SessionWriter): void {
+    const bytes = this.conversationJournalBytes(event);
+    const shouldSnapshot =
+      event.type === 'messages_replaced' ||
+      this._conversationJournalQueue.length >= Context.CONVERSATION_JOURNAL_MAX_EVENTS ||
+      this._conversationJournalBytes + bytes > Context.CONVERSATION_JOURNAL_MAX_BYTES;
+
+    if (shouldSnapshot) {
+      const snapshot: SessionEvent =
+        event.type === 'messages_replaced'
+          ? event
+          : {
+              type: 'messages_replaced',
+              ts: new Date().toISOString(),
+              version: 1,
+              messages: [...this.messages],
+            };
+      const snapshotBytes = this.conversationJournalBytes(snapshot);
+      for (let index = this._conversationJournalQueue.length - 1; index >= 0; index -= 1) {
+        const queued = this._conversationJournalQueue[index];
+        if (queued?.writer !== writer) continue;
+        this._conversationJournalBytes = Math.max(0, this._conversationJournalBytes - queued.bytes);
+        this._conversationJournalQueue.splice(index, 1);
+      }
+      if (snapshotBytes <= Context.CONVERSATION_JOURNAL_MAX_BYTES) {
+        this._conversationJournalQueue.push({ event: snapshot, bytes: snapshotBytes, writer });
+        this._conversationJournalBytes += snapshotBytes;
+      }
+    } else {
+      this._conversationJournalQueue.push({ event, bytes, writer });
+      this._conversationJournalBytes += bytes;
+    }
+    while (
+      this._conversationJournalQueue.length > Context.CONVERSATION_JOURNAL_MAX_EVENTS ||
+      this._conversationJournalBytes > Context.CONVERSATION_JOURNAL_MAX_BYTES
+    ) {
+      const dropped = this._conversationJournalQueue.shift();
+      if (!dropped) break;
+      this._conversationJournalBytes = Math.max(0, this._conversationJournalBytes - dropped.bytes);
+    }
+    this.startConversationJournalDrain();
+  }
+
+  private startConversationJournalDrain(): void {
+    if (this._conversationJournalDrain) return;
+    const drain = (async () => {
+      while (this._conversationJournalQueue.length > 0) {
+        const queued = this._conversationJournalQueue.shift();
+        if (!queued) continue;
+        this._conversationJournalBytes = Math.max(0, this._conversationJournalBytes - queued.bytes);
+        await queued.writer.append(queued.event).catch(() => {
+          // Session persistence is best-effort. FileSessionWriter separately
+          // bounds and retries its durable buffer.
+        });
+      }
+    })().finally(() => {
+      if (this._conversationJournalDrain === drain) this._conversationJournalDrain = null;
+      if (this._conversationJournalQueue.length > 0) this.startConversationJournalDrain();
+    });
+    this._conversationJournalDrain = drain;
   }
 
   get state(): ConversationState {
     if (!this._state) {
       this._state = new ConversationState(this);
       this._state.onChange((change) => {
-        const writer = this.session;
         const ts = new Date().toISOString();
         const event: SessionEvent | null =
           change.kind === 'message_appended'
@@ -290,12 +372,7 @@ export class Context implements RunEnv {
                   }
                 : null;
         if (!event) return;
-        this._conversationJournalTail = this._conversationJournalTail
-          .then(() => writer.append(event))
-          .catch(() => {
-            // Session persistence is best-effort, but the queue must remain
-            // usable after one failed append so later state is not discarded.
-          });
+        this.enqueueConversationJournal(event, this.session);
       });
     }
     return this._state;
@@ -499,7 +576,10 @@ export class Context implements RunEnv {
       sessionId: this.session.id,
       agentId: this.agentId,
       agentName: this.agentName,
-      provider: typeof this.provider === 'object' ? (this.provider as { id: string }).id : String(this.provider),
+      provider:
+        typeof this.provider === 'object'
+          ? (this.provider as { id: string }).id
+          : String(this.provider),
       model: this.model,
       toolName: input.toolName,
       toolUseId: input.toolUseId,

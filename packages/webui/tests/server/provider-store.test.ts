@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createProviderStore, createConfigWriteLock, type ProviderStore } from '@wrongstack/webui-server';
-import type { ProviderConfig } from '@wrongstack/core';
+import type { ProviderConfig } from '@wrongstack/core/types';
 
 // Hoisted so vi.mock can reference them at the top level
 const { mockReadFile, mockAtomicWrite } = vi.hoisted(() => ({
@@ -18,7 +18,7 @@ vi.mock('node:fs/promises', () => {
   };
 });
 
-vi.mock('@wrongstack/core', async (importOriginal) => {
+vi.mock('@wrongstack/core/utils', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
@@ -70,7 +70,7 @@ describe('ProviderStore', () => {
     isEncrypted: vi.fn().mockReturnValue(false),
     encryptSync: vi.fn(),
     decryptSync: vi.fn(),
-  } as never as import('@wrongstack/core').DefaultSecretVault;
+  } as never as import('@wrongstack/core/security').DefaultSecretVault;
 
   beforeEach(() => {
     mockReadFile.mockReset();

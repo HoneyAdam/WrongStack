@@ -3,7 +3,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { color, toErrorMessage } from '@wrongstack/core';
+import { color, toErrorMessage } from '@wrongstack/core/utils';
 import type { ReadlineInputReader } from '../input-reader.js';
 import type { TerminalRenderer } from '../renderer.js';
 import { detectProjectFacts, renderAgentsTemplate } from '../services/project-facts.js';

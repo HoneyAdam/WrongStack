@@ -1,17 +1,9 @@
 import * as fs from 'node:fs/promises';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import {
-  atomicWrite,
-  color,
-  ConfigError,
-  configureChildEnvGitIdentity,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-  getChildEnvGitIdentity,
-  noOpVault,
-  type SlashCommand,
-} from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { atomicWrite, color, configureChildEnvGitIdentity, getChildEnvGitIdentity } from '@wrongstack/core/utils';
+import { ConfigError, type SlashCommand } from '@wrongstack/core/types';
+import { decryptConfigSecrets, encryptConfigSecrets, noOpVault } from '@wrongstack/core/security';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /** Loose email shape check — git itself accepts nearly anything, so only

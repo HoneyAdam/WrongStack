@@ -1,5 +1,5 @@
 
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { codebaseIndexDirOverride } from './writer.js';
 import { isIndexing, runStartupIndex } from './background-indexer.js';
 import { indexCircuitBreaker } from './circuit-breaker.js';

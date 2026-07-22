@@ -25,7 +25,7 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { runOptionalPluginLlm, stripOuterMarkdownFence } from '../runtime/llm.js';
 
 const API_VERSION = '^0.1.10';

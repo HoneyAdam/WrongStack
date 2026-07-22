@@ -13,7 +13,7 @@ import {
   type AcpLiveCatalog,
   fetchAcpRegistry,
 } from '@wrongstack/acp';
-import type { WstackPaths } from '@wrongstack/core';
+import type { WstackPaths } from '@wrongstack/core/utils';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 

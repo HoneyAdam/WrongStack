@@ -26,10 +26,16 @@ export function designProjectDir(projectRoot: string): string {
 const RULE_FILES = ['rules.md', 'RULES.md', 'design.md'];
 
 const rulesCache = new Map<string, string | undefined>();
+const RULES_CACHE_MAX_PROJECTS = 32;
 
 /** Read `.design/rules.md` (or RULES.md / design.md). Cached per project root. */
 export async function loadProjectDesignRules(projectRoot: string): Promise<string | undefined> {
-  if (rulesCache.has(projectRoot)) return rulesCache.get(projectRoot);
+  if (rulesCache.has(projectRoot)) {
+    const cached = rulesCache.get(projectRoot);
+    rulesCache.delete(projectRoot);
+    rulesCache.set(projectRoot, cached);
+    return cached;
+  }
   let rules: string | undefined;
   for (const name of RULE_FILES) {
     try {
@@ -41,6 +47,11 @@ export async function loadProjectDesignRules(projectRoot: string): Promise<strin
     } catch {
       // file absent — try next
     }
+  }
+  while (rulesCache.size >= RULES_CACHE_MAX_PROJECTS) {
+    const oldest = rulesCache.keys().next().value;
+    if (oldest === undefined) break;
+    rulesCache.delete(oldest);
   }
   rulesCache.set(projectRoot, rules);
   return rules;
@@ -92,10 +103,12 @@ export async function loadActiveKit(projectRoot: string): Promise<PersistedActiv
  * (`primary`) is applied to both themes; a scoped key (`light.bg`/`dark.bg`)
  * only to that theme. Returns NEW objects — never mutates the input.
  */
-export function applyTokenOverrides<T extends { light?: Record<string, string> | undefined; dark?: Record<string, string> | undefined }>(
-  tokens: T,
-  overrides: DesignOverrides | undefined,
-): T {
+export function applyTokenOverrides<
+  T extends {
+    light?: Record<string, string> | undefined;
+    dark?: Record<string, string> | undefined;
+  },
+>(tokens: T, overrides: DesignOverrides | undefined): T {
   if (!overrides || Object.keys(overrides).length === 0) return tokens;
   const light = { ...(tokens.light ?? {}) };
   const dark = { ...(tokens.dark ?? {}) };

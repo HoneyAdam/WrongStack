@@ -21,14 +21,14 @@ Add scenario-level TUI tests that assert real interaction behavior.
 
 ## Acceptance criteria
 
-- [ ] Add scenario tests covering:
-  - [~] slash menu open/navigate/submit
-  - [~] picker open/close behavior
-  - [~] mode/model selection flow
-  - [~] session resume rendering
-  - [~] input submit + history update
-- [~] Tests assert behavior, not just no-throw render
-- [~] New tests run reliably in CI without flake
+- [x] Add scenario tests covering:
+  - [x] slash menu open/navigate/submit
+  - [x] picker open/close behavior
+  - [x] mode/model selection flow
+  - [x] session resume rendering
+  - [x] input submit + history update
+- [x] Tests assert behavior, not just no-throw render
+- [x] New tests run reliably in CI without flake
 
 ## Progress notes
 
@@ -50,7 +50,17 @@ Covered behavior now includes:
 - mode-picker Enter → `/mode <id>` submission flow
 - resumed history rendering for user / assistant / tool entries
 
-This materially improves issue 005, but does **not** yet complete the top-level `<App />` submit/history scenario. Ink's full-app mock rendering remains too shallow for a reliable real-submit assertion, so the remaining best target is a narrower seam around submit/history mutation instead of brute-forcing the app shell frame.
+The remaining top-level gap is now closed by `app-journeys.test.ts` and the shared
+`helpers/app-journey-harness.ts`. The harness mounts the production `<App />`
+composition with contract-complete Agent, EventBus, AttachmentStore, and real
+SlashCommandRegistry collaborators. It verifies the boot submit path through
+`agent.run` into rendered user/assistant history and verifies resumed messages
+through the top-level history composition. The baseline App test also waits for
+passive hook setup, so a synchronous first frame can no longer hide an invalid
+fixture or an effect-time crash.
+
+Focused verification on 2026-07-21 passed 11 files / 157 tests across App
+journeys, submit/history, keyboard routing, model/mode selection, and resume.
 
 ## Suggested implementation notes
 

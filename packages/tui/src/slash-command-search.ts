@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import type { SlashCommandMatch } from './app-state.js';
 
 type SlashCommandEntry = {

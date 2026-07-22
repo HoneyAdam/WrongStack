@@ -32,7 +32,7 @@ beforeAll(async () => {
 
   // Resolve the project's slug the same way the server does, so the entry's
   // projectSlug matches resolveWstackPaths' projectDir (the mailbox location).
-  const { resolveWstackPaths } = await import('@wrongstack/core');
+  const { resolveWstackPaths } = await import('@wrongstack/core/utils');
   const paths = resolveWstackPaths({ projectRoot, globalRoot });
 
   const entry = {
@@ -64,7 +64,7 @@ beforeAll(async () => {
     JSON.stringify({ [SESSION_ID]: entry }),
   );
 
-  server = createHttpServer({ host: '127.0.0.1', distDir, wsPort: 9998, globalRoot });
+  server = createHttpServer({ host: '127.0.0.1', distDir, globalRoot });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('bad listen address');

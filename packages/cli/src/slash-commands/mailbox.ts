@@ -23,20 +23,10 @@
  *   /mailbox history [n]                      — last n messages on the project (default 20)
  */
 
-import {
-  color,
-  GlobalMailbox,
-  type MailboxAgentStatus,
-  type MailboxAudience,
-  type MailboxMessage,
-  type MailboxMessageType,
-  mailboxSessionTag,
-  resolveMailboxIdentity,
-  resolveProjectDir,
-  type SlashCommand,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { color, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { GlobalMailbox, type MailboxAgentStatus, type MailboxAudience, type MailboxMessage, type MailboxMessageType, mailboxSessionTag, resolveMailboxIdentity, resolveProjectDir } from '@wrongstack/core/coordination';
+import { type SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 function buildMailbox(opts: SlashCommandContext): GlobalMailbox | null {
   const projectDir =

@@ -1,4 +1,5 @@
-import type { BrainArbiter, BrainAutoRisk, BrainConfigPatch, BrainRuntime } from '@wrongstack/core';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
+import type { BrainAutoRisk, BrainConfigPatch, BrainRuntime } from '@wrongstack/core/execution';
 import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { WSServerMessage } from './types.js';

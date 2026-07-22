@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { safeResolve } from './_util.js';
 
 interface DocumentInput {

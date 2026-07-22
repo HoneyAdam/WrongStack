@@ -12,6 +12,13 @@ interface MockDeps {
 }
 
 function makeMockDeps(hygieneFn: () => Promise<unknown>): MockDeps {
+  const memoryStore: Record<string, unknown> = {
+    retrieveForPath: vi.fn(),
+    searchSuper: vi.fn(),
+    flushPendingCounters: vi.fn(),
+    hygiene: hygieneFn,
+  };
+  memoryStore.getCapability = vi.fn(() => memoryStore);
   return {
     config: {
       features: { memory: true },
@@ -24,12 +31,7 @@ function makeMockDeps(hygieneFn: () => Promise<unknown>): MockDeps {
       toolCall: { use: vi.fn() },
       request: { use: vi.fn() },
     },
-    memoryStore: {
-      retrieveForPath: vi.fn(),
-      searchSuper: vi.fn(),
-      flushPendingCounters: vi.fn(),
-      hygiene: hygieneFn,
-    },
+    memoryStore,
     logger: { debug: vi.fn() },
     events: { emit: vi.fn() },
   };

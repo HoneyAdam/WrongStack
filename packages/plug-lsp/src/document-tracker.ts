@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { EventBus, EventMap, Logger } from '@wrongstack/core';
+import type { EventBus, EventMap } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
 import type { TextDocumentItem } from 'vscode-languageserver-protocol';
 import { languageIdFor } from './language-detect.js';
 import type { LSPRegistry } from './registry.js';

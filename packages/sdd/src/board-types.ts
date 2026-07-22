@@ -10,7 +10,7 @@
  */
 
 import type { TaskGraph, TaskNode, TaskProgress } from '@wrongstack/core/types';
-import { computeTaskProgress } from '@wrongstack/core/types';
+import { computeTaskProgress } from '@wrongstack/core/tasking';
 
 export type SddBoardStatus =
   | 'idle'

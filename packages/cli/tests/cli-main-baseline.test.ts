@@ -117,7 +117,15 @@ describe('cli main() — baseline boot shape (PR 0 of #29)', () => {
     // SSR transforms in parallel suites.
     const { main } = await import('../src/cli-main.js');
     const start = Date.now();
-    const exit = await main(['node', 'wstack']);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const exit = await Promise.race([
+      main(['node', 'wstack']),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('main() exceeded 30s')), 30_000);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     const elapsed = Date.now() - start;
     expect(typeof exit).toBe('number');
     // Generous bound: a real run kicks off boot + provider check, which

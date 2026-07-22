@@ -1,0 +1,241 @@
+import type { BrainArbiter } from '../brain.js';
+import type { FleetBus, FleetUsageAggregator } from '../fleet-bus.js';
+
+type BudgetKind = 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
+
+interface BudgetThresholdPayload {
+  kind: BudgetKind;
+  used: number;
+  limit: number;
+  timeoutMs: number;
+  extend(extra: Record<string, unknown>): void;
+  deny(): void;
+}
+
+export interface DirectorBudgetPolicyDeps {
+  fleet: FleetBus;
+  usage: FleetUsageAggregator;
+  brain?: BrainArbiter | undefined;
+  maxBudgetExtensions: number;
+  maxFleetCostUsd: number;
+  currentSessionId(): string | undefined;
+}
+
+/** Owns budget-threshold admission, progress heartbeats, and extension history. */
+export class DirectorBudgetPolicy {
+  private readonly extendTotals = new Map<string, number>();
+  private readonly disposers: Array<() => void> = [];
+  private started = false;
+
+  constructor(private readonly deps: DirectorBudgetPolicyDeps) {}
+
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    const extendCounts = new Map<string, number>();
+    const progressBySubagent = new Map<string, number>();
+    const lastTimeoutProgress = new Map<string, number>();
+
+    this.disposers.push(
+      this.deps.fleet.filter('tool.executed', (event) => {
+        const current = progressBySubagent.get(event.subagentId) ?? 0;
+        progressBySubagent.set(event.subagentId, current + 1);
+      }),
+      this.deps.fleet.filter('budget.threshold_reached', (event) => {
+        if (this.isCollabAgent(event.subagentId)) return;
+        const payload = event.payload as BudgetThresholdPayload;
+        if (payload.kind === 'timeout' || payload.kind === 'idle_timeout') {
+          this.handleTimeoutThreshold(
+            event.subagentId,
+            event.taskId,
+            payload,
+            progressBySubagent,
+            lastTimeoutProgress,
+          );
+          return;
+        }
+
+        const guardKey = `${event.subagentId}:${payload.kind}`;
+        const prior = extendCounts.get(guardKey) ?? 0;
+        if (prior >= this.deps.maxBudgetExtensions) {
+          payload.deny();
+          extendCounts.delete(guardKey);
+          return;
+        }
+        if (payload.kind === 'cost' && this.deps.maxFleetCostUsd < Number.POSITIVE_INFINITY) {
+          const totalCost = this.deps.usage.snapshot().total?.cost ?? 0;
+          if (totalCost >= this.deps.maxFleetCostUsd) {
+            payload.deny();
+            return;
+          }
+        }
+
+        const grant = () =>
+          this.grantBoundedExtension(
+            event.subagentId,
+            event.taskId,
+            payload,
+            guardKey,
+            prior,
+            extendCounts,
+          );
+        if (payload.kind !== 'cost' || !this.deps.brain) {
+          grant();
+          return;
+        }
+        this.requestCostDecision(event.subagentId, event.taskId, payload, prior, grant);
+      }),
+    );
+  }
+
+  dispose(): void {
+    for (const dispose of this.disposers.splice(0)) dispose();
+    this.started = false;
+  }
+
+  extensionsFor(subagentId: string): number {
+    return this.extendTotals.get(subagentId) ?? 0;
+  }
+
+  removeSubagent(subagentId: string): void {
+    this.extendTotals.delete(subagentId);
+  }
+
+  private handleTimeoutThreshold(
+    subagentId: string,
+    taskId: string | undefined,
+    payload: BudgetThresholdPayload,
+    progressBySubagent: Map<string, number>,
+    lastTimeoutProgress: Map<string, number>,
+  ): void {
+    const heartbeatKey = `${subagentId}:${payload.kind}`;
+    const progress = progressBySubagent.get(subagentId) ?? 0;
+    const lastProgress = lastTimeoutProgress.get(heartbeatKey) ?? -1;
+    if (progress <= lastProgress) {
+      payload.deny();
+      return;
+    }
+    lastTimeoutProgress.set(heartbeatKey, progress);
+    const field = payload.kind === 'timeout' ? 'timeoutMs' : 'idleTimeoutMs';
+    setImmediate(() => {
+      const newLimit = Math.min(Math.ceil(payload.limit * 2), 24 * 60 * 60_000);
+      this.recordExtension(subagentId, taskId, payload.kind, newLimit);
+      payload.extend({ [field]: newLimit });
+    });
+  }
+
+  private grantBoundedExtension(
+    subagentId: string,
+    taskId: string | undefined,
+    payload: BudgetThresholdPayload,
+    guardKey: string,
+    prior: number,
+    extendCounts: Map<string, number>,
+  ): void {
+    setImmediate(() => {
+      const extra: Record<string, unknown> = {};
+      const base = Math.max(payload.limit, payload.used);
+      const grow = (ceiling: number) => Math.min(Math.ceil(base * 1.5), ceiling);
+      let newLimit = base;
+      switch (payload.kind) {
+        case 'iterations':
+          newLimit = grow(50_000);
+          extra.maxIterations = newLimit;
+          break;
+        case 'tool_calls':
+          newLimit = grow(100_000);
+          extra.maxToolCalls = newLimit;
+          break;
+        case 'tokens':
+          newLimit = grow(5_000_000);
+          extra.maxTokens = newLimit;
+          break;
+        case 'cost':
+          newLimit = Math.min(base * 1.5, 100);
+          extra.maxCostUsd = newLimit;
+          break;
+      }
+      extendCounts.set(guardKey, prior + 1);
+      this.recordExtension(subagentId, taskId, payload.kind, newLimit);
+      payload.extend(extra);
+    });
+  }
+
+  private requestCostDecision(
+    subagentId: string,
+    taskId: string | undefined,
+    payload: BudgetThresholdPayload,
+    prior: number,
+    grant: () => void,
+  ): void {
+    void this.deps.brain
+      ?.decide({
+        id: `director-budget-${subagentId}-${payload.kind}`,
+        sessionId: this.deps.currentSessionId(),
+        source: 'director',
+        question: `Should the director extend the ${payload.kind} budget for subagent ${subagentId}?`,
+        context: [
+          taskId ? `Task id: ${taskId}` : undefined,
+          `Used: ${payload.used}`,
+          `Limit: ${payload.limit}`,
+          `Prior extensions for this kind: ${prior}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        risk: 'high',
+        fallback: 'continue',
+        options: [
+          {
+            id: 'extend',
+            label: 'Grant the director default budget extension',
+            consequence: 'The subagent continues with a larger cost budget.',
+            risk: 'high',
+            recommended: true,
+          },
+          {
+            id: 'stop',
+            label: 'Stop this subagent at the current budget limit',
+            consequence: 'The current task will fail or stop due to budget pressure.',
+            risk: 'low',
+          },
+        ],
+      })
+      .then((decision) => {
+        if (
+          decision.type === 'deny' ||
+          decision.type === 'ask_human' ||
+          decision.optionId === 'stop'
+        ) {
+          payload.deny();
+          return;
+        }
+        grant();
+      })
+      .catch(() => payload.deny());
+  }
+
+  private recordExtension(
+    subagentId: string,
+    taskId: string | undefined,
+    kind: string,
+    newLimit: number,
+  ): void {
+    const total = (this.extendTotals.get(subagentId) ?? 0) + 1;
+    this.extendTotals.set(subagentId, total);
+    this.deps.fleet.emit({
+      subagentId,
+      taskId,
+      ts: Date.now(),
+      type: 'budget.extended',
+      payload: { kind, newLimit, totalExtensions: total },
+    });
+  }
+
+  private isCollabAgent(subagentId: string): boolean {
+    return (
+      subagentId.startsWith('bug-hunter-') ||
+      subagentId.startsWith('refactor-planner-') ||
+      subagentId.startsWith('critic-')
+    );
+  }
+}

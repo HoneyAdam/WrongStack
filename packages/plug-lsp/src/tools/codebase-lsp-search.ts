@@ -8,7 +8,7 @@
  *  3. Deduplicate results present in both sources
  */
 
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import {
   codebaseIndexDirOverride,
   internalKindToLspKind,

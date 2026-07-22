@@ -3,8 +3,8 @@ import {
   emitProcessCompleted,
   emitProcessOutput,
   emitProcessStarted,
-  type Tool,
-} from '@wrongstack/core';
+} from '@wrongstack/core/observability';
+import type { Tool } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';

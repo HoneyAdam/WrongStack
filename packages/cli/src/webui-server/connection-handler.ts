@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http';
-import type { Message, Usage } from '@wrongstack/core';
+import type { Message, Usage } from '@wrongstack/core/types';
 import type {
   GoalWebSocketHandler,
   PendingConfirm,

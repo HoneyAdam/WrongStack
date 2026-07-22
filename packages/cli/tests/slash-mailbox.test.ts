@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { GlobalMailbox } from '@wrongstack/core';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
 import { buildMailboxCommand } from '../src/slash-commands/mailbox.js';
 import { touchProjectInManifest, loadManifest } from '../src/slash-commands/project-utils.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

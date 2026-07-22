@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import { addCustomProvider, addFromCatalog } from './add-provider.js';
 import { loadProviders } from './helpers.js';
 import { runAuthLocal } from './local.js';

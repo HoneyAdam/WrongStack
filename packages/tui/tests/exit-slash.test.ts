@@ -50,6 +50,24 @@ describe('createExitSlashCommand', () => {
     expect(res).toEqual({ exit: true, message: 'Exiting…' });
   });
 
+  it('reports detached processes that will be preserved on exit', async () => {
+    const { opts, confirmExit } = makeOpts();
+    const cmd = createExitSlashCommand({
+      ...opts,
+      countBackgroundProcesses: () => 2,
+    });
+    const res = await cmd.run('');
+    expect(confirmExit).toHaveBeenCalledWith({
+      leaderActive: false,
+      subagentCount: 0,
+      backgroundCount: 2,
+    });
+    expect(res).toEqual({
+      exit: true,
+      message: 'Exiting… Preserving 2 background processes.',
+    });
+  });
+
   // (b) active path — confirm true
   it('awaits the host exit lifecycle before returning its exit result', async () => {
     const { opts, confirmExit } = makeOpts({

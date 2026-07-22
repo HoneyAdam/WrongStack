@@ -27,7 +27,7 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 interface WrapEntry {
   plugin: string;

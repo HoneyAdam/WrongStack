@@ -10,22 +10,14 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  type Agent,
-  type Config,
-  type Context,
-  type EventBus,
-  DefaultSessionStore,
-  DefaultSystemPromptBuilder,
-  type MemoryStore,
-  type ModeStore,
-  RecoveryLock,
-  resolveWstackPaths,
-  sessionScopedPath,
-  setQueuedMessagesSnapshot,
-} from '@wrongstack/core';
+import type { SkillLoader } from '@wrongstack/core/types';
+import { type Agent, type Context, DefaultSystemPromptBuilder } from '@wrongstack/core/agent';
+import { type Config, type MemoryPort, type ModeStore } from '@wrongstack/core/types';
+import { setQueuedMessagesSnapshot } from '@wrongstack/core/agent';
+import { DefaultSessionStore, RecoveryLock } from '@wrongstack/core/storage';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { resolveWstackPaths, sessionScopedPath } from '@wrongstack/core/utils';
 import type { TuiRuntimeState } from './tui-runtime-state.js';
-import type { SkillLoader } from '@wrongstack/core';
 
 export interface ProjectSwitchContext {
   state: TuiRuntimeState;
@@ -33,14 +25,14 @@ export interface ProjectSwitchContext {
   events: EventBus;
   agent: Agent;
   config: Config;
-  tokenCounter: import('@wrongstack/core').TokenCounter;
+  tokenCounter: import('@wrongstack/core/types').TokenCounter;
   modeId: string | undefined;
   modeStore: ModeStore | undefined;
-  memoryStore: MemoryStore | undefined;
+  memoryStore: MemoryPort | undefined;
   skillLoader: SkillLoader | undefined;
   /** attachTodosCheckpoint — from execute() scope. */
   attachTodosCheckpoint: (
-    state: import('@wrongstack/core').ConversationState,
+    state: import('@wrongstack/core/agent').ConversationState,
     todosPath: string,
     sessionId: string,
     events: EventBus,
@@ -60,7 +52,19 @@ export async function switchProjectInPlace(
   targetRoot: string,
   displayName: string,
 ): Promise<string | null> {
-  const { state, context, events, agent, config, tokenCounter, modeId, modeStore, memoryStore, skillLoader, attachTodosCheckpoint } = ctx;
+  const {
+    state,
+    context,
+    events,
+    agent,
+    config,
+    tokenCounter,
+    modeId,
+    modeStore,
+    memoryStore,
+    skillLoader,
+    attachTodosCheckpoint,
+  } = ctx;
 
   const resolved = path.resolve(targetRoot);
   const stat = await fs.stat(resolved).catch(() => null);
@@ -70,7 +74,10 @@ export async function switchProjectInPlace(
   const oldUsage = tokenCounter.total();
   const oldRecoveryLock = state.activeRecoveryLock;
   const oldProjectRoot = state.projectRoot;
-  const nextWpaths = resolveWstackPaths({ projectRoot: resolved, globalRoot: state.wpaths.globalRoot });
+  const nextWpaths = resolveWstackPaths({
+    projectRoot: resolved,
+    globalRoot: state.wpaths.globalRoot,
+  });
   await fs.mkdir(nextWpaths.projectSessions, { recursive: true });
   const nextSessionStore = new DefaultSessionStore({
     dir: nextWpaths.projectSessions,
@@ -88,7 +95,10 @@ export async function switchProjectInPlace(
   state.projectRoot = resolved;
   state.wpaths = nextWpaths;
   state.activeSessionStore = nextSessionStore;
-  state.activeRecoveryLock = new RecoveryLock({ dir: nextWpaths.projectSessions, sessionStore: nextSessionStore });
+  state.activeRecoveryLock = new RecoveryLock({
+    dir: nextWpaths.projectSessions,
+    sessionStore: nextSessionStore,
+  });
 
   context.cwd = resolved;
   context.projectRoot = resolved;
@@ -99,8 +109,14 @@ export async function switchProjectInPlace(
   context.clearFileTracking();
   context.tokenCounter.reset();
   context.meta['packageTrackerOpts'] = { storageDir: nextWpaths.projectDir, projectRoot: resolved };
-  context.state.setMeta('plan.path', sessionScopedPath(nextWpaths.projectSessions, nextWriter.id, '.plan.json'));
-  context.state.setMeta('task.path', sessionScopedPath(nextWpaths.projectSessions, nextWriter.id, '.tasks.json'));
+  context.state.setMeta(
+    'plan.path',
+    sessionScopedPath(nextWpaths.projectSessions, nextWriter.id, '.plan.json'),
+  );
+  context.state.setMeta(
+    'task.path',
+    sessionScopedPath(nextWpaths.projectSessions, nextWriter.id, '.tasks.json'),
+  );
   state.detachActiveTodosCheckpoint = attachTodosCheckpoint(
     context.state,
     sessionScopedPath(nextWpaths.projectSessions, nextWriter.id, '.todos.json'),
@@ -112,9 +128,7 @@ export async function switchProjectInPlace(
 
   try {
     const switchMode =
-      modeId && modeId !== 'default' && modeStore
-        ? await modeStore.getMode(modeId)
-        : undefined;
+      modeId && modeId !== 'default' && modeStore ? await modeStore.getMode(modeId) : undefined;
     const switchBuilder = new DefaultSystemPromptBuilder({
       memoryStore: memoryStore ?? undefined,
       // Single injection channel: Super Memory turn middleware, not a static section.

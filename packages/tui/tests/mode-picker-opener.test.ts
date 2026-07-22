@@ -1,4 +1,4 @@
-import type { Mode } from '@wrongstack/core';
+import type { Mode } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { buildModePickerOptions } from '../src/hooks/use-mode-picker.js';
 

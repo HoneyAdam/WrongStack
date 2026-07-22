@@ -3,8 +3,9 @@
  * FleetSupervisor. The supervisor itself is a real instance over fake
  * ports; the registry is populated per-test and cleared after.
  */
-import { EventBus, FleetBus, FleetSupervisor } from '@wrongstack/core';
-import type { BrainDecision } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
+import { FleetBus, FleetSupervisor } from '@wrongstack/core/coordination';
+import type { BrainDecision } from '@wrongstack/core/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setActiveFleetSupervisor } from '../src/fleet/supervisor-registry.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

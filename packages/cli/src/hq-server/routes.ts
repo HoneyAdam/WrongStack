@@ -13,36 +13,10 @@ import * as path from 'node:path';
 import type * as http from 'node:http';
 import { WebSocket } from 'ws';
 import type { TrustBoundary } from '@wrongstack/core/security';
-import {
-  buildTranscriptFromEvents,
-  type HqSnapshot,
-  createHqPersistence,
-  createMailboxHttpRouter,
-  DEFAULT_HQ_REDACTION_POLICY,
-  GlobalMailbox,
-  HqAlertEngine,
-  type HqAlertRuleConfig,
-  type HqCommand,
-  type HqCommandAuditEntry,
-  HqCommandAuditLog,
-  type HqEventEnvelope,
-  type HqQueuedCommand,
-  type HqRedactionPolicy,
-  type HqTimeseriesSample,
-  type HqToken,
-  type HqTranscriptEntry,
-  hashHqPassword,
-  isLoopbackHost,
-  type MailboxHttpAccessDecision,
-  MailboxHttpRateLimiter,
-  mintHqCookieSecret,
-  mutateHqAuthFile,
-  resolveHqDataDir,
-  resolveProjectDir,
-  tokenHasCapability,
-  validateHqCommand,
-  verifyHqPassword,
-} from '@wrongstack/core';
+import { buildTranscriptFromEvents, createHqPersistence, DEFAULT_HQ_REDACTION_POLICY, hashHqPassword, isLoopbackHost, mintHqCookieSecret, mutateHqAuthFile, resolveHqDataDir, tokenHasCapability, validateHqCommand, verifyHqPassword } from '@wrongstack/core/hq';
+import { type HqSnapshot, HqAlertEngine, type HqAlertRuleConfig, type HqCommand, type HqCommandAuditEntry, HqCommandAuditLog, type HqEventEnvelope, type HqQueuedCommand, type HqRedactionPolicy, type HqTimeseriesSample, type HqToken, type HqTranscriptEntry } from '@wrongstack/core/hq';
+import { createMailboxHttpRouter } from '@wrongstack/core/coordination';
+import { GlobalMailbox, type MailboxHttpAccessDecision, MailboxHttpRateLimiter, resolveProjectDir } from '@wrongstack/core/coordination';
 import { HQ_HTML } from '../hq-recovery-html.js';
 import { resolveHqDistDir, serveHqStatic } from '../hq-static-serve.js';
 import * as HqServerAuth from './auth.js';
@@ -1127,7 +1101,7 @@ async function handleMailboxAction(
   }
 
   try {
-    const { actionToAckInput } = await import('@wrongstack/core');
+    const { actionToAckInput } = await import('@wrongstack/core/coordination');
     const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
     const mailbox = getMailboxGateway(projectDir).mailbox;
     const readerId = abody.readerId;
@@ -1185,7 +1159,7 @@ async function handleApiAlerts(
 }
 
 async function handleApiSessions(res: http.ServerResponse): Promise<void> {
-  const { SessionRegistry } = await import('@wrongstack/core');
+  const { SessionRegistry } = await import('@wrongstack/core/storage');
   const globalRoot = path.dirname(resolveHqDataDir());
   try {
     const registry = new SessionRegistry(globalRoot);
@@ -1227,9 +1201,8 @@ async function handleApiSessionEvents(
   match: RegExpMatchArray,
   transcripts: Map<string, TranscriptRing>,
 ): Promise<void> {
-  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore } = await import(
-    '@wrongstack/core'
-  );
+  const { SessionRegistry, DefaultSessionStore } = await import('@wrongstack/core/storage');
+  const { resolveWstackPaths } = await import('@wrongstack/core/utils');
   const url = new URL(req.url ?? '/', 'http://localhost');
   const full = url.searchParams.get('full') === '1';
   const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
@@ -1365,7 +1338,7 @@ function resolveHqProjectRoot(
 ): Promise<string | undefined> {
   // Dynamic import to avoid pulling in SessionRegistry at module level
   const fn = async (): Promise<string | undefined> => {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     try {
       const registry = new SessionRegistry(globalRoot);
       if (typeof ids.sessionId === 'string') {

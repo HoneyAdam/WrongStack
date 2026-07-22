@@ -1,5 +1,5 @@
-import type { Request, StreamEvent } from '@wrongstack/core';
-import { ProviderError } from '@wrongstack/core';
+import type { Request, StreamEvent } from '@wrongstack/core/types';
+import { ProviderError } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   WireFormatProvider,

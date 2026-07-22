@@ -21,6 +21,11 @@ import { fallbackProfileChain, parseModelRef } from '../core/fallback-model.js';
 import type { Config, ModelMatrixEntry, ProviderConfig } from '../types/config.js';
 import { AGENT_CATALOG, AGENTS_BY_PHASE } from './agents/index.js';
 
+/** Either a static matrix or a live getter (re-read on every spawn). */
+export type ModelMatrixSource =
+  | Record<string, ModelMatrixEntry>
+  | (() => Record<string, ModelMatrixEntry> | undefined);
+
 /** All valid phase keys, in catalog order. */
 export const MATRIX_PHASE_KEYS: readonly string[] = Object.keys(AGENTS_BY_PHASE);
 

@@ -2,11 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  type Provider,
-  type SessionWriter,
-  Context,
-} from '@wrongstack/core';
+import { Context } from '@wrongstack/core/agent';
+import type { Provider, SessionWriter } from '@wrongstack/core/types';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { setWorkingDirTool } from '../src/set-working-dir.js';
 

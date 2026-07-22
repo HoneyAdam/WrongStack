@@ -1,4 +1,4 @@
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import { runClaudeOAuthLogin } from './anthropic-oauth.js';
 import { runCopilotOAuthLogin } from './github-copilot-oauth.js';
 import { runCodexOAuthLogin } from './openai-codex-oauth.js';

@@ -6,7 +6,7 @@ import type {
   Request,
   Response,
   StreamEvent,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { AnthropicProvider } from './anthropic.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { type OpenAICompatibleOptions, OpenAICompatibleProvider } from './openai-compatible.js';

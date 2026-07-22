@@ -14,6 +14,7 @@ const fleetEvent = (fleetBus: FleetBus, subagentId: string, type: string, payloa
   (fleetBus as never as { emit: (e: { subagentId: string; ts: number; type: string; payload: unknown }) => void }).emit({ subagentId, ts: Date.now(), type, payload });
 
 function makeMockDirector(fleetBus: FleetBus, resultFor?: (id: string) => unknown) {
+  const taskOwners = new Map<string, string>();
   return {
     id: 'mock-director',
     fleet: fleetBus,
@@ -22,11 +23,16 @@ function makeMockDirector(fleetBus: FleetBus, resultFor?: (id: string) => unknow
     async spawn(cfg: { role: string }) {
       return `${cfg.role}-0`;
     },
-    async assign() {
-      return 'task-0';
+    async assign(task: { subagentId: string }) {
+      const taskId = `task-${task.subagentId}`;
+      taskOwners.set(taskId, task.subagentId);
+      return taskId;
     },
     async awaitTasks(ids: string[]) {
-      return ids.map((id) => ({ taskId: id, subagentId: id, status: 'success' as const, result: resultFor ? resultFor(id) : `done:${id}`, iterations: 1, toolCalls: 0, durationMs: 1 }));
+      return ids.map((id) => {
+        const subagentId = taskOwners.get(id) ?? id;
+        return { taskId: id, subagentId, status: 'success' as const, result: resultFor ? resultFor(subagentId) : `done:${subagentId}`, iterations: 1, toolCalls: 0, durationMs: 1 };
+      });
     },
   };
 }

@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { MCP_CONSTANTS } from './constants.js';
 import type { MCPPromptArgument, MCPPromptMessage, MCPResourceContents } from './protocol.js';

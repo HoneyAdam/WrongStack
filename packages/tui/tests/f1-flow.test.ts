@@ -230,8 +230,10 @@ describe('F1 scroll with 50 projects', () => {
 
 describe('F1 project switch behavior', () => {
   it('does not use requestExit(42) for project selections', () => {
-    const appPath = fileURLToPath(new URL('../src/app.tsx', import.meta.url));
-    const source = readFileSync(appPath, 'utf8');
+    const pickerControllerPath = fileURLToPath(
+      new URL('../src/hooks/use-app-picker-keys.ts', import.meta.url),
+    );
+    const source = readFileSync(pickerControllerPath, 'utf8');
     const projectSelectionBlock = source.slice(
       source.indexOf('if (item.kind === \'project\')'),
       source.indexOf("if (item.key === 'new-session')"),

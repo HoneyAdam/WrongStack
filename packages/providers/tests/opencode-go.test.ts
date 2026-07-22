@@ -1,4 +1,4 @@
-import type { Request } from '@wrongstack/core';
+import type { Request } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { OpenCodeGoProvider } from '../src/opencode-go.js';
 

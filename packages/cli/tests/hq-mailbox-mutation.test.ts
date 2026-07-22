@@ -3,13 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  GlobalMailbox,
-  HQ_AUTH_FILE_VERSION,
-  resolveProjectDir,
-  wstackGlobalRoot,
-  writeHqAuthFile,
-} from '@wrongstack/core';
+import { GlobalMailbox, resolveProjectDir } from '@wrongstack/core/coordination';
+import { HQ_AUTH_FILE_VERSION, writeHqAuthFile } from '@wrongstack/core/hq';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 import { startHqServer, type HqServerHandle } from '../src/hq-server.js';
 
@@ -59,7 +55,7 @@ const seedProject = async (slug: string): Promise<ProjectFixture> => {
   const globalRoot = path.dirname(dataDir);
   const projectRoot = path.join(dataDir, slug);
   await fs.mkdir(projectRoot, {recursive: true});
-  const { SessionRegistry } = await import('@wrongstack/core');
+  const { SessionRegistry } = await import('@wrongstack/core/storage');
   const registry = new SessionRegistry(globalRoot);
   await registry.register({
     sessionId: `sess-${slug}`,

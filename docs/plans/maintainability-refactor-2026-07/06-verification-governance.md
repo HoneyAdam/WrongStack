@@ -4,6 +4,8 @@
 
 Make architectural improvement enforceable. A refactor is not complete because code moved or tests happened to pass; it is complete when behavior, ownership, dependency direction, packaging, and rollback evidence all satisfy explicit gates.
 
+**Scope:** All packages and applications except `website/` (per the 2026-07-21 scope decision).
+
 ## 1. Required verification layers
 
 ### Static verification

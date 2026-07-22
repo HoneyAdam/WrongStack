@@ -19,7 +19,7 @@ export interface LiveSessionsContext {
  * Filters out 'stale' entries. Called when the F10 sessions panel opens.
  */
 export async function getLiveSessions(ctx: LiveSessionsContext) {
-  const { SessionRegistry } = await import('@wrongstack/core');
+  const { SessionRegistry } = await import('@wrongstack/core/storage');
   const globalRoot = path.dirname(ctx.state.wpaths.globalConfig);
   const registry = new SessionRegistry(globalRoot);
   const sessions = await registry.list();

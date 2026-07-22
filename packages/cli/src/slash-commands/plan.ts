@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import {
   addPlanItem,
   clearPlan,
@@ -19,7 +19,7 @@ import {
   type TaskFile,
 } from '@wrongstack/core/storage';
 import { formatTaskList, formatTodosList } from '@wrongstack/core/utils';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 /** Find a plan item by 1-based index, exact id, or case-insensitive title substring. */
 function findPlanItemIndex(plan: PlanFile, query: string): number {

@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 /**
  * ToolTranslator — bidirectional translation between WrongStack tools and
  * ACP tool representations.
@@ -16,7 +16,7 @@ import { expectDefined } from '@wrongstack/core';
  * by polling for the final [result] notification on the transport.
  */
 import type {ACPMessage, ACPToolDefinition, ACPToolCallResponse, ContentBlock} from '../types/acp-messages.js';
-import type {TaskSpec, TaskResult} from '@wrongstack/core';
+import type { TaskSpec, TaskResult } from '@wrongstack/core/types';
 export interface ToolTranslatorOptions {
   /**
    * If true (default), wrap tool calls in an async poll loop that waits

@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { safeResolveReal } from '../_util.js';
 import { detectLanguageWorkspaces } from './detect.js';
 import { planLanguageOperation } from './plan.js';

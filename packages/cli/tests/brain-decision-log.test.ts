@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EventBus } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
 import {
   type BrainDecisionEntry,
   subscribeBrainDecisionLog,

@@ -4,6 +4,7 @@ import { Box, Text } from '../ink.js';
 export interface ExitConfirmPanelProps {
   leaderActive: boolean;
   subagentCount: number;
+  backgroundCount?: number | undefined;
 }
 
 export interface ExitConfirmationKey {
@@ -42,6 +43,7 @@ export function exitConfirmationDecision(
 export function ExitConfirmPanel({
   leaderActive,
   subagentCount,
+  backgroundCount = 0,
 }: ExitConfirmPanelProps): React.ReactElement {
   const activeParts = [
     leaderActive ? 'leader run' : null,
@@ -67,6 +69,12 @@ export function ExitConfirmPanel({
           </Text>{' '}
           to confirm or <Text bold>Esc</Text> to cancel.
         </Text>
+        {backgroundCount > 0 ? (
+          <Text color="green">
+            {backgroundCount} detached background process{backgroundCount === 1 ? '' : 'es'} will
+            remain running.
+          </Text>
+        ) : null}
       </Box>
     </Box>
   );

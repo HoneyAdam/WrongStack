@@ -3,7 +3,7 @@
  * and subcommands. Keeps provider key detection and alias resolution in
  * one place so the logic doesn't drift between call sites.
  */
-import type { Config, ModelsRegistry, ProviderConfig, ResolvedProvider } from '@wrongstack/core';
+import type { Config, ModelsRegistry, ProviderConfig, ResolvedProvider } from '@wrongstack/core/types';
 
 const CATALOG_REFRESHABLE_MODEL_PROVIDERS = new Set(['chatgpt', 'openai', 'codex', 'openai-codex']);
 

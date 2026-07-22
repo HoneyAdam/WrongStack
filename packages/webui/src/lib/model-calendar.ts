@@ -1,4 +1,4 @@
-import type { ModelBlackoutRule } from '@wrongstack/core';
+import type { ModelBlackoutRule } from '@wrongstack/core/models';
 
 export const CALENDAR_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

@@ -1,14 +1,14 @@
 import { watch as fsWatch } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import type { Context } from '@wrongstack/core/agent';
 import type {
-  Context,
   EventBus,
   EventName,
   Listener,
-  SessionEventBridge,
-  WstackPaths,
-} from '@wrongstack/core';
+} from '@wrongstack/core/kernel';
+import type { SessionEventBridge } from '@wrongstack/core/storage';
+import type { WstackPaths } from '@wrongstack/core/utils';
 import { getBoard, getKanbanDir, recordTaskFileActivity } from '@wrongstack/kanban';
 import type { WebSocket } from 'ws';
 import { extractCodeMapFileTargets, normalizeCodeMapFileTarget } from './codemap-telemetry.js';
@@ -379,7 +379,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         try {
           const taskPath = (context.meta as Record<string, unknown>)['task.path'];
           if (typeof taskPath === 'string' && taskPath) {
-            const { loadTasks } = await import('@wrongstack/core');
+            const { loadTasks } = await import('@wrongstack/core/storage');
             const file = await loadTasks(taskPath);
             broadcast(clients, {
               type: 'tasks.updated',
@@ -392,7 +392,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         try {
           const planPath = (context.meta as Record<string, unknown>)['plan.path'];
           if (typeof planPath === 'string' && planPath) {
-            const { loadPlan } = await import('@wrongstack/core');
+            const { loadPlan } = await import('@wrongstack/core/storage');
             const plan = await loadPlan(planPath);
             broadcast(clients, {
               type: 'plan.updated',
@@ -1342,7 +1342,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   if (globalRoot) {
     const broadcastSessions = async () => {
       try {
-        const { SessionRegistry } = await import('@wrongstack/core');
+        const { SessionRegistry } = await import('@wrongstack/core/storage');
         const registry = new SessionRegistry(globalRoot);
         const sessions = await registry.list();
         // Scope Fleet HQ to the *same project* as this server. The registry lists

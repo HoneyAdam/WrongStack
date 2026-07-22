@@ -1,4 +1,4 @@
-import type { ModeStore, Tool } from '@wrongstack/core';
+import type { ModeStore, Tool } from '@wrongstack/core/types';
 
 interface ModeInput {
   action: 'get' | 'list' | 'set' | 'clear';

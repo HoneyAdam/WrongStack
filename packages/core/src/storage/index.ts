@@ -10,7 +10,11 @@ export {
 } from './session-checkpoint-cas.js';
 export { generateSessionId, sanitizeModel } from './session-id.js';
 export {
+  QUEUE_MAX_BYTES,
+  QUEUE_MAX_ITEM_BYTES,
+  QUEUE_MAX_ITEMS,
   QueueStore,
+  retainPersistedQueueItems,
   type PersistedQueueItem,
 } from './queue-store.js';
 export {
@@ -41,9 +45,13 @@ export {
   type WatchProviderConfigOptions,
 } from './provider-config-watcher.js';
 export {
-  DefaultConfigLoader,
+  CONFIG_BEHAVIOR_DEFAULTS,
+  type ConfigDefaultRepair,
+  type ConfigDefaultRepairReport,
   type ConfigLoaderOptions,
   type ConfigSource,
+  DefaultConfigLoader,
+  repairConfigDefaults,
 } from './config-loader.js';
 export {
   runConfigMigrations,

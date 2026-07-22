@@ -1,4 +1,4 @@
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import { Box, Text, useInput } from '../ink.js';
 import type React from 'react';
 import { useEffect, useState } from 'react';

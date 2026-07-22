@@ -23,7 +23,7 @@ export interface HqWsClientOptions {
   url?: string;
 }
 
-import type { HqBrowserMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import type { HqBrowserMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core/hq';
 import {
   createSurfaceConnectionState,
   DEFAULT_SURFACE_CONNECTION_CONFIG,

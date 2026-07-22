@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { stripAnsi } from '@wrongstack/core';
+import { stripAnsi } from '@wrongstack/core/utils';
 import { describe, expect, it, vi } from 'vitest';
 import { buildFallbackCommand } from '../src/slash-commands/fallback.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

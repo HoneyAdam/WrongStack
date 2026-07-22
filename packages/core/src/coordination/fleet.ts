@@ -5,7 +5,7 @@
  */
 import type { SubagentConfig } from '../types/multi-agent.js';
 import { agentPrompt } from './agents/agent-prompts.js';
-import { ALL_AGENT_DEFINITIONS } from './agents/index.js';
+import { ALL_AGENT_DEFINITIONS, SHADOW_AGENT_SKILLS } from './agents/index.js';
 
 function defineAgent(
   id: string,
@@ -50,7 +50,10 @@ export const SECURITY_SCANNER_AGENT = defineAgent('security-scanner', 'Security 
  * Shadow Agent — one-shot fleet monitoring and intervention.
  * Use for: quiet anomaly checks and on-demand intervention.
  */
-const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
+const SHADOW_AGENT: SubagentConfig = {
+  ...defineAgent('shadow-agent', 'Shadow'),
+  skillNames: [...SHADOW_AGENT_SKILLS],
+};
 
 /**
  * Critic Agent — evaluates code quality, architecture decisions, and
@@ -61,10 +64,10 @@ const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
 const CRITIC_AGENT = defineAgent('critic', 'Critic');
 
 /**
- * All agents in a map for easy lookup by role. The 50-role phase catalog
+ * All agents in a map for easy lookup by role. The 75-role phase catalog
  * (`ALL_AGENT_DEFINITIONS`) contains the historical audit/review specialists;
  * `shadow-agent` remains the additional operational role. The resulting
- * built-in roster has 51 unique role ids.
+ * built-in roster has 76 unique role ids.
  */
 export const FLEET_ROSTER: Record<string, SubagentConfig> = {
   'audit-log': AUDIT_LOG_AGENT,

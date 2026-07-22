@@ -1,4 +1,4 @@
-import type { ModelsRegistry, Provider } from '@wrongstack/core';
+import type { ModelsRegistry, Provider } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../src/context-limit.js';
 

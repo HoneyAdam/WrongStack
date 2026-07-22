@@ -106,6 +106,24 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
+  /** Emitted after a recoverable-memory backfill completes without writes. */
+  'memory.backfill_dry_run': {
+    examined: number;
+    recoverable: number;
+    recovered: number;
+    skipped: number;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  /** Emitted after a recoverable-memory backfill writes active versions. */
+  'memory.backfill_applied': {
+    examined: number;
+    recoverable: number;
+    recovered: number;
+    skipped: number;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   /** Fired when a hygiene review candidate is created for the ReviewQueue UI. */
   'memory.review_candidate_created': {
     candidateId: string;

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
-import { type Tool, FsError, toErrorMessage, ToolValidationError } from '@wrongstack/core';
+import { FsError, ToolValidationError, type Tool } from '@wrongstack/core/types';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import { isBinaryBuffer, safeResolveReal, sha256hex } from './_util.js';
 
 interface ReadInput {
@@ -213,7 +214,7 @@ interface ReadRangeRecord {
 
 const READ_RANGES_META_KEY = 'tools.read.ranges.v1';
 
-function getReadRanges(ctx: import('@wrongstack/core').Context): Record<string, ReadRangeRecord> {
+function getReadRanges(ctx: import('@wrongstack/core/agent').Context): Record<string, ReadRangeRecord> {
   const existing = ctx.meta[READ_RANGES_META_KEY];
   if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
     return existing as Record<string, ReadRangeRecord>;
@@ -224,14 +225,14 @@ function getReadRanges(ctx: import('@wrongstack/core').Context): Record<string, 
 }
 
 function getReadRangeRecord(
-  ctx: import('@wrongstack/core').Context,
+  ctx: import('@wrongstack/core/agent').Context,
   absPath: string,
 ): ReadRangeRecord | undefined {
   return getReadRanges(ctx)[absPath];
 }
 
 function rememberReadRange(
-  ctx: import('@wrongstack/core').Context,
+  ctx: import('@wrongstack/core/agent').Context,
   absPath: string,
   mtimeMs: number,
   totalLines: number,

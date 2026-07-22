@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import type { Tool } from '@wrongstack/core/types';
 import { compileUserRegex } from './_regex.js';
 import { safeResolve } from './_util.js';
 

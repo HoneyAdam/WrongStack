@@ -10,8 +10,9 @@
  * The result is display-only: predictions are shown to the user, never executed.
  */
 
-import { readBundledInstructionText, type TodoItem } from '@wrongstack/core';
-import type { CommitLLMProvider } from './slash-commands/commit-llm.js';
+import { readBundledInstructionText } from '@wrongstack/core/utils';
+import { type TodoItem } from '@wrongstack/core/agent';
+import type { CommitLLMProvider } from './services/commit-message.js';
 
 /** Provider shape required to predict — same structural contract as commit-llm. */
 export type PredictLLMProvider = CommitLLMProvider;

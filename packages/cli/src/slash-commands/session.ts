@@ -1,6 +1,8 @@
-import type { SessionRegistry, SlashCommand } from '@wrongstack/core';
-import { color, isPidAlive, SessionRecovery } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SessionRegistry } from '@wrongstack/core/storage';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color, isPidAlive } from '@wrongstack/core/utils';
+import { SessionRecovery } from '@wrongstack/core/storage';
+import type { SlashCommandContext } from './command-context.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 // ── Live session helpers (SessionRegistry) ──────────────────────────────
@@ -63,7 +65,9 @@ function fmtAgentLine(agent: {
 function getRegistry(): SessionRegistry | undefined {
   try {
     // Dynamic require to avoid import cycle in headless mode
-    const mod = require('@wrongstack/core') as { getSessionRegistry?: () => SessionRegistry };
+    const mod = require('@wrongstack/core/storage') as {
+      getSessionRegistry?: () => SessionRegistry;
+    };
     return mod.getSessionRegistry?.();
   } catch {
     return undefined;
@@ -342,7 +346,7 @@ export function buildExitCommand(opts: SlashCommandContext): SlashCommand {
  * pending events. Stops early once we've shown enough to be useful
  * (cap = 12 lines) — the recovery is informational, not a re-execution.
  */
-function summarizePending(events: import('@wrongstack/core').SessionEvent[]): string[] {
+function summarizePending(events: import('@wrongstack/core/types').SessionEvent[]): string[] {
   const lines: string[] = [];
   const cap = 12;
   for (const ev of events.slice(-cap)) {
@@ -356,7 +360,7 @@ function summarizePending(events: import('@wrongstack/core').SessionEvent[]): st
   return lines;
 }
 
-function summariseEvent(ev: import('@wrongstack/core').SessionEvent): string {
+function summariseEvent(ev: import('@wrongstack/core/types').SessionEvent): string {
   switch (ev.type) {
     case 'user_input': {
       const text =

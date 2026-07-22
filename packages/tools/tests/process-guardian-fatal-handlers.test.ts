@@ -25,7 +25,7 @@ vi.mock('../src/process-registry-persistent.js', () => ({
   }),
 }));
 
-const { ProcessGuardian } = await import('../src/process-guardian.js');
+const { ProcessGuardian, startProcessGuardian, stopProcessGuardian } = await import('../src/process-guardian.js');
 
 describe('ProcessGuardian fatal handlers', () => {
   afterEach(() => {
@@ -37,6 +37,25 @@ describe('ProcessGuardian fatal handlers', () => {
     process.removeAllListeners('unhandledRejection');
     process.removeAllListeners('SIGTERM');
     process.removeAllListeners('SIGHUP');
+  });
+
+  it('removes every process listener when stopped', () => {
+    const events = ['exit', 'uncaughtException', 'unhandledRejection', 'SIGTERM', 'SIGHUP'] as const;
+    const before = new Map(events.map((event) => [event, process.listenerCount(event)]));
+    const g = new ProcessGuardian({ heartbeatIntervalMs: 60_000 });
+    g.start();
+    for (const event of events) expect(process.listenerCount(event)).toBe((before.get(event) ?? 0) + 1);
+    g.stop();
+    for (const event of events) expect(process.listenerCount(event)).toBe(before.get(event));
+  });
+
+  it('restarting the singleton replaces instead of stacking guardians', () => {
+    const baseline = process.listenerCount('SIGTERM');
+    startProcessGuardian({ heartbeatIntervalMs: 60_000 });
+    startProcessGuardian({ heartbeatIntervalMs: 60_000 });
+    expect(process.listenerCount('SIGTERM')).toBe(baseline + 1);
+    stopProcessGuardian();
+    expect(process.listenerCount('SIGTERM')).toBe(baseline);
   });
 
   it('exits with code 1 when uncaughtException fires', () => {

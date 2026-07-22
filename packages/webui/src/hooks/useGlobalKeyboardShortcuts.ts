@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useUIStore } from '@/stores';

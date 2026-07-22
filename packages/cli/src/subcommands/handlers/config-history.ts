@@ -1,4 +1,4 @@
-import { color, expectDefined } from '@wrongstack/core';
+import { color, expectDefined } from '@wrongstack/core/utils';
 import {
   getHistoryEntry,
   listHistory,

@@ -13,12 +13,8 @@ const { bootConfigMock } = vi.hoisted(() => ({
   bootConfigMock: vi.fn(),
 }));
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/infrastructure', () => ({
   bootConfig: bootConfigMock,
-  // Value imports referenced only in type positions by boot.ts — provided so
-  // the module graph resolves even if the transpiler keeps the bindings.
-  DefaultLogger: class {},
-  DefaultSecretVault: class {},
 }));
 
 import { bootConfig, patchConfig } from '@wrongstack/webui-server/server/boot.js';

@@ -9,45 +9,26 @@
  *   docs/plans/cli-main-executiondeps-refactor.md
  */
 
-import type {
-  Agent,
-  AgentFactory,
-  AttachmentStore,
-  AutonomyStage,
-  BrainArbiter,
-  BrainAutoRisk,
-  Config,
-  ConfigStore,
-  Context,
-  Director,
-  EventBus,
-  GlobalMailbox,
-  JournalEntry,
-  MemoryStore,
-  Message,
-  ModelsRegistry,
-  ModeStore,
-  PromptLoader,
-  ProviderConfig,
-  QueueStore,
-  RecoveryLock,
-  ResolvedProvider,
-  SessionEvent,
-  SessionStore,
-  SessionWriter,
-  SkillLoader,
-  SlashCommandRegistry,
-  TokenCounter,
-  WstackPaths,
-} from '@wrongstack/core';
+import type { Agent, Context } from '@wrongstack/core/agent';
+import type { AgentFactory, GlobalMailbox } from '@wrongstack/core/coordination';
+import type { AttachmentStore, AutonomyStage, Config, MemoryPort, Message, ModelsRegistry, ModeStore, PromptLoader, ProviderConfig, ResolvedProvider, SkillLoader, TokenCounter } from '@wrongstack/core/types';
+import type { JournalEntry } from '@wrongstack/core/goal';
+import type { RecoveryLock } from '@wrongstack/core/storage';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { BrainArbiter, Director } from '@wrongstack/core/coordination';
+import type { BrainAutoRisk } from '@wrongstack/core/execution';
+import type { ConfigStore, SessionEvent, SessionStore, SessionWriter } from '@wrongstack/core/types';
+import type { QueueStore } from '@wrongstack/core/storage';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
 import type { LiveSettingsInput } from './execution.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
+import type { AutonomyMode } from './services/autonomy-mode.js';
+import type { StatuslineConfigKey } from './services/statusline-config.js';
 import type { SessionStats } from './session-stats.js';
-import type { AutonomyMode } from './slash-commands/autonomy.js';
-import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 import type { UpdateInfo } from './update-check.js';
 
 // ─── Shared picker types (duplicated from execution.ts to break the import cycle) ───
@@ -135,7 +116,7 @@ export interface SessionDeps {
   attachments: AttachmentStore;
   queueStore: QueueStore;
   sessionStore?: SessionStore | undefined;
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: MemoryPort | undefined;
   modeStore?: ModeStore | undefined;
   mcpRegistry: MCPRegistry;
   mailbox: GlobalMailbox;
@@ -191,8 +172,8 @@ export interface FleetDeps {
   fleetRoster?: Record<string, { name: string }> | undefined;
   fleetStreamController?:
     | {
-        mode: import('@wrongstack/core').FleetChatVerbosity;
-        setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
+        mode: import('@wrongstack/core/types').FleetChatVerbosity;
+        setMode: (mode: import('@wrongstack/core/types').FleetChatVerbosity) => void;
       }
     | undefined;
   agentsMonitorController?:
@@ -237,14 +218,14 @@ export interface ControllerDeps {
       }
     | undefined;
   getEnhancerReasoning?:
-    | (() => import('@wrongstack/core').ReasoningRequest | undefined)
+    | (() => import('@wrongstack/core/types').ReasoningRequest | undefined)
     | undefined;
   /** Build an ephemeral Provider for retrying a failed refinement on another model (no session switch). */
   buildEnhancerProvider?:
     | ((
         providerId: string,
         modelId: string,
-      ) => Promise<import('@wrongstack/core').Provider | undefined>)
+      ) => Promise<import('@wrongstack/core/types').Provider | undefined>)
     | undefined;
   /** Resolve the one-key "retry with another model" fallback ref for refinement failures. */
   getEnhanceFallbackRef?: (() => string | undefined) | undefined;
@@ -304,13 +285,13 @@ export interface PickerDeps {
   brainSettings?:
     | {
         maxAutoRisk: BrainAutoRisk;
-        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        mode?: import('@wrongstack/core/coordination').BrainEscalationMode | undefined;
         poolLabels?: string[] | undefined;
         councilLabels?: string[] | undefined;
       }
     | undefined;
   /** Live-editable Brain config owner (WebUI brain.config.* + TUI panel setters). */
-  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
+  brainRuntime?: import('@wrongstack/core/execution').BrainRuntime | undefined;
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
     | undefined;
@@ -329,8 +310,8 @@ export interface LifecycleDeps {
   onValidateAutoProceed?:
     | ((suggestion: string, lastOutput: string) => Promise<boolean>)
     | undefined;
-  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
-  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
+  getEternalEngine?: (() => import('@wrongstack/core/execution').EternalAutonomyEngine | null) | undefined;
+  getParallelEngine?: (() => import('@wrongstack/core/execution').ParallelEternalEngine | null) | undefined;
   getSddRun?: (() => SddRunControl | null) | undefined;
   onSddLifecycle?:
     | ((

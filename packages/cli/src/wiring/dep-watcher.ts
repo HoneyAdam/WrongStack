@@ -1,13 +1,8 @@
 import * as path from 'node:path';
-import {
-  type EventBus,
-  type FileAuthorTrackerOptions,
-  GlobalMailbox,
-  type PackageAuthorTrackerOptions,
-  startPackageOutdatedWatcher,
-  startTechStackConsumer,
-} from '@wrongstack/core';
-import type { DefaultLogger } from '@wrongstack/core';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { type FileAuthorTrackerOptions, type PackageAuthorTrackerOptions, startTechStackConsumer } from '@wrongstack/core/coordination';
+import { GlobalMailbox, startPackageOutdatedWatcher } from '@wrongstack/core/coordination';
+import type { DefaultLogger } from '@wrongstack/core/infrastructure';
 import type { MultiAgentHost } from '../multi-agent.js';
 
 export interface SetupDepWatcherConsumersDeps {

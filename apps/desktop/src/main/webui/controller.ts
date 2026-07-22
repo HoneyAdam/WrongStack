@@ -1,5 +1,5 @@
 import type { TrustBoundary } from '@wrongstack/core/security';
-import { WebContentsView, type BaseWindow } from 'electron';
+import { shell, WebContentsView, type BaseWindow } from 'electron';
 import type {
   DesktopWebuiCommand,
   DesktopWebuiPrefs,
@@ -54,7 +54,7 @@ export class DesktopWebuiController {
       metadata: { operation: 'webui-navigation' },
     })
       .then((decision) =>
-        decision.allowed ? import('electron').then(({ shell }) => shell.openExternal(target)) : undefined,
+        decision.allowed ? void shell.openExternal(target) : undefined,
       )
       .catch(() => undefined);
   }
@@ -71,6 +71,8 @@ export class DesktopWebuiController {
     entry.status = {
       ...next,
       ...(next.prefs === undefined && previousPrefs !== undefined ? { prefs: previousPrefs } : {}),
+      // `pendingCommands` is always derived from the entry's own array (source of truth).
+      // Any `next.pendingCommands` value is intentionally overwritten.
       pendingCommands: entry.pendingCommands.length,
     };
     if (this.activeRuntimeId === entry.runtimeId) {
@@ -162,7 +164,6 @@ export class DesktopWebuiController {
 
   disposeAll(): void {
     for (const entry of [...this.views.values()]) this.dispose(entry);
-    this.views.clear();
   }
 
   findBySenderId(senderId: number): DesktopWebuiRuntimeView | undefined {
@@ -311,13 +312,13 @@ export class DesktopWebuiController {
     if (this.views.get(entry.runtimeId) !== entry || entry.pendingCommands.length === 0) return;
     if (!entry.bridgeReady) {
       entry.pendingFlushAttempts += 1;
-      const canFallback = !entry.view.webContents.isLoading() && entry.pendingFlushAttempts >= 4;
-      if (!canFallback && entry.pendingFlushAttempts <= MAX_PENDING_FLUSH_ATTEMPTS) {
+      const shouldExecuteFallback = !entry.view.webContents.isLoading() && entry.pendingFlushAttempts >= 4;
+      if (!shouldExecuteFallback && entry.pendingFlushAttempts <= MAX_PENDING_FLUSH_ATTEMPTS) {
         this.scheduleFlush(entry);
         this.setEntryStatus(entry, entry.status);
         return;
       }
-      if (!canFallback) {
+      if (!shouldExecuteFallback) {
         entry.pendingCommands.length = 0;
         this.setEntryStatus(entry, { runtimeId: entry.runtimeId, status: 'error', error: 'WebUI command bridge did not become ready.' });
         return;

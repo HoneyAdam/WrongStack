@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 /**
  * SddParallelRun
  *
@@ -20,17 +20,16 @@ import { expectDefined } from '@wrongstack/core';
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Agent } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
 import type { SubagentConfig, TaskResult } from '@wrongstack/core/types';
-import type { AgentFactory } from '@wrongstack/core';
-import { makeAgentSubagentRunner, withDisabledToolFiltering, DefaultMultiAgentCoordinator } from '@wrongstack/core/coordination';
-import { assignNickname } from '@wrongstack/core';
+import type { AgentFactory } from '@wrongstack/core/coordination';
+import { assignNickname, makeAgentSubagentRunner, withDisabledToolFiltering, DefaultMultiAgentCoordinator } from '@wrongstack/core/coordination';
 import type { EventBus } from '@wrongstack/core/kernel';
-import type { WorktreeHandle, WorktreeManager } from '@wrongstack/core';
+import type { WorktreeHandle, WorktreeManager } from '@wrongstack/core/worktree';
 import type { MultiAgentConfig } from '@wrongstack/core/types';
 import type { TaskGraph, TaskNode, TaskProgress } from '@wrongstack/core/types';
 import type { TaskTracker } from '@wrongstack/core/tasking';
-import { SddError, ERROR_CODES } from '@wrongstack/core';
+import { SddError, ERROR_CODES } from '@wrongstack/core/types';
 import { SddTaskDecomposer, type TaskBatch } from './sdd-task-decomposer.js';
 /** A sub-task produced by splitting a parent task (see `splitTask`). */
 export interface SddSubtaskSpec {

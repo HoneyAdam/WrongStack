@@ -2,11 +2,8 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import {
-  type Provider,
-  type SessionWriter,
-  Context,
-} from '@wrongstack/core';
+import { type Provider, type SessionWriter } from '@wrongstack/core/types';
+import { Context } from '@wrongstack/core/agent';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { buildWorkingDirCommand } from '../../src/slash-commands/working-dir.js';
 import type { SlashCommandContext } from '../../src/slash-commands/index.js';

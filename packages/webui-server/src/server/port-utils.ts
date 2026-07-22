@@ -1,37 +1,34 @@
 /**
- * Free-port discovery for the WebUI / SimpleUI servers.
+ * Port constants for the WebUI / SimpleUI servers.
  *
  * Design:
- * - **Surface-aware port ranges.** WebUI defaults to 3456 (HTTP) / 3457 (WS);
- *   SimpleUI defaults to 3466 / 3467. These ranges are disjoint, so a WebUI
- *   instance never accidentally claims a SimpleUI slot and vice versa.
- * - **Auto-advance.** When a port is taken, the server probes upward and binds
- *   the first free one (see `findFreePort`). The actual port is stamped into
- *   the served HTML and the instance registry so the user sees the real URL.
+ * - **Single port — shared HTTP + WebSocket.** The WebSocket server attaches
+ *   to the HTTP server (`new WebSocketServer({ server: httpServer })`), so
+ *   both protocols share one port. No separate WS port is needed.
+ * - **Auto-advance.** When a port is taken the server probes upward — WebUI
+ *   starts at 3456, SimpleUI at 3466. Set `WEBUI_STRICT_PORT=1` to disable.
+ * - **TOCTOU window.** The probe in `findFreePort` binds a throwaway
+ *   `net.Server` then closes it, so there is a tiny race between "found free"
+ *   and "real server binds". For local multi-instance use that race is
+ *   negligible; if it ever loses, the real bind fails loudly with EADDRINUSE
+ *   exactly as before.
  * - **Instance registry.** Every live process records itself in
- *   `~/.wrongstack/webui-instances.json` with its PID, surface, ports, and
+ *   `~/.wrongstack/webui-instances.json` with its PID, surface, port, and
  *   project root. A crashed instance is pruned on the next registry read
  *   (`process.kill(pid, 0)` probe), so ghosts don't accumulate.
- * - **TOCTOU window.** The probe binds a throwaway `net.Server` then closes
- *   it, so there is a tiny race between "found free" and "real server binds".
- *   For local multi-instance use that race is negligible; if it ever loses,
- *   the real bind fails loudly with EADDRINUSE exactly as before.
  */
 
 import * as net from 'node:net';
-import { ToolValidationError } from '@wrongstack/core';
+import { ToolValidationError } from '@wrongstack/core/types';
 
 /**
- * Surface-specific default port ranges.
+ * Surface-specific default single port.
  *
- * These bases are intentionally spaced so the auto-advance window of one
- * surface (typically a few ports up) never reaches the other surface's base:
+ * WebSocket shares the HTTP port (single-port design), so only one port
+ * number is specified per surface:
  *
- *   WebUI:   HTTP 3456-3465, WS 3457-3466  (10-port window)
- *   SimpleUI: HTTP 3466-3475, WS 3467-3476  (10-port window)
- *
- * This keeps the ranges visually distinct and prevents accidental overlap
- * when both surfaces run multiple instances in the same project.
+ *   WebUI:   3456
+ *   SimpleUI: 3466
  */
 export const SURFACE_DEFAULT_PORTS = {
   webui:   { http: 3456 },

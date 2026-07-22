@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildChildEnv } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
 
 export interface ClipboardImage {
   base64: string;

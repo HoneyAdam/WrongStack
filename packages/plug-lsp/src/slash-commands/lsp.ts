@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import * as path from 'node:path';
 import type { LSPRegistry } from '../registry.js';
 import type { DocumentTracker } from '../document-tracker.js';

@@ -1,19 +1,10 @@
 import { constants as fsConstants, writeFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  DefaultHealthRegistry,
-  type EventBus,
-  type HealthRegistry,
-  InMemoryMetricsSink,
-  type MetricsRuntimeStatus,
-  type MetricsServerHandle,
-  type MetricsSink,
-  startMetricsServer,
-  type WstackPaths,
-  wireMetricsToEvents,
-} from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core/utils';
+import { DefaultHealthRegistry, InMemoryMetricsSink, type MetricsServerHandle, startMetricsServer, wireMetricsToEvents } from '@wrongstack/core/observability';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { HealthRegistry, MetricsRuntimeStatus, MetricsSink } from '@wrongstack/core/types';
+import { toErrorMessage, type WstackPaths } from '@wrongstack/core/utils';
 import type {
   MCPHealthState,
   MCPOperationEvent,

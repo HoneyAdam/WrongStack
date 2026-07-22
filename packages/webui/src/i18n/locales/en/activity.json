@@ -1110,6 +1110,10 @@
     "pidLabel": "PID {{pid}}",
     "protected": "protected",
     "protectedTitle": "Protected — survives kill/killAll",
+    "background": "background",
+    "backgroundTitle": "Detached job — survives CLI/WebUI shutdown",
+    "confirmKillBackground": "Terminate detached background process {{pid}}?",
+    "confirmKillAll": "Terminate all {{count}} running processes?",
     "killTitle": "Kill PID {{pid}}"
   },
   "diff": {

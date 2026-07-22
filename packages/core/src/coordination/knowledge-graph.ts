@@ -43,7 +43,14 @@ export type GoalPriority = 'critical' | 'high' | 'medium' | 'low';
 export type ChangeStatus = 'proposed' | 'approved' | 'rejected' | 'applied' | 'rolled_back';
 export type VoteValue = 'approve' | 'reject' | 'abstain';
 
-type DecisionType = 'spawn' | 'assign' | 'approve_change' | 'reject_change' | 'escalate' | 'rollback' | 'merge_results';
+type DecisionType =
+  | 'spawn'
+  | 'assign'
+  | 'approve_change'
+  | 'reject_change'
+  | 'escalate'
+  | 'rollback'
+  | 'merge_results';
 
 export interface FactNode {
   id: string;
@@ -176,6 +183,8 @@ export interface NodeFilter {
 
 /** Default cap on in-memory nodes. Oldest terminal-state nodes are evicted first. */
 const DEFAULT_MAX_NODES = 2_000;
+const MAX_SUBSCRIPTIONS = 1_000;
+const MAX_PENDING_DELIVERIES_PER_SUBSCRIPTION = 1_000;
 
 export class KnowledgeGraph {
   private readonly nodes = new Map<string, GraphNode>();
@@ -262,8 +271,12 @@ export class KnowledgeGraph {
    * cap is reached. The JSONL file on disk retains the full history.
    */
   private static _isTerminal(node: GraphNode): boolean {
-    if (node.type === 'goal') return (node as GoalNode).status === 'done' || (node as GoalNode).status === 'failed';
-    if (node.type === 'change') return (node as ChangeNode).status === 'rejected' || (node as ChangeNode).status === 'rolled_back';
+    if (node.type === 'goal')
+      return (node as GoalNode).status === 'done' || (node as GoalNode).status === 'failed';
+    if (node.type === 'change')
+      return (
+        (node as ChangeNode).status === 'rejected' || (node as ChangeNode).status === 'rolled_back'
+      );
     if (node.type === 'vote') return true;
     // Facts and decisions are always kept by default — they are reference
     // material that grows slowly. Only evict when the cap is truly crowded.
@@ -286,7 +299,15 @@ export class KnowledgeGraph {
     // Evict oldest terminal nodes first.
     terminal.sort((a, b) => a.seq - b.seq);
     const evicted = new Set(terminal.slice(0, toEvict).map((e) => e.id));
-    if (evicted.size === 0) return; // No terminal nodes to evict — cap stands.
+    // The memory budget is hard: if terminal nodes are insufficient, evict
+    // the oldest remaining nodes rather than allowing an all-active graph to
+    // grow without bound.
+    if (evicted.size < toEvict) {
+      const remaining = [...this.nodes.keys()]
+        .filter((id) => !evicted.has(id))
+        .sort((a, b) => (this.seq.get(a) ?? 0) - (this.seq.get(b) ?? 0));
+      for (const id of remaining.slice(0, toEvict - evicted.size)) evicted.add(id);
+    }
     for (const id of evicted) {
       const node = this.nodes.get(id);
       if (!node) continue;
@@ -333,7 +354,9 @@ export class KnowledgeGraph {
     return Array.from(this.nodes.values()).filter((n) => this._matches(n, f));
   }
 
-  getGoals(filter?: Partial<{ status: GoalStatus; assignee: string; priority: GoalPriority }>): GoalNode[] {
+  getGoals(
+    filter?: Partial<{ status: GoalStatus; assignee: string; priority: GoalPriority }>,
+  ): GoalNode[] {
     return this.getAll({ type: 'goal', ...filter } as NodeFilter) as GoalNode[];
   }
 
@@ -346,9 +369,7 @@ export class KnowledgeGraph {
   }
 
   getOpenGoals(): GoalNode[] {
-    return this.getGoals({ status: 'pending' }).concat(
-      this.getGoals({ status: 'in_progress' }),
-    );
+    return this.getGoals({ status: 'pending' }).concat(this.getGoals({ status: 'in_progress' }));
   }
 
   getTopLevelGoals(): GoalNode[] {
@@ -395,6 +416,9 @@ export class KnowledgeGraph {
    * used to poll for new nodes since the last check.
    */
   subscribe(agentId: string, filter: NodeFilter): string {
+    if (this.subs.size >= MAX_SUBSCRIPTIONS) {
+      throw new Error(`Knowledge graph subscription limit reached (${MAX_SUBSCRIPTIONS})`);
+    }
     const channel = randomUUID();
     const sub: GraphSubscription = { id: randomUUID(), agentId, filter, channel };
     this.subs.set(channel, sub);
@@ -470,7 +494,10 @@ export class KnowledgeGraph {
   private _addToIndex(node: GraphNode, keys: Set<string>): void {
     for (const key of keys) {
       let set = this.index.get(key);
-      if (!set) { set = new Set(); this.index.set(key, set); }
+      if (!set) {
+        set = new Set();
+        this.index.set(key, set);
+      }
       set.add(node.id);
     }
   }
@@ -506,7 +533,10 @@ export class KnowledgeGraph {
     for (const sub of this.subs.values()) {
       if (this._matches(node, sub.filter)) {
         const pending = this.pendingDeliveries.get(sub.channel);
-        if (pending) pending.push(node);
+        if (pending) {
+          if (pending.length >= MAX_PENDING_DELIVERIES_PER_SUBSCRIPTION) pending.shift();
+          pending.push(node);
+        }
       }
     }
   }
@@ -586,7 +616,9 @@ export class KnowledgeGraph {
             this._trackSeq(parsed.id);
             this._addToIndex(parsed, this._indexKeys(parsed));
           }
-        } catch { /* skip malformed lines */ }
+        } catch {
+          /* skip malformed lines */
+        }
       }
       this._prune();
     } catch {

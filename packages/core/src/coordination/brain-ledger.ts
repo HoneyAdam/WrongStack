@@ -29,8 +29,10 @@
  * @module brain-ledger
  */
 
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { access, appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from './brain.js';
 import { markDecisionTier } from './brain-telemetry.js';
@@ -96,9 +98,7 @@ function fmtAge(ms: number): string {
 export interface LedgerGuardBrainArbiterOptions {
   inner: BrainArbiter;
   /** Typically `BrainDecisionLedger.failureStreakFor`. */
-  failureStreakFor: (
-    request: Pick<BrainDecisionRequest, 'source' | 'question' | 'id'>,
-  ) => number;
+  failureStreakFor: (request: Pick<BrainDecisionRequest, 'source' | 'question' | 'id'>) => number;
   /**
    * Deny deterministically once this many consecutive failure outcomes are
    * on record for the request's decision group. Default 3. 0 disables.
@@ -121,9 +121,7 @@ export interface LedgerGuardBrainArbiterOptions {
  * escalation tier where a `recommended: true` option could resurrect the
  * very action the history condemned.
  */
-export function createLedgerGuardBrainArbiter(
-  opts: LedgerGuardBrainArbiterOptions,
-): BrainArbiter {
+export function createLedgerGuardBrainArbiter(opts: LedgerGuardBrainArbiterOptions): BrainArbiter {
   const denyAfter = opts.denyAfter ?? 3;
   return {
     async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
@@ -154,6 +152,10 @@ export class BrainDecisionLedger {
   private readonly unsubscribers: Array<() => void> = [];
   /** Serialized fire-and-forget writes — awaited by `stop()` (drain). */
   private writeChain: Promise<unknown> = Promise.resolve();
+  private pendingWriteCount = 0;
+  private pendingWriteBytes = 0;
+  private static readonly MAX_PENDING_WRITES = 1_000;
+  private static readonly MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
   private dirReady = false;
 
   private readonly maxMemoryEntries: number;
@@ -406,38 +408,67 @@ export class BrainDecisionLedger {
   }
 
   private append(entry: BrainLedgerEntry): void {
+    let line: string;
+    try {
+      line = `${JSON.stringify(entry)}\n`;
+    } catch {
+      return;
+    }
+    const bytes = Buffer.byteLength(line, 'utf8');
+    if (
+      this.pendingWriteCount >= BrainDecisionLedger.MAX_PENDING_WRITES ||
+      bytes > BrainDecisionLedger.MAX_PENDING_WRITE_BYTES ||
+      this.pendingWriteBytes + bytes > BrainDecisionLedger.MAX_PENDING_WRITE_BYTES
+    ) {
+      return;
+    }
+    this.pendingWriteCount += 1;
+    this.pendingWriteBytes += bytes;
     this.writeChain = this.writeChain
       .then(async () => {
         if (!this.dirReady) {
           await mkdir(dirname(this.opts.filePath), { recursive: true });
           this.dirReady = true;
         }
-        await appendFile(this.opts.filePath, `${JSON.stringify(entry)}\n`, 'utf8');
+        await appendFile(this.opts.filePath, line, 'utf8');
       })
       .catch(() => {
         // Ledger persistence is best-effort — never destabilize the host.
+      })
+      .finally(() => {
+        this.pendingWriteCount = Math.max(0, this.pendingWriteCount - 1);
+        this.pendingWriteBytes = Math.max(0, this.pendingWriteBytes - bytes);
       });
   }
 
   /** Seed the in-memory ring from the JSONL tail (cross-session learning). */
   private async load(): Promise<void> {
-    let raw: string;
     try {
-      raw = await readFile(this.opts.filePath, 'utf8');
+      await access(this.opts.filePath);
     } catch {
       return; // No ledger yet.
     }
-    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
     const seed: BrainLedgerEntry[] = [];
-    for (const line of lines.slice(-this.maxMemoryEntries)) {
-      try {
-        const parsed = JSON.parse(line) as BrainLedgerEntry;
-        if (typeof parsed?.requestId === 'string' && typeof parsed.at === 'number') {
-          seed.push(parsed);
+    const input = createReadStream(this.opts.filePath, { encoding: 'utf8' });
+    const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+    try {
+      for await (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as BrainLedgerEntry;
+          if (typeof parsed?.requestId === 'string' && typeof parsed.at === 'number') {
+            seed.push(parsed);
+            if (seed.length > this.maxMemoryEntries) seed.shift();
+          }
+        } catch {
+          // Skip corrupt rows — a partial tail is still useful history.
         }
-      } catch {
-        // Skip corrupt rows — a partial tail is still useful history.
       }
+    } catch {
+      return;
+    } finally {
+      lines.close();
+      input.destroy();
     }
     // Entries recorded while the file was loading stay AFTER the seed.
     this.entries.unshift(...seed);

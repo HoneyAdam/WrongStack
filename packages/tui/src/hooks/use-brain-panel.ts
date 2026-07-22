@@ -7,7 +7,7 @@
 
 import React from 'react';
 import type { Action } from '../app-state.js';
-import type { BrainRiskLevel } from '../components/brain-panel.js';
+import type { BrainRiskLevel } from '../brain-contracts.js';
 import {
   AUTO_DENY_PRESETS,
   type BrainDenyIsTerminal,
@@ -22,7 +22,7 @@ import {
   HUMAN_TIMEOUT_PRESETS,
   LLM_MAX_TOKENS_PRESETS,
   LLM_MIN_CONFIDENCE_PRESETS,
-} from '../components/brain-panel-model.js';
+} from '../brain-panel-model.js';
 
 /** Step through a fixed enum ladder, wrapping in both directions. */
 function cycleEnum<T extends string>(values: readonly T[], current: T, delta: number): T {

@@ -16,7 +16,7 @@
 // silently mutate either from this view layer; the toggle UI calls both.
 // ---------------------------------------------------------------------------
 
-import type { PluginConfig } from '@wrongstack/core';
+import type { PluginConfig } from '@wrongstack/core/types';
 
 type PluginEntry = string | PluginConfig;
 

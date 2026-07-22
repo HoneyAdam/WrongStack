@@ -1,15 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  type Context,
-  SlashCommandRegistry,
-  ToolRegistry,
-  appendJournal,
-  emptyGoal,
-  goalFilePath,
-  saveGoal,
-} from '@wrongstack/core';
+import { type Context } from '@wrongstack/core/agent';
+import { SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { appendJournal, emptyGoal, goalFilePath, saveGoal } from '@wrongstack/core/goal';
 import { HybridCompactor } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

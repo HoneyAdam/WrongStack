@@ -1,10 +1,12 @@
 import { join, resolve, sep } from 'node:path';
 import type { WebSocket } from 'ws';
-import type { EventBus, Logger } from '@wrongstack/core';
-import { WorktreeManager } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { Logger } from '@wrongstack/core/types';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 import { cleanupStaleSddWorktrees } from '@wrongstack/sdd';
 import type { WorktreeHandleView, WorktreeOrphanView, WSServerMessage } from './types.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import { sendSerialized } from './ws-utils.js';
 
 const MAX_ACTIVITY = 6;
 
@@ -380,7 +382,7 @@ export class WorktreeWebSocketHandler {
     const data = JSON.stringify(msg);
     for (const ws of this.clients) {
       try {
-        if (ws.readyState === 1) ws.send(data);
+        sendSerialized(ws, data);
       } catch (err) {
         this.logger.debug?.(`worktree broadcast failed: ${toErrorMessage(err)}`);
       }
@@ -389,7 +391,7 @@ export class WorktreeWebSocketHandler {
 
   private send(ws: WebSocket, msg: WSServerMessage): void {
     try {
-      if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+      sendSerialized(ws, JSON.stringify(msg));
     } catch {
       /* client gone */
     }

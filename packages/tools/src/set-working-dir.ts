@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
-import type { Context, Tool } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Tool } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────

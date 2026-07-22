@@ -13,7 +13,7 @@
  * See: fix(auto-review) 623bd441a + refactor(auto-review) a93f3310a.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core';
+import { DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core/plugin';
 import { resolveReviewerFallbackModels } from '../src/execution.js';
 
 describe('reviewer fallback-chain drift guard', () => {

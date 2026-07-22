@@ -1,4 +1,4 @@
-import type { Capabilities, ProviderError, Request } from '@wrongstack/core';
+import type { Capabilities, ProviderError, Request } from '@wrongstack/core/types';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';
 import { anthropicWireFormat } from './presets/anthropic.js';

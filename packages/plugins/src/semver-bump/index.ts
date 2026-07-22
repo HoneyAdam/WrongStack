@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 /**
  * semver-bump plugin — Conventional-commit-driven semver version bumps.
@@ -8,7 +8,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
  * - semver_current: Show the current version from package.json
  * - semver_changelog: Generate a changelog between two versions
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { execFile } from 'node:child_process';
 import { access, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';

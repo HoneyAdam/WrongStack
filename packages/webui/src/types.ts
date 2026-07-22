@@ -1,4 +1,4 @@
-import type { Usage } from '@wrongstack/core';
+import type { Usage } from '@wrongstack/core/types';
 import type {
   KanbanBoard,
   KanbanBoardPresence,
@@ -2355,6 +2355,7 @@ export type WSClientMessageCore =
       payload?: { stack?: string | undefined; out?: string | undefined } | undefined;
     }
   | { type: 'design.verify' }
+  | { type: 'config.doctor'; payload?: { apply?: boolean } | undefined }
   // ── MCP client messages (requests to server) ─────────────────────────────────
   | { type: 'mcp.list' }
   | {
@@ -2368,6 +2369,9 @@ export type WSClientMessageCore =
         args?: string[];
         env?: Record<string, string>;
         allowedTools?: string[];
+        url?: string;
+        headers?: Record<string, string>;
+        lazy?: boolean;
       };
     }
   | { type: 'mcp.remove'; payload: { name: string } }
@@ -2382,6 +2386,9 @@ export type WSClientMessageCore =
         args?: string[];
         env?: Record<string, string>;
         allowedTools?: string[];
+        url?: string;
+        headers?: Record<string, string>;
+        lazy?: boolean;
       };
     }
   | { type: 'mcp.wake'; payload: { name: string } }
@@ -2650,6 +2657,7 @@ export type WSServerMessage =
           startedAt: number;
           status: 'running' | 'exited' | 'killed';
           protected?: boolean | undefined;
+          background?: boolean | undefined;
         }>;
       };
     }
@@ -2894,6 +2902,18 @@ export type WSServerMessage =
   | { type: 'tool.enabled'; payload: { name: string; ok: boolean } }
   // ── MCP server events ───────────────────────────────────────────────────────
   | {
+      type: 'config.doctor.result';
+      payload: {
+        success: boolean;
+        applied: boolean;
+        changed: boolean;
+        changes: Array<{ path: string; action: 'added' | 'replaced' }>;
+        configPath: string;
+        backupPath?: string;
+        error?: string;
+      };
+    }
+  | {
       type: 'mcp.list';
       payload: {
         servers: Array<{
@@ -2905,6 +2925,11 @@ export type WSServerMessage =
           tools?: string[];
           error?: string;
           pid?: number;
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
           health?: {
             healthState: 'disabled' | 'dormant' | 'connecting' | 'healthy' | 'degraded' | 'failed';
             consecutiveFailures: number;
@@ -2930,6 +2955,11 @@ export type WSServerMessage =
           enabled: boolean;
           description?: string;
           tools?: string[];
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
         };
       };
     }
@@ -2944,6 +2974,11 @@ export type WSServerMessage =
           enabled: boolean;
           description?: string;
           tools?: string[];
+          lazy?: boolean;
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          url?: string;
         };
       };
     }

@@ -6,7 +6,8 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { ConfigError, projectSlug, withFileLock } from '@wrongstack/core';
+import { ConfigError } from '@wrongstack/core/types';
+import { projectSlug, withFileLock } from '@wrongstack/core/utils';
 
 export interface ProjectEntry {
   name: string;

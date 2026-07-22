@@ -1,4 +1,4 @@
-import type { Config } from '@wrongstack/core';
+import type { Config } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   applySimpleUiFullAutoProfile,

@@ -17,3 +17,4 @@ export * from './persistence.js';
 export * from './commands.js';
 export * from './alerts.js';
 export * from './transcript-mapper.js';
+export type { HqClientConfig } from '../types/config.js';

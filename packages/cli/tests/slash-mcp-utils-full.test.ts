@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { parseMcpArgs, runMcpManagementCommand } from '../src/slash-commands/mcp-utils.js';
-import type { Config, MCPServerConfig } from '@wrongstack/core';
+import type { Config, MCPServerConfig } from '@wrongstack/core/types';
 
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 

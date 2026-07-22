@@ -13,8 +13,8 @@
  * before close() is allowed to proceed.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { EventBus } from '@wrongstack/core';
-import type { SessionWriter, SessionEvent } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
+import type { SessionWriter, SessionEvent } from '@wrongstack/core/storage';
 
 interface ChimeraReviewNeededPayload {
   files: Array<{ path: string; status: string }>;

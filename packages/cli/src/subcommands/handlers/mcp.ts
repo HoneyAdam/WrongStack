@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import {
   jsonObjectFileExists,
   readJsonObjectFile,

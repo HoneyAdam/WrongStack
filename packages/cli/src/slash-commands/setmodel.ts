@@ -1,29 +1,13 @@
 import * as fs from 'node:fs/promises';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import {
-  AGENT_CATALOG,
-  AGENTS_BY_PHASE,
-  type AgentPhase,
-  atomicWrite,
-  color,
-  ConfigError,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-  expectDefined,
-  MATRIX_PHASE_KEYS,
-  type ModelMatrixEntry,
-  matrixKeyKind,
-  noOpVault,
-  parseModelRef,
-  type ProviderConfig,
-  type ReasoningEffort,
-  phaseForRole,
-  fallbackProfileChain,
-  resolveModelMatrix,
-  resolveModelTargetFromEntry,
-  type SlashCommand,
-} from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { AGENT_CATALOG, AGENTS_BY_PHASE, type AgentPhase } from '@wrongstack/core/agent-catalog';
+import { atomicWrite, color, expectDefined } from '@wrongstack/core/utils';
+import { ConfigError, type ModelMatrixEntry, type ProviderConfig, type ReasoningEffort, type SlashCommand } from '@wrongstack/core/types';
+import { fallbackProfileChain } from '@wrongstack/core/agent';
+import { decryptConfigSecrets, encryptConfigSecrets, noOpVault } from '@wrongstack/core/security';
+import { MATRIX_PHASE_KEYS, matrixKeyKind, phaseForRole, resolveModelMatrix, resolveModelTargetFromEntry } from '@wrongstack/core/coordination';
+import { parseModelRef } from '@wrongstack/core/agent';
+import type { SlashCommandContext } from './command-context.js';
 
 /** A provider is selectable when it has a stored key, a key list, or a
  *  populated env var. Mirrors `hasApiKey` but config-only (no registry). */

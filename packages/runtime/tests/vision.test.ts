@@ -1,4 +1,6 @@
-import { type Context, type Tool, ToolRegistry } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { ToolRegistry } from '@wrongstack/core/registry';
+import type { Tool } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   createToolVisionAdapters,

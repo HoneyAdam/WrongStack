@@ -12,7 +12,7 @@ import type {
   HqCommandAuditEntry,
   HqEventEnvelope,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { create } from 'zustand';
 import { authorizedFetch } from './lib/auth.js';
 

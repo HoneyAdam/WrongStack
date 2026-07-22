@@ -1,22 +1,14 @@
-import type { TextBlock } from '@wrongstack/core';
-import {
-  type Config,
-  configureChildEnvGitIdentity,
-  createContextManagerTool,
-  type DefaultModelsRegistry,
-  DefaultModeStore,
-  DefaultSkillLoader,
-  DefaultSystemPromptBuilder,
-  type MemoryStore,
-  makeFleetStatusTool,
-  makeMailboxTool,
-  makeMailInboxTool,
-  makeMailSendTool,
-  normalizeTokenSavingTier,
-  TOKENS,
-  type ToolRegistry,
-  type WstackPaths,
-} from '@wrongstack/core';
+import type { TextBlock } from '@wrongstack/core/types';
+import { type Config, type MemoryPort } from '@wrongstack/core/types';
+import { configureChildEnvGitIdentity, type WstackPaths } from '@wrongstack/core/utils';
+import { normalizeTokenSavingTier } from '@wrongstack/core/types';
+import { createContextManagerTool } from '@wrongstack/core/infrastructure';
+import { type DefaultModelsRegistry, DefaultModeStore } from '@wrongstack/core/models';
+import { DefaultSkillLoader } from '@wrongstack/core/execution';
+import { DefaultSystemPromptBuilder } from '@wrongstack/core/agent';
+import { makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool } from '@wrongstack/core/coordination';
+import { TOKENS } from '@wrongstack/core/kernel';
+import { type ToolRegistry } from '@wrongstack/core/registry';
 import { registerCanonicalHostTools } from '@wrongstack/runtime/tool-registration';
 import { configureDangerBypass, configureExecPolicy, makeSkillTool } from '@wrongstack/tools';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
@@ -25,7 +17,7 @@ export interface ToolsWiringDeps {
   config: Config;
   toolRegistry: ToolRegistry;
   modelsRegistry: DefaultModelsRegistry;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   wpaths: WstackPaths;
   projectRoot: string;
   cwd: string;
@@ -38,7 +30,7 @@ export interface ToolsWiringResult {
   promptBuilder: DefaultSystemPromptBuilder;
   modeStore: DefaultModeStore;
   skillLoader: DefaultSkillLoader | undefined;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
 }
 
 export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringResult> {

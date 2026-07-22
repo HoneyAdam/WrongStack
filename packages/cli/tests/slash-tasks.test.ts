@@ -1,13 +1,10 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  createContextEvidenceState,
-  loadCompletedWorkCheckpoint,
-  saveTasks,
-  type Context,
-  type TaskFile,
-} from '@wrongstack/core';
+import { createContextEvidenceState } from '@wrongstack/core/utils';
+import { loadCompletedWorkCheckpoint, saveTasks } from '@wrongstack/core/storage';
+import { type Context } from '@wrongstack/core/agent';
+import { type TaskFile } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildTasksCommand } from '../src/slash-commands/tasks.js';
 

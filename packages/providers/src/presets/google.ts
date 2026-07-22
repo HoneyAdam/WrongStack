@@ -5,8 +5,8 @@ import { randomUUID } from 'node:crypto';
  * of `thoughtSignature` and forced `tool_use` stop reason on functionCall
  * turns.
  */
-import type { Capabilities, Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core';
-import { compactToolDefinitionForWire, safeParse } from '@wrongstack/core';
+import type { Capabilities, Message, Request, StopReason, StreamEvent, Tool, Usage } from '@wrongstack/core/types';
+import { compactToolDefinitionForWire, safeParse } from '@wrongstack/core/utils';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeGemini } from '../stop-reason.js';
 import { defineWireFormat } from '../wire-format.js';

@@ -5,6 +5,7 @@ export {
   InMemoryAgentBridge,
   InMemoryBridgeTransport,
 } from './agent-bridge.js';
+export { assignNickname } from './subagent-nicknames.js';
 export {
   type AgentFactory,
   type AgentFactoryResult,
@@ -33,6 +34,30 @@ export {
   PLANNING_AGENTS,
   REVIEW_AGENTS,
   VERIFY_AGENTS,
+  applyProjectAgentConfig,
+  buildProjectContextualizedPrompt,
+  canCaptureNewLearned,
+  CAPTURE_COOLDOWN_MS,
+  CAPTURE_MAX_PER_SESSION,
+  captureLearnedFromAgentOutput,
+  detectLearnedConflicts,
+  getProjectAgentLearnStats,
+  hintLearnedNeedsSummarization,
+  LEARNED_SOFT_LIMIT,
+  LEARNED_HARD_LIMIT,
+  listProjectAgentRoles,
+  loadProjectAgentConfig,
+  loadProjectAgentIdentity,
+  loadProjectAgentLearned,
+  loadRoleKnowledgeManifest,
+  resetProjectAgentIdentity,
+  refreshProjectAgentIdentity,
+  updateProjectAgentLearned,
+  updateProjectAgentIdentity,
+  updateProjectAgentConfig,
+  updateProjectAgentKnowledge,
+  type ProjectAgentConfig,
+  type RoleKnowledgeManifest,
 } from './agents/index.js';
 export {
   type AutoExtendCeiling,
@@ -93,6 +118,11 @@ export {
   createDelegateTool,
   type DelegateHost,
 } from './delegate-tool.js';
+export {
+  assessCommitSafety,
+  type CommitSafetyOptions,
+  type CommitSafetyReport,
+} from './commit-safety.js';
 // ── Dependency watcher — file-change → mailbox bridge ────────────────────
 export {
   DEPENDENCY_FILE_PATTERNS,
@@ -201,6 +231,13 @@ export {
   resolveMaxSpawnDepth,
 } from './spawn-budget.js';
 export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
+export { MailboxEventEmitter } from './mailbox-events.js';
+export { BrainTraceRecorder, type BrainTraceRecorderOptions } from './brain-trace.js';
+export { type FileAuthorTrackerOptions, recordFileAction } from './file-author-tracker.js';
+export {
+  startTechStackConsumer,
+  type TechStackConsumerOptions,
+} from './techstack-mailbox-consumer.js';
 export {
   authorizeMailboxBearerToken,
   createMailboxHttpRouter,
@@ -493,3 +530,12 @@ export type {
 } from './task-dag.js';
 /** Task DAG — dependency graph with fork/join semantics */
 export { TaskDAG } from './task-dag.js';
+export {
+  CollaborationBus,
+  type CollabBusState,
+  type ConsumedInjectionInfo,
+} from './collab-bus.js';
+export {
+  collabInjectMiddleware,
+  collabPauseMiddleware,
+} from '../middleware/collab-pause.js';

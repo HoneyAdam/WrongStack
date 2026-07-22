@@ -90,10 +90,18 @@ export class RecoveryLock {
 
     const ageMs = Date.now() - new Date(lock.startedAt).getTime();
     if (Number.isNaN(ageMs) || ageMs < 0) {
-      // Clock skew or corrupted timestamp — treat as orphan.
+      // Clock skew or corrupted timestamp — treat as orphan. Clean up the
+      // stale lockfile so a subsequent write() with O_EXCL doesn't fail.
+      await this.clear().catch(() => undefined);
       return null;
     }
-    if (ageMs > this.maxAgeMs) return null;
+    if (ageMs > this.maxAgeMs) {
+      // Lock is older than the max-age window — the owning process is
+      // guaranteed dead (disk wipe, OS reinstall, 24h+ uptime since crash).
+      // Clean up the stale file so a subsequent write() doesn't hit EEXIST.
+      await this.clear().catch(() => undefined);
+      return null;
+    }
 
     // PID liveness only meaningful on the same host. Different host
     // means we can't probe — assume abandoned (the other machine's

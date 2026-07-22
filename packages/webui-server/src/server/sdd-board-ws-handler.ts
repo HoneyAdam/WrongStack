@@ -1,4 +1,4 @@
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
 import {
   applySddLifecycle,
   type SddBoardSnapshot,
@@ -6,6 +6,7 @@ import {
   type SddLifecycleOp,
 } from '@wrongstack/sdd';
 import type { WebSocket } from 'ws';
+import { sendSerialized } from './ws-utils.js';
 
 interface WSClient {
   ws: WebSocket;
@@ -247,11 +248,11 @@ export class SddBoardWebSocketHandler {
   private broadcast(msg: { type: string; payload: unknown }): void {
     const data = JSON.stringify(msg);
     for (const client of this.clients) {
-      if (client.ws.readyState === 1) client.ws.send(data);
+      sendSerialized(client.ws, data);
     }
   }
 
   private send(client: WSClient, msg: { type: string; payload: unknown }): void {
-    if (client.ws.readyState === 1) client.ws.send(JSON.stringify(msg));
+    sendSerialized(client.ws, JSON.stringify(msg));
   }
 }

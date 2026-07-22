@@ -30,21 +30,12 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-import {
-  GoalPlanner,
-  assignNickname,
-  type BrainArbiter,
-  buildChildEnv,
-  type Config,
-  type EventBus,
-  type PhaseGraph,
-  PhaseGraphBuilder,
-  PhaseOrchestrator,
-  type PhaseProgress,
-  PhaseStore,
-  type TaskNode,
-  WorktreeManager,
-} from '@wrongstack/core';
+import { GoalPlanner, type PhaseGraph, PhaseGraphBuilder, PhaseOrchestrator, type PhaseProgress, PhaseStore } from '@wrongstack/core/goal';
+import { assignNickname, type BrainArbiter } from '@wrongstack/core/coordination';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import { type Config, type TaskNode } from '@wrongstack/core/types';
+import { type EventBus } from '@wrongstack/core/kernel';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 
 /** Default concurrent tasks within a single phase (override via env). */
 const DEFAULT_TASK_CONCURRENCY = 2;

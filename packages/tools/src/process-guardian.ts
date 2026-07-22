@@ -53,6 +53,95 @@ export class ProcessGuardian {
   private isRunning = false;
   private instanceId: string;
   private sigtermCount = 0;
+  private processHandlersInstalled = false;
+
+  private readonly onProcessExit = (code: number): void => {
+    console.log(JSON.stringify({
+      level: 'info',
+      event: 'process_guardian.process_exiting',
+      pid: process.pid,
+      code,
+      instanceId: this.instanceId,
+    }));
+    this.stop();
+  };
+
+  private readonly onUncaughtException = (err: Error): void => {
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'process_guardian.uncaught_exception',
+      error: err.message,
+      stack: err.stack,
+      instanceId: this.instanceId,
+      fatal: true,
+    }));
+    this.stop();
+    process.exit(1);
+  };
+
+  private readonly onUnhandledRejection = (reason: unknown): void => {
+    const err = reason instanceof Error
+      ? { message: reason.message, stack: reason.stack }
+      : { value: String(reason) };
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'process_guardian.unhandled_rejection',
+      ...err,
+      instanceId: this.instanceId,
+      fatal: true,
+    }));
+    this.stop();
+    process.exit(1);
+  };
+
+  private readonly onSigterm = (): void => {
+    this.sigtermCount++;
+    const threshold = this.config.sigtermThreshold;
+    if (threshold === Infinity) {
+      console.log(JSON.stringify({
+        level: 'warn',
+        event: 'process_guardian.sigterm_ignored',
+        pid: process.pid,
+        instanceId: this.instanceId,
+        sigtermCount: this.sigtermCount,
+        message: 'SIGTERM received but sigtermThreshold is Infinity — ignoring (use graceful shutdown instead)',
+      }));
+      return;
+    }
+    if (this.sigtermCount < threshold) {
+      console.log(JSON.stringify({
+        level: 'warn',
+        event: 'process_guardian.sigterm_deferred',
+        pid: process.pid,
+        instanceId: this.instanceId,
+        sigtermCount: this.sigtermCount,
+        threshold,
+        message: `SIGTERM received (${this.sigtermCount}/${threshold}) — ignoring until threshold is reached`,
+      }));
+      return;
+    }
+    console.log(JSON.stringify({
+      level: 'warn',
+      event: 'process_guardian.sigterm_exiting',
+      pid: process.pid,
+      instanceId: this.instanceId,
+      sigtermCount: this.sigtermCount,
+      threshold,
+      message: `SIGTERM threshold (${threshold}) reached — shutting down gracefully`,
+    }));
+    this.stop();
+    process.exit(0);
+  };
+
+  private readonly onSighup = (): void => {
+    console.log(JSON.stringify({
+      level: 'warn',
+      event: 'process_guardian.sighup_received',
+      pid: process.pid,
+      instanceId: this.instanceId,
+      message: 'SIGHUP received but ignored - WrongStack continues running',
+    }));
+  };
 
   constructor(config: ProcessGuardianConfig = {}) {
     this.registry = getPersistentProcessRegistry();
@@ -102,6 +191,7 @@ export class ProcessGuardian {
    * Stop the guardian gracefully.
    */
   stop(): void {
+    this.removeProcessHandlers();
     if (!this.isRunning) return;
     this.isRunning = false;
 
@@ -201,110 +291,23 @@ export class ProcessGuardian {
    * Set up process-level event handlers.
    */
   private setupProcessHandlers(): void {
-    // Handle exit - unregister all processes
-    process.on('exit', (code) => {
-      console.log(JSON.stringify({
-        level: 'info',
-        event: 'process_guardian.process_exiting',
-        pid: process.pid,
-        code,
-        instanceId: this.instanceId,
-      }));
-      this.stop();
-    });
+    if (this.processHandlersInstalled) return;
+    this.processHandlersInstalled = true;
+    process.on('exit', this.onProcessExit);
+    process.on('uncaughtException', this.onUncaughtException);
+    process.on('unhandledRejection', this.onUnhandledRejection);
+    process.on('SIGTERM', this.onSigterm);
+    process.on('SIGHUP', this.onSighup);
+  }
 
-    // Handle uncaught exceptions - a thrown error at process scope means the
-    // event loop is in an undefined state; logging without exiting masks the
-    // bug and lets the process continue with potentially corrupted state.
-    // Flush registry state, log, and exit non-zero so the host (systemd,
-    // launchd, a supervisor) can react.
-    process.on('uncaughtException', (err) => {
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'process_guardian.uncaught_exception',
-        error: err.message,
-        stack: err.stack,
-        instanceId: this.instanceId,
-        fatal: true,
-      }));
-      this.stop();
-      process.exit(1);
-    });
-
-    // Handle unhandled promise rejections - same rationale as uncaughtException:
-    // an unhandled rejection means a promise contract was violated somewhere
-    // upstream, and continuing execution risks cascading failures with no
-    // operator signal. Exit non-zero so the host can restart cleanly.
-    process.on('unhandledRejection', (reason) => {
-      const err = reason instanceof Error
-        ? { message: reason.message, stack: reason.stack }
-        : { value: String(reason) };
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'process_guardian.unhandled_rejection',
-        ...err,
-        instanceId: this.instanceId,
-        fatal: true,
-      }));
-      this.stop();
-      process.exit(1);
-    });
-
-    // Guardrail against accidental termination via SIGTERM:
-    //   - The first N-1 signals protect against a rogue `kill` command from
-    //     the AI (accidental single-shot SIGTERM is silently absorbed).
-    //   - The Nth signal triggers graceful shutdown so container orchestration
-    //     (Docker, systemd) eventually succeeds before the SIGKILL fallback.
-    //   - When sigtermThreshold is 0 the process exits immediately.
-    process.on('SIGTERM', () => {
-      this.sigtermCount++;
-      const threshold = this.config.sigtermThreshold;
-      if (threshold === Infinity) {
-        console.log(JSON.stringify({
-          level: 'warn',
-          event: 'process_guardian.sigterm_ignored',
-          pid: process.pid,
-          instanceId: this.instanceId,
-          sigtermCount: this.sigtermCount,
-          message: 'SIGTERM received but sigtermThreshold is Infinity — ignoring (use graceful shutdown instead)',
-        }));
-        return;
-      }
-      if (this.sigtermCount < threshold) {
-        console.log(JSON.stringify({
-          level: 'warn',
-          event: 'process_guardian.sigterm_deferred',
-          pid: process.pid,
-          instanceId: this.instanceId,
-          sigtermCount: this.sigtermCount,
-          threshold,
-          message: `SIGTERM received (${this.sigtermCount}/${threshold}) — ignoring until threshold is reached`,
-        }));
-        return;
-      }
-      console.log(JSON.stringify({
-        level: 'warn',
-        event: 'process_guardian.sigterm_exiting',
-        pid: process.pid,
-        instanceId: this.instanceId,
-        sigtermCount: this.sigtermCount,
-        threshold,
-        message: `SIGTERM threshold (${threshold}) reached — shutting down gracefully`,
-      }));
-      this.stop();
-      process.exit(0);
-    });
-
-    // Handle SIGHUP (hangup) - commonly sent by terminal close
-    process.on('SIGHUP', () => {
-      console.log(JSON.stringify({
-        level: 'warn',
-        event: 'process_guardian.sighup_received',
-        pid: process.pid,
-        instanceId: this.instanceId,
-        message: 'SIGHUP received but ignored - WrongStack continues running',
-      }));
-    });
+  private removeProcessHandlers(): void {
+    if (!this.processHandlersInstalled) return;
+    this.processHandlersInstalled = false;
+    process.off('exit', this.onProcessExit);
+    process.off('uncaughtException', this.onUncaughtException);
+    process.off('unhandledRejection', this.onUnhandledRejection);
+    process.off('SIGTERM', this.onSigterm);
+    process.off('SIGHUP', this.onSighup);
   }
 
   /**
@@ -354,6 +357,7 @@ export function getProcessGuardian(): ProcessGuardian {
 }
 
 export function startProcessGuardian(config?: ProcessGuardianConfig): ProcessGuardian {
+  _guardian?.stop();
   const guardian = new ProcessGuardian(config);
   guardian.start();
   _guardian = guardian;

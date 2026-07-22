@@ -1,4 +1,5 @@
-import { color, ReplayLogStore, resolveWstackPaths } from '@wrongstack/core';
+import { color, resolveWstackPaths } from '@wrongstack/core/utils';
+import { ReplayLogStore } from '@wrongstack/core/storage';
 import type { SubcommandHandler } from '../index.js';
 
 /**

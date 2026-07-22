@@ -1,6 +1,8 @@
 import * as fs from 'node:fs/promises';
-import { atomicWrite, ToolValidationError, unifiedDiff } from '@wrongstack/core';
-import type { Context, Tool } from '@wrongstack/core';
+import { ToolValidationError } from '@wrongstack/core/types';
+import { atomicWrite, unifiedDiff } from '@wrongstack/core/utils';
+import type { Context } from '@wrongstack/core/agent';
+import type { Tool } from '@wrongstack/core/types';
 import { checkSyntax } from './_syntax-check.js';
 import { safeResolveReal, sha256hex } from './_util.js';
 

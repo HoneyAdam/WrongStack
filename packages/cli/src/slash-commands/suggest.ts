@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Context, SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { parseNextSteps } from '@wrongstack/tools/next-steps';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { setSuggestions } from './suggestion-store.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 

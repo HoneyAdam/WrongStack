@@ -19,7 +19,7 @@
  *     `auth.ts` handler imports `renderAuthLocalHelp` and
  *     `wantsLocalHelp` directly; no flag-parsing duplication.
  */
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import type { TerminalRenderer } from '../../renderer.js';
 
 /**

@@ -1,4 +1,4 @@
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
 import type { WebSocket } from 'ws';
 import {
   handleMailboxAgents,

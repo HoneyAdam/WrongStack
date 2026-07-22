@@ -37,7 +37,7 @@
 
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';

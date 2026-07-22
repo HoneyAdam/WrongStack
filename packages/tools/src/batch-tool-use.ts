@@ -2,7 +2,7 @@ import {
   GOVERNED_TOOL_EXECUTOR_META_KEY,
   type GovernedToolExecutor,
   type Tool,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 
 interface BatchToolUseInput {
   calls: {
@@ -133,7 +133,7 @@ export const batchToolUseTool: Tool<BatchToolUseInput, BatchToolUseOutput> = {
 
 async function executeSingle(
   call: { tool: string; input: Record<string, unknown> },
-  ctx: import('@wrongstack/core').Context,
+  ctx: import('@wrongstack/core/agent').Context,
   governedExecute: GovernedToolExecutor,
 ): Promise<BatchToolUseOutput['results'][0]> {
   const start = Date.now();

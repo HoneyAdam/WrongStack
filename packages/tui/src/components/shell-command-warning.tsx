@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from '../ink.js';
-import { writeOut } from '@wrongstack/core';
+import { writeOut } from '@wrongstack/core/utils';
 import React from 'react';
 
 export type ShellCommandWarningDecision = 'yes' | 'no' | 'dont-show-again';

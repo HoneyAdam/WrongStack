@@ -1,4 +1,4 @@
-import type { MemoryStore } from '@wrongstack/core';
+import type { MemoryPort } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDiagCommand, buildStatsCommand } from '../src/slash-commands/diag-stats.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
@@ -60,8 +60,9 @@ describe('buildStatsCommand', () => {
 
 function makeMemStore(initial = '') {
   const state = { text: initial };
-  return {
+  const store = {
     readAll: vi.fn(async () => state.text),
+    read: vi.fn(async () => state.text),
     remember: vi.fn(async (s: string) => {
       state.text += (state.text ? '\n' : '') + s;
     }),
@@ -76,8 +77,17 @@ function makeMemStore(initial = '') {
     clear: vi.fn(async () => {
       state.text = '';
     }),
+    consolidate: vi.fn(async () => {}),
+    list: vi.fn(async () => []),
+    search: vi.fn(async () => []),
+    initialize: vi.fn(async () => {}),
+    getCapability: () => undefined,
+    health: vi.fn(async () => ({ status: 'ready' as const, backend: 'test-legacy' })),
+    dispose: vi.fn(async () => {}),
+    withTraceId: () => store,
     _state: state,
-  } as never as MemoryStore;
+  };
+  return store as typeof store & MemoryPort;
 }
 
 describe('buildMemoryCommand', () => {

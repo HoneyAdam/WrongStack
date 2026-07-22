@@ -6,7 +6,7 @@
  * Returns: { totalSymbols, totalFiles, byLang, byKind, lastIndexed, sizeBytes, version }
  */
 
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { codebaseIndexStats, getIndexState } from './background-indexer.js';
 import { IndexTimeoutError } from './circuit-breaker.js';
 import { SCHEMA_VERSION } from './schema.js';

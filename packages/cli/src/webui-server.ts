@@ -46,49 +46,36 @@ import { createRequire, findPackageJSON } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type {
-  Agent,
-  BrainArbiter,
-  BrainAutoRisk,
-  Context,
-  EventBus,
-  MemoryStore,
-  ModelsRegistry,
-  ModeStore,
-  PromptLoader,
-  ProviderConfig,
-  SessionStore,
-  SessionWriter,
-  SkillLoader,
-} from '@wrongstack/core';
-import {
-  DefaultSecretScrubber,
-  PromptUsageStore,
-  resolveWstackPaths,
-  TOKENS,
-  watchProviderConfig,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
+import type { Agent, Context } from '@wrongstack/core/agent';
+import type { BrainArbiter } from '@wrongstack/core/coordination';
+import type { BrainAutoRisk } from '@wrongstack/core/execution';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { MemoryPort, ModelsRegistry, ModeStore, PromptLoader, ProviderConfig, SkillLoader } from '@wrongstack/core/types';
+import type { SessionStore, SessionWriter } from '@wrongstack/core/types';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { PromptUsageStore, watchProviderConfig } from '@wrongstack/core/storage';
+import { resolveWstackPaths, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { TOKENS } from '@wrongstack/core/kernel';
 import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
 import { SkillInstaller } from '@wrongstack/core/skills';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import {
+  type BrainHandlerContext,
   buildSddWizardDeps,
   buildWebUIAccessUrl,
-  type BrainHandlerContext,
+  type CustomModeStore,
+  createCustomModeStore,
   createEmbeddedMessageRouter,
   createEmbeddedProviderOperations,
+  createMailboxRouteHandlers,
+  type DesignContext,
   type EmbeddedAgentConfigContext,
   type EmbeddedConversationContext,
   type EmbeddedProjectContext,
   type EmbeddedProviderContext,
   type EmbeddedSessionContext,
-  type CustomModeStore,
-  createCustomModeStore,
-  createMailboxRouteHandlers,
-  type DesignContext,
   envFlag,
   findFreePort,
   GoalWebSocketHandler,
@@ -117,8 +104,8 @@ import {
   type ConnectedClient,
   createConnectionHandler,
 } from './webui-server/connection-handler.js';
-import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 import { createCliKanbanHostRoutes } from './webui-server/kanban-host-adapter.js';
+import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
   announceWebuiReady,
@@ -183,7 +170,7 @@ export interface CliWebUIOptions {
   /** Project root — recorded in the running-instance registry. */
   projectRoot?: string | undefined;
   /** Full app config, used for HQ client publishing settings. */
-  appConfig?: import('@wrongstack/core').Config | undefined;
+  appConfig?: import('@wrongstack/core/types').Config | undefined;
   /** Pop the browser open to the served URL once the frontend is ready. */
   open?: boolean | undefined;
   /** Read-only worker transcript snapshot used for F5/reconnect replay. */
@@ -222,7 +209,7 @@ export interface CliWebUIOptions {
    * command dispatch surface yet).
    */
   subscribeEternalIteration?:
-    | ((fn: (entry: import('@wrongstack/core').JournalEntry) => void) => () => void)
+    | ((fn: (entry: import('@wrongstack/core/goal').JournalEntry) => void) => () => void)
     | undefined;
   /** Callback to invoke when the WebUI is shut down by a client request. */
   onExit?: (() => void) | undefined;
@@ -238,7 +225,7 @@ export interface CliWebUIOptions {
    * When present, the WebUI exposes the "New SDD Project" wizard, which runs the
    * same multi-agent fleet as `/sdd execute`. Omitted → wizard is unavailable.
    */
-  sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
+  sddSubagentFactory?: import('@wrongstack/core/coordination').AgentFactory | undefined;
   /** Session store — enables session.resume and session.delete from the WebUI. */
   sessionStore?: SessionStore | undefined;
   /** Host Brain arbiter (same instance bound at TOKENS.BrainArbiter). */
@@ -247,13 +234,13 @@ export interface CliWebUIOptions {
   brainSettings?:
     | {
         maxAutoRisk: BrainAutoRisk;
-        mode?: import('@wrongstack/core').BrainEscalationMode | undefined;
+        mode?: import('@wrongstack/core/coordination').BrainEscalationMode | undefined;
         poolLabels?: string[] | undefined;
         councilLabels?: string[] | undefined;
       }
     | undefined;
   /** Live-editable Brain config owner (brain.config.get/set handlers). */
-  brainRuntime?: import('@wrongstack/core').BrainRuntime | undefined;
+  brainRuntime?: import('@wrongstack/core/execution').BrainRuntime | undefined;
   /** Read the host's rolling brain decision log (newest last, ≤20 entries). */
   getBrainLog?:
     | (() => Array<{ at: number; kind: string; question: string; outcome: string }>)
@@ -271,7 +258,7 @@ export interface CliWebUIOptions {
    */
   onSessionSwapped?: ((newSessionId: string) => void) | undefined;
   /** Memory store — enables the Memory panel + chat `/memory` (memory.list) and the structured memory.super.* operations. */
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: MemoryPort | undefined;
   /** Skill loader — enables the SkillsPanel (skills.list). */
   skillLoader?: SkillLoader | undefined;
   /** Prompt loader — enables the prompt library (prompts.list/search/content/favorite/create). */
@@ -708,7 +695,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       server: httpServer.server,
       host,
       httpPort,
-      wsPort,
       open: !!opts.open,
       wsToken,
       publicUrl,
@@ -716,7 +702,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   } else {
     console.warn(
       `[WebUI] Frontend not served (run \`pnpm --filter @wrongstack/webui build\`). ` +
-        `WS bridge still active on ws://${host}:${wsPort}.`,
+        `WS bridge still active on ws://${host}:${httpPort}.`,
     );
   }
 
@@ -729,7 +715,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       surface,
       host,
       httpPort,
-      wsPort,
       publicUrl,
       projectRoot: opts.projectRoot,
       startedAt: new Date().toISOString(),
@@ -853,7 +838,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           snapshot.fallbackAuto !== undefined;
         if (routingChanged) {
           const configStore = opts.agent.container?.safeResolve?.(TOKENS.ConfigStore) as
-            | import('@wrongstack/core').ConfigStore
+            | import('@wrongstack/core/types').ConfigStore
             | undefined;
           configStore?.update({
             ...(snapshot.fallbackModels !== undefined

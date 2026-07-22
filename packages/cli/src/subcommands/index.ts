@@ -1,12 +1,7 @@
-import type {
-  Config,
-  ModelsRegistry,
-  SecretVault,
-  SessionStore,
-  SkillLoader,
-  ToolRegistry,
-  WstackPaths,
-} from '@wrongstack/core';
+import type { Config, ModelsRegistry, SecretVault, SkillLoader } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { SessionStore } from '@wrongstack/core/types';
+import type { ToolRegistry } from '@wrongstack/core/registry';
 import type { ReadlineInputReader } from '../input-reader.js';
 import type { TerminalRenderer } from '../renderer.js';
 

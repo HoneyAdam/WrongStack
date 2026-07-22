@@ -7,7 +7,7 @@
  * a capturing `send`) — no real I/O, no socket.
  */
 
-import type { PromptEntry, PromptLoader } from '@wrongstack/core';
+import type { PromptEntry, PromptLoader } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 import {

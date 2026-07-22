@@ -820,35 +820,82 @@ export function ChatView() {
       {/* Input */}
       <div className="shrink-0 bg-[hsl(var(--surface-2)/0.45)] px-2 pb-2 pt-2 sm:px-3 lg:px-4 lg:pb-3">
         <ProviderWaitingRoom />
-        {/* Display toggles — replaces the old keyboard-shortcut hints row,
-            giving the user quick control over thinking-log visibility and
-            tool-call grouping without diving into Settings. */}
-        <div className="ws-display-toggles hidden max-w-6xl mx-auto px-2 pb-1.5 sm:flex items-center gap-4 text-[11px] text-muted-foreground/75 select-none overflow-x-auto">
-          {/* Show Model Reasoning toggle */}
-          <ToggleSwitch
-            label="🧠 Model Reasoning"
-            value={showThinkingLogs}
-            onChange={() => {
-              useLocalPrefs
-                .getState()
-                .set({ showThinkingLogs: !useLocalPrefs.getState().showThinkingLogs });
-            }}
-          />
-          <span className="opacity-40">|</span>
-          {/* Group Tools toggle */}
-          <ToggleSwitch
-            label="🔧 Group Tools"
-            value={groupToolCallsPref}
-            onChange={() => {
-              useLocalPrefs
-                .getState()
-                .set({ groupToolCalls: !useLocalPrefs.getState().groupToolCalls });
-            }}
-          />
-          <span className="opacity-30 ml-auto text-[10px]">
-            press{' '}
-            <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-muted/40">?</kbd>{' '}
-            for shortcuts
+        {/* Quick settings + stats — replaces the old keyboard-shortcut hints row.
+            Compact toggles on the left, live session stats on the right.
+            Header items (autonomy, model, context) are NOT duplicated here. */}
+        <div className="ws-display-toggles flex max-w-6xl mx-auto px-2 pb-1.5 items-center gap-3 text-[11px] text-muted-foreground/75 select-none overflow-x-auto min-h-[1.75rem]">
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Show Model Reasoning toggle */}
+            <ToggleSwitch
+              label="🧠 Reasoning"
+              value={showThinkingLogs}
+              onChange={() => {
+                useLocalPrefs
+                  .getState()
+                  .set({ showThinkingLogs: !useLocalPrefs.getState().showThinkingLogs });
+              }}
+            />
+            <span className="opacity-30">|</span>
+            {/* Group Tools toggle */}
+            <ToggleSwitch
+              label="🔧 Group Tools"
+              value={groupToolCallsPref}
+              onChange={() => {
+                useLocalPrefs
+                  .getState()
+                  .set({ groupToolCalls: !useLocalPrefs.getState().groupToolCalls });
+              }}
+            />
+            <span className="opacity-30">|</span>
+            {/* Compact Mode toggle */}
+            <ToggleSwitch
+              label="📦 Compact"
+              value={compactMode}
+              onChange={() => useUIStore.getState().toggleCompactMode()}
+            />
+          </div>
+
+          {/* Live session stats — right-aligned, only shown when there's data */}
+          {hasStatusContent && (
+            <>
+              <span className="opacity-20 grow min-w-[1rem]" />
+              <div className="flex items-center gap-3 tabular-nums text-[10px] text-muted-foreground/70 shrink-0">
+                {totalTokens.input > 0 && (
+                  <span className="flex items-center gap-1" title={`${totalTokens.input.toLocaleString()} tokens in`}>
+                    <span className="font-medium text-foreground/80">{fmtTok(totalTokens.input)}</span>
+                    <span className="text-[9px]">in</span>
+                  </span>
+                )}
+                {totalTokens.output > 0 && (
+                  <span className="flex items-center gap-1" title={`${totalTokens.output.toLocaleString()} tokens out`}>
+                    <span className="font-medium text-foreground/80">{fmtTok(totalTokens.output)}</span>
+                    <span className="text-[9px]">out</span>
+                  </span>
+                )}
+                {rows.length > 0 && (
+                  <span className="flex items-center gap-1" title="Messages">
+                    <span className="font-medium text-foreground/80">{rows.length}</span>
+                    <span className="text-[9px]">msgs</span>
+                  </span>
+                )}
+                {iteration?.index && (
+                  <span className="flex items-center gap-1 text-primary/70" title="Current iteration">
+                    <span className="font-medium">{iteration.index}</span>
+                    <span className="text-[9px]">iter</span>
+                  </span>
+                )}
+                {startTime && (
+                  <span className="tabular-nums text-muted-foreground/50">
+                    {formatDuration(startTime)}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Shortcut hint — always visible */}
+          <span className="opacity-20 ml-2 text-[9px] shrink-0">
+            <kbd className="font-mono text-[9px] border rounded px-1 py-0.5 bg-muted/40">?</kbd>
           </span>
         </div>
         <div className="ws-chat-input-wrap p-0">

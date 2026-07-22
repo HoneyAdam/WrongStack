@@ -1,4 +1,4 @@
-import type { CustomModelDefinition, WireFamily } from '@wrongstack/core';
+import type { CustomModelDefinition, WireFamily } from '@wrongstack/core/types';
 import type { CompatibilityQuirks } from './compatibility-quirks.js';
 
 export type ProviderUsage =

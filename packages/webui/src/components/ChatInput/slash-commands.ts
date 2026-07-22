@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 // Slash command registry and matching utilities for ChatInput
 
 export type SlashCategory = 'Run' | 'Session' | 'Inspect' | 'Agent' | 'Config' | 'App';
@@ -55,6 +55,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // Config
   { name: '/settings', category: 'Config', aliases: ['/model'], description: 'Open settings (provider/model/keys)' },
   { name: '/setup', category: 'Config', description: 'Open the provider setup screen to add or change API keys' },
+  { name: '/doctor', category: 'Config', description: 'Check config defaults; use /doctor fix to repair and back up' },
   { name: '/enhance', category: 'Config', description: 'Toggle prompt refinement before sending' },
   { name: '/interrupt', category: 'Run', aliases: ['/abort', '/stop', '/int'], description: 'Stop the current run (abort the in-flight request)' },
 

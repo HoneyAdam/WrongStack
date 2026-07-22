@@ -1,4 +1,4 @@
-import type { ContentBlock } from '@wrongstack/core';
+import type { ContentBlock } from '@wrongstack/core/types';
 import { isPlainObject } from '../object-utils.js';
 
 interface AnthropicBlock {

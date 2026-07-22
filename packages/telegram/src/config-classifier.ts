@@ -16,7 +16,7 @@
 // until explicitly marked HOT.
 // ---------------------------------------------------------------------------
 
-import { diffPluginConfig } from '@wrongstack/core';
+import { diffPluginConfig } from '@wrongstack/core/plugin';
 import { TELEGRAM_CONFIG_FIELDS, type TelegramPluginConfig } from './config.js';
 
 export type ConfigReloadClass = 'hot' | 'restart-required';

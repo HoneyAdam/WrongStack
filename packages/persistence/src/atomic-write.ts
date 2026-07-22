@@ -1,0 +1,250 @@
+import { randomBytes } from 'node:crypto';
+import type { FSWatcher } from 'node:fs';
+import { watch as watchDir } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
+export interface AtomicWriteOptions {
+  mode?: number | undefined;
+  encoding?: BufferEncoding | undefined;
+}
+
+export interface FileLockOptions {
+  timeoutMs?: number | undefined;
+  staleMs?: number | undefined;
+}
+
+export interface FileLockTimeoutDetails {
+  targetPath: string;
+  timeoutMs: number;
+}
+
+export interface PersistencePrimitiveOptions {
+  createLockTimeoutError?: ((details: FileLockTimeoutDetails) => Error) | undefined;
+}
+
+export interface PersistencePrimitives {
+  atomicWrite(
+    targetPath: string,
+    content: string | Uint8Array,
+    opts?: AtomicWriteOptions,
+  ): Promise<void>;
+  ensureDir(dir: string): Promise<void>;
+  withFileLock<T>(targetPath: string, fn: () => Promise<T>, opts?: FileLockOptions): Promise<T>;
+}
+
+/** A dependency-free structured error for persistence boundary failures. */
+export class PersistenceFsError extends Error {
+  override name = 'FsError';
+  readonly code: string;
+  readonly path?: string | undefined;
+  readonly context?: Record<string, unknown> | undefined;
+
+  constructor(opts: {
+    message: string;
+    code: string;
+    path?: string | undefined;
+    context?: Record<string, unknown> | undefined;
+    cause?: unknown | undefined;
+  }) {
+    super(opts.message, { cause: opts.cause });
+    this.code = opts.code;
+    this.path = opts.path;
+    this.context = opts.context;
+  }
+}
+
+/**
+ * Create an isolated primitive set. Hosts may inject their own structured
+ * timeout error without making this low-level package depend on that host.
+ */
+export function createPersistencePrimitives(
+  options: PersistencePrimitiveOptions = {},
+): PersistencePrimitives {
+  const createLockTimeoutError =
+    options.createLockTimeoutError ??
+    (({ targetPath, timeoutMs }: FileLockTimeoutDetails) =>
+      new PersistenceFsError({
+        message: `Timed out waiting for file lock: ${targetPath}`,
+        code: 'FS_ATOMIC_WRITE_FAILED',
+        path: targetPath,
+        context: { timeoutMs },
+      }));
+
+  async function atomicWrite(
+    targetPath: string,
+    content: string | Uint8Array,
+    opts: AtomicWriteOptions = {},
+  ): Promise<void> {
+    const dir = path.dirname(targetPath);
+    await fs.mkdir(dir, { recursive: true });
+    const tmp = path.join(
+      dir,
+      `.${path.basename(targetPath)}.${randomBytes(6).toString('hex')}.tmp`,
+    );
+
+    try {
+      if (typeof content === 'string') {
+        await fs.writeFile(tmp, content, { flag: 'wx', encoding: opts.encoding ?? 'utf8' });
+      } else {
+        await fs.writeFile(tmp, content, { flag: 'wx' });
+      }
+      try {
+        const fileHandle = await fs.open(tmp, 'r+');
+        try {
+          await fileHandle.sync();
+        } finally {
+          await fileHandle.close();
+        }
+      } catch {
+        // fsync is best-effort; the atomic rename still protects readers.
+      }
+
+      let mode: number | undefined;
+      try {
+        const stat = await fs.stat(targetPath);
+        mode = stat.mode & 0o777;
+      } catch {
+        mode = opts.mode;
+      }
+      if (mode !== undefined) await fs.chmod(tmp, mode);
+
+      await renameWithRetry(tmp, targetPath);
+      if (mode !== undefined && process.platform === 'win32') {
+        await fs.chmod(targetPath, mode).catch(() => undefined);
+      }
+    } catch (error) {
+      await fs.unlink(tmp).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async function ensureDir(dir: string): Promise<void> {
+    await fs.mkdir(dir, { recursive: true });
+  }
+
+  async function withFileLock<T>(
+    targetPath: string,
+    fn: () => Promise<T>,
+    opts: FileLockOptions = {},
+  ): Promise<T> {
+    const dir = path.dirname(targetPath);
+    const lockPath = path.join(dir, `.${path.basename(targetPath)}.lock`);
+    const timeoutMs = opts.timeoutMs ?? 15_000;
+    const staleMs = opts.staleMs ?? 30_000;
+    const started = Date.now();
+    let handle: fs.FileHandle | undefined;
+
+    for (;;) {
+      try {
+        handle = await fs.open(lockPath, 'wx');
+        await handle.writeFile(`${process.pid}:${Date.now()}`);
+        break;
+      } catch (error) {
+        if (handle) {
+          await handle.close().catch(() => undefined);
+          await fs.unlink(lockPath).catch(() => undefined);
+          handle = undefined;
+        }
+
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          await fs.mkdir(dir, { recursive: true });
+          continue;
+        }
+        if (code !== 'EEXIST' && code !== 'EPERM') throw error;
+
+        try {
+          const stat = await fs.stat(lockPath);
+          if (Date.now() - stat.mtimeMs > staleMs) {
+            await fs.unlink(lockPath);
+            continue;
+          }
+        } catch {
+          continue;
+        }
+
+        const elapsed = Date.now() - started;
+        if (elapsed >= timeoutMs) {
+          throw createLockTimeoutError({ targetPath, timeoutMs });
+        }
+        await waitForLockRelease(lockPath, timeoutMs - elapsed);
+      }
+    }
+
+    try {
+      return await fn();
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await fs.unlink(lockPath).catch(() => undefined);
+    }
+  }
+
+  return { atomicWrite, ensureDir, withFileLock };
+}
+
+async function waitForLockRelease(lockPath: string, remainingMs: number): Promise<void> {
+  const parentDir = path.dirname(lockPath);
+  const lockName = path.basename(lockPath);
+  const intervalMs = Math.min(remainingMs, 100);
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let watcher: FSWatcher | null = null;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      watcher?.close();
+      resolve();
+    };
+    const timer = setTimeout(settle, intervalMs);
+
+    try {
+      watcher = watchDir(parentDir, (eventType, filename) => {
+        if (filename === lockName && (eventType === 'rename' || eventType === 'change')) {
+          clearTimeout(timer);
+          settle();
+        }
+      });
+    } catch {
+      clearTimeout(timer);
+      setTimeout(settle, Math.min(remainingMs, 25));
+      return;
+    }
+
+    void fs.access(lockPath).catch(() => {
+      clearTimeout(timer);
+      settle();
+    });
+  });
+}
+
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY']);
+
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  if (process.platform !== 'win32') {
+    await fs.rename(from, to);
+    return;
+  }
+
+  const delays = [10, 25, 60, 120, 250];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !TRANSIENT_RENAME_CODES.has(code) || attempt === delays.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    }
+  }
+  throw lastError;
+}
+
+const defaultPrimitives = createPersistencePrimitives();
+
+export const atomicWrite = defaultPrimitives.atomicWrite;
+export const ensureDir = defaultPrimitives.ensureDir;
+export const withFileLock = defaultPrimitives.withFileLock;

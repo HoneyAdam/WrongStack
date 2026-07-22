@@ -1,5 +1,5 @@
 import type { State } from '../app-state.js';
-import type { ProjectPickerItem } from '../components/project-picker.js';
+import type { ProjectPickerItem } from '../ui-contracts.js';
 
 // ── Panel helpers ──────────────────────────────────────────────────────────
 

@@ -30,8 +30,8 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
-import { expectDefined } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
+import { expectDefined } from '@wrongstack/core/utils';
 
 const API_VERSION = '^0.1.10';
 

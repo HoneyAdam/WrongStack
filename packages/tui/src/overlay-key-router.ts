@@ -1,0 +1,320 @@
+import type { Director } from '@wrongstack/core/coordination';
+import type { Action, State } from './app-reducer.js';
+import { clearConfirmationKeyResult } from './components/clear-confirm-panel.js';
+import { exitConfirmationDecision } from './components/exit-confirm-panel.js';
+import type { KeyEvent } from './components/input.js';
+import { slashConfirmationDecision } from './components/slash-confirm-panel.js';
+import { escCloseAction } from './esc-close-panels.js';
+import type { SettingsCapabilities } from './tui-host-capabilities.js';
+import type { MutableCell } from './shared-types.js';
+
+/**
+ * Minimum time (ms) before the same Esc press is re-processed after a
+ * steer/dismiss action. Prevents double-fire from repeated Esc events.
+ */
+const ESC_DISMISS_COOLDOWN_MS = 300;
+
+export function overlayPointerKey(
+  state: State,
+  input: string,
+  key: KeyEvent,
+): { isEnter: boolean; cancelAction: Action | null } {
+  const selectable =
+    state.modelPicker.open ||
+    state.autonomyPicker.open ||
+    state.designPicker.open ||
+    state.resumePicker.open ||
+    state.settingsPicker.open ||
+    state.projectPicker.open ||
+    state.slashPicker.open ||
+    state.picker.open;
+  const confirm = selectable && key.mouse?.kind === 'press' && key.mouse.button === 'left';
+  const cancel = selectable && key.mouse?.kind === 'press' && key.mouse.button === 'right';
+  let cancelAction: Action | null = null;
+  if (cancel) {
+    if (state.modelPicker.open) {
+      cancelAction =
+        state.modelPicker.step === 'model'
+          ? { type: 'modelPickerBack' }
+          : { type: 'modelPickerClose' };
+    } else if (state.autonomyPicker.open) cancelAction = { type: 'autonomyPickerClose' };
+    else if (state.designPicker.open) cancelAction = { type: 'designPickerClose' };
+    else if (state.resumePicker.open) cancelAction = { type: 'resumePickerClose' };
+    else if (state.settingsPicker.open) cancelAction = { type: 'settingsClose' };
+    else if (state.slashPicker.open) cancelAction = { type: 'slashPickerClose' };
+    else if (state.picker.open) cancelAction = { type: 'pickerClose' };
+  }
+  return { isEnter: key.return || input === '\r' || input === '\n' || confirm, cancelAction };
+}
+
+export interface BusyInterruptKeyHost {
+  readonly state: State;
+  readonly dismissedAt: MutableCell<number>;
+  readonly streamingText: MutableCell<string>;
+  readonly confirmExit: MutableCell<boolean>;
+  readonly activeController: MutableCell<AbortController | null>;
+  dispatch(action: Action): void;
+  clearPendingConfirms(): void;
+  liveDirector(): Director | null;
+}
+
+/** Handle Esc-to-steer, including optional confirmation and fleet teardown. */
+export function routeBusyInterruptKey(host: BusyInterruptKeyHost, key: KeyEvent): boolean {
+  const { state, dispatch } = host;
+  if (key.escape && state.agentsMonitorOpen) {
+    dispatch({ type: 'toggleAgentsMonitor' });
+    return true;
+  }
+  if (
+    !key.escape ||
+    state.status === 'idle' ||
+    state.confirmQueue.length > 0 ||
+    Date.now() - host.dismissedAt.current <= ESC_DISMISS_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  const runningTools = Array.from(state.runningTools.values()).map((tool) => tool.name);
+  const subagents = Object.values(state.fleet)
+    .filter((entry) => entry.status === 'running')
+    .map((entry) => ({
+      label: entry.name,
+      status: entry.status,
+      tool: entry.currentTool?.name,
+    }));
+  const subagentsTerminated = subagents.length;
+  const snapshot = {
+    runningTools,
+    subagents,
+    subagentsTerminated,
+    partialAssistantText: host.streamingText.current.slice(-1500),
+  };
+  if (host.confirmExit.current) {
+    dispatch({ type: 'escConfirmOpen', snapshot });
+    return true;
+  }
+
+  host.activeController.current?.abort();
+  host.clearPendingConfirms();
+  dispatch({ type: 'status', status: 'aborting' });
+  dispatch({ type: 'steerStart', snapshot });
+  const director = host.liveDirector();
+  if (director && subagentsTerminated > 0) {
+    const cap = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 1500);
+      timer.unref?.();
+    });
+    void Promise.race([director.terminateAll().catch(() => undefined), cap]);
+  }
+
+  const droppedCount = state.queue.length;
+  if (droppedCount > 0) dispatch({ type: 'queueClear' });
+  const droppedTag = droppedCount > 0 ? ` · dropped ${droppedCount} queued` : '';
+  const fleetTag =
+    subagentsTerminated > 0
+      ? ` · stopped ${subagentsTerminated} subagent${subagentsTerminated === 1 ? '' : 's'}`
+      : '';
+  dispatch({
+    type: 'addEntry',
+    entry: { kind: 'warn', text: `↯ Interrupted${droppedTag}${fleetTag}. Type your new direction.` },
+  });
+  return true;
+}
+
+export interface ModalOverlayKeyHost {
+  readonly state: State;
+  readonly enhanceCancelled: MutableCell<boolean>;
+  readonly enhanceController: MutableCell<AbortController | null>;
+  dispatch(action: Action): void;
+}
+
+/** Route the modal overlay ladder that has precedence over every composer key. */
+export function routeModalOverlayKey(
+  host: ModalOverlayKeyHost,
+  input: string,
+  key: KeyEvent,
+): boolean {
+  const { state, dispatch } = host;
+  if (state.status === 'aborting' && !state.steeringPending && state.interrupts === 0) return true;
+  if (state.confirmQueue.length > 0 || state.shellCommandWarning || state.brainPrompt) return true;
+
+  if (state.clearConfirm) {
+    const info = state.clearConfirm;
+    const result = clearConfirmationKeyResult(info.value, input, key);
+    if (result.decision !== null) {
+      dispatch({ type: 'clearConfirmClose' });
+      info.resolve(result.decision);
+    } else if (result.value !== info.value) {
+      dispatch({ type: 'clearConfirmSetValue', value: result.value });
+    }
+    return true;
+  }
+  if (state.exitConfirm) {
+    const info = state.exitConfirm;
+    const decision = exitConfirmationDecision(input, key);
+    if (decision !== null) {
+      dispatch({ type: 'exitConfirmClose' });
+      info.resolve(decision);
+    }
+    return true;
+  }
+  if (state.slashConfirm) {
+    const info = state.slashConfirm;
+    const decision = slashConfirmationDecision(input, key, info.defaultYes);
+    if (decision !== null) {
+      dispatch({ type: 'slashConfirmClose' });
+      info.resolve(decision === 'cancel' ? null : decision);
+    }
+    return true;
+  }
+  if (state.enhanceBusy) {
+    if (key.escape) {
+      host.enhanceCancelled.current = true;
+      host.enhanceController.current?.abort();
+    }
+    return true;
+  }
+  if (
+    state.enhance ||
+    state.refineFailure ||
+    state.continueConfirm ||
+    state.escConfirm ||
+    state.sendModePicker
+  ) {
+    return true;
+  }
+  if (state.helpOpen) {
+    if (key.escape || input === '?' || input === 'q') dispatch({ type: 'toggleHelp' });
+    return true;
+  }
+  return false;
+}
+
+export interface SettingsOverlayKeyHost {
+  readonly state: State;
+  readonly getSettings: SettingsCapabilities['getSettings'];
+  readonly saveSettings: SettingsCapabilities['saveSettings'];
+  readonly lastEnterAt: MutableCell<number>;
+  dispatch(action: Action): void;
+}
+
+/** Route the settings editor and its Ctrl+S open/close chord. */
+export function routeSettingsOverlayKey(
+  host: SettingsOverlayKeyHost,
+  input: string,
+  key: KeyEvent,
+  isEnter: boolean,
+): boolean {
+  const { state, dispatch } = host;
+  if (state.settingsPicker.open) {
+    if (key.escape) dispatch({ type: 'settingsClose' });
+    else if (key.upArrow) dispatch({ type: 'settingsFieldMove', delta: -1 });
+    else if (key.downArrow) dispatch({ type: 'settingsFieldMove', delta: 1 });
+    else if (key.leftArrow) dispatch({ type: 'settingsValueChange', delta: -1 });
+    else if (key.rightArrow) dispatch({ type: 'settingsValueChange', delta: 1 });
+    else if (isEnter) {
+      const now = Date.now();
+      if (now - host.lastEnterAt.current >= 50) {
+        host.lastEnterAt.current = now;
+        dispatch({ type: 'settingsValueChange', delta: 1 });
+      }
+    } else if (key.ctrl && input === 's') {
+      // Ctrl+S while picker is open: close the picker (single dispatch site —
+      // the outer Ctrl+S block below is only reached when the picker is closed,
+      // so both paths dispatch settingsClose exactly once).
+      dispatch({ type: 'settingsClose' });
+    } else {
+      // Consume all keys while the picker is open to prevent characters from
+      // reaching the composer and being inserted into the draft invisibly.
+      return true;
+    }
+    return true;
+  }
+
+  if (!(key.ctrl && input === 's')) return false;
+  if (!host.getSettings || !host.saveSettings) return true;
+
+  dispatch({ type: 'closeAllPanels' });
+  const config = host.getSettings();
+  dispatch({
+    type: 'settingsOpen',
+    mode: config.mode,
+    delayMs: config.delayMs,
+    titleAnimation: config.titleAnimation ?? true,
+    yolo: config.yolo ?? false,
+    fleetChat: config.fleetChatVerbosity ?? 'off',
+    chime: config.chime ?? false,
+    confirmExit: config.confirmExit ?? true,
+    nextPrediction: config.nextPrediction ?? false,
+    featureMcp: config.featureMcp ?? true,
+    featurePlugins: config.featurePlugins ?? true,
+    featureMemory: config.featureMemory ?? true,
+    featureSkills: config.featureSkills ?? true,
+    featureModelsRegistry: config.featureModelsRegistry ?? true,
+    tokenSavingTier: config.featureTokenSaving ?? 'off',
+    allowOutsideProjectRoot: config.allowOutsideProjectRoot ?? true,
+    contextAutoCompact: config.contextAutoCompact ?? true,
+    contextStrategy: config.contextStrategy ?? 'hybrid',
+    contextMode: config.contextMode ?? 'balanced',
+    maxConcurrent: config.maxConcurrent ?? 10,
+    logLevel: config.logLevel ?? 'info',
+    auditLevel: config.auditLevel ?? 'standard',
+    indexOnStart: config.indexOnStart ?? true,
+    multiDiffSummaryThreshold: config.multiDiffSummaryThreshold ?? 5,
+    lastSettingsField: config.lastSettingsField ?? 0,
+    maxIterations: config.maxIterations ?? 500,
+    autoProceedMaxIterations: config.autoProceedMaxIterations ?? 50,
+    enhanceDelayMs: config.enhanceDelayMs ?? 60_000,
+    enhanceEnabled: config.enhanceEnabled ?? true,
+    enhanceLanguage: config.enhanceLanguage ?? 'original',
+    debugStream: config.debugStream ?? false,
+    statuslineMode: config.statuslineMode ?? 'detailed',
+    reasoningMode: config.reasoningMode ?? 'auto',
+    reasoningEffort: config.reasoningEffort ?? 'high',
+    reasoningPreserve: config.reasoningPreserve ?? false,
+    thinkingWord: config.thinkingWord ?? 'thinking',
+    cacheTtl: config.cacheTtl ?? 'default',
+    configScope: config.configScope ?? 'global',
+    animationStyle: config.animationStyle ?? 'rainbow',
+    breakerEnabled: config.breakerEnabled ?? false,
+    breakerAutoKillResetMs: config.breakerAutoKillResetMs ?? 60_000,
+    showModelReasoning: config.showModelReasoning ?? true,
+  });
+  return true;
+}
+
+/** Panels below the statusline own navigation/scroll keys while open. */
+export function isLowerOverlayOpen(state: State): boolean {
+  return (
+    state.monitorOpen ||
+    state.agentsMonitorOpen ||
+    state.worktreeMonitorOpen ||
+    state.planPanelOpen ||
+    state.kanbanPanelOpen ||
+    state.todosMonitorOpen ||
+    state.queuePanelOpen ||
+    state.processListOpen ||
+    state.goalPanelOpen ||
+    state.sessionsPanelOpen ||
+    state.coordinator.monitorOpen ||
+    state.helpOpen ||
+    (state.goalRun?.monitorOpen ?? false) ||
+    state.rewindOverlay !== null
+  );
+}
+
+/** Close the highest-priority panel on Esc and keep ProcessList modal. */
+export function routePanelEscapeKey(
+  state: State,
+  key: KeyEvent,
+  dispatch: (action: Action) => void,
+): boolean {
+  if (key.escape) {
+    const action = escCloseAction(state);
+    if (action) {
+      dispatch(action);
+      return true;
+    }
+  }
+  return state.processListOpen;
+}

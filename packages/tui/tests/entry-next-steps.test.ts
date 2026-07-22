@@ -1,5 +1,5 @@
 import { render } from 'ink-testing-library';
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Entry, type HistoryEntry } from '../src/components/history.js';

@@ -13,18 +13,16 @@
  * happened, `false` if the flag was empty.
  */
 
-import type { Agent, Logger } from '@wrongstack/core';
-import {
-  type Compactor,
-  type Config,
-  color,
-  EternalAutonomyEngine,
-  type JournalEntry,
-  TOKENS,
-} from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { Logger } from '@wrongstack/core/types';
+import { type Compactor, type Config } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { EternalAutonomyEngine } from '@wrongstack/core/execution';
+import { type JournalEntry } from '@wrongstack/core/goal';
+import { TOKENS } from '@wrongstack/core/kernel';
 import type { Token } from '@wrongstack/core/kernel';
 import type { TerminalRenderer } from './renderer.js';
-import type { AutonomyMode } from './slash-commands/autonomy.js';
+import type { AutonomyMode } from './services/autonomy-mode.js';
 import { patchConfig } from './utils.js';
 
 /**
@@ -75,7 +73,7 @@ export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<bool
   const { eternalFlag } = deps;
   if (eternalFlag.length === 0) return false;
 
-  const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import('@wrongstack/core');
+  const { saveGoal, emptyGoal, goalFilePath, loadGoal } = await import('@wrongstack/core/goal');
   const goalPath = goalFilePath(deps.projectRoot);
   const prior = await loadGoal(goalPath, undefined, deps.logger ? (msg) => deps.logger!.warn(msg) : undefined);
   // Preserve journal across flag-driven re-launches so the user can run
@@ -98,7 +96,7 @@ export async function launchEternalFromFlag(deps: EternalFlagDeps): Promise<bool
   const compactor = deps.container.resolve(TOKENS.Compactor) as Compactor;
   // Brain decision support is optional — the CLI binds TOKENS.BrainArbiter
   // before this launch path runs, but bare test containers may not.
-  let brain: import('@wrongstack/core').BrainArbiter | undefined;
+  let brain: import('@wrongstack/core/coordination').BrainArbiter | undefined;
   try {
     brain = deps.container.resolve(TOKENS.BrainArbiter);
   } catch {

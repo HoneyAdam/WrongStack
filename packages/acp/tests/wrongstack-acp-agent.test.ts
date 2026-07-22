@@ -15,6 +15,7 @@ interface MockTransport {
 }
 interface MockHandler {
   handleMessage: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
 }
 
 vi.mock('../src/agent/stdio-transport.js', () => {
@@ -32,6 +33,7 @@ vi.mock('../src/agent/stdio-transport.js', () => {
 vi.mock('../src/agent/protocol-handler.js', () => {
   class ACPProtocolHandler {
     handleMessage = vi.fn(async () => false);
+    close = vi.fn();
     constructor() {
       h.handlers.push(this as never as MockHandler);
     }

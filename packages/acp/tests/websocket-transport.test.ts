@@ -18,6 +18,7 @@ class FakeWS {
   readonly url: string;
   readonly listeners: Record<string, Listener[]> = {};
   readonly sent: string[] = [];
+  bufferedAmount = 0;
   closed = false;
   constructor(url: string) {
     this.url = url;
@@ -157,6 +158,34 @@ describe('WebSocketClientTransport', () => {
     await expect(t.send({ jsonrpc: '2.0', id: 1 } as never as ACPMessage)).rejects.toThrow(
       /not open/,
     );
+  });
+
+  it('closes instead of growing an oversized send buffer', async () => {
+    const t = new WebSocketClientTransport({
+      url: 'ws://agent.test',
+      maxBufferedBytes: 8,
+    });
+    const startP = t.start();
+    const ws = last();
+    ws.fire('open');
+    await startP;
+    ws.bufferedAmount = 8;
+
+    await expect(t.send({ method: 'x' } as ACPMessage)).rejects.toThrow('buffer limit');
+    expect(ws.closed).toBe(true);
+  });
+
+  it('closes on an oversized inbound message', async () => {
+    const t = new WebSocketClientTransport({
+      url: 'ws://agent.test',
+      maxMessageChars: 8,
+    });
+    const startP = t.start();
+    const ws = last();
+    ws.fire('open');
+    await startP;
+    ws.fire('message', { data: '123456789' });
+    expect(ws.closed).toBe(true);
   });
 });
 

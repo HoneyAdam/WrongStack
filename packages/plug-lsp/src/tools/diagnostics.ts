@@ -1,5 +1,5 @@
 import { LSP_CONSTANTS } from '../constants.js';
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { formatDiagnostics } from '../formatters/diagnostics.js';
 import { supportsPullDiagnostics } from '../server/capabilities.js';
 import { pathToUri, uriToPath } from '../utils/uri.js';

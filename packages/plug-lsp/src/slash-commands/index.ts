@@ -1,4 +1,4 @@
-import type { PluginAPI } from '@wrongstack/core';
+import type { PluginAPI } from '@wrongstack/core/plugin';
 import type { LSPRegistry } from '../registry.js';
 import type { DocumentTracker } from '../document-tracker.js';
 import type { PlugLSPConfig } from '../types.js';

@@ -1,12 +1,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  DefaultSecretScrubber,
-  DefaultSecretVault,
-  type Config,
-  type ModelsRegistry,
-} from '@wrongstack/core';
+import { DefaultSecretScrubber, DefaultSecretVault } from '@wrongstack/core/security';
+import { type Config, type ModelsRegistry } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { modelsCmd } from '../src/subcommands/handlers/providers-models.js';
 import type { ReadlineInputReader } from '../src/input-reader.js';

@@ -214,6 +214,9 @@ importers:
       '@wrongstack/kanban':
         specifier: workspace:*
         version: link:../kanban
+      '@wrongstack/persistence':
+        specifier: workspace:*
+        version: link:../persistence
     devDependencies:
       '@types/node':
         specifier: ^26.1.1
@@ -223,6 +226,10 @@ importers:
         version: 7.0.2
 
   packages/kanban:
+    dependencies:
+      '@wrongstack/persistence':
+        specifier: workspace:*
+        version: link:../persistence
     devDependencies:
       '@types/node':
         specifier: ^26.1.1
@@ -252,6 +259,15 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.1.1)(@vitest/coverage-v8@4.1.10)(jsdom@29.1.1)(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+
+  packages/persistence:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
   packages/plug-lsp:
     dependencies:
@@ -490,6 +506,9 @@ importers:
       '@wrongstack/sdd':
         specifier: workspace:*
         version: link:../sdd
+      '@wrongstack/super-memory':
+        specifier: workspace:*
+        version: link:../super-memory
       '@wrongstack/tools':
         specifier: workspace:*
         version: link:../tools

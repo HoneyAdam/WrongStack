@@ -9,8 +9,9 @@
  * PR 11 of Issue #30: extracted from `webui-server.ts`.
  */
 import * as path from 'node:path';
-import type { Context, ModelsRegistry } from '@wrongstack/core';
-import { DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { ModelsRegistry } from '@wrongstack/core/types';
+import { DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core/types';
 import { protocolAdvertisement } from '@wrongstack/webui-server/protocol';
 import { getCostRates } from './cost-helpers.js';
 

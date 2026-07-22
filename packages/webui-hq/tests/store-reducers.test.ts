@@ -34,7 +34,7 @@ import type {
   HqEventEnvelope,
   HqSessionSnapshotPayload,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/lib/hq-ws-client.js', () => ({

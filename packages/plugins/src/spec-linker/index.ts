@@ -45,7 +45,7 @@
  */
 
 import * as fs from 'node:fs/promises';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { PLUGIN_CATALOG, PLUGIN_NAMES } from '../catalog.js';
 
 // ---------------------------------------------------------------------------

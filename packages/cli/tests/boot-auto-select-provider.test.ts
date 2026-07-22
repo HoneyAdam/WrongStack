@@ -1,4 +1,4 @@
-import type { Config, ModelsRegistry } from '@wrongstack/core';
+import type { Config, ModelsRegistry } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { autoSelectSavedProvider } from '../src/boot.js';
 

@@ -1,4 +1,4 @@
-import { logHqAuthAudit, hqAuthAuditPath, type HqAuthAuditEntry } from '@wrongstack/core';
+import { logHqAuthAudit, hqAuthAuditPath, type HqAuthAuditEntry } from '@wrongstack/core/hq';
 import { readFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

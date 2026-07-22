@@ -17,6 +17,8 @@ import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { buildChildEnv } from '@wrongstack/core/utils';
 
+const EMPTY_BUFFER = Buffer.alloc(0);
+
 export interface TerminalServerOptions {
   projectRoot: string;
   /** Hard cap on per-command wall-clock. Default 5 minutes. */
@@ -30,6 +32,8 @@ export interface TerminalServerOptions {
    * malicious agent requesting `outputByteLimit: Infinity`. Default 16 MiB.
    */
   maxOutputByteLimit?: number;
+  /** Maximum terminal records retained concurrently. Default 32. */
+  maxTerminals?: number;
   /** Optional abort signal that kills ALL active terminals. */
   signal?: AbortSignal;
 }
@@ -39,8 +43,10 @@ interface TerminalState {
   cwd: string;
   command: string;
   args: string[];
-  /** Output buffer as a string; appended as bytes arrive. */
-  output: string;
+  /** Byte chunks retained as a bounded queue. Joined only when output is read. */
+  outputChunks: Buffer[];
+  /** Index of the first live chunk; avoids O(n) Array.shift calls. */
+  outputHead: number;
   /** Bytes currently retained (post-truncation). */
   retainedBytes: number;
   /** True once we've dropped output to fit under the per-call byte limit. */
@@ -58,6 +64,9 @@ export class TerminalServer {
   private readonly commandTimeoutMs: number;
   private readonly outputByteLimit: number;
   private readonly maxOutputByteLimit: number;
+  private readonly maxTerminals: number;
+  private readonly abortSignal: AbortSignal | undefined;
+  private readonly abortHandler = (): void => this.releaseAll();
   private nextId = 1;
 
   constructor(opts: TerminalServerOptions) {
@@ -65,8 +74,11 @@ export class TerminalServer {
     this.commandTimeoutMs = opts.commandTimeoutMs ?? 5 * 60_000;
     this.outputByteLimit = opts.outputByteLimit ?? 1024 * 1024;
     this.maxOutputByteLimit = opts.maxOutputByteLimit ?? 16 * 1024 * 1024;
+    this.maxTerminals = this.clampFiniteInt(opts.maxTerminals, 32);
+    if (this.maxTerminals < 1) throw new RangeError('maxTerminals must be at least 1');
+    this.abortSignal = opts.signal;
     if (opts.signal) {
-      opts.signal.addEventListener('abort', () => this.releaseAll());
+      opts.signal.addEventListener('abort', this.abortHandler, { once: true });
     }
   }
 
@@ -79,8 +91,17 @@ export class TerminalServer {
     cwd?: string;
     outputByteLimit?: number;
   }): { terminalId: string } {
+    if (this.terminals.size >= this.maxTerminals) {
+      throw new Error(
+        `terminal limit reached (${this.maxTerminals}); release an existing terminal before creating another`,
+      );
+    }
     const id = `term_${this.nextId++}`;
     const cwd = this.resolveCwd(params.cwd);
+    const perCallByteLimit = Math.min(
+      Math.max(1, this.clampFiniteInt(params.outputByteLimit, this.outputByteLimit)),
+      this.maxOutputByteLimit,
+    );
     const proc = spawn(params.command, params.args ?? [], {
       cwd,
       env: this.buildEnv(params.env),
@@ -100,7 +121,8 @@ export class TerminalServer {
       cwd,
       command: params.command,
       args: params.args ?? [],
-      output: '',
+      outputChunks: [],
+      outputHead: 0,
       retainedBytes: 0,
       truncated: false,
       exitStatus: undefined,
@@ -127,39 +149,52 @@ export class TerminalServer {
           }
           const exitStatus = { exitCode: 127, signal: null };
           state.exitStatus = exitStatus;
-          state.output += `[spawn error] ${err.message}\n`;
-          state.retainedBytes = Buffer.byteLength(state.output, 'utf8');
+          let errorOutput = Buffer.from(`[spawn error] ${err.message}\n`, 'utf8');
+          if (errorOutput.length > perCallByteLimit) {
+            let start = errorOutput.length - perCallByteLimit;
+            while (start < errorOutput.length && (errorOutput[start]! & 0xc0) === 0x80) start++;
+            errorOutput = errorOutput.subarray(start);
+            state.truncated = true;
+          }
+          state.outputChunks.push(errorOutput);
+          state.retainedBytes = errorOutput.length;
           resolve(exitStatus);
         });
       }),
     };
 
-    const perCallByteLimit = Math.min(
-      Math.max(1, this.clampFiniteInt(params.outputByteLimit, this.outputByteLimit)),
-      this.maxOutputByteLimit,
-    );
     proc.stdout?.setEncoding('utf8');
     proc.stderr?.setEncoding('utf8');
     const onData = (chunk: string): void => {
-      state.output += chunk;
-      state.retainedBytes = Buffer.byteLength(state.output, 'utf8');
-      // Truncate from the start if we exceed the limit. Per spec, the
-      // truncation MUST happen at a character boundary. UTF-8 slicing
-      // a string can land mid-codepoint; we trim back to the last
-      // complete code point to honour that.
-      while (state.retainedBytes > perCallByteLimit) {
-        const trimmed = state.output.slice(1);
-        // Cheap boundary check: if dropping the first char doesn't
-        // shrink us by at least one byte, we're slicing inside a
-        // multi-byte sequence; keep dropping.
-        state.output = trimmed;
-        const newBytes = Buffer.byteLength(state.output, 'utf8');
-        if (newBytes >= state.retainedBytes) {
-          // give up — would loop forever
-          break;
+      const outputChunk = Buffer.from(chunk, 'utf8');
+      state.outputChunks.push(outputChunk);
+      state.retainedBytes += outputChunk.length;
+      if (state.retainedBytes > perCallByteLimit) state.truncated = true;
+
+      // Evict from the head. Each chunk is visited at most twice, so frequent
+      // tiny writes do not repeatedly copy the full retained output window.
+      while (
+        state.retainedBytes > perCallByteLimit &&
+        state.outputHead < state.outputChunks.length
+      ) {
+        const first = state.outputChunks[state.outputHead]!;
+        const overflow = state.retainedBytes - perCallByteLimit;
+        if (first.length <= overflow) {
+          state.outputChunks[state.outputHead] = EMPTY_BUFFER;
+          state.outputHead++;
+          state.retainedBytes -= first.length;
+          continue;
         }
-        state.retainedBytes = newBytes;
-        state.truncated = true;
+
+        let start = overflow;
+        while (start < first.length && (first[start]! & 0xc0) === 0x80) start++;
+        state.outputChunks[state.outputHead] = first.subarray(start);
+        state.retainedBytes -= start;
+      }
+
+      if (state.outputHead >= 256 && state.outputHead * 2 >= state.outputChunks.length) {
+        state.outputChunks = state.outputChunks.slice(state.outputHead);
+        state.outputHead = 0;
       }
     };
     proc.stdout?.on('data', onData);
@@ -184,7 +219,10 @@ export class TerminalServer {
     const state = this.terminals.get(terminalId);
     if (!state) throw new Error(`unknown terminal: ${terminalId}`);
     return {
-      output: state.output,
+      output: Buffer.concat(
+        state.outputChunks.slice(state.outputHead),
+        state.retainedBytes,
+      ).toString('utf8'),
       truncated: state.truncated,
       ...(state.exitStatus ? { exitStatus: state.exitStatus } : {}),
     };
@@ -226,6 +264,7 @@ export class TerminalServer {
 
   /** Kill all active terminals. Used on session close. */
   releaseAll(): void {
+    this.abortSignal?.removeEventListener('abort', this.abortHandler);
     for (const id of [...this.terminals.keys()]) {
       this.release(id);
     }

@@ -14,6 +14,11 @@ const mockFileStore = new Map<string, string>();
 
 // Mock the core security module
 vi.mock('@wrongstack/core/security', () => ({
+  DefaultSecretVault: class MockSecretVault {
+    encrypt = vi.fn((value: string) => value);
+    decrypt = vi.fn((value: string) => value);
+    hasKey = vi.fn(() => true);
+  },
   decryptConfigSecrets: vi.fn((data: Record<string, unknown>) => {
     // Identity transformation for testing - preserves the data shape
     const result: Record<string, unknown> = {};
@@ -35,14 +40,6 @@ vi.mock('@wrongstack/core/utils', () => ({
     mockFileStore.set(filePath, content);
   }),
   wstackGlobalRoot: vi.fn(() => '/mock/wstack/root'),
-}));
-
-vi.mock('@wrongstack/core', () => ({
-  DefaultSecretVault: class MockSecretVault {
-    encrypt = vi.fn((value: string) => value);
-    decrypt = vi.fn((value: string) => value);
-    hasKey = vi.fn(() => true);
-  },
 }));
 
 vi.mock('node:fs/promises', () => ({

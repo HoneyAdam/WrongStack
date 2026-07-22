@@ -1,14 +1,13 @@
 import {
-  applyToolDescriptionModes,
-  applyToolResultRenderModes,
   type ConcreteTokenSavingTier,
-  type MemoryStore,
+  type MemoryPort,
   type Tool,
   type ToolDescriptionModeConfig,
-  type ToolRegistry,
   type ToolResultRenderModeConfig,
-} from '@wrongstack/core';
-import { createSuperMemoryTools, isSuperMemoryService } from '@wrongstack/super-memory';
+} from '@wrongstack/core/types';
+import type { ToolRegistry } from '@wrongstack/core/registry';
+import { applyToolDescriptionModes, applyToolResultRenderModes } from '@wrongstack/core/utils';
+import { createSuperMemoryTools, getSuperMemoryService } from '@wrongstack/super-memory';
 import {
   forgetTool,
   relatedMemoryTool,
@@ -25,7 +24,7 @@ export interface CanonicalHostToolRegistrationOptions {
   memory?:
     | {
         enabled: boolean;
-        store?: MemoryStore | null | undefined;
+        store?: MemoryPort | null | undefined;
       }
     | undefined;
   descriptionMode?: ToolDescriptionModeConfig | undefined;
@@ -56,8 +55,9 @@ export function registerCanonicalHostTools(
   let memoryBackend: CanonicalHostToolRegistrationResult['memoryBackend'] = 'disabled';
   const memoryStore = options.memory?.store;
   if (options.memory?.enabled && memoryStore) {
-    if (isSuperMemoryService(memoryStore)) {
-      options.registry.registerAllOrThrow(createSuperMemoryTools(memoryStore), 'super-memory');
+    const superMemory = getSuperMemoryService(memoryStore);
+    if (superMemory) {
+      options.registry.registerAllOrThrow(createSuperMemoryTools(superMemory), 'super-memory');
       memoryBackend = 'super-memory';
     } else {
       options.registry.registerAllOrThrow(

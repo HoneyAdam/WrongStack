@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 /**

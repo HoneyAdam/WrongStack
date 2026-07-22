@@ -6,16 +6,16 @@
  * reads from the project-level GlobalMailbox and responds.
  */
 
-import type { WebSocket } from 'ws';
 import {
   GlobalMailbox,
   isMailboxMessageVisibleTo,
   mailboxIdentityBase,
   resolveProjectDir,
-  type EventBus,
-} from '@wrongstack/core';
+} from '@wrongstack/core/coordination';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { WebSocket } from 'ws';
 import type { MailboxSendPayload } from './ws-payload-validation.js';
-import { send, errMessage } from './ws-utils.js';
+import { errMessage, send } from './ws-utils.js';
 
 export interface MailboxHandlerDeps {
   /** Absolute project root or a live getter for hosts that can switch projects. */
@@ -28,6 +28,7 @@ export interface MailboxHandlerDeps {
 
 const defaultMailboxCache = new Map<string, GlobalMailbox>();
 const eventMailboxCaches = new WeakMap<EventBus, Map<string, GlobalMailbox>>();
+const MAILBOX_CACHE_MAX_PROJECTS = 8;
 
 function current(value: string | (() => string)): string {
   return typeof value === 'function' ? value() : value;
@@ -47,8 +48,18 @@ export function getMailboxForDeps(deps: MailboxHandlerDeps): GlobalMailbox | nul
       })())
     : defaultMailboxCache;
   let mailbox = cache.get(dir);
-  if (!mailbox) {
+  if (mailbox) {
+    cache.delete(dir);
+    cache.set(dir, mailbox);
+  } else {
     mailbox = new GlobalMailbox(dir, deps.events);
+    while (cache.size >= MAILBOX_CACHE_MAX_PROJECTS) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      const evicted = cache.get(oldest);
+      cache.delete(oldest);
+      void evicted?.close().catch(() => undefined);
+    }
     cache.set(dir, mailbox);
   }
   return mailbox;

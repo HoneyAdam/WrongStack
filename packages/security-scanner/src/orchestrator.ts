@@ -1,20 +1,20 @@
-import { expectDefined } from '@wrongstack/core';
-import { toErrorMessage } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Provider, Request } from '@wrongstack/core/types';
+import { ConfigError, ProviderError } from '@wrongstack/core/types';
+import {
+  atomicWrite,
+  expectDefined,
+  readBundledInstructionText,
+  renderInstructionTemplate,
+  sanitizeJsonString,
+  toErrorMessage,
+} from '@wrongstack/core/utils';
 import { defaultTechStackDetector } from './detector.js';
 import { defaultGitignoreUpdater } from './gitignore-updater.js';
 import type { TechStackInfo } from './types.js';
 import type { GeneratedSkill } from './skill-generator.js';
 import type { ScanResult, Finding } from './scanner.js';
 import type { ReportOptions } from './report-generator.js';
-import type { Context, Provider, Request } from '@wrongstack/core';
-import {
-  ProviderError,
-  atomicWrite,
-  sanitizeJsonString,
-  readBundledInstructionText,
-  renderInstructionTemplate,
-  ConfigError,
-} from '@wrongstack/core';
 import { NETWORK_ERR_RE, type RetryPolicy, type ErrorHandler } from './_compat-types.js';
 import { DEFAULT_EXCLUDE_PATTERNS, gatherFiles } from './file-gathering.js';
 import { extractJsonBlock } from './json-extractor.js';

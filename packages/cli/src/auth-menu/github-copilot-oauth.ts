@@ -13,7 +13,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { color, FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
+import { FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core/types';
 import { copilotBaseUrlFromToken, refreshCopilotToken } from '@wrongstack/providers';
 import {
   mutateConfigProviders,

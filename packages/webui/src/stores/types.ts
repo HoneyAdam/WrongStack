@@ -1,4 +1,4 @@
-import type { ContentBlock, Usage } from '@wrongstack/core';
+import type { ContentBlock, Usage } from '@wrongstack/core/types';
 
 // ============================================
 // Shared Types

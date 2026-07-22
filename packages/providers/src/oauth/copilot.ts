@@ -8,7 +8,7 @@
  *      short-lived Copilot token. The GitHub OAuth token is the refresh token.
  */
 
-import { FetchError, ParseError, type ProviderApiKey } from '@wrongstack/core';
+import { FetchError, ParseError, type ProviderApiKey } from '@wrongstack/core/types';
 import { copilotBaseUrlFromToken, refreshCopilotToken } from '../github-copilot-token.js';
 import type { BeginOAuthDeps, OAuthLoginOutcome, OAuthSession } from './types.js';
 

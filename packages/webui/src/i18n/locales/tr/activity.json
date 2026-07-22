@@ -1110,6 +1110,10 @@
     "pidLabel": "PID {{pid}}",
     "protected": "korumalı",
     "protectedTitle": "Korumalı — kill/killAll'dan sağ kalır",
+    "background": "arka plan",
+    "backgroundTitle": "Bağımsız iş — CLI/WebUI kapansa da çalışmaya devam eder",
+    "confirmKillBackground": "Bağımsız arka plan süreci {{pid}} sonlandırılsın mı?",
+    "confirmKillAll": "Çalışan {{count}} sürecin tamamı sonlandırılsın mı?",
     "killTitle": "PID {{pid}} sonlandır"
   },
   "diff": {

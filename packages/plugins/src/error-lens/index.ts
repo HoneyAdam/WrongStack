@@ -43,7 +43,7 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Module-scope state (H1 audit pattern)

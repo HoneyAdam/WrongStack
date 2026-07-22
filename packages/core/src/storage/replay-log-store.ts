@@ -1,12 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
-import { toErrorMessage } from '../utils/error.js';
-import { sessionScopedPath } from '../utils/session-scoped-path.js';
+import type { EventBus } from '../kernel/events.js';
 import { hashRequest } from '../replay/hash.js';
 import type { Request, Response } from '../types/provider.js';
+import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
 import { safeParse } from '../utils/safe-json.js';
-import type { EventBus } from '../kernel/events.js';
+import { sessionScopedPath } from '../utils/session-scoped-path.js';
 
 /**
  * Surface the OS error code (EACCES, ENOSPC, …) alongside the message in
@@ -91,6 +91,7 @@ export class ReplayLogStore {
   /** Per-session entry count on disk, to detect when compaction is needed. */
   private readonly diskCount = new Map<string, number>();
   private readonly maxEntries: number;
+  private static readonly MAX_CACHED_SESSIONS = 32;
 
   constructor(opts: ReplayLogStoreOptions) {
     this.dir = opts.dir;
@@ -294,13 +295,15 @@ export class ReplayLogStore {
           // EACCES, ENOTDIR, etc. — log the real error so the operator can
           // diagnose a misconfiguration, but still return empty list so the
           // caller (slash command display) doesn't crash.
-          console.warn(JSON.stringify({
-            level: 'warn',
-            event: 'replay_log_store.list_readdir_failed',
-            dir,
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }));
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'replay_log_store.list_readdir_failed',
+              dir,
+              message: toErrorMessage(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
         return;
       }
@@ -424,7 +427,11 @@ export class ReplayLogStore {
 
   private async ensureCache(sessionId: string): Promise<Map<string, ReplayEntryLocation>> {
     let cache = this.cache.get(sessionId);
-    if (cache) return cache;
+    if (cache) {
+      this.cache.delete(sessionId);
+      this.cache.set(sessionId, cache);
+      return cache;
+    }
 
     const fp = this.filePath(sessionId);
     cache = new Map();
@@ -464,7 +471,10 @@ export class ReplayLogStore {
         if (leftover.trim()) {
           const entry = this.parseReplayLine(leftover);
           if (entry) {
-            cache.set(entry.hash, { offset: leftoverOffset, length: Buffer.byteLength(leftover, 'utf8') });
+            cache.set(entry.hash, {
+              offset: leftoverOffset,
+              length: Buffer.byteLength(leftover, 'utf8'),
+            });
           }
         }
       } finally {
@@ -474,6 +484,12 @@ export class ReplayLogStore {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
 
+    while (this.cache.size >= ReplayLogStore.MAX_CACHED_SESSIONS) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+      this.diskCount.delete(oldest);
+    }
     this.cache.set(sessionId, cache);
     this.diskCount.set(sessionId, cache.size);
     return cache;
@@ -506,10 +522,11 @@ export class ReplayLogStore {
   private enqueue(sessionId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.writeChains.get(sessionId) ?? Promise.resolve();
     const next = prev.then(fn, fn);
-    this.writeChains.set(
-      sessionId,
-      next.catch(() => undefined),
-    );
+    const settled = next.catch(() => undefined);
+    this.writeChains.set(sessionId, settled);
+    void settled.finally(() => {
+      if (this.writeChains.get(sessionId) === settled) this.writeChains.delete(sessionId);
+    });
     return next;
   }
 }

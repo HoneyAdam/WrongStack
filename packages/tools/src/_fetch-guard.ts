@@ -1,11 +1,10 @@
 import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import {
-  FetchError,
-  ToolValidationError,
   isPrivateIPv4,
   isPrivateIPv6,
-} from '@wrongstack/core';
+} from '@wrongstack/core/utils';
+import { FetchError, ToolValidationError } from '@wrongstack/core/types';
 import { Agent, fetch as undiciFetch } from 'undici';
 
 /**

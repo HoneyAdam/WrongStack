@@ -3,9 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { installTool } from '../src/install.js';
-import * as Core from '@wrongstack/core';
+import * as Core from '@wrongstack/core/coordination';
 import type { SpawnStreamResult } from '../src/_spawn-stream.js';
-import type { ToolProgressEvent } from '@wrongstack/core';
+import type { ToolProgressEvent } from '@wrongstack/core/types';
 
 // Mock spawnStream — an AsyncGenerator<ToolProgressEvent, SpawnStreamResult>.
 // executeStream calls: const result = yield* spawnStream({...})
@@ -52,7 +52,7 @@ const makeOpts = () => ({ signal: new AbortController().signal });
 describe('installTool', () => {
   beforeEach(() => {
     vi.spyOn(Core, 'recordPackageAction').mockResolvedValue(undefined);
-    vi.spyOn(Core, 'detectPackageEcosystem').mockReturnValue('npm');
+    vi.spyOn(Core, 'detectEcosystem').mockReturnValue('npm');
     vi.clearAllMocks();
   });
 

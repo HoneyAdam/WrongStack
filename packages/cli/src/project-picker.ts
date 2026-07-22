@@ -7,9 +7,9 @@
  *
  * @module project-picker
  */
-import { color } from '@wrongstack/core';
-import type { ProjectEntry } from './slash-commands/project-utils.js';
-import { loadManifest } from './slash-commands/project-utils.js';
+import { color } from '@wrongstack/core/utils';
+import type { ProjectEntry } from './services/project-manifest.js';
+import { loadManifest } from './services/project-manifest.js';
 
 // ── ANSI constants ────────────────────────────────────────────────────────
 

@@ -9,10 +9,11 @@
  *      CSP as the direct .html branch) so client-side routing still
  *      works for deep-linked URLs.
  */
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildCspHeader,
   createHttpServer,
@@ -28,17 +29,11 @@ let baseUrl: string;
 beforeAll(async () => {
   // Build a tiny distDir with one .html, one .js, and one .json file.
   distDir = await fs.mkdtemp(path.join(os.tmpdir(), 'webui-http-'));
-  await fs.writeFile(
-    path.join(distDir, 'index.html'),
-    '<!doctype html><title>root</title>',
-  );
+  await fs.writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>root</title>');
   await fs.writeFile(path.join(distDir, 'app.js'), 'console.log(1);');
   await fs.mkdir(path.join(distDir, 'assets'));
   await fs.writeFile(path.join(distDir, 'assets', 'app-deadbeef.js'), 'console.log(2);');
-  await fs.writeFile(
-    path.join(distDir, 'manifest.json'),
-    '{"name":"test"}',
-  );
+  await fs.writeFile(path.join(distDir, 'manifest.json'), '{"name":"test"}');
 
   server = createHttpServer({ host: '127.0.0.1', distDir });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -72,6 +67,34 @@ describe('buildCspHeader', () => {
     expect(csp).toContain('wss://wrongstack-ws.example.com');
   });
 
+  it('adds explicit ws:// entries for loopback hosts', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1', 3466);
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
+  });
+
+  it('adds explicit ws:// entries for localhost bind', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1', 3456);
+    expect(csp).toContain('ws://127.0.0.1:3456');
+    expect(csp).toContain('ws://localhost:3456');
+  });
+
+  it('does not add ws:// entries for non-loopback hosts', () => {
+    const csp = buildCspHeader(undefined, '192.168.1.100', 3466);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+  });
+
+  it('falls back to 3456 when port is omitted for loopback', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1');
+    expect(csp).toContain('ws://127.0.0.1:3456');
+    expect(csp).toContain('wss://127.0.0.1:3456');
+    expect(csp).toContain('ws://localhost:3456');
+    expect(csp).toContain('wss://localhost:3456');
+  });
+
   it('keeps script-src strict — no unsafe-inline and no per-extension hashes', () => {
     // The WrongStack frontend is a Vite build that ships zero inline scripts,
     // so `script-src` stays `'self' 'wasm-unsafe-eval'` only. Browser-extension
@@ -94,6 +117,42 @@ describe('buildCspHeader', () => {
     //   CompileError: call to WebAssembly.instantiate() blocked by CSP
     expect(scriptSrc).toMatch(/'wasm-unsafe-eval'/);
     expect(scriptSrc).toBe("script-src 'self' 'wasm-unsafe-eval'");
+  });
+});
+
+describe('buildCspHeader — loopback edge cases', () => {
+  it('adds explicit ws:// entries for ::1 loopback bind (IPv6)', () => {
+    const csp = buildCspHeader(undefined, '::1', 3466);
+    expect(csp).toContain('ws://[::1]:3466');
+    expect(csp).toContain('wss://[::1]:3466');
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+  });
+
+  it('adds explicit ws:// entries for [::1] bracketed IPv6 bind', () => {
+    const csp = buildCspHeader(undefined, '[::1]', 3466);
+    expect(csp).toContain('ws://[::1]:3466');
+    expect(csp).toContain('wss://[::1]:3466');
+    expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('ws://localhost:3466');
+  });
+
+  it('does not add ws:// entries for wildcard (0.0.0.0) bind', () => {
+    const csp = buildCspHeader(undefined, '0.0.0.0', 3466);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+  });
+
+  it('skips ws:// entries when port is out of valid range (<= 0)', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1', 0);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+  });
+
+  it('skips ws:// entries when port is out of valid range (> 65535)', () => {
+    const csp = buildCspHeader(undefined, '127.0.0.1', 99999);
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
   });
 });
 
@@ -189,9 +248,7 @@ describe('createHttpServer', () => {
     // reaches the server. The unit test below asserts the guard's
     // *contract* (the thing that actually runs in production).
     expect(isInsideDist(path.join(distDir, 'index.html'), distDir)).toBe(true);
-    expect(isInsideDist(path.join(distDir, '..', 'escape.txt'), distDir)).toBe(
-      false,
-    );
+    expect(isInsideDist(path.join(distDir, '..', 'escape.txt'), distDir)).toBe(false);
     // Also: a sibling directory with a name that *starts with* distDir's
     // name (e.g. distDir = /tmp/foo, sibling = /tmp/foo-other) must NOT
     // be accepted. The `+ path.sep` boundary check rejects that.
@@ -278,7 +335,7 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
   const projectRoot = path.join(os.tmpdir(), 'watch-proj-fixture');
 
   beforeAll(async () => {
-    const { resolveWstackPaths } = await import('@wrongstack/core');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     gRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'webui-watch-'));
 
     // One live session in the registry pointing at our fixture project.
@@ -306,7 +363,13 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
     await fs.mkdir(paths.projectSessions, { recursive: true });
     const lines =
       [
-        { type: 'session_start', ts: '2026-06-18T00:00:00Z', id: sessionId, model: 'm', provider: 'p' },
+        {
+          type: 'session_start',
+          ts: '2026-06-18T00:00:00Z',
+          id: sessionId,
+          model: 'm',
+          provider: 'p',
+        },
         { type: 'user_input', ts: '2026-06-18T00:00:01Z', content: 'hello there' },
         { type: 'tool_use', ts: '2026-06-18T00:00:02Z', name: 'read_file', id: 't1', input: {} },
         {
@@ -358,9 +421,8 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
   });
 
   it('POST .../message delivers a steer message to the session mailbox', async () => {
-    const { mailboxSessionTag, GlobalMailbox, resolveWstackPaths } = await import(
-      '@wrongstack/core'
-    );
+    const { mailboxSessionTag, GlobalMailbox } = await import('@wrongstack/core/coordination');
+    const { resolveWstackPaths } = await import('@wrongstack/core/utils');
     const res = await fetch(`${evBase}/api/sessions/${sessionId}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -1,22 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SlashCommand } from '@wrongstack/core';
-import {
-  applyTokenOverrides,
-  clearActiveKit,
-  clearPersistedActiveKit,
-  color,
-  getDesignKitLoader,
-  getDesignState,
-  isDesignStack,
-  loadActiveKit,
-  materializeTokens,
-  recordOverrides,
-  resolveSemanticTune,
-  type SemanticTune,
-  setActiveKit,
-  setDesignOverrides,
-} from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { applyTokenOverrides, clearActiveKit, clearPersistedActiveKit, getDesignKitLoader, getDesignState, isDesignStack, loadActiveKit, materializeTokens, recordOverrides, resolveSemanticTune, type SemanticTune, setActiveKit, setDesignOverrides } from '@wrongstack/core/design';
+import { color } from '@wrongstack/core/utils';
 import type { SlashCommandContext } from './command-context.js';
 
 /** Parse `key=value key2=value2` override pairs from slash args. */

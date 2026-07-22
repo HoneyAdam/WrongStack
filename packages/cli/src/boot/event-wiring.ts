@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import type { EventBus } from '@wrongstack/core';
-import { color, writeErr } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import { color, writeErr } from '@wrongstack/core/utils';
 import { Spinner } from '../spinner.js';
 
 export interface EventWiringRenderer {

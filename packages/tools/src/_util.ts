@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import * as Core from '@wrongstack/core';
-import type { Context } from '@wrongstack/core';
+import * as Core from '@wrongstack/core/utils';
+import type { Context } from '@wrongstack/core/agent';
 
 /**
  * sha-256 hex of a UTF-8 string. Used by the file tools to record a content

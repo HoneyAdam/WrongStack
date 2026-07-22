@@ -207,6 +207,8 @@ export function ProcessListMonitor(): React.ReactElement {
             <Box flexGrow={1} />
             {p.killed ? (
               <Text color={theme.error}>STOPPED</Text>
+            ) : p.background ? (
+              <Text color={theme.success}>BACKGROUND</Text>
             ) : (
               <Text color={theme.success}>RUNNING</Text>
             )}

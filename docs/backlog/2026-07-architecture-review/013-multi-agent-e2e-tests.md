@@ -5,7 +5,7 @@
 
 ## Summary
 
-Multi-agent flows are well unit-tested, but still under-covered as realistic journeys.
+Multi-agent flows now have a deterministic outcome-oriented journey suite over the real Director and coordination services.
 
 ## Why this matters
 
@@ -17,13 +17,17 @@ Add scenario tests for multi-step orchestration behavior.
 
 ## Acceptance criteria
 
-- [ ] Add scenario tests covering:
-  - [ ] spawn → assign → await
-  - [ ] quality gate repair loop
-  - [ ] collab debug flow
-  - [ ] mailbox result propagation in a coordinated task
-- [ ] Tests validate user-visible outcomes, not just event emission
-- [ ] Flake rate remains acceptable in CI
+- [x] Add scenario tests covering:
+  - [x] spawn → assign → await
+  - [x] quality gate repair loop
+  - [x] collab debug flow
+  - [x] mailbox result propagation in a coordinated task
+- [x] Tests validate user-visible outcomes, not just event emission
+- [x] Flake rate remains acceptable in CI
+
+## Completion evidence (2026-07-22)
+
+`multi-agent-journeys.test.ts` runs all four paths against the real Director, quality-gate tool, CollabSession/FleetBus, and mailbox persistence with only the LLM runner replaced by a deterministic fake. The journey exposed and fixed a production ID-contract bug where CollabSession awaited subagent IDs instead of the task IDs returned by `Director.assign()`. Core typecheck passes, the focused journey/collab/director-tool set passes 4 files / 73 tests, and test-type verification reports no new diagnostics in the touched journey or collab files. The full Core collection passed 442 unaffected files / 7,050 tests; two unrelated concurrent suites remain red (the retired slash-import exception test and sync-plugin work).
 
 ## Suggested implementation notes
 

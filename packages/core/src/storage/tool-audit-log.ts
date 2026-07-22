@@ -1,11 +1,11 @@
-import { expectDefined } from '../utils/expect-defined.js';
-import { toErrorMessage } from '../utils/error.js';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import type { EventBus } from '../kernel/events.js';
 import { withFileLock } from '../utils/atomic-write.js';
+import { toErrorMessage } from '../utils/error.js';
+import { expectDefined } from '../utils/expect-defined.js';
 import { safeParse } from '../utils/safe-json.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
-import type { EventBus } from '../kernel/events.js';
 /**
  * ToolAuditLog — idea #9 from IDEAS.md.
  *
@@ -462,10 +462,11 @@ export class ToolAuditLog {
   private enqueue(sessionId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.writeChains.get(sessionId) ?? Promise.resolve();
     const next = prev.then(fn, fn);
-    this.writeChains.set(
-      sessionId,
-      next.catch(() => undefined),
-    );
+    const settled = next.catch(() => undefined);
+    this.writeChains.set(sessionId, settled);
+    void settled.finally(() => {
+      if (this.writeChains.get(sessionId) === settled) this.writeChains.delete(sessionId);
+    });
     return next;
   }
 }

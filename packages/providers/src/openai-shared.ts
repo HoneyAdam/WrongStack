@@ -1,4 +1,4 @@
-import type { ReasoningEffort, Request } from '@wrongstack/core';
+import type { ReasoningEffort, Request } from '@wrongstack/core/types';
 
 /**
  * OpenAI's Chat Completions API accepts `reasoning_effort` only for these

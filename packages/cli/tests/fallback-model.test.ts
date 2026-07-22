@@ -1,11 +1,8 @@
-import { type Config, EventBus, type Provider, ProviderError } from '@wrongstack/core';
+import { type Config, type Provider, ProviderError } from '@wrongstack/core/types';
+import { EventBus } from '@wrongstack/core/kernel';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createFallbackModelExtension,
-  effectiveFallbackChain,
-  parseModelRef,
-  smartDefaultFallbackChain,
-} from '@wrongstack/core';
+import { createFallbackModelExtension, parseModelRef } from '@wrongstack/core/agent';
+import { effectiveFallbackChain, smartDefaultFallbackChain } from '@wrongstack/core/agent';
 
 const logger = { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() } as never;
 
@@ -19,7 +16,7 @@ function fakeProvider(id: string, maxContext?: number): Provider {
 }
 
 function makeCtx(providerId: string, model: string) {
-  return { provider: fakeProvider(providerId), model } as never as import('@wrongstack/core').Context;
+  return { provider: fakeProvider(providerId), model } as never as import('@wrongstack/core/agent').Context;
 }
 
 function overload(providerId: string) {
@@ -318,7 +315,7 @@ describe('createFallbackModelExtension', () => {
       logger,
     })!;
 
-    const ctx = makeCtx('anthropic', 'opus') as import('@wrongstack/core').Context;
+    const ctx = makeCtx('anthropic', 'opus') as import('@wrongstack/core/agent').Context;
     ctx.provider = fakeProvider('anthropic', 200_000);
     ctx.lastRequestTokens = 24_000;
 

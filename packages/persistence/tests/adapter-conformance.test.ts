@@ -1,0 +1,143 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as coreAdapter from '../../core/src/utils/atomic-write.js';
+import * as kanbanAdapter from '../../kanban/src/utils/atomic-write.js';
+import * as persistence from '../src/index.js';
+
+interface PersistenceAdapter {
+  atomicWrite(
+    targetPath: string,
+    content: string | Uint8Array,
+    opts?: persistence.AtomicWriteOptions,
+  ): Promise<void>;
+  ensureDir(dir: string): Promise<void>;
+  withFileLock<T>(
+    targetPath: string,
+    fn: () => Promise<T>,
+    opts?: persistence.FileLockOptions,
+  ): Promise<T>;
+}
+
+const adapters: Array<[string, PersistenceAdapter]> = [
+  ['persistence authority', persistence],
+  ['Core compatibility adapter', coreAdapter],
+  ['Kanban compatibility adapter', kanbanAdapter],
+];
+
+describe.each(adapters)('%s persistence conformance', (_label, adapter) => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-persistence-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('atomically writes strings and bytes into missing directories', async () => {
+    const textPath = path.join(tempDir, 'nested', 'value.txt');
+    const binaryPath = path.join(tempDir, 'nested', 'value.bin');
+    await adapter.atomicWrite(textPath, 'first');
+    await adapter.atomicWrite(textPath, 'second');
+    await adapter.atomicWrite(binaryPath, new Uint8Array([0, 1, 127, 255]));
+
+    await expect(fs.readFile(textPath, 'utf8')).resolves.toBe('second');
+    expect([...(await fs.readFile(binaryPath))]).toEqual([0, 1, 127, 255]);
+    expect(
+      (await fs.readdir(path.dirname(textPath))).filter((entry) => entry.endsWith('.tmp')),
+    ).toEqual([]);
+  });
+
+  it('preserves an existing target mode and cleans a failed rename temp file', async () => {
+    const modePath = path.join(tempDir, 'mode.txt');
+    await fs.writeFile(modePath, 'old');
+    if (process.platform !== 'win32') await fs.chmod(modePath, 0o600);
+    await adapter.atomicWrite(modePath, 'new', { mode: 0o640 });
+    if (process.platform !== 'win32') {
+      expect((await fs.stat(modePath)).mode & 0o777).toBe(0o600);
+    }
+
+    const directoryTarget = path.join(tempDir, 'cannot-replace');
+    await fs.mkdir(directoryTarget);
+    await expect(adapter.atomicWrite(directoryTarget, 'failure')).rejects.toBeTruthy();
+    expect((await fs.readdir(tempDir)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('creates the lock directory lazily and always releases after callback failure', async () => {
+    const target = path.join(tempDir, 'missing', 'deep', 'state.json');
+    const lockPath = path.join(path.dirname(target), '.state.json.lock');
+    await expect(
+      adapter.withFileLock(target, async () => {
+        throw new Error('expected callback failure');
+      }),
+    ).rejects.toThrow('expected callback failure');
+    await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('recovers a stale lock without running the callback twice', async () => {
+    const target = path.join(tempDir, 'stale.json');
+    const lockPath = path.join(tempDir, '.stale.json.lock');
+    await fs.writeFile(lockPath, 'stale-owner');
+    const old = new Date(Date.now() - 60_000);
+    await fs.utimes(lockPath, old, old);
+    let calls = 0;
+
+    const result = await adapter.withFileLock(
+      target,
+      async () => {
+        calls += 1;
+        return 'recovered';
+      },
+      { timeoutMs: 1_000, staleMs: 50 },
+    );
+
+    expect(result).toBe('recovered');
+    expect(calls).toBe(1);
+  });
+
+  it('wakes when a contended lock is released', async () => {
+    const target = path.join(tempDir, 'contended.json');
+    const lockPath = path.join(tempDir, '.contended.json.lock');
+    await fs.writeFile(lockPath, 'current-owner');
+    const release = setTimeout(() => void fs.unlink(lockPath), 30);
+    try {
+      await expect(
+        adapter.withFileLock(target, async () => 'acquired', {
+          timeoutMs: 1_000,
+          staleMs: 60_000,
+        }),
+      ).resolves.toBe('acquired');
+    } finally {
+      clearTimeout(release);
+    }
+  });
+
+  it('returns a structured bounded-timeout error and never enters the callback', async () => {
+    const target = path.join(tempDir, 'blocked.json');
+    const lockPath = path.join(tempDir, '.blocked.json.lock');
+    await fs.writeFile(lockPath, 'current-owner');
+    let entered = false;
+
+    const error = await adapter
+      .withFileLock(
+        target,
+        async () => {
+          entered = true;
+        },
+        { timeoutMs: 40, staleMs: 60_000 },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(entered).toBe(false);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      name: 'FsError',
+      code: 'FS_ATOMIC_WRITE_FAILED',
+      path: target,
+      context: { timeoutMs: 40 },
+    });
+  });
+});

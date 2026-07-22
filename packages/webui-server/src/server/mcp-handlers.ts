@@ -9,7 +9,7 @@
  * there; here we only map structured results to WS events the browser expects.
  */
 
-import { allServers } from '@wrongstack/core';
+import { allServers } from '@wrongstack/core/infrastructure';
 import {
   addMcp,
   disableMcp,
@@ -40,6 +40,10 @@ export interface MCPServerView {
   error?: string;
   pid?: number;
   lazy?: boolean;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
   health?: MCPServerOperationalHealth;
 }
 
@@ -80,6 +84,10 @@ function toView(info: McpServerInfo, health?: MCPServerOperationalHealth | undef
   };
   if (info.description !== undefined) view.description = info.description;
   if (info.lazy !== undefined) view.lazy = info.lazy;
+  if (info.command !== undefined) view.command = info.command;
+  if (info.args !== undefined) view.args = info.args;
+  if (info.env !== undefined) view.env = info.env;
+  if (info.url !== undefined) view.url = info.url;
   if (health !== undefined) view.health = health;
   return view;
 }

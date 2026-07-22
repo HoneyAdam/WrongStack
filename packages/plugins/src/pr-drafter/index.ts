@@ -31,7 +31,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 
 const API_VERSION = '^0.1.10';
 

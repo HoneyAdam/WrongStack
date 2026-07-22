@@ -13,7 +13,7 @@
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import type { Config, ModelsRegistry } from '@wrongstack/core';
+import type { Config, ModelsRegistry } from '@wrongstack/core/types';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyClient as verifyWsClient } from './ws-auth.js';
 import { envFlag, resolveAuthToken } from './ws-utils.js';
@@ -335,13 +335,14 @@ export function startHttpServer(opts: {
   onTechStackEvent?: ((event: import('./techstack-handlers.js').TechStackEvent) => void) | undefined;
   /** Live provider access for TechStack's LLM research stage. */
   getLlm?:
-    | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
+    | (() => { provider: import('@wrongstack/core/types').Provider; model: string } | undefined)
     | undefined;
   executePackageOperation?: import('./techstack-handlers.js').TechStackHandlerDeps['executePackageOperation'];
   distDir?: string | undefined;
 }): import('node:http').Server {
   const httpServer = createHttpServer({
     host: opts.wsHost,
+    port: opts.httpPort,
     distDir: resolveWebuiDistDir(import.meta.url, opts.distDir),
     publicWsUrl: opts.publicWsUrl,
     globalRoot: opts.globalRoot,

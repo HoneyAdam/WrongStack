@@ -1,9 +1,9 @@
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
-export type { McpParsedArgs } from './mcp-utils.js';
+export type { McpParsedArgs } from '../services/mcp-management.js';
 // Re-export for consumers that import from this barrel
-export { parseMcpArgs, runMcpManagementCommand } from './mcp-utils.js';
+export { parseMcpArgs, runMcpManagementCommand } from '../services/mcp-management.js';
 
 /**
  * /mcp slash command — manage MCP servers from the REPL.

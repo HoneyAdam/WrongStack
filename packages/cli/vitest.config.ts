@@ -12,6 +12,14 @@ export default defineConfig({
       // CLI tests import both @wrongstack/core and @wrongstack/tools; resolving
       // them from source keeps the test environment independent from prebuilt
       // sibling dist/ artifacts.
+      '@wrongstack/core/agent-catalog': path.resolve(
+        __dirname,
+        '../../packages/core/src/coordination/agents/index.ts',
+      ),
+      '@wrongstack/core/agent': path.resolve(
+        __dirname,
+        '../../packages/core/src/core/index.ts',
+      ),
       '@wrongstack/core': path.resolve(__dirname, '../../packages/core/src'),
       '@wrongstack/tools': path.resolve(__dirname, '../../packages/tools/src'),
     },

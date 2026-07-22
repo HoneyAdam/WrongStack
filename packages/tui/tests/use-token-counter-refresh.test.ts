@@ -1,7 +1,8 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EventBus, TokenCounter } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { TokenCounter } from '@wrongstack/core/types';
 import { Text } from '../src/ink.js';
 import {
   snapshotTokenCounter,

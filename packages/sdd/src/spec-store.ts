@@ -1,7 +1,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { atomicWrite, ensureDir } from '@wrongstack/core';
+import { atomicWrite, ensureDir } from '@wrongstack/core/utils';
 import type { Specification, SpecStatus } from '@wrongstack/core/types';
 
 export interface SpecStoreOptions {

@@ -5,8 +5,8 @@ import {
   type ChronicleFacet,
   type ChronicleQuery,
   ChronicleQueryEngine,
-  resolveWstackPaths,
-} from '@wrongstack/core';
+} from '@wrongstack/core/chronicle';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import type { WSClientMessage, WSServerMessage } from './types.js';
 
@@ -22,13 +22,24 @@ export interface ChronicleRouteContext {
 }
 
 const engineCache = new Map<string, { loadedAt: number; engine: Promise<ChronicleQueryEngine> }>();
+const ENGINE_CACHE_MAX_PROJECTS = 8;
 
 function defaultEngine(projectRoot: string): Promise<ChronicleQueryEngine> {
   const now = Date.now();
   const cached = engineCache.get(projectRoot);
-  if (cached && now - cached.loadedAt < 60_000) return cached.engine;
+  if (cached && now - cached.loadedAt < 60_000) {
+    engineCache.delete(projectRoot);
+    engineCache.set(projectRoot, cached);
+    return cached.engine;
+  }
   const paths = resolveWstackPaths({ projectRoot, userHome: os.homedir() });
   const engine = ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
+  engineCache.delete(projectRoot);
+  while (engineCache.size >= ENGINE_CACHE_MAX_PROJECTS) {
+    const oldest = engineCache.keys().next().value;
+    if (oldest === undefined) break;
+    engineCache.delete(oldest);
+  }
   engineCache.set(projectRoot, { loadedAt: now, engine });
   return engine;
 }

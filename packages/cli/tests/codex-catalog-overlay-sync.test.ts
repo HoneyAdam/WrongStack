@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CODEX_MODELS } from '@wrongstack/core';
+import { CODEX_MODELS } from '@wrongstack/core/models';
 import { describe, expect, it } from 'vitest';
 
 /**

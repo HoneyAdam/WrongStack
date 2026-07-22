@@ -7,12 +7,7 @@ import { existsSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  getDesignKitLoader,
-  getDesignState,
-  makeDesignDetectUserInputMiddleware,
-  makeDesignStudioRequestMiddleware,
-} from '@wrongstack/core';
+import { getDesignKitLoader, getDesignState, makeDesignDetectUserInputMiddleware, makeDesignStudioRequestMiddleware } from '@wrongstack/core/design';
 import { designTool } from '@wrongstack/tools';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 

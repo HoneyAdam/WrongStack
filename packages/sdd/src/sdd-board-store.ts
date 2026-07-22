@@ -1,6 +1,6 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite, ensureDir, withFileLock } from '@wrongstack/core';
+import { atomicWrite, ensureDir, withFileLock } from '@wrongstack/core/utils';
 import type { SddBoardSnapshot } from './board-types.js';
 
 const DEFAULT_EVENT_MAX_BYTES = 16 * 1024 * 1024;

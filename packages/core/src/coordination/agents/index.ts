@@ -2,62 +2,105 @@
  * Agent catalog aggregator.
  *
  * Collects every phase's `AgentDefinition[]` into:
- *   - `ALL_AGENT_DEFINITIONS` — flat list, catalog order (phase 1 → 9)
+ *   - `ALL_AGENT_DEFINITIONS` — flat list, catalog order (phase 1 → 9 + waves)
  *   - `AGENT_CATALOG`         — keyed by role for O(1) lookup
  *   - `AGENTS_BY_PHASE`       — grouped for statusline / dispatcher tie-breaks
  *
  * `fleet.ts` derives `FLEET_ROSTER` + `FLEET_ROSTER_BUDGETS` from this, and the
  * dispatcher routes free-form tasks against `capability` metadata here.
  */
-import type { AgentDefinition, AgentPhase } from './types.js';
+
 import { DISCOVERY_AGENTS } from './phase1-discovery.js';
 import { PLANNING_AGENTS } from './phase2-planning.js';
 import { BUILD_AGENTS } from './phase3-build.js';
+import { WAVE1_AGENTS, WAVE1_ROLE_METAS, WAVE1_ROLES } from './phase3-wave1-platform.js';
+import { WAVE2_AGENTS, WAVE2_ROLE_METAS, WAVE2_ROLES } from './phase3-wave2-meta.js';
 import { VERIFY_AGENTS } from './phase4-verify.js';
 import { REVIEW_AGENTS } from './phase5-review.js';
 import { DOMAIN_AGENTS } from './phase6-domain.js';
 import { KNOWLEDGE_AGENTS } from './phase7-knowledge.js';
 import { DELIVERY_AGENTS } from './phase8-delivery.js';
+import { WAVE3_AGENTS, WAVE3_ROLE_METAS, WAVE3_ROLES } from './phase8-wave3-products.js';
 import { META_AGENTS } from './phase9-meta.js';
+import { WAVE4_AGENTS, WAVE4_ROLE_METAS, WAVE4_ROLES } from './phase9-wave4-platform-meta.js';
+import { ROLE_SKILL_SETS, SHADOW_AGENT_SKILLS, assignSkillsToAgents } from './role-skills.js';
+import type { AgentDefinition, AgentPhase, RoleDispatcherSignal } from './types.js';
 
+export * from './role-skills.js';
 export * from './types.js';
+export * from './phase3-wave1-platform.js';
+export * from './phase3-wave2-meta.js';
+export * from './phase8-wave3-products.js';
+export * from './phase9-wave4-platform-meta.js';
+export * from './project-agent-identity.js';
 export {
-  DISCOVERY_AGENTS,
-  PLANNING_AGENTS,
   BUILD_AGENTS,
-  VERIFY_AGENTS,
-  REVIEW_AGENTS,
+  DELIVERY_AGENTS,
+  DISCOVERY_AGENTS,
   DOMAIN_AGENTS,
   KNOWLEDGE_AGENTS,
-  DELIVERY_AGENTS,
   META_AGENTS,
+  PLANNING_AGENTS,
+  REVIEW_AGENTS,
+  VERIFY_AGENTS,
+  WAVE1_AGENTS,
+  WAVE2_AGENTS,
+  WAVE3_AGENTS,
+  WAVE4_AGENTS,
 };
 
-/** Every catalog agent, in phase order. */
-export const ALL_AGENT_DEFINITIONS: AgentDefinition[] = [
+/**
+ * Combined role-dispatcher metadata for every wave-added role. The
+ * heuristic dispatcher and the LLM classifier both consult this table
+ * to make the "why this role wins" rationale auditable.
+ */
+export const ROLE_DISPATCHER_METAS: Record<string, RoleDispatcherSignal> = {
+  ...WAVE1_ROLE_METAS,
+  ...WAVE2_ROLE_METAS,
+  ...WAVE3_ROLE_METAS,
+  ...WAVE4_ROLE_METAS,
+};
+
+/** Set of every catalog role id added by the four waves. */
+export const WAVE_ROLE_IDS: ReadonlySet<string> = new Set<string>([
+  ...WAVE1_ROLES,
+  ...WAVE2_ROLES,
+  ...WAVE3_ROLES,
+  ...WAVE4_ROLES,
+]);
+
+/** Every catalog agent, in phase order, enriched with its curated skills. */
+export const ALL_AGENT_DEFINITIONS: AgentDefinition[] = assignSkillsToAgents([
   ...DISCOVERY_AGENTS,
   ...PLANNING_AGENTS,
   ...BUILD_AGENTS,
+  ...WAVE1_AGENTS,
+  ...WAVE2_AGENTS,
   ...VERIFY_AGENTS,
   ...REVIEW_AGENTS,
   ...DOMAIN_AGENTS,
   ...KNOWLEDGE_AGENTS,
   ...DELIVERY_AGENTS,
+  ...WAVE3_AGENTS,
   ...META_AGENTS,
-];
+  ...WAVE4_AGENTS,
+]);
 
-/** Phase → its agents, for grouped display and dispatcher fallbacks. */
-export const AGENTS_BY_PHASE: Record<AgentPhase, AgentDefinition[]> = {
-  discovery: DISCOVERY_AGENTS,
-  planning: PLANNING_AGENTS,
-  build: BUILD_AGENTS,
-  verify: VERIFY_AGENTS,
-  review: REVIEW_AGENTS,
-  domain: DOMAIN_AGENTS,
-  knowledge: KNOWLEDGE_AGENTS,
-  delivery: DELIVERY_AGENTS,
-  meta: META_AGENTS,
-};
+/** Phase → its enriched agents, for grouped display and dispatcher fallbacks. */
+const agentsInPhase = (phase: AgentPhase): AgentDefinition[] =>
+  ALL_AGENT_DEFINITIONS.filter((definition) => definition.capability.phase === phase);
+
+export const AGENTS_BY_PHASE = {
+  discovery: agentsInPhase('discovery'),
+  planning: agentsInPhase('planning'),
+  build: agentsInPhase('build'),
+  verify: agentsInPhase('verify'),
+  review: agentsInPhase('review'),
+  domain: agentsInPhase('domain'),
+  knowledge: agentsInPhase('knowledge'),
+  delivery: agentsInPhase('delivery'),
+  meta: agentsInPhase('meta'),
+} satisfies Record<AgentPhase, AgentDefinition[]>;
 
 /**
  * Role → definition. Built once at module load. Throws on a duplicate role so
@@ -82,3 +125,7 @@ export const AGENT_CATALOG: Record<string, AgentDefinition> = (() => {
 export function getAgentDefinition(role: string): AgentDefinition | undefined {
   return AGENT_CATALOG[role];
 }
+
+// Re-export the skill-set aliases that some callers historically imported
+// from this module so the wave-1/2/3/4 surface keeps backward compatibility.
+export { ROLE_SKILL_SETS, SHADOW_AGENT_SKILLS };

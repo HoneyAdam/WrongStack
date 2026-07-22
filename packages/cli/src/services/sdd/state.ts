@@ -1,3 +1,4 @@
+import type { Context } from '@wrongstack/core/agent';
 import {
   type AISpecBuilder,
   type AISpecPhase,
@@ -5,7 +6,6 @@ import {
   SpecVersioning,
   type TaskTracker,
 } from '@wrongstack/sdd';
-import type { SlashCommandContext } from '../index.js';
 
 /** Key used to store SDD session state in ctx.meta for session isolation. */
 export const SDD_META_KEY = 'sdd.state';
@@ -92,7 +92,7 @@ export const sddState = new SDDState();
  * Get or create the SDD state for the current session.
  * Uses ctx.meta so each concurrent browser/REPL session has isolated state.
  */
-export function getSessionState(ctx: SlashCommandContext['context']): SDDState {
+export function getSessionState(ctx: Context | undefined): SDDState {
   if (!ctx) return sddState;
   let state = ctx.meta[SDD_META_KEY] as SDDState | undefined;
   if (!state) {

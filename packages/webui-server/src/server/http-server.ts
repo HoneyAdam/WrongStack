@@ -1,24 +1,19 @@
 /**
- * Static-file HTTP server for the WebUI React frontend.
+ * Static-file HTTP server for the WebUI / SimpleUI React frontends.
  *
- * - Serves files from `distDir` (typically `<webui>/dist`).
- * - Returns `index.html` for any unknown path so client-side routing works
- *   (SPA fallback) — and applies the same Content-Security-Policy to that
- *   fallback as to a direct `.html` response, so deep-linked routes are
- *   not unprotected.
+ * Design:
+ * - **Single port — shared HTTP + WebSocket.** A single port serves both the
+ *   static frontend and the WebSocket protocol. See the port-utils module.
+ * - **CSP**: `connect-src 'self'` covers the core same-origin case. For loopback
+ *   binds (127.0.0.1 / localhost) we also add explicit `ws://`/`wss://` entries
+ *   so browsers that strictly separate `ws:` from `http:` in CSP `connect-src`
+ *   matching still allow WS upgrades. These loopback entries are safe because
+ *   they only open connections to the local machine. Tunnel/proxy setups use
+ *   `publicWsUrl` for the single external origin.
  * - **Path-traversal guard**: `path.join` alone does NOT prevent
  *   `%2e%2e%2f` escapes (the `URL` constructor decodes percent-encoding
  *   before we see the path). We re-`resolve` the candidate and verify it
  *   stays under `distDir`.
- * - **CSP**: `connect-src` uses `'self'` to cover same-origin WS upgrades
- *   on the shared HTTP+WS port (no explicit `ws:` / `wss:` entries).
- *   This blocks cross-origin WebSocket abuse — a malicious page script
- *   can only open WS connections back to its own origin. Combined with
- *   the cookie-based WS auth delivery (`/ws-auth` → `Set-Cookie:
- *   ws_token=…; HttpOnly; SameSite=Strict; Path=/`), this prevents
- *   cross-origin WS abuse. When `publicWsUrl` is configured, that
- *   single origin is added to `connect-src` to allow tunnels/reverse
- *   proxies.
  * - **Access auth**: on non-loopback binds, all HTTP routes require the same
  *   shared token as the WS upgrade, accepted via `?token=...`, `X-WS-Token`,
  *   or the `ws_token` HttpOnly cookie. This protects the React UI and the
@@ -66,7 +61,12 @@ import {
   handleTechStackTrends,
   type TechStackEvent,
 } from './techstack-handlers.js';
-import { extractTokenFromCookie, isLoopbackBind, tokenMatches } from './ws-auth.js';
+import {
+  extractTokenFromCookie,
+  isLoopbackBind,
+  isLoopbackHostname,
+  tokenMatches,
+} from './ws-auth.js';
 
 export interface CreateHttpServerOptions {
   /** Port to listen on. Defaults to 3456 (or the `PORT` env var). */
@@ -129,7 +129,7 @@ export interface CreateHttpServerOptions {
    * A getter, not a value — see `TechStackHandlerDeps.getLlm`.
    */
   getLlm?:
-    | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
+    | (() => { provider: import('@wrongstack/core/types').Provider; model: string } | undefined)
     | undefined;
   /** Permission-governed language_package bridge for approved remediation. */
   executePackageOperation?: import('./techstack-handlers.js').TechStackHandlerDeps['executePackageOperation'];
@@ -218,13 +218,46 @@ function cspSourceFromUrl(rawUrl: string): string | undefined {
  */
 const EXTRA_SCRIPT_SOURCES: readonly string[] = ["'wasm-unsafe-eval'"];
 
-/** Build the Content-Security-Policy value. The WebSocket now shares the HTTP
- * server port, so `'self'` covers same-origin WS — explicit ws:// entries are
- * no longer needed. */
-export function buildCspHeader(publicWsUrl?: string | undefined): string {
+/**
+ * Build the Content-Security-Policy value for the WebUI.
+ *
+ * Adds explicit `ws://`/`wss://` entries for loopback addresses (`127.0.0.1`,
+ * `localhost`) so `connect-src` covers WebSocket even in strict CSP
+ * implementations that distinguish `ws:` from `http:` origins.
+ *
+ * @param publicWsUrl - Optional public-facing WS URL (tunnel/reverse-proxy).
+ *   When set, this origin is added to `connect-src` as a `ws://`/`wss://` entry.
+ * @param host - The server bind host. When it matches a known loopback address
+ *   (`127.0.0.1`, `::1`, `[::1]`, or `localhost`), explicit `ws://`/`wss://`
+ *   entries for all three canonical loopback hosts are added to `connect-src`.
+ * @param port - The server listen port. Defaults to `3456`. Unnecessary when
+ *   only publicWsUrl is used (no loopback branch).
+ */
+export function buildCspHeader(
+  publicWsUrl?: string | undefined,
+  host?: string,
+  port?: number,
+): string {
   const connect = new Set(["'self'"]);
   const publicWsSource = publicWsUrl ? cspSourceFromUrl(publicWsUrl) : undefined;
   if (publicWsSource) connect.add(publicWsSource);
+  // Explicit WS origins for loopback binds — some CSP implementations do not
+  // equate `ws:`/`wss:` with `http:`/`https:` for the `'self'` keyword in
+  // connect-src. Adding the canonical loopback addresses covers access via
+  // 127.0.0.1, localhost, and [::1] regardless of which interface the server
+  // is actually bound to (prevents drift from the ws-auth.ts policy).
+  if (host && isLoopbackHostname(host)) {
+    const p = port ?? 3456;
+    // Guard against config typos (negative, zero, or impossibly large port).
+    // This is NOT about ephemeral-port binds (listen(0)) — createHttpServer
+    // resolves the real port from server.address() and passes it here.
+    if (p > 0 && p <= 65535) {
+      for (const h of ['127.0.0.1', 'localhost', '::1']) {
+        connect.add(`ws://${formatCspHostname(h)}:${p}`);
+        connect.add(`wss://${formatCspHostname(h)}:${p}`);
+      }
+    }
+  }
   const scriptSrc = ["'self'", ...EXTRA_SCRIPT_SOURCES].join(' ');
   return (
     `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; ` +
@@ -740,7 +773,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
 
       if (ext === '.html') {
         if (!shouldSetAuthCookie) res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Content-Security-Policy', buildCspHeader(opts.publicWsUrl));
+        res.setHeader('Content-Security-Policy', buildCspHeader(opts.publicWsUrl, opts.host, port));
         // The frontend derives the WebSocket URL from the page origin since
         // WS now shares the HTTP server port. No WS-port injection needed.
         const html = await fs.readFile(resolvedPath, 'utf8');
@@ -770,7 +803,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
             'Referrer-Policy': 'strict-origin-when-cross-origin',
-            'Content-Security-Policy': buildCspHeader(opts.publicWsUrl),
+            'Content-Security-Policy': buildCspHeader(opts.publicWsUrl, opts.host, port),
           });
           res.end(injectWsConfig(html, { publicWsUrl: opts.publicWsUrl }));
         } catch {

@@ -5,8 +5,8 @@ import type {
   Request,
   StreamEvent,
   WireFamily,
-} from '@wrongstack/core';
-import { ConfigError, type ProviderError } from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { ConfigError, type ProviderError } from '@wrongstack/core/types';
 import {
   type HeadersLike,
   parseProviderHttpError,

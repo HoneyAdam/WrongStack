@@ -13,9 +13,8 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SecretVault } from '@wrongstack/core';
-import { DefaultSecretVault } from '@wrongstack/core';
-import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
+import { decryptConfigSecrets, DefaultSecretVault, encryptConfigSecrets } from '@wrongstack/core/security';
+import type { SecretVault } from '@wrongstack/core/types';
 import { atomicWrite, wstackGlobalRoot } from '@wrongstack/core/utils';
 
 const globalRoot = wstackGlobalRoot();

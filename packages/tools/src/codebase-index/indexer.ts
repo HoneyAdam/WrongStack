@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 /**
  * Main indexing orchestrator.
  *
@@ -14,8 +14,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { availableParallelism } from 'node:os';
 import type { Dirent, Stats } from 'node:fs';
-import type { Context } from '@wrongstack/core';
-import { compileGlob } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { compileGlob } from '@wrongstack/core/utils';
 import type { FileMeta, IndexResult, Ref, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 import { IndexStore } from './writer.js';
 import { parseSymbols as parseTs, detectLang } from './ts-parser.js';

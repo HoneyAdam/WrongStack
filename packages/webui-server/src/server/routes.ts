@@ -20,31 +20,30 @@
  * this file fulfils.
  */
 import path from 'node:path';
+import type { Agent, AgentPipelines, Context } from '@wrongstack/core/agent';
+import type { ObservableBrainArbiter } from '@wrongstack/core/coordination';
 import type {
-  Agent,
-  AgentPipelines,
   AutoCompactionMiddleware,
   BrainAutoRisk,
   BrainRuntime,
+} from '@wrongstack/core/execution';
+import type { Container, EventBus } from '@wrongstack/core/kernel';
+import type { DefaultModeStore } from '@wrongstack/core/models';
+import type { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import type { SkillInstaller } from '@wrongstack/core/skills';
+import type {
   Compactor,
   ConfigStore,
-  Context,
-  DefaultModeStore,
-  EventBus,
   Logger,
-  MemoryStore,
+  MemoryPort,
   ModelsRegistry,
-  ObservableBrainArbiter,
   PermissionPolicy,
   Provider,
   ProviderConfig,
-  ProviderRegistry,
   SecretVault,
   SessionStore,
-  SkillInstaller,
   SkillLoader,
-  ToolRegistry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { WebSocket, WebSocketServer } from 'ws';
 
@@ -56,15 +55,16 @@ import { makeProviderFromConfig } from '@wrongstack/providers';
 import { type AutonomyRouteHandlers, createAutonomyRouteHandlers } from './autonomy-routes.js';
 import { patchConfig } from './boot.js';
 import {
+  type BrainHandlerContext,
   handleBrainAsk,
   handleBrainConfigGet,
   handleBrainConfigSet,
   handleBrainRisk,
   handleBrainStatus,
-  type BrainHandlerContext,
 } from './brain-handlers.js';
 import type { BrainRouteHandlers } from './brain-routes.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
+import { handleConfigDoctor } from './config-doctor.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
 import type { GoalRouteHandlers } from './goal-routes.js';
@@ -105,7 +105,12 @@ import type { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
 import { createSessionHandlers } from './session-handlers.js';
 import type { SessionRouteHandlers } from './session-routes.js';
 import type { ShellGitRouteHandlers } from './shell-git-routes.js';
-import { handleShellOpen, type ShellOpenRequest, type ShellOpenResult } from './shell-open.js';
+import {
+  handleShellOpen,
+  normalizeShellOpenTarget,
+  type ShellOpenResult,
+  type ShellOpenTarget,
+} from './shell-open.js';
 import type { SpecsRouteHandlers } from './specs-routes.js';
 import type { SpecsWebSocketHandler } from './specs-ws-handler.js';
 import type { TerminalWebSocketHandler } from './terminal-ws-handler.js';
@@ -157,7 +162,7 @@ export interface WebuiDeps {
   trustBoundary: import('@wrongstack/core/security').TrustBoundary;
   agent: Agent;
   context: Context;
-  container: import('@wrongstack/core').Container;
+  container: Container;
   toolRegistry: ToolRegistry;
   modelsRegistry: ModelsRegistry;
   providerRegistry: ProviderRegistry;
@@ -175,7 +180,7 @@ export interface WebuiDeps {
   pendingConfirms: Map<string, PendingConfirm>;
   pipelines: AgentPipelines;
   logger: Logger;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   modeStore: DefaultModeStore;
   skillLoader: SkillLoader | undefined;
   skillInstaller: SkillInstaller | undefined;
@@ -442,7 +447,7 @@ export function buildRoutes(
       if (Array.isArray(payload['modelAvailabilitySchedule']))
         config.modelAvailabilitySchedule = payload[
           'modelAvailabilitySchedule'
-        ] as import('@wrongstack/core').ModelBlackoutRule[];
+        ] as import('@wrongstack/core/models').ModelBlackoutRule[];
       if (
         payload['modelMatrix'] &&
         typeof payload['modelMatrix'] === 'object' &&
@@ -468,7 +473,17 @@ export function buildRoutes(
     send,
     broadcast: (message) => broadcast(state.getClients(), message),
   };
-  const prefsRoutes = createPrefsRouteHandlers(prefsContext);
+  const doctorConfigHandler = (ws: WebSocket, apply: boolean) =>
+    handleConfigDoctor(ws, apply, {
+      profileConfigPath: deps.profileConfigPath,
+      vault: deps.vault,
+      updateConfig: cb.updateGlobalConfig,
+      applyRuntimeConfig: (next) => {
+        state.setConfig(next);
+        deps.configStore.update(next);
+      },
+    });
+  const prefsRoutes = createPrefsRouteHandlers(prefsContext, doctorConfigHandler);
   const autonomyRoutes = createAutonomyRouteHandlers(prefsContext);
 
   const shellGitRoutes: ShellGitRouteHandlers = {
@@ -492,15 +507,19 @@ export function buildRoutes(
         sendResult(ws, false, parsed.message);
         return;
       }
+      // Normalize the wire-format target ('file'|'terminal') to the
+      // handler contract ('terminal'|'file-manager').
+      const normalizedTarget: ShellOpenTarget =
+        normalizeShellOpenTarget(parsed.value.target);
       const authorization = await authorizeWebUIAction(
         deps.trustBoundary,
         {
           capability:
-            parsed.value.target === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
+            normalizedTarget === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
           subject: {
             kind: 'path',
             id: parsed.value.path,
-            attributes: { target: parsed.value.target ?? 'file' },
+            attributes: { target: normalizedTarget },
           },
           risk: 'elevated',
           cwd: state.getProjectRoot(),
@@ -513,7 +532,7 @@ export function buildRoutes(
         return;
       }
       const result: ShellOpenResult = await handleShellOpen(
-        parsed.value as ShellOpenRequest,
+        { path: parsed.value.path, target: normalizedTarget },
         deps.logger,
         { projectRoot: state.getProjectRoot() },
       );

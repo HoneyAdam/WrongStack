@@ -6,7 +6,7 @@
  * unit under test, with no child processes involved.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { SubagentError, SubagentRunContext, TaskSpec } from '@wrongstack/core';
+import type { SubagentError, SubagentRunContext, TaskSpec } from '@wrongstack/core/types';
 
 interface MockSession {
   prompt: ReturnType<typeof vi.fn>;

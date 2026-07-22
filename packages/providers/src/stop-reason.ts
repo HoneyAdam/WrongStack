@@ -1,4 +1,4 @@
-import type { StopReason } from '@wrongstack/core';
+import type { StopReason } from '@wrongstack/core/types';
 
 export function normalizeAnthropic(stop: string | null | undefined): StopReason {
   switch (stop) {

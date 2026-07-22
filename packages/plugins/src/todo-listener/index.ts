@@ -29,8 +29,9 @@
  *
  * @public
  */
-import type { Plugin, TodoItem } from '@wrongstack/core';
-import type { Mailbox, MailboxMessage, MailboxSendInput } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
+import type { Mailbox, MailboxMessage, MailboxSendInput } from '@wrongstack/core/coordination';
+import type { Plugin } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Module-scope state (H1 audit pattern)

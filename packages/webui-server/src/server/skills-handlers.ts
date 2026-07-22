@@ -21,8 +21,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
-import type { SkillLoader } from '@wrongstack/core';
-import { atomicWrite, resolveWstackPaths } from '@wrongstack/core';
+import type { SkillLoader } from '@wrongstack/core/types';
+import { atomicWrite, resolveWstackPaths } from '@wrongstack/core/utils';
 import type { SkillInstaller } from '@wrongstack/core/skills';
 import { send, errMessage } from './ws-utils.js';
 import { validateSkillsCreatePayload, validateSkillsEditPayload } from './ws-payload-validation.js';

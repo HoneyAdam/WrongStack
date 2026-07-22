@@ -1,12 +1,7 @@
 import { existsSync } from 'node:fs';
-import {
-  Container,
-  EventBus,
-  type Logger,
-  type PluginAPI,
-  type SlashCommand,
-  type Tool,
-} from '@wrongstack/core';
+import { Container, EventBus } from '@wrongstack/core/kernel';
+import type { PluginAPI } from '@wrongstack/core/plugin';
+import type { Logger, SlashCommand, Tool } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLUGIN_NAME } from '../../src/config.js';
 import plugin, { teardownState as _teardownState } from '../../src/index.js';

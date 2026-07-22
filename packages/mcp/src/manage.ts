@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import type { MCPHealthConfig, MCPServerConfig, Permission } from '@wrongstack/core';
+import type { MCPHealthConfig, MCPServerConfig, Permission } from '@wrongstack/core/types';
 import type { MCPRegistry } from './registry.js';
 
 /** Transport values accepted from UI surfaces (UI also offers a bare "http"). */
@@ -57,6 +57,8 @@ export interface McpServerInfo {
   tools: string[];
   url?: string | undefined;
   command?: string | undefined;
+  args?: string[] | undefined;
+  env?: Record<string, string> | undefined;
   /** Lazy-connect opt-in (spawn on first tool call). */
   lazy?: boolean | undefined;
 }
@@ -191,6 +193,8 @@ function projectServer(name: string, cfg: MCPServerConfig, registry: MCPRegistry
   if (cfg.description !== undefined) info.description = cfg.description;
   if (cfg.url !== undefined) info.url = cfg.url;
   if (cfg.command !== undefined) info.command = cfg.command;
+  if (cfg.args !== undefined) info.args = cfg.args;
+  if (cfg.env !== undefined) info.env = cfg.env;
   if (cfg.lazy !== undefined) info.lazy = cfg.lazy;
   return info;
 }

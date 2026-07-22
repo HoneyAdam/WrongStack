@@ -1,10 +1,7 @@
-import {
-  type Config,
-  type DefaultLogger,
-  type DefaultSecretVault,
-  type WstackPaths,
-  bootConfig as coreBootConfig,
-} from '@wrongstack/core';
+import { bootConfig as coreBootConfig, type DefaultLogger } from '@wrongstack/core/infrastructure';
+import type { DefaultSecretVault } from '@wrongstack/core/security';
+import type { Config } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
 
 export interface BootResult {
   config: Config;

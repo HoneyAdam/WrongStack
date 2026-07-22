@@ -1,0 +1,578 @@
+import {
+  applyTokenOverrides,
+  clearActiveKit,
+  clearPersistedActiveKit,
+  getDesignKitLoader,
+  isDesignStack,
+  loadActiveKit,
+  materializeTokens,
+  recordOverrides,
+  resolveSemanticTune,
+  setActiveKit,
+  setDesignOverrides,
+} from '@wrongstack/core/design';
+import { toErrorMessage } from '@wrongstack/core/utils';
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+  useEffect,
+} from 'react';
+import type { AppProps } from '../app-props.js';
+import type { Action, Settings, State } from '../app-state.js';
+import { AUTONOMY_OPTIONS } from '../components/autonomy-picker.js';
+import {
+  formatAllSettingsSummary,
+  getSettingsFieldValue,
+  resetSettingsFieldValue,
+  resolveSettingsFieldValue,
+  settingsPickerJumpByName,
+  settingsPickerJumpNames,
+} from '../components/settings-picker.js';
+import { STATUSLINE_ITEMS, type StatuslineItem } from '../components/statusline-picker.js';
+
+interface TuiSlashCommandOptions {
+  slashRegistry: AppProps['slashRegistry'];
+  getPickableProviders: AppProps['getPickableProviders'];
+  switchProviderAndModel: AppProps['switchProviderAndModel'];
+  openModelPicker: () => Promise<void>;
+  openFKeyPicker: () => void;
+  projectRoot: string;
+  agent: AppProps['agent'];
+  dispatch: Dispatch<Action>;
+  getSettings: AppProps['getSettings'];
+  saveSettings: AppProps['saveSettings'];
+  openSettings: () => void;
+  state: State;
+  openStatuslinePicker: () => void;
+  setHiddenItems: (items: StatuslineItem[]) => void;
+  hiddenItemsRef: MutableRefObject<StatuslineItem[]>;
+  setMailboxPanelOpen: Dispatch<SetStateAction<boolean>>;
+  switchAutonomy: AppProps['switchAutonomy'];
+  listSessions: AppProps['listSessions'];
+}
+
+/** Registers TUI-owned slash commands and releases them on dependency changes. */
+export function useTuiSlashCommands({
+  slashRegistry,
+  getPickableProviders,
+  switchProviderAndModel,
+  openModelPicker,
+  openFKeyPicker,
+  projectRoot,
+  agent,
+  dispatch,
+  getSettings,
+  saveSettings,
+  openSettings,
+  state,
+  openStatuslinePicker,
+  setHiddenItems,
+  hiddenItemsRef,
+  setMailboxPanelOpen,
+  switchAutonomy,
+  listSessions,
+}: TuiSlashCommandOptions): void {
+  // Register the TUI-only `/model` command — opens a two-step picker
+  // (provider → model). All work is local state mutation; the actual
+  // switch fires only after the user confirms a model in step 2.
+  useEffect(() => {
+    if (!getPickableProviders || !switchProviderAndModel) return;
+    const cmd = {
+      name: 'model',
+      aliases: ['provider', 'switch'],
+      description: 'Pick a provider + model interactively (two-step).',
+      async run() {
+        await openModelPicker();
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it can override a CLI built-in
+    // of the same name (owner='tui' + official=true → claims the bare name).
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('model');
+    };
+  }, [slashRegistry, getPickableProviders, switchProviderAndModel, openModelPicker]);
+
+  // Register the TUI-only `/f` command — opens the keyboard-navigable F-key panel picker.
+  useEffect(() => {
+    const cmd = {
+      name: 'f',
+      description: 'Open F-key panel picker. Arrow keys to navigate, Enter to open, Esc to close.',
+      async run() {
+        openFKeyPicker();
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /f command. Without this, only /f 1..12 would work.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('f');
+    };
+  }, [slashRegistry, openFKeyPicker]);
+
+  // Register the TUI-only `/design` command. With no args it opens the visual
+  // kit picker; with args it pins/clears like the CLI command. The picker's
+  // Enter routes back through `/design <id> <stack>`, so this one handler
+  // serves both the visual and typed paths.
+  useEffect(() => {
+    const cmd = {
+      name: 'design',
+      description:
+        'Design Studio: /design (picker) | <kit> [stack] | off | foundations | set <k=v> | tune <k=v> | swap <kit> | materialize [stack] [path] | verify.',
+      async run(args: string) {
+        const loader = getDesignKitLoader(projectRoot);
+        const tokens = (args ?? '').trim().split(/\s+/).filter(Boolean);
+        const sub = tokens[0]?.toLowerCase();
+        if (!sub) {
+          const kits = await loader.listEntries();
+          dispatch({ type: 'designPickerOpen', kits });
+          return { message: undefined };
+        }
+        if (sub === 'off') {
+          clearActiveKit(agent.ctx);
+          await clearPersistedActiveKit(projectRoot);
+          return { message: 'Cleared the active design kit.' };
+        }
+        if (sub === 'foundations') {
+          return { runText: 'design foundations' };
+        }
+        if (sub === 'verify') {
+          return { runText: 'design verify' };
+        }
+        if (sub === 'set') {
+          const patch: Record<string, string> = {};
+          for (const t of tokens.slice(1)) {
+            const eq = t.indexOf('=');
+            if (eq > 0) patch[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+          }
+          if (Object.keys(patch).length === 0) {
+            return { message: 'Usage: /design set primary=oklch(…) dark.bg=#111' };
+          }
+          const merged = await recordOverrides(projectRoot, patch, new Date().toISOString());
+          if (!merged) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+          setDesignOverrides(agent.ctx, merged);
+          return {
+            message: `Overrides set: ${Object.entries(merged)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(', ')}`,
+          };
+        }
+        if (sub === 'tune') {
+          const pairs: Record<string, string> = {};
+          for (const t of tokens.slice(1)) {
+            const eq = t.indexOf('=');
+            if (eq > 0) pairs[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+          }
+          const patch = resolveSemanticTune({
+            radius: pairs['radius'],
+            density: pairs['density'],
+            font: pairs['font'],
+            motion: pairs['motion'],
+          });
+          if (Object.keys(patch).length === 0) {
+            return { message: 'Usage: /design tune radius=lg density=compact font="…" motion=snappy' };
+          }
+          const merged = await recordOverrides(projectRoot, patch, new Date().toISOString());
+          if (!merged) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+          setDesignOverrides(agent.ctx, merged);
+          return {
+            message: `Tuned (${Object.keys(patch).length} tokens): ${Object.entries(patch)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(', ')}`,
+          };
+        }
+        if (sub === 'swap') {
+          const target = tokens[1]?.toLowerCase();
+          if (!target) return { message: 'Usage: /design swap <kit-id> [stack]' };
+          const swapKit = await loader.find(target);
+          if (!swapKit) {
+            const menu = await loader.menuText();
+            return { message: `Unknown kit "${target}".\n\n${menu}` };
+          }
+          const swapStackArg = tokens[2]?.toLowerCase();
+          const swapStack = swapStackArg && isDesignStack(swapStackArg) ? swapStackArg : undefined;
+          await clearPersistedActiveKit(projectRoot);
+          setActiveKit(agent.ctx, swapKit.id, swapStack, {});
+          return {
+            message: `Swapped to "${swapKit.name}" (${swapKit.id}). Old overrides dropped.`,
+            runText: `design use ${swapKit.id}${swapStack ? ` --stack ${swapStack}` : ''}`,
+          };
+        }
+        if (sub === 'materialize') {
+          const active = await loadActiveKit(projectRoot);
+          if (!active) return { message: 'No active kit. Pin one first: /design <kit-id>.' };
+          const stackArg2 = tokens[1]?.toLowerCase();
+          const matStack =
+            stackArg2 && isDesignStack(stackArg2)
+              ? stackArg2
+              : active.stack && isDesignStack(active.stack)
+                ? active.stack
+                : 'web';
+          const outPath = stackArg2 && !isDesignStack(stackArg2) ? tokens[1] : tokens[2];
+          const raw = await loader.readTokens(active.kit);
+          if (!raw) return { message: `Kit "${active.kit}" has no tokens.json.` };
+          const result = materializeTokens({
+            tokens: applyTokenOverrides(raw, active.overrides),
+            stack: matStack,
+            kitId: active.kit,
+            outPath,
+          });
+          const fsp = await import('node:fs/promises');
+          const nodePath = await import('node:path');
+          const abs = nodePath.join(projectRoot, result.path);
+          try {
+            await fsp.mkdir(nodePath.dirname(abs), { recursive: true });
+            await fsp.writeFile(abs, result.content);
+          } catch (e) {
+            return { message: `Failed to write ${result.path}: ${(e as Error).message}` };
+          }
+          return { message: `Wrote ${result.format} → ${result.path}` };
+        }
+        const kit = await loader.find(sub);
+        if (!kit) {
+          const menu = await loader.menuText();
+          return { message: `Unknown kit "${sub}".\n\n${menu}` };
+        }
+        const stackArg = tokens[1]?.toLowerCase();
+        const stack = stackArg && isDesignStack(stackArg) ? stackArg : undefined;
+        setActiveKit(agent.ctx, kit.id, stack);
+        return { runText: `design use ${kit.id}${stack ? ` --stack ${stack}` : ''}` };
+      },
+    };
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('design');
+    };
+  }, [slashRegistry, projectRoot, agent]);
+
+  // Register the TUI-only `/settings` command — opens the interactive
+  // SettingsPicker immediately, same as Ctrl+S. Accepts an optional
+  // row-name argument that jumps the picker to that row on open
+  // (e.g. `/settings multi-diff` → opens the picker on the multi-diff
+  // summary row). Gated on the settings accessors being wired by the
+  // host (CLI passes them in).
+  useEffect(() => {
+    if (!getSettings || !saveSettings) return;
+    const cmd = {
+      name: 'settings',
+      aliases: ['config', 'prefs'],
+      description:
+        'Open the settings editor, or set a value inline: /settings [<chord> [<value>]].',
+      argsHint: '[<chord> [<value>]]',
+      help:
+        'Open the settings editor.\n\n' +
+        '  /settings              Open on the last-visited row\n' +
+        '  /settings <chord>      Open on that row\n' +
+        '  /settings <chord> <v>  Set <chord> to <v> without opening the picker\n' +
+        '  /settings reset <chord> Reset <chord> to its factory default\n\n' +
+        'Examples:\n' +
+        '  /settings yolo on      Enable YOLO mode\n' +
+        '  /settings multi-diff 8  Set multi-diff threshold to 8\n' +
+        '  /settings thinking-word pondering  Set the working-state word\n\n' +
+        'Available chords:\n  ' +
+        settingsPickerJumpNames().join('\n  '),
+      async run(args: string) {
+        const query = args.trim();
+        if (query === '') {
+          openSettings();
+          return { message: undefined };
+        }
+
+        // `/settings reset <chord>` — reset a field to its factory default.
+        if (query === 'reset' || query.startsWith('reset ')) {
+          const subArg = query.slice('reset'.length).trim();
+          if (subArg === '') {
+            return {
+              message:
+                'Usage: /settings reset <chord>\nAvailable: ' +
+                settingsPickerJumpNames().join(', '),
+            };
+          }
+          const field = settingsPickerJumpByName(subArg);
+          if (field === undefined) {
+            return {
+              message:
+                `Unknown settings row "${subArg}".\n` +
+                `Available chords:\n  ${settingsPickerJumpNames().join('\n  ')}`,
+            };
+          }
+          const result = resetSettingsFieldValue(field);
+          if (!result.ok) {
+            return { message: result.error };
+          }
+          dispatch({ type: 'settingsValueSet', patch: result.patch });
+          const cur = getSettings ? getSettings() : undefined;
+          if (cur && saveSettings) {
+            const { tokenSavingTier, ...rest } = result.patch;
+            Promise.resolve(
+              saveSettings({
+                ...cur,
+                ...rest,
+                ...(tokenSavingTier !== undefined ? { featureTokenSaving: tokenSavingTier } : {}),
+              }),
+            ).then((err: string | null) => {
+              if (err) dispatch({ type: 'settingsHint', text: err });
+            });
+          }
+          return { message: `↺ ${result.label} reset to ${result.displayValue}` };
+        }
+
+        // Check for `<chord> <value>` syntax — a space separates the
+        // row name from the value. Everything after the first space is
+        // the value (allows multi-word values like "thinking-word").
+        const spaceIdx = query.indexOf(' ');
+        if (spaceIdx > 0) {
+          const rowName = query.slice(0, spaceIdx);
+          const valueStr = query.slice(spaceIdx + 1).trim();
+          const field = settingsPickerJumpByName(rowName);
+          if (field === undefined) {
+            return {
+              message:
+                `Unknown settings row "${rowName}".\n` +
+                `Available chords:\n  ${settingsPickerJumpNames().join('\n  ')}`,
+            };
+          }
+          if (valueStr === '') {
+            // Trailing space but no value — fall back to navigation.
+            dispatch({ type: 'settingsFieldSet', field });
+            openSettings();
+            return { message: undefined };
+          }
+
+          const result = resolveSettingsFieldValue(field, valueStr);
+          if (!result.ok) {
+            return { message: result.error };
+          }
+
+          // 1. Update runtime state so the picker (if opened later)
+          //    reflects the change immediately.
+          dispatch({ type: 'settingsValueSet', patch: result.patch });
+
+          // 2. Persist to the canonical Settings shape. The auto-save
+          //    effect only fires while the picker is open, so we do it
+          //    manually here. The only key mapping is tokenSavingTier →
+          //    featureTokenSaving; all others are identical.
+          const cur = getSettings ? getSettings() : undefined;
+          if (cur && saveSettings) {
+            const { tokenSavingTier, ...rest } = result.patch;
+            const updated: Settings = {
+              ...cur,
+              ...rest,
+              ...(tokenSavingTier !== undefined ? { featureTokenSaving: tokenSavingTier } : {}),
+            };
+            Promise.resolve(saveSettings(updated)).then((err: string | null) => {
+              if (err) dispatch({ type: 'settingsHint', text: err });
+            });
+          }
+
+          return { message: `✓ ${result.label} → ${result.displayValue}` };
+        }
+
+        // Single token: navigation mode (open picker on that row).
+        const field = settingsPickerJumpByName(query);
+        if (field === undefined) {
+          return {
+            message:
+              `Unknown settings row "${query}".\n` +
+              `Available chords:\n  ${settingsPickerJumpNames().join('\n  ')}`,
+          };
+        }
+        dispatch({ type: 'settingsFieldSet', field });
+        openSettings();
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /settings command. Without this, only Ctrl+S could open the picker.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('settings');
+    };
+  }, [slashRegistry, getSettings, saveSettings, openSettings, dispatch]);
+
+  // Register the TUI-only `/settings-get` command — reads a setting's
+  // current value and displays it as a chat message without opening the
+  // picker. Counterpart to `/settings <chord> <value>`.
+  useEffect(() => {
+    const cmd = {
+      name: 'settings-get',
+      aliases: ['config-get', 'get'],
+      description: 'Read a setting value without opening the picker.',
+      argsHint: '<chord>',
+      help:
+        'Show the current value of a setting.\n\n' +
+        'Examples:\n' +
+        '  /settings-get yolo         → "YOLO mode: off"\n' +
+        '  /settings-get multi-diff   → "Multi-diff summary: 5"\n' +
+        '  /settings-get log-level    → "Log level: info"\n\n' +
+        'Available chords:\n  ' +
+        settingsPickerJumpNames().join('\n  '),
+      async run(args: string) {
+        const query = args.trim();
+        if (query === '') {
+          // No argument: show all settings as a compact grouped summary.
+          return { message: formatAllSettingsSummary(state.settingsPicker) };
+        }
+        const field = settingsPickerJumpByName(query);
+        if (field === undefined) {
+          return {
+            message:
+              `Unknown settings row "${query}".\n` +
+              `Available chords:\n  ${settingsPickerJumpNames().join('\n  ')}`,
+          };
+        }
+        const result = getSettingsFieldValue(state.settingsPicker, field);
+        if (!result.ok) {
+          return { message: result.error };
+        }
+        return { message: `${result.label}: ${result.displayValue}` };
+      },
+    };
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('settings-get');
+    };
+  }, [slashRegistry, state.settingsPicker]);
+
+  // Register the TUI-only `/statusline` command — opens the interactive
+  // StatuslinePicker overlay. Arguments (item, on|off) are handled here too
+  // because official TUI commands do not fall through to the CLI builtin.
+  useEffect(() => {
+    const cmd = {
+      name: 'statusline',
+      aliases: ['sl'],
+      description:
+        'Customize status bar chips: /statusline (interactive) or /statusline <item> [on|off]',
+      async run(args: string) {
+        const trimmed = args.trim();
+        if (trimmed) {
+          const [rawItem, rawAction] = trimmed.split(/\s+/);
+          const item = rawItem as StatuslineItem | 'all' | 'reset' | undefined;
+          const action = rawAction?.toLowerCase();
+          const applyHidden = (items: StatuslineItem[]) => {
+            const deduped = [...new Set(items)];
+            hiddenItemsRef.current = deduped;
+            setHiddenItems(deduped);
+          };
+
+          if (item === 'reset') {
+            applyHidden([]);
+            return { message: 'StatusBar config reset to defaults.' };
+          }
+
+          if (item === 'all') {
+            if (action !== 'on' && action !== 'off') {
+              return { message: 'Usage: /statusline all on|off' };
+            }
+            applyHidden(action === 'off' ? [...STATUSLINE_ITEMS] : []);
+            return {
+              message: `statusline all: ${action === 'on' ? 'showing all chips' : 'hiding all chips'}`,
+            };
+          }
+
+          if (!item || !STATUSLINE_ITEMS.includes(item as StatuslineItem)) {
+            return {
+              message: `Unknown item "${rawItem ?? ''}". Run /statusline to see available items.`,
+            };
+          }
+
+          if (action !== undefined && action !== 'on' && action !== 'off') {
+            return { message: `Usage: /statusline ${item} on|off` };
+          }
+
+          const hidden = new Set<StatuslineItem>(hiddenItemsRef.current);
+          const nextVisible = action ? action === 'on' : hidden.has(item);
+          if (nextVisible) hidden.delete(item);
+          else hidden.add(item);
+          applyHidden([...hidden]);
+          return { message: `statusline ${item}: ${nextVisible ? 'on' : 'off'}` };
+        }
+        openStatuslinePicker();
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /statusline command when called without arguments.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('statusline');
+    };
+  }, [slashRegistry, openStatuslinePicker, setHiddenItems]);
+
+  // Register the TUI-only `/mailbox` command — toggles the mailbox panel.
+  useEffect(() => {
+    const cmd = {
+      name: 'mailbox',
+      aliases: ['inbox', 'mail'],
+      description: 'Toggle the inter-agent mailbox panel — messages, read receipts, online agents.',
+      async run() {
+        setMailboxPanelOpen((prev) => !prev);
+        return { message: undefined };
+      },
+    };
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('mailbox');
+    };
+  }, [slashRegistry]);
+
+  // Register the TUI-only `/autonomy` command — opens a single-step picker.
+  // When the user types `/autonomy` with no arg, the picker appears.
+  // If they type `/autonomy off` etc. with an arg, the CLI builtin handles it.
+  useEffect(() => {
+    if (!switchAutonomy) return;
+    const cmd = {
+      name: 'autonomy',
+      aliases: ['auto'],
+      description: 'Pick an autonomy mode interactively (picker).',
+      async run() {
+        dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /autonomy command. Opens the interactive picker instead.
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('autonomy');
+    };
+  }, [slashRegistry, switchAutonomy]);
+
+  // Register the TUI-only `/resume` command — opens the session resume picker.
+  // Lists recent sessions; selecting one triggers onResumeSession to load and
+  // replay the full conversation history.
+  useEffect(() => {
+    const cmd = {
+      name: 'resume',
+      aliases: ['load'],
+      description: 'Resume a previous session — pick from a list of recent sessions.',
+      async run() {
+        if (!listSessions) {
+          return { message: 'Session listing not available.' };
+        }
+        try {
+          const sessions = await listSessions(20);
+          if (sessions.length === 0) {
+            return { message: 'No saved sessions.' };
+          }
+          dispatch({ type: 'resumePickerOpen', sessions });
+        } catch (err) {
+          return {
+            message: toErrorMessage(err),
+          };
+        }
+        return { message: undefined };
+      },
+    };
+    // Register as an official TUI plugin so it overrides the CLI's text-based
+    // /resume command (which is an alias on /sessions).
+    slashRegistry.register(cmd, 'tui', { official: true });
+    return () => {
+      slashRegistry.unregister('resume');
+    };
+  }, [slashRegistry, listSessions]);
+
+}

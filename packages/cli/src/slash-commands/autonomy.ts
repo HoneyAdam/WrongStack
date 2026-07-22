@@ -1,8 +1,10 @@
-import type { SlashCommand } from '@wrongstack/core';
-import { color, goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { goalFilePath, loadGoal, summarizeUsage } from '@wrongstack/core/goal';
+import type { AutonomyMode } from '../services/autonomy-mode.js';
+import type { SlashCommandContext } from './command-context.js';
 
-export type AutonomyMode = 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel';
+export type { AutonomyMode } from '../services/autonomy-mode.js';
 
 const MODE_LABELS: Record<AutonomyMode, string> = {
   off: `${color.green('OFF')} ${color.dim('(agent stops after each turn)')}`,

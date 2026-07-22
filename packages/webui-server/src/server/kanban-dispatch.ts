@@ -1,4 +1,4 @@
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import {
   assignTask,
   getBoard,

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { DesignStack, Tool } from '@wrongstack/core';
+import type { DesignStack } from '@wrongstack/core/design';
+import type { Tool } from '@wrongstack/core/types';
 import {
   applyTokenOverrides,
   getDesignKitLoader,
@@ -14,7 +15,7 @@ import {
   type SemanticTune,
   setActiveKit,
   setDesignOverrides,
-} from '@wrongstack/core';
+} from '@wrongstack/core/design';
 
 type Overrides = Record<string, string>;
 

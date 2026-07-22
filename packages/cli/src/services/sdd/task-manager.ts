@@ -1,4 +1,5 @@
-import { expectDefined, type TaskProgress } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
+import { type TaskProgress } from '@wrongstack/core/types';
 import { DefaultTaskStore, renderProgress, TaskTracker } from '@wrongstack/sdd';
 import { sddState } from './state.js';
 
@@ -223,9 +224,8 @@ export function matchTaskNode<T extends { id: string; title: string }>(
   }
   const q = trimmed.toLowerCase();
   return (
-    nodes.find(
-      (n) => n.title.toLowerCase().includes(q) || q.includes(n.title.toLowerCase()),
-    ) ?? null
+    nodes.find((n) => n.title.toLowerCase().includes(q) || q.includes(n.title.toLowerCase())) ??
+    null
   );
 }
 

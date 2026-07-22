@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildFleetCommand } from '../src/slash-commands/fleet.js';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';
 
 function ctx(extra: object = {}): Context {

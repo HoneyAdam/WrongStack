@@ -1,6 +1,9 @@
 import { join } from 'node:path';
-import type { Tool, ToolStreamEvent } from '@wrongstack/core';
-import { detectPackageEcosystem, recordPackageAction } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core/types';
+import {
+  detectEcosystem as detectPackageEcosystem,
+  recordPackageAction,
+} from '@wrongstack/core/coordination';
 import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, normalizeCommandOutput, safeResolve } from './_util.js';
 import { tryLegacyPackageOperation } from './languages/legacy-bridge.js';

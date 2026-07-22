@@ -1,4 +1,4 @@
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import { auditTool } from './audit.js';
 import { bashTool } from './bash.js';
 import { batchToolUseTool } from './batch-tool-use.js';

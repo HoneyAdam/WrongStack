@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ProviderRegistry, type Config, type Provider } from '@wrongstack/core';
+import { ProviderRegistry } from '@wrongstack/core/registry';
+import { type Config, type Provider } from '@wrongstack/core/types';
 import {
   buildProviderForId,
   resolveProviderCfg,

@@ -1,6 +1,7 @@
-import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs';
+import { closeSync, createReadStream, fsyncSync, openSync, writeSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type {
@@ -63,9 +64,53 @@ export class FileSessionWriter implements SessionWriter {
   // This cuts the number of disk writes by ~95% without changing the on-disk
   // format — the JSONL is still one JSON object per line.
   private writeBuffer: SessionEvent[] = [];
+  private writeBufferBytes = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FLUSH_INTERVAL_MS = 500;
   private static readonly FLUSH_SIZE = 50;
+  private static readonly WRITE_BUFFER_MAX_EVENTS = 2_000;
+  private static readonly WRITE_BUFFER_MAX_BYTES = 16 * 1024 * 1024;
+  private bufferOverflowCount = 0;
+  private lastBufferOverflowWarnAt = 0;
+
+  private eventBytes(event: SessionEvent): number {
+    try {
+      return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1;
+    } catch {
+      return FileSessionWriter.WRITE_BUFFER_MAX_BYTES + 1;
+    }
+  }
+
+  private pushWriteBuffer(event: SessionEvent): boolean {
+    const bytes = this.eventBytes(event);
+    if (
+      this.writeBuffer.length >= FileSessionWriter.WRITE_BUFFER_MAX_EVENTS ||
+      bytes > FileSessionWriter.WRITE_BUFFER_MAX_BYTES ||
+      this.writeBufferBytes + bytes > FileSessionWriter.WRITE_BUFFER_MAX_BYTES
+    ) {
+      this.bufferOverflowCount++;
+      const now = Date.now();
+      if (now - this.lastBufferOverflowWarnAt > 5_000) {
+        console.warn(
+          JSON.stringify({
+            level: 'error',
+            event: 'session.buffer_overflow',
+            sessionId: this.id,
+            bufferedEvents: this.writeBuffer.length,
+            bufferedBytes: this.writeBufferBytes,
+            droppedEvents: this.bufferOverflowCount,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        this.bufferOverflowCount = 0;
+        this.lastBufferOverflowWarnAt = now;
+      }
+      return false;
+    }
+    this.writeBuffer.push(event);
+    this.writeBufferBytes += bytes;
+    return true;
+  }
 
   // ── Write serialization ─────────────────────────────────────────────────────
   //
@@ -74,11 +119,10 @@ export class FileSessionWriter implements SessionWriter {
   // concurrent appendFile() calls on the shared O_APPEND handle — the kernel
   // may complete them out of order (chronology breaks) or, for large
   // batches, interleave partial writes (torn JSONL lines). The write chain
-  // serializes handle I/O; flushChain additionally serializes the act of
-  // draining/re-queueing the in-memory event buffer so a failed older batch
-  // can never be overtaken by a newer successful one.
+  // serializes handle I/O; flushPromise coalesces concurrent flush requests
+  // into one drain so callers cannot create an unbounded promise chain.
   private writeChain: Promise<void> = Promise.resolve();
-  private flushChain: Promise<void> = Promise.resolve();
+  private flushPromise: Promise<void> | null = null;
 
   /** Enqueue a write on the FIFO chain. Resolves/rejects with that write. */
   private enqueueWrite(data: string): Promise<void> {
@@ -144,6 +188,9 @@ export class FileSessionWriter implements SessionWriter {
     before: string | null;
     after: string | null;
   }> = [];
+  private pendingFileSnapshotBytes = 0;
+  private static readonly PENDING_FILE_SNAPSHOT_MAX_ENTRIES = 256;
+  private static readonly PENDING_FILE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
   /** Prompt whose tool work is currently executing. Set by writeCheckpoint. */
   private activePromptIndex: number | null = null;
   /** Tracks open tool_use IDs during the current run to serialize on close for resume. */
@@ -158,7 +205,7 @@ export class FileSessionWriter implements SessionWriter {
     if (this.closed) return;
     void this.ensureInit();
     this.observeForSummary(event);
-    this.writeBuffer.push(event);
+    this.pushWriteBuffer(event);
     if (this.writeBuffer.length >= FileSessionWriter.FLUSH_SIZE) {
       if (this.flushTimer) {
         clearTimeout(this.flushTimer);
@@ -183,7 +230,29 @@ export class FileSessionWriter implements SessionWriter {
       // Compatibility path for embedders that mutate before their first
       // checkpoint. writeCheckpoint()/close() will attach these changes to the
       // first available prompt index.
+      const bytes =
+        Buffer.byteLength(input.path, 'utf8') +
+        (input.before ? Buffer.byteLength(input.before, 'utf8') : 0) +
+        (input.after ? Buffer.byteLength(input.after, 'utf8') : 0);
+      if (
+        this.pendingFileSnapshots.length >= FileSessionWriter.PENDING_FILE_SNAPSHOT_MAX_ENTRIES ||
+        bytes > FileSessionWriter.PENDING_FILE_SNAPSHOT_MAX_BYTES ||
+        this.pendingFileSnapshotBytes + bytes > FileSessionWriter.PENDING_FILE_SNAPSHOT_MAX_BYTES
+      ) {
+        console.warn(
+          JSON.stringify({
+            level: 'error',
+            event: 'session.file_snapshot_buffer_overflow',
+            sessionId: this.id,
+            bufferedFiles: this.pendingFileSnapshots.length,
+            bufferedBytes: this.pendingFileSnapshotBytes,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        return;
+      }
       this.pendingFileSnapshots.push(input);
+      this.pendingFileSnapshotBytes += bytes;
       return;
     }
 
@@ -288,7 +357,7 @@ export class FileSessionWriter implements SessionWriter {
     // reconstruct event. Writing it through a separate one-shot append meant
     // an ENOSPC/transient handle failure could permanently lose session_start
     // while later events survived, leaving an unidentifiable transcript.
-    this.writeBuffer.push({
+    this.pushWriteBuffer({
       type: this.resumed ? 'session_resumed' : 'session_start',
       ts: this.startedAt,
       id: this.id,
@@ -309,7 +378,7 @@ export class FileSessionWriter implements SessionWriter {
     // and the session index. Deferring observation to flush time would leave
     // the summary stale if close() fires before the next timer tick.
     this.observeForSummary(scrubbed);
-    this.writeBuffer.push(scrubbed);
+    this.pushWriteBuffer(scrubbed);
 
     if (this.writeBuffer.length >= FileSessionWriter.FLUSH_SIZE) {
       // Buffer full — flush immediately. Cancel any pending timer so we
@@ -334,7 +403,7 @@ export class FileSessionWriter implements SessionWriter {
     for (const event of events) {
       const scrubbed = this.scrubEvent(event);
       this.observeForSummary(scrubbed);
-      this.writeBuffer.push(scrubbed);
+      this.pushWriteBuffer(scrubbed);
     }
     if (this.writeBuffer.length >= FileSessionWriter.FLUSH_SIZE) {
       if (this.flushTimer) {
@@ -384,6 +453,7 @@ export class FileSessionWriter implements SessionWriter {
     }
     const batch = this.writeBuffer.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
+    this.writeBufferBytes = 0;
     let fd: number | undefined;
     try {
       fd = openSync(this.filePath, 'a');
@@ -418,17 +488,19 @@ export class FileSessionWriter implements SessionWriter {
 
   /**
    * Flush all buffered events to disk as a single appendFile call.
-   * Concurrent callers join a FIFO flush chain. On failure the drained batch
+   * Concurrent callers join one coalesced drain. On failure the drained batch
    * is prepended to the live buffer, preserving chronology and allowing the
    * next timer/boundary flush to retry it. Warnings retain the existing
    * throttled behavior.
    */
   private flushBuffer(): Promise<void> {
-    const flush = this.flushChain.then(() => this.flushBufferOnce());
-    this.flushChain = flush.then(
-      () => undefined,
-      () => undefined,
-    );
+    if (this.flushPromise) return this.flushPromise;
+    const flush = (async () => {
+      while (this.writeBuffer.length > 0) await this.flushBufferOnce();
+    })().finally(() => {
+      if (this.flushPromise === flush) this.flushPromise = null;
+    });
+    this.flushPromise = flush;
     return flush;
   }
 
@@ -436,8 +508,10 @@ export class FileSessionWriter implements SessionWriter {
     if (this.writeBuffer.length === 0) return;
     const events = this.writeBuffer;
     const eventCount = events.length;
+    const eventBytes = this.writeBufferBytes;
     const batch = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
     this.writeBuffer = [];
+    this.writeBufferBytes = 0;
     const t0 = Date.now();
     let outcome: 'success' | 'failure' = 'success';
     let errorMsg: string | undefined;
@@ -446,14 +520,27 @@ export class FileSessionWriter implements SessionWriter {
     } catch (err) {
       outcome = 'failure';
       errorMsg = toErrorMessage(err);
-      // No newer batch can be draining concurrently (flushChain serializes
-      // this section), so prepending restores the exact original chronology.
-      this.writeBuffer = [...events, ...this.writeBuffer];
+      // Retain the failed prefix, then admit as much of the newer tail as the
+      // hard budget allows. This preserves chronology without letting a
+      // persistent ENOSPC/permission failure consume the heap indefinitely.
+      const newer = this.writeBuffer;
+      this.writeBuffer = events;
+      this.writeBufferBytes = eventBytes;
+      for (const newerEvent of newer) this.pushWriteBuffer(newerEvent);
       this.appendFailCount += eventCount;
       const now = Date.now();
       if (now - this.lastAppendWarnAt > 5000) {
         const suppressed = this.appendFailCount - 1;
-        console.warn(JSON.stringify({ level: 'warn', event: 'session.flush_failed', sessionId: this.id, message: toErrorMessage(err), ...(suppressed > 0 ? { suppressed } : {}), timestamp: new Date().toISOString() }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'session.flush_failed',
+            sessionId: this.id,
+            message: toErrorMessage(err),
+            ...(suppressed > 0 ? { suppressed } : {}),
+            timestamp: new Date().toISOString(),
+          }),
+        );
         this.lastAppendWarnAt = now;
         this.appendFailCount = 0;
       }
@@ -479,18 +566,19 @@ export class FileSessionWriter implements SessionWriter {
    * stands on disk.
    *
    * Only truncation needs this: the counters are fed by `observeForSummary` as
-   * events go by and cannot un-count. Reading the whole file is fine here —
-   * rewind is a rare, explicitly user-driven operation, and the alternative
-   * (reversing each counter per discarded event) has to stay in lockstep with
-   * observeForSummary forever.
+   * events go by and cannot un-count. Stream the JSONL so a very long session
+   * does not need a second file-sized allocation during rewind.
    *
    * `title` is deliberately re-derived too: the first surviving user_input may
    * differ once earlier prompts are gone.
    */
   private async recomputeSummaryFromDisk(): Promise<void> {
     if (!this.filePath) return;
-    const raw = await fsp.readFile(this.filePath, 'utf8').catch(() => null);
-    if (raw === null) return;
+    const accessible = await fsp
+      .access(this.filePath)
+      .then(() => true)
+      .catch(() => false);
+    if (!accessible) return;
 
     this.iterationCount = 0;
     this.toolCallCount = 0;
@@ -504,15 +592,22 @@ export class FileSessionWriter implements SessionWriter {
     this.tokenOut = 0;
     this.summary = { ...this.summary, title: '(empty session)', tokenTotal: 0 };
 
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      try {
-        this.observeForSummary(JSON.parse(trimmed) as SessionEvent);
-      } catch {
-        // Skip a malformed line — the rewrite preserves them verbatim, and a
-        // torn record must not abort the recount of everything after it.
+    const input = createReadStream(this.filePath, { encoding: 'utf8' });
+    const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+    try {
+      for await (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        try {
+          this.observeForSummary(JSON.parse(trimmed) as SessionEvent);
+        } catch {
+          // Skip a malformed line — the rewrite preserves it verbatim, and a
+          // torn record must not abort the recount of everything after it.
+        }
       }
+    } finally {
+      lines.close();
+      input.destroy();
     }
   }
 
@@ -580,6 +675,7 @@ export class FileSessionWriter implements SessionWriter {
     if (this.pendingFileSnapshots.length > 0) {
       await this.writeFileSnapshot(this.activePromptIndex ?? 0, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
+      this.pendingFileSnapshotBytes = 0;
     }
     this.closed = true;
     // Flush any buffered events before finalizing. The summary counters
@@ -672,6 +768,7 @@ export class FileSessionWriter implements SessionWriter {
     if (fileCount > 0) {
       await this.writeFileSnapshot(promptIndex, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
+      this.pendingFileSnapshotBytes = 0;
     }
     let workspaceCheckpoint: WorkspaceCheckpointRef | undefined;
     try {
@@ -979,8 +1076,9 @@ export class FileSessionWriter implements SessionWriter {
     // Wait for a currently-draining batch first. If it failed and re-queued
     // itself, the explicit reset below discards it along with the rest of the
     // old conversation; if it succeeded, writeChain has already serialized it.
-    await this.flushChain;
+    await this.flushPromise?.catch(() => undefined);
     this.writeBuffer = [];
+    this.writeBufferBytes = 0;
     // Let any in-flight append land first — otherwise it would re-append
     // stale events AFTER the reset record below.
     await this.writeChain;
@@ -994,6 +1092,7 @@ export class FileSessionWriter implements SessionWriter {
     await fsp.writeFile(this.filePath, record, 'utf8');
     this.activePromptIndex = null;
     this.pendingFileSnapshots = [];
+    this.pendingFileSnapshotBytes = 0;
   }
 
   /**
@@ -1029,6 +1128,7 @@ export class FileSessionWriter implements SessionWriter {
     if (this.pendingFileSnapshots.length > 0) {
       await this.writeFileSnapshot(this.activePromptIndex ?? 0, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
+      this.pendingFileSnapshotBytes = 0;
     }
     await this.append({
       type: 'in_flight_end',

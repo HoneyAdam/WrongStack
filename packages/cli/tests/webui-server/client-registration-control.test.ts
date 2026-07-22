@@ -14,18 +14,21 @@ const mailboxSend = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const registerClient = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('../../src/hq-publisher.js', () => ({ startCliHqConnection }));
-vi.mock('@wrongstack/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@wrongstack/core')>();
+vi.mock('@wrongstack/core/coordination', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@wrongstack/core/coordination')>();
   return {
     ...actual,
     resolveProjectDir: () => '/tmp/proj-dir',
-    wstackGlobalRoot: () => '/tmp/global',
     GlobalMailbox: class {
       send = mailboxSend;
       registerClient = registerClient;
       clientHeartbeat = vi.fn().mockResolvedValue(undefined);
     },
   };
+});
+vi.mock('@wrongstack/core/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@wrongstack/core/utils')>();
+  return { ...actual, wstackGlobalRoot: () => '/tmp/global' };
 });
 
 import { createWebuiClientRegistration } from '../../src/webui-server/client-registration.js';

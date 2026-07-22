@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
-import { bannerGradientColor, brandMarkPinkRow, decodeSoftGlyph } from '../src/components/history/banner.js';
+import { bannerGradientColor, brandMarkPinkRow, WORDMARK_LINES } from '../src/components/history/banner.js';
 import { Banner, shortenPath } from '../src/components/history.js';
 
 // ── ANSI / OSC 8 stripping ──
@@ -133,13 +133,10 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // The wordmark uses a soft 5×5 2-bit density face (10 rows tall). Every
-    // cell renders as ` ` / `▄` / `▀` / `█` so the curves fade through
-    // half-blocks instead of the previous hard binary. Assert the first
-    // (top-half) rendered row to confirm the new glyph decoder is wired in
-    // end-to-end. A second assertion on the trailing slogan + slogan + version
-    // covers the rest of the banner layout.
-    expect(frame).toContain('▀   ▀ ▀▀  ▀  ▀▀▀  ▀   ▀  ▀▀▀▀  ▀▀▀▀ ▀▀▀▀▀  ▀▀▀   ▀▀▀▀ ▀   ▀');
+    // The wordmark packs a clear 5×7 bitmap into four terminal rows. Upper
+    // and lower half blocks preserve vertical detail without fragmenting the
+    // strokes or doubling the banner height.
+    expect(frame).toContain(WORDMARK_LINES[0]);
     expect(frame).toContain('BUILT ON THE WRONG STACK. SHIPPED ANYWAY.');
     expect(frame).toContain('anthropic › claude-test');
     expect(frame).toContain('•••• XYZ');
@@ -221,7 +218,7 @@ describe('<Banner />', () => {
     unmount();
 
     expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
-    expect(frame.includes('▀   ▀ ▀▀  ▀  ▀▀▀  ▀   ▀  ▀▀▀▀  ▀▀▀▀ ▀▀▀▀▀  ▀▀▀   ▀▀▀▀ ▀   ▀')).toBe(termWidth >= 65);
+    expect(frame.includes(WORDMARK_LINES[0] ?? '')).toBe(termWidth >= 65);
   });
 });
 
@@ -235,47 +232,20 @@ describe('banner brand gradient', () => {
   });
 });
 
-describe('soft 5×5 wordmark decoder', () => {
-  it('expands each density cell into a half-block character pair', () => {
-    // A minimal 5×5 glyph: each row of the source becomes *two* terminal
-    // rows (upper + lower half), so the decoder returns 10 lines of 5 cols.
-    //   3 → top '▀' + bottom '█'  (full)
-    //   1 → top ' '  + bottom '▄'  (lower half)
-    //   0 → top ' '  + bottom ' '  (empty)
-    const glyph = decodeSoftGlyph(['30000', '00000', '11111', '00000', '33333']);
-    expect(glyph).toHaveLength(10);
-    // Source row 0: [3,0,0,0,0] → top '▀' + four blanks; bottom '█' + four blanks.
-    expect(glyph[0]).toBe('▀    ');
-    expect(glyph[1]).toBe('█    ');
-    // Source row 1: [0,0,0,0,0] → all blanks on both rows.
-    expect(glyph[2]).toBe('     ');
-    expect(glyph[3]).toBe('     ');
-    // Source row 2: [1,1,1,1,1] → empty top, '▄▄▄▄▄' bottom.
-    expect(glyph[4]).toBe('     ');
-    expect(glyph[5]).toBe('▄▄▄▄▄');
-    // Source row 3: all zeros again.
-    expect(glyph[6]).toBe('     ');
-    expect(glyph[7]).toBe('     ');
-    // Source row 4: all full → '▀▀▀▀▀' top, '█████' bottom.
-    expect(glyph[8]).toBe('▀▀▀▀▀');
-    expect(glyph[9]).toBe('█████');
+describe('packed 5×7 wordmark', () => {
+  it('packs the bitmap into four uniform 59-column terminal rows', () => {
+    expect(WORDMARK_LINES).toHaveLength(4);
+    expect(WORDMARK_LINES.every((line) => line.length === 59)).toBe(true);
+    expect(WORDMARK_LINES.join('')).toMatch(/^[▀▄█ ]+$/u);
   });
 
-  it('uses the half-block density levels to soften glyph curves', () => {
-    // The full WRONGSTACK wordmark must render more than just ` ` and `█`:
-    // half-block characters (`▀` upper, `▄` lower) carry the soft transitions
-    // that the previous binary face could not express.  This guarantees the
-    // banner is not silently regressed to the old "all or nothing" look.
-    //
-    // We render a small representative glyph with a non-trivial half-block
-    // diagonal (1=lower, 2=upper) and assert that the decoder produces both
-    // kinds of half-block character — a single test case is enough to lock in
-    // the soft behaviour without duplicating the full density table here.
-    const softDiagonal = decodeSoftGlyph(['20000', '12000', '01200', '00120', '00012']);
-    const corpus = softDiagonal.join('\n');
-    expect(corpus).toContain('▀'); // upper-half glyph present
-    expect(corpus).toContain('▄'); // lower-half glyph present
-    expect(corpus).not.toMatch(/█/); // this pattern never uses a full block
+  it('keeps strongly defined caps, crossbars, and baselines', () => {
+    expect(WORDMARK_LINES).toEqual([
+      '█   █ █▀▀▀▄ ▄▀▀▀▄ █▄  █ ▄▀▀▀▄ ▄▀▀▀▀ ▀▀█▀▀ ▄▀▀▀▄ ▄▀▀▀▀ █  ▄▀',
+      '█ ▄ █ █▄▄▄▀ █   █ █▀▄ █ █ ▄▄▄ ▀▄▄▄    █   █▄▄▄█ █     █▄▀  ',
+      '█ █ █ █ ▀▄  █   █ █  ██ █   █     █   █   █   █ █     █ ▀▄ ',
+      ' ▀ ▀  ▀   ▀  ▀▀▀  ▀   ▀  ▀▀▀  ▀▀▀▀    ▀   ▀   ▀  ▀▀▀▀ ▀   ▀',
+    ]);
   });
 });
 

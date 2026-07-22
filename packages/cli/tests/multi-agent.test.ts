@@ -15,24 +15,13 @@ vi.mock('@wrongstack/providers', () => ({
   capabilitiesFor: vi.fn(async () => ({ maxContext: 128_000 })),
 }));
 
-import {
-  DefaultErrorHandler,
-  DefaultLogger,
-  DefaultRetryPolicy,
-  DefaultSecretScrubber,
-  type Config,
-  type ConfigStore,
-  Container,
-  EventBus,
-  ProviderRegistry,
-  type SessionWriter,
-  type SubagentConfig,
-  type SystemPromptBuilder,
-  TOKENS,
-  type TokenCounter,
-  type Tool,
-  ToolRegistry,
-} from '@wrongstack/core';
+import { type Config, type SessionWriter, type SubagentConfig, type SystemPromptBuilder, type TokenCounter, type Tool } from '@wrongstack/core/types';
+import { type ConfigStore } from '@wrongstack/core/types';
+import { Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { DefaultErrorHandler, DefaultRetryPolicy } from '@wrongstack/core/execution';
+import { DefaultLogger } from '@wrongstack/core/infrastructure';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { type MultiAgentDeps, MultiAgentHost } from '../src/multi-agent.js';
 
@@ -223,12 +212,9 @@ describe('MultiAgentHost', () => {
     const build = (deps.systemPromptBuilder as { build: ReturnType<typeof vi.fn> }).build;
     const shadowBuild = build.mock.calls.find((call) => call[0]?.subagent === true);
     const toolNames = ((shadowBuild?.[0]?.tools ?? []) as Tool[]).map((tool) => tool.name);
-    expect(toolNames).toEqual(expect.arrayContaining([
-      'fleet',
-      'fleet',
-      'fleet',
-      'terminate_subagent',
-    ]));
+    expect(toolNames).toEqual(
+      expect.arrayContaining(['fleet', 'fleet', 'fleet', 'terminate_subagent']),
+    );
     await host.stopAll();
   });
 
@@ -873,6 +859,42 @@ describe('MultiAgentHost.makeSubagentFactory', () => {
     const { agent, dispose } = await host.makeSubagentFactory(config)(slotCfg);
     const promptText = agent.ctx.systemPrompt.map((b) => b.text).join('\n');
     expect(promptText).toContain('PERSONA-SENTINEL-XYZ');
+    await dispose?.();
+  });
+
+  it('resolves role-prioritized skill names into bounded prompt content', async () => {
+    const deps = depsWithTools();
+    deps.systemPromptBuilder = {
+      build: vi.fn(async () => [
+        { type: 'text', text: 'sys' },
+        { type: 'text', text: '# Active Skills\n\nSTALE-GENERIC-SKILL' },
+      ]),
+    } as never as SystemPromptBuilder;
+    deps.skillLoader = {
+      list: vi.fn(async () => []),
+      listEntries: vi.fn(async () => []),
+      find: vi.fn(async (name: string) =>
+        name === 'testing'
+          ? { name, description: '', path: `/skills/${name}/SKILL.md`, source: 'bundled' as const }
+          : undefined,
+      ),
+      manifestText: vi.fn(async () => ''),
+      readBody: vi.fn(async () => ''),
+      readSaveBody: vi.fn(async () => 'TESTING-SKILL-SENTINEL'),
+      invalidateCache: vi.fn(),
+    };
+    const host = new MultiAgentHost(deps);
+    const { agent, dispose } = await host.makeSubagentFactory(config)({
+      ...slotCfg,
+      skillNames: ['testing', 'not-installed'],
+      skillContent: 'DIRECT-SKILL-SENTINEL',
+    });
+    const promptText = agent.ctx.systemPrompt.map((block) => block.text).join('\n');
+    expect(promptText).toContain('DIRECT-SKILL-SENTINEL');
+    expect(promptText).toContain('## Skill: testing');
+    expect(promptText).toContain('TESTING-SKILL-SENTINEL');
+    expect(promptText).not.toContain('STALE-GENERIC-SKILL');
+    expect(promptText).not.toContain('## Skill: not-installed');
     await dispose?.();
   });
 

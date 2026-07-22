@@ -27,7 +27,7 @@ import {
   mintHqToken,
   type HqAuthFile,
   type HqToken,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { describe, expect, it } from 'vitest';
 
 const FIXED_UPDATED_AT = '2026-07-19T12:00:00.000Z';

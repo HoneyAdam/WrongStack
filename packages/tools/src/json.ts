@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
-import { deepMerge as deepMergeCore } from '@wrongstack/core';
-import type { Context, Tool } from '@wrongstack/core';
+import { deepMerge as deepMergeCore } from '@wrongstack/core/utils';
+import type { Context } from '@wrongstack/core/agent';
+import type { Tool } from '@wrongstack/core/types';
 import { safeResolveReal } from './_util.js';
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { Tool, ToolStreamEvent } from '@wrongstack/core';
+import type { Tool, ToolStreamEvent } from '@wrongstack/core/types';
 import { spawnStream } from './_spawn-stream.js';
 import { detectPackageManager, safeResolve } from './_util.js';
 import { tryLegacyPackageOperation } from './languages/legacy-bridge.js';

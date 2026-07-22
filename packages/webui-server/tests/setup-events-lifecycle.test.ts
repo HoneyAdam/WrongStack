@@ -1,4 +1,4 @@
-import { EventBus } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
 import { describe, expect, it, vi } from 'vitest';
 import { setupEvents } from '../src/server/setup-events.js';
 

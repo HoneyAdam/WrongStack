@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Context, SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 // ── Git helpers (minimal copy — same logic as chimera-plugin) ────────────
 async function runGit(args: string[], cwd: string): Promise<{ stdout: string; code: number }> {

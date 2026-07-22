@@ -1,4 +1,4 @@
-import { ProviderError } from '@wrongstack/core';
+import { ProviderError } from '@wrongstack/core/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type HeadersLike,

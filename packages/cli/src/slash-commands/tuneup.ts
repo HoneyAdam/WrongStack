@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { SlashCommand } from '@wrongstack/core';
-import { atomicWrite, color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { atomicWrite, color } from '@wrongstack/core/utils';
 import { diagnoseConfig } from '../config-doctor.js';
 import { appendHistory } from '../config-history.js';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../tuneup.js';
 import { checkForUpdate } from '../update-check.js';
 import { parseSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /**

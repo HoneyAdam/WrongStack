@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { detectLocale } from '@/i18n/languages';
-import type { FleetChatVerbosity } from '@wrongstack/core';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
 
 /**
  * Local preference store — persisted in localStorage.
@@ -53,7 +53,7 @@ export interface LocalPrefs {
   /** Auto-derive a fallback chain from keyed providers when the list is empty. */
   fallbackAuto: boolean;
   /** Recurring provider/model blackout windows for autonomous routing. */
-  modelAvailabilitySchedule: import('@wrongstack/core').ModelBlackoutRule[];
+  modelAvailabilitySchedule: import('@wrongstack/core/models').ModelBlackoutRule[];
 
   // --- Feature flags ---
   featureMcp: boolean;

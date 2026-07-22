@@ -1,4 +1,4 @@
-import type { MemoryEntry, MemoryStore } from '@wrongstack/core';
+import type { MemoryEntry, MemoryStore } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   forgetTool,

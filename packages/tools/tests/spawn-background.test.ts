@@ -82,13 +82,10 @@ describe('spawnBackground', () => {
     expect(result.pid).toBeDefined();
   });
 
-  it('drains stdio so a chatty child cannot block on a full pipe', () => {
+  it('does not inherit output pipes that could break after the parent exits', () => {
     const result = track(spawnBackground({ command: 'node --version' }));
-    // resume() must have switched the pipes to flowing mode — otherwise the
-    // child blocks once the OS pipe buffer fills, and the open handles keep
-    // the parent's event loop alive despite child.unref().
-    expect(result.child.stdout?.readableFlowing).toBe(true);
-    expect(result.child.stderr?.readableFlowing).toBe(true);
+    expect(result.child.stdout).toBeNull();
+    expect(result.child.stderr).toBeNull();
   });
 });
 

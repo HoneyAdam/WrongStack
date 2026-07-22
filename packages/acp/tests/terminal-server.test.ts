@@ -88,6 +88,36 @@ describe('TerminalServer', () => {
     expect(out.truncated).toBe(true);
   });
 
+  it('truncates UTF-8 output on a character boundary', async () => {
+    const { terminalId } = server.create({
+      sessionId: 's1',
+      command: 'node',
+      args: ['-e', "process.stdout.write('🙂'.repeat(32))"],
+      outputByteLimit: 18,
+    });
+    await server.waitForExit(terminalId);
+    const out = server.output(terminalId);
+    expect(Buffer.byteLength(out.output, 'utf8')).toBeLessThanOrEqual(18);
+    expect(out.output).not.toContain('�');
+    expect(out.truncated).toBe(true);
+  });
+
+  it('enforces a host-wide terminal count limit', () => {
+    const limited = new TerminalServer({ projectRoot, maxTerminals: 1 });
+    try {
+      limited.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+      });
+      expect(() =>
+        limited.create({ sessionId: 's1', command: 'node', args: ['-e', 'process.exit(0)'] }),
+      ).toThrow(/terminal limit reached/);
+    } finally {
+      limited.releaseAll();
+    }
+  });
+
   it('caps agent output limits at the host maximum', async () => {
     const cappedServer = new TerminalServer({
       projectRoot,

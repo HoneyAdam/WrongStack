@@ -32,6 +32,11 @@ import type { Plugin } from 'vite';
  * When `WRONGSTACK_BACKEND_PORT` is unset, the meta tag defaults to port 3466,
  * which matches the production default — useful when the backend runs on the
  * default port and Vite uses a non-default port, or for CI smoke tests.
+ *
+ * ⚠️  Environment variables are read once when the Vite config module loads.
+ * Changing `WRONGSTACK_BACKEND_PORT` or `WRONGSTACK_BACKEND_HOST` after the
+ * dev server has started has no effect — restart the dev server to pick up
+ * new values.
  */
 function injectWsUrlPlugin(): Plugin {
   const backendPort = process.env['WRONGSTACK_BACKEND_PORT'] || '3466';
@@ -42,7 +47,7 @@ function injectWsUrlPlugin(): Plugin {
     name: 'inject-ws-url',
     // Only inject during `vite dev` — `vite build` must produce a clean
     // artifact that the production server can serve without a hardcoded WS URL.
-    apply: 'serve' as const,
+    apply: 'serve',
     transformIndexHtml(html) {
       if (html.includes('name="wrongstack-ws-url"')) return html;
       return html.replace('</head>', `  ${metaTag}\n  </head>`);
@@ -74,6 +79,10 @@ export default defineConfig({
       // HttpOnly cookie is set on the backend's loopback origin, which the
       // WS connection (pointed at the same backend origin via the meta tag
       // above) will then send automatically.
+      // Note: this proxy does NOT strip the /ws-auth path prefix — it assumes
+      // the backend mounts the route at root (i.e. the backend serves it as
+      // `/ws-auth` directly). If the backend ever moves the route under a
+      // prefix, add `rewrite: (p) => p.replace(/^\/ws-auth/, '/new-prefix/ws-auth')`.
       '/ws-auth': {
         target: `http://${process.env['WRONGSTACK_BACKEND_HOST'] || '127.0.0.1'}:${process.env['WRONGSTACK_BACKEND_PORT'] || '3466'}`,
         changeOrigin: true,

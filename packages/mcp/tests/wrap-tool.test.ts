@@ -1,4 +1,4 @@
-import { ToolCapabilities } from '@wrongstack/core';
+import { ToolCapabilities } from '@wrongstack/core/security';
 import { describe, expect, it, vi } from 'vitest';
 import type { MCPClient, MCPTool } from '../src/client.js';
 import { wrapMCPTool } from '../src/wrap-tool.js';

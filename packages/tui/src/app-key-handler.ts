@@ -1,0 +1,674 @@
+import type { Director } from '@wrongstack/core/coordination';
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from 'react';
+import type { AppProps } from './app-props.js';
+import type { Action, State } from './app-state.js';
+import { AUTONOMY_OPTIONS } from './components/autonomy-picker.js';
+import { DEFAULT_INPUT_PROMPT, type KeyEvent } from './components/input.js';
+import {
+  COMPACT_THRESHOLD,
+  statusBarAutonomySpan,
+  statusBarModelSpan,
+  statusBarTodosSpan,
+} from './components/status-bar.js';
+import { STATUSLINE_ITEMS, type StatuslineItem } from './components/statusline-picker.js';
+import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
+import { hitRegion, statusBarLineRow } from './hit-test.js';
+import { measureElement, type DOMElement } from './ink.js';
+import { routeInputKey } from './input-key-router.js';
+import {
+  isLowerOverlayOpen,
+  overlayPointerKey,
+  routeBusyInterruptKey,
+  routeModalOverlayKey,
+  routePanelEscapeKey,
+  routeSettingsOverlayKey,
+} from './overlay-key-router.js';
+import { feedPaste } from './paste-accumulator.js';
+import { scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
+import type { AutonomyStage } from './hooks/use-statusline-state.js';
+
+const ESC_DOUBLE_PRESS_MS = 1000;
+const INPUT_PROMPT = DEFAULT_INPUT_PROMPT;
+const SB_PADX = 0;
+
+interface AppKeyHandlerOptions {
+  state: State;
+  dispatch: Dispatch<Action>;
+  runInterruptLadder: () => void;
+  enhanceCancelledRef: MutableRefObject<boolean>;
+  enhanceAbortRef: MutableRefObject<AbortController | null>;
+  inputGateRef: MutableRefObject<boolean>;
+  lastEscAtRef: MutableRefObject<number>;
+  pasteAccumRef: MutableRefObject<string | null>;
+  pasteFlushTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  commitPaste: (full: string) => Promise<void>;
+  tryPickerKey: (input: string, key: KeyEvent, isEnter: boolean) => boolean;
+  dismissedEscAtRef: MutableRefObject<number>;
+  streamingTextRef: MutableRefObject<string>;
+  confirmExitRef: MutableRefObject<boolean>;
+  activeCtrlRef: MutableRefObject<AbortController | null>;
+  clearPendingConfirms: () => void;
+  liveDirector: () => Director | null;
+  openProjectPicker: () => Promise<void>;
+  loadLiveSessions: () => Promise<void>;
+  openStatuslinePicker: (field?: number) => void;
+  statuslineHiddenItems: StatuslineItem[];
+  getSddRun: AppProps['getSddRun'];
+  onSddLifecycle: AppProps['onSddLifecycle'];
+  getSettings: AppProps['getSettings'];
+  saveSettings: AppProps['saveSettings'];
+  lastEnterAtRef: MutableRefObject<number>;
+  draftRef: MutableRefObject<{ buffer: string; cursor: number }>;
+  setDraft: (buffer: string, cursor: number) => void;
+  submit: () => void;
+  mouseMode: boolean;
+  termRows: number;
+  terminalColumns: number;
+  terminalRows: number;
+  statusBarWrapRef: MutableRefObject<DOMElement | null>;
+  belowStatusBarRef: MutableRefObject<DOMElement | null>;
+  liveStatuslineMode: string;
+  statuslineHiddenForPicker: () => StatuslineItem[];
+  liveModel: string;
+  liveProvider: string;
+  yoloLive: boolean;
+  autonomyLive: AutonomyStage;
+  projectName: string | undefined;
+  workingDirChip: string | undefined;
+  todos: { pending: number; inProgress: number; completed: number };
+  openModelPicker: () => Promise<void>;
+  nextStepsAutoSubmitTimerRef: MutableRefObject<ReturnType<typeof setInterval> | undefined>;
+  nextStepsAutoSubmitSuggestionRef: MutableRefObject<string | null>;
+  nextStepsAutoSubmitLabel: string | null;
+  setNextStepsAutoSubmitCountdown: Dispatch<SetStateAction<number | null>>;
+  setNextStepsAutoSubmitLabel: Dispatch<SetStateAction<string | null>>;
+  cancelNextStepsCountdown: () => void;
+  pasteClipboardText: () => Promise<void>;
+  pasteClipboardImage: () => Promise<void>;
+  slashRegistry: AppProps['slashRegistry'];
+  agent: AppProps['agent'];
+}
+
+/** Creates the terminal key host around focused overlay/input routers. */
+export function createAppKeyHandler(options: AppKeyHandlerOptions): (
+  input: string,
+  key: KeyEvent,
+) => Promise<void> {
+  const {
+    state,
+    dispatch,
+    runInterruptLadder,
+    enhanceCancelledRef,
+    enhanceAbortRef,
+    inputGateRef,
+    lastEscAtRef,
+    pasteAccumRef,
+    pasteFlushTimerRef,
+    commitPaste,
+    tryPickerKey,
+    dismissedEscAtRef,
+    streamingTextRef,
+    confirmExitRef,
+    activeCtrlRef,
+    clearPendingConfirms,
+    liveDirector,
+    openProjectPicker,
+    loadLiveSessions,
+    openStatuslinePicker,
+    statuslineHiddenItems,
+    getSddRun,
+    onSddLifecycle,
+    getSettings,
+    saveSettings,
+    lastEnterAtRef,
+    draftRef,
+    setDraft,
+    submit,
+    mouseMode,
+    termRows,
+    terminalColumns,
+    terminalRows,
+    statusBarWrapRef,
+    belowStatusBarRef,
+    liveStatuslineMode,
+    statuslineHiddenForPicker,
+    liveModel,
+    liveProvider,
+    yoloLive,
+    autonomyLive,
+    projectName,
+    workingDirChip,
+    todos,
+    openModelPicker,
+    nextStepsAutoSubmitTimerRef,
+    nextStepsAutoSubmitSuggestionRef,
+    nextStepsAutoSubmitLabel,
+    setNextStepsAutoSubmitCountdown,
+    setNextStepsAutoSubmitLabel,
+    cancelNextStepsCountdown,
+    pasteClipboardText,
+    pasteClipboardImage,
+    slashRegistry,
+    agent,
+  } = options;
+  const stdout = { columns: terminalColumns, rows: terminalRows };
+  const handleKey = async (input: string, key: KeyEvent) => {
+    // ── Ctrl+C: THE unconditional escape hatch ────────────────────────
+    // Raw-mode terminals (ConPTY/Windows, and any tty in raw mode) deliver
+    // Ctrl+C as KEY DATA — no SIGINT is ever generated — so it must be
+    // routed into the escalation ladder from here. This check runs BEFORE
+    // every modal/status guard below on purpose: Ctrl+C has to work
+    // precisely when everything else is wedged ('aborting' block, pending
+    // confirm panel, enhance overlay, …). The ladder itself is state-aware
+    // (cancels open pickers on the first press, aborts + kills the fleet,
+    // then exits on the second press, hard-exits on the third).
+    if (key.ctrl && (input === 'c' || input === 'C' || input === '\x03')) {
+      runInterruptLadder();
+      return;
+    }
+    if (
+      routeModalOverlayKey(
+        {
+          state,
+          enhanceCancelled: enhanceCancelledRef,
+          enhanceController: enhanceAbortRef,
+          dispatch,
+        },
+        input,
+        key,
+      )
+    ) {
+      return;
+    }
+
+    // ── Monitor overlays are NON-modal ───────────────────────────────
+    // F2 fleet, F3 agents, F4 worktree, F6 todos, F7 queue, and the
+    // goalRun monitor render in the lower region of the layout, but the
+    // chat input above them stays LIVE — typing, backspace, paste, cursor
+    // movement, and Enter (submit) all flow through to the input buffer.
+    // Only the F-key toggles below and Esc are reserved for the panel:
+    //   • F2/F3/F4/F6/F7 toggle their respective overlay
+    //   • Esc closes whichever overlay is open
+    // (Overlays with their own dedicated UI — `confirmQueue`, `enhance`,
+    // `modelPicker`, `autonomyPicker`, `settingsPicker`, `rewindOverlay`,
+    // `helpOpen` — are still modal and keep their own guards above.)
+    // Ctrl+C still aborts via the SIGINT handler, which bypasses handleKey.
+
+    // Re-entrancy guard: block stale-second events from \r\n terminals.
+    if (inputGateRef.current) return;
+
+    // ── Double-Esc clears input buffer ────────────────────────────────
+    // When the user presses Esc twice within ESC_DOUBLE_PRESS_MS ms while
+    // the buffer is non-empty, clear it. This mirrors the behaviour of bash's
+    // Ctrl+C double-press clearing the line, adapted for Esc (no Ctrl needed).
+    if (key.escape) {
+      const now = Date.now();
+      if (state.buffer.length > 0 && now - lastEscAtRef.current < ESC_DOUBLE_PRESS_MS) {
+        dispatch({ type: 'clearInput' });
+        lastEscAtRef.current = 0;
+        return;
+      }
+      lastEscAtRef.current = now;
+    }
+
+    // ── Bracketed-paste accumulation ──────────────────────────────────
+    // Must run before the Enter/key handling below: a paste split across
+    // events can land a fragment that is exactly "\n", which would
+    // otherwise be read as Enter and submit mid-paste. The begin marker
+    // (\x1b[200~, or a bare [200~ when Ink ate the ESC) opens accumulation;
+    // we swallow every fragment until the end marker (\x1b[201~ / [201~),
+    // then finalize the whole payload at once.
+    if (input) {
+      const paste = feedPaste(pasteAccumRef.current, input);
+      if (paste) {
+        pasteAccumRef.current = paste.accum;
+        if (pasteFlushTimerRef.current) clearTimeout(pasteFlushTimerRef.current);
+        if (paste.complete !== null) {
+          pasteFlushTimerRef.current = null;
+          await commitPaste(paste.complete);
+          return;
+        }
+        pasteFlushTimerRef.current = setTimeout(() => {
+          pasteFlushTimerRef.current = null;
+          const full = pasteAccumRef.current;
+          pasteAccumRef.current = null;
+          if (full) void commitPaste(full);
+        }, 500);
+        return;
+      }
+    }
+
+    // Some terminals emit \r\n for Enter as two separate stdin events.
+    // \r arrives with key.return=true (handled below); \n may arrive as
+    // a stray character with key.return=false. Normalize both to Enter
+    // and prevent them from polluting the buffer as literal text.
+    // Mouse buttons inside a selectable overlay map to keyboard semantics:
+    // left = confirm (Enter), right = cancel/back (Esc). Tracking is
+    // overlay-scoped (see the mouse effect near stateRef), so this is gated on
+    // an overlay being open and never disturbs normal chat clicks. Combined
+    // with wheel-to-move in each picker block, this gives full mouse menu
+    // control without any pixel hit-testing.
+    const { isEnter, cancelAction } = overlayPointerKey(state, input, key);
+
+    // Right-click cancels the open overlay (mirrors each picker's Esc path).
+    if (cancelAction) {
+      dispatch(cancelAction);
+      return;
+    }
+
+    // ── Paste-active guard: swallow Enter mid-paste ──────────────────
+    // Ink can split `\r\n` (which arrives inside a paste payload) into
+    // BOTH a raw `\r` character AND a decoded Enter event (key.return,
+    // input=''). The former is correctly accumulated by feedPaste above,
+    // but the decoded Enter has input='' → it bypasses feedPaste and
+    // would submit the buffer mid-paste. Catch it here.
+    if (pasteAccumRef.current !== null && isEnter) return;
+
+    // IMPORTANT: do NOT bail on `!input` here. Special keys (arrows,
+    // Enter, Escape, Tab, Backspace) arrive with an empty `input`
+    // string, and the slash/file pickers + cursor movement below all
+    // depend on receiving those events. The late guard before text
+    // insertion handles the empty-input case correctly.
+
+    // All picker dispatch is delegated to the usePickerKeys hook.
+    // The hook handles Esc (close), ↑/↓ (navigate), wheel (scroll),
+    // Enter (confirm), and picker-specific keys (search, filter, Tab).
+    // If no picker is open the hook returns false immediately.
+    if (tryPickerKey(input, key, isEnter)) return;
+
+    if (
+      routeBusyInterruptKey(
+        {
+          state,
+          dismissedAt: dismissedEscAtRef,
+          streamingText: streamingTextRef,
+          confirmExit: confirmExitRef,
+          activeController: activeCtrlRef,
+          dispatch,
+          clearPendingConfirms,
+          liveDirector,
+        },
+        key,
+      )
+    ) {
+      return;
+    }
+
+    // Monitor overlays. Ctrl+F/G/T are the primary chords; F2/F3/F4 are
+    // terminal-safe aliases because some terminals intercept the chord before
+    // it reaches the app (notably Windows Terminal eats Ctrl+F for "Find").
+    // F11/F12 are exposed as optional direct panel shortcuts; terminals that
+    // reserve them can still use /f or the slash-command alternatives.
+    // All toggles are allowed even while aborting, so the user can check
+    // subagent state mid-steer.
+    // Opening actions are mutually exclusive in the reducer via closePanels().
+    // Ctrl+B → live multi-agent SDD board overlay (not in the F-key table —
+    // no F-key alias, chord-only).
+    if (key.ctrl && input === 'b') {
+      dispatch({ type: 'toggleSddBoardMonitor' });
+      return;
+    }
+    // Ctrl+J → toggle the project kanban panel (not in the F-key table —
+    // no F-key alias, chord-only). Mirrors Ctrl+B / SDD board pattern
+    // because adding a 13th F-key slot would require expanding the picker
+    // invariant `fn >= 1 && fn <= 12`. The slash command `/kanban` is the
+    // canonical discovery path; Ctrl+J is a power-user chord.
+    if (key.ctrl && input === 'j') {
+      dispatch({ type: 'toggleKanbanPanel' });
+      return;
+    }
+    // F-key / Ctrl-alias dispatch — table-driven via fKeyEntryFor.
+    // Entries with hostAction (F1, F10, F12) need host-side work; the
+    // rest dispatch directly via actionForFKeyPanel.
+    // Special cases: F10 also catches Esc when sessionsPanel is open (defence
+    // in depth); F11 also catches bare \x1b when coordinator is open.
+    const fKeyMatched =
+      fKeyEntryFor(key.fn, key.ctrl, input) ??
+      (key.fn === 10 && key.escape && state.sessionsPanelOpen
+        ? fKeyEntryFor(10, undefined, '')
+        : null) ??
+      (input === '\x1b' && state.coordinator.monitorOpen ? fKeyEntryFor(11, undefined, '') : null);
+    if (fKeyMatched) {
+      const entry = fKeyMatched;
+      switch (entry.hostAction) {
+        case 'openProjectPicker': {
+          if (state.projectPicker.open) {
+            dispatch({ type: 'projectPickerClose' });
+          } else {
+            dispatch({ type: 'closeAllPanels' });
+            openProjectPicker();
+          }
+          return;
+        }
+        case 'loadLiveSessions': {
+          if (!state.sessionsPanelOpen) {
+            dispatch({ type: 'toggleSessionsPanel' });
+            loadLiveSessions();
+          } else {
+            dispatch({ type: 'toggleSessionsPanel' });
+          }
+          return;
+        }
+        case 'openStatuslinePicker': {
+          openStatuslinePicker();
+          return;
+        }
+        case undefined: {
+          const action = actionForFKeyPanel(entry, statuslineHiddenItems);
+          if (action) {
+            dispatch(action);
+            return;
+          }
+          break;
+        }
+      }
+    }
+    // While the SDD board overlay is open, ←/→ drive the per-phase drill-down
+    // (→ focuses a single topological column, ← steps back / exits to the
+    // all-phases view) and `c` / `z` / `x` drive run lifecycle — clean worktrees
+    // / rollback commits / destroy. clean+rollback refuse while the run is still
+    // live (stop it first with Ctrl+C); destroy stops it for you.
+    if (state.sddBoard?.monitorOpen && !key.ctrl && !key.meta) {
+      if (key.rightArrow) {
+        dispatch({ type: 'sddBoardFocusNext' });
+        return;
+      }
+      if (key.leftArrow) {
+        dispatch({ type: 'sddBoardFocusPrev' });
+        return;
+      }
+      if (input === 'c' || input === 'z' || input === 'x') {
+        // c = clean worktrees · z = rollback merged commits · x = destroy.
+        // Prefer the live run control (it self-refuses while running and works
+        // between stop and registry-clear); fall back to the host's disk-backed
+        // applySddLifecycle so the keys keep working once the run has finished.
+        const op = input === 'c' ? 'cleanup_worktrees' : input === 'z' ? 'rollback' : 'destroy';
+        const run = getSddRun?.();
+        if (op !== 'destroy' && run) {
+          const fn = op === 'cleanup_worktrees' ? run.cleanupWorktrees() : run.rollback();
+          void Promise.resolve(fn).then((r) => {
+            dispatch({ type: 'addEntry', entry: sddLifecycleEntry(op, r) });
+          });
+          return;
+        }
+        if (onSddLifecycle) {
+          void onSddLifecycle(op).then((r) => {
+            dispatch({ type: 'addEntry', entry: sddLifecycleEntry(op, r) });
+          });
+        } else {
+          dispatch({
+            type: 'addEntry',
+            entry: { kind: 'warn', text: 'SDD lifecycle is not available in this session.' },
+          });
+        }
+        return;
+      }
+    }
+    if (
+      routeSettingsOverlayKey(
+        { state, getSettings, saveSettings, lastEnterAt: lastEnterAtRef, dispatch },
+        input,
+        key,
+        isEnter,
+      )
+    ) {
+      return;
+    }
+    if (routePanelEscapeKey(state, key, dispatch)) return;
+
+    // overlayOpen tracks whether any monitor or panel overlay is active.
+    // Defined here (before the ?-handler and Enter submit) so both can
+    // check it. Also used below in the multi-line input navigation and
+    // scroll sections to prevent arrow-key conflicts with overlay internals.
+    const overlayOpen = isLowerOverlayOpen(state);
+
+    // `?` on an empty prompt opens the keys-&-commands help overlay (lazygit
+    // style). With any draft text it types normally, so a literal `?` mid-
+    // message is never swallowed. Guarded via overlayOpen — when any panel
+    // or picker is active the key is ignored so overlay-internal `?` usage
+    // (none currently) is never stolen.
+    if (input === '?' && !key.ctrl && !key.meta && draftRef.current.buffer === '' && !overlayOpen) {
+      dispatch({ type: 'toggleHelp' });
+      return;
+    }
+    // No panel below uses Enter for itself (ProcessList has its own
+    // dedicated guard above; every other panel either has no useInput
+    // or only captures ↑↓/Esc/letter shortcuts). Enter always reaches
+    // the submit path so the live input stays usable behind overlays.
+    if (isEnter) {
+      // Shift+Enter inserts a literal newline instead of submitting.
+      if (key.shift) {
+        const { buffer, cursor } = draftRef.current;
+        const next = buffer.slice(0, cursor) + '\n' + buffer.slice(cursor);
+        setDraft(next, cursor + 1);
+        lastEnterAtRef.current = Date.now(); // prevent duplicate from \r
+        return;
+      }
+
+      // Re-entrancy protection for terminals that emit `\r\n` as two
+      // separate stdin events: ignore Enter pressed within 50ms of the
+      // last one. The 50ms window catches the double-event reliably
+      // (the second `\n` arrives within microseconds of the `\r`) while
+      // staying well below human double-tap speed.
+      //
+      // We intentionally do NOT await submit() here — it kicks off
+      // agent.run() which can stay pending for minutes when a delegate
+      // call is in flight. Awaiting would block this handler frame for
+      // the full duration, which means every subsequent keystroke would
+      // miss its dispatch (including the slash key — the user reported
+      // the input feeling dead during delegated work). submit() handles
+      // its own re-entrancy via state.status: when the agent is busy,
+      // the message is queued instead of re-running concurrently.
+      const now = Date.now();
+      if (now - lastEnterAtRef.current < 50) return;
+      lastEnterAtRef.current = now;
+      void submit();
+      return;
+    }
+
+
+    // History lives in a bounded managed viewport. Skip scrolling when ANY
+    // overlay below the statusline is open — these overlays
+    // use arrow keys for their own navigation (↑↓ selection, scrolling).
+    // Pickers (settings/model/autonomy) are already intercepted earlier
+    // and never reach this point, so they don't need listing here.
+    // (overlayOpen is defined above in the multi-line input navigation section.)
+
+    // Mouse wheel/click handling remains opt-in; PgUp/PgDn works in every mode.
+    if (!overlayOpen) {
+      if (mouseMode && key.mouse?.kind === 'wheel') {
+        if (key.mouse.shift)
+          dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
+        else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
+        return;
+      }
+      // Scrollbar click / drag. A left press (or left-button drag) on the
+      // right-edge track jumps the viewport to that position; each drag-move
+      // re-jumps, giving scrub-to-scroll for free. The track lives in the top
+      // `viewportRows` band, so the bottom region is never affected.
+      if (
+        mouseMode &&
+        (key.mouse?.kind === 'press' || key.mouse?.kind === 'move') &&
+        key.mouse.button === 'left'
+      ) {
+        const region = hitRegion(
+          { termRows, termCols: stdout?.columns ?? 80, viewportRows: state.viewportRows },
+          key.mouse.x,
+          key.mouse.y,
+        );
+        if (region?.kind === 'scrollbar') {
+          dispatch({
+            type: 'scrollTo',
+            offset: scrollOffsetForTrackRow(state.viewportRows, state.totalLines, region.cell),
+          });
+          return;
+        }
+      }
+      // Clickable status-bar chips. The bar is bottom-anchored above the panels
+      // in belowStatusBarRef; measure both to resolve each line's absolute row,
+      // then test the chip column spans (which mirror the rendered layout). A
+      // press only — drags never open a picker. Column spans are 0-based from
+      // the box's left edge (incl. paddingX), so screen col = span.start + 1.
+      if (
+        mouseMode &&
+        key.mouse?.kind === 'press' &&
+        key.mouse.button === 'left' &&
+        statusBarWrapRef.current
+      ) {
+        const sbHeight = measureElement(statusBarWrapRef.current).height;
+        const belowHeight = belowStatusBarRef.current
+          ? measureElement(belowStatusBarRef.current).height
+          : 0;
+        const cols = stdout?.columns ?? 80;
+        const mx = key.mouse.x;
+        const my = key.mouse.y;
+        const rowFor = (line: number) =>
+          statusBarLineRow({
+            termRows,
+            statusBarHeight: sbHeight,
+            belowHeight,
+            headerRows: 0,
+            line,
+          });
+        const inSpan = (span: { start: number; len: number }) =>
+          mx >= span.start + 1 && mx <= span.start + span.len;
+        // Line 1 — provider/model chip → model picker. Detailed/no-color,
+        // full-width layouts only; compact/minimum modes use different ordering.
+        if (cols >= COMPACT_THRESHOLD && liveStatuslineMode !== 'minimum' && my === rowFor(0)) {
+          const hiddenSet = new Set(statuslineHiddenForPicker());
+          if (!hiddenSet.has('model')) {
+            const span = statusBarModelSpan({
+              model: liveModel,
+              provider: liveProvider,
+              yolo: yoloLive && !hiddenSet.has('yolo'),
+              autonomy: hiddenSet.has('autonomy') ? 'off' : autonomyLive,
+              projectName,
+              workingDir: workingDirChip,
+              projectHidden: hiddenSet.has('project'),
+              workingDirHidden: hiddenSet.has('working_dir'),
+              monochrome: liveStatuslineMode === 'no-color',
+            });
+            if (inSpan(span)) {
+              await openModelPicker();
+              return;
+            }
+          }
+        }
+        // Line 1 — autonomy chip → autonomy picker. Use the same visibility and
+        // monochrome inputs as StatusBar so the click target matches the glyphs.
+        if (cols >= COMPACT_THRESHOLD && liveStatuslineMode !== 'minimum') {
+          const hiddenSet = new Set(statuslineHiddenForPicker());
+          const autoSpan = hiddenSet.has('autonomy')
+            ? null
+            : statusBarAutonomySpan({
+                yolo: yoloLive && !hiddenSet.has('yolo'),
+                autonomy: autonomyLive,
+                monochrome: liveStatuslineMode === 'no-color',
+              });
+          if (autoSpan && my === rowFor(0) && inSpan(autoSpan)) {
+            dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+            return;
+          }
+        }
+        // Line 3 — todos chip → todos overlay (only when todos are shown).
+        const todosShown =
+          !!todos && (todos.pending > 0 || todos.inProgress > 0 || todos.completed > 0);
+        if (todosShown && my === rowFor(2) && inSpan(statusBarTodosSpan())) {
+          dispatch({ type: 'toggleTodosMonitor' });
+          return;
+        }
+        // Statusline chips — click to open statusline picker focused on that chip.
+        // Field indices are derived from STATUSLINE_ITEMS so they can't drift
+        // when the picker's item order changes (line 3: todos/plan/tasks;
+        // line 4: fleet).
+        const hiddenSet = new Set(statuslineHiddenForPicker());
+        if (my === rowFor(2)) {
+          const mxLocal = mx - SB_PADX - 1;
+          if (!hiddenSet.has('todos') && mxLocal >= 0 && mxLocal < 20) {
+            openStatuslinePicker(STATUSLINE_ITEMS.indexOf('todos'));
+            return;
+          }
+          if (!hiddenSet.has('plan')) {
+            const planStart = 21;
+            if (mxLocal >= planStart && mxLocal < planStart + 22) {
+              openStatuslinePicker(STATUSLINE_ITEMS.indexOf('plan'));
+              return;
+            }
+          }
+          if (!hiddenSet.has('tasks')) {
+            const tasksStart = 44;
+            if (mxLocal >= tasksStart && mxLocal < tasksStart + 26) {
+              openStatuslinePicker(STATUSLINE_ITEMS.indexOf('tasks'));
+              return;
+            }
+          }
+        }
+        if (my === rowFor(3) && !hiddenSet.has('fleet')) {
+          const mxLocal = mx - SB_PADX - 1;
+          const fleetStart = 0;
+          if (mxLocal >= fleetStart && mxLocal < fleetStart + 22) {
+            openStatuslinePicker(STATUSLINE_ITEMS.indexOf('fleet'));
+            return;
+          }
+        }
+      }
+      if (key.pageUp) {
+        dispatch({ type: 'scrollPage', dir: 'up' });
+        return;
+      }
+      if (key.pageDown) {
+        dispatch({ type: 'scrollPage', dir: 'down' });
+        return;
+      }
+    }
+
+    if (
+      await routeInputKey(
+        {
+          state,
+          draft: draftRef.current,
+          overlayOpen,
+          prompt: INPUT_PROMPT,
+          terminalColumns: stdout?.columns ?? 80,
+          terminalRows: stdout?.rows ?? 24,
+          nextSteps: {
+            timer: nextStepsAutoSubmitTimerRef,
+            suggestion: nextStepsAutoSubmitSuggestionRef,
+            label: nextStepsAutoSubmitLabel,
+            setCountdown: setNextStepsAutoSubmitCountdown,
+            setLabel: setNextStepsAutoSubmitLabel,
+            cancel: cancelNextStepsCountdown,
+          },
+          dispatch,
+          setDraft,
+          pasteClipboardText,
+          pasteClipboardImage,
+          commitPaste,
+        },
+        input,
+        key,
+      )
+    ) {
+      return;
+    }
+    // Ctrl+P → toggle PhaseMonitor overlay when Goal is active.
+    if (key.ctrl && input === 'p') {
+      if (state.goalRun) dispatch({ type: 'goalRunMonitorToggle' });
+      else {
+        // No active Goal — treat as a command alias for /goal status
+        slashRegistry.dispatch('/goal', agent.ctx).then((res) => {
+          if (res?.message)
+            dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
+        });
+      }
+      return;
+    }
+  };
+
+  return handleKey;
+}

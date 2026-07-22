@@ -46,10 +46,11 @@
 //     any retry policy belongs in `setupProvider` itself, not
 //     in this helper.
 
-import type { Config, Logger, ModelsRegistry } from '@wrongstack/core';
+import type { Config, Logger, ModelsRegistry } from '@wrongstack/core/types';
 import { capabilitiesFor } from '@wrongstack/providers';
-import type { ProviderRegistry, ResolvedProvider } from '@wrongstack/core';
-import { mergeCustomModelDefs } from '@wrongstack/core';
+import type { ProviderRegistry } from '@wrongstack/core/registry';
+import type { ResolvedProvider } from '@wrongstack/core/types';
+import { mergeCustomModelDefs } from '@wrongstack/core/utils';
 import { setupProvider } from '../wiring/provider.js';
 
 export type ModeId = string;

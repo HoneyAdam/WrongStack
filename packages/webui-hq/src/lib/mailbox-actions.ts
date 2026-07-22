@@ -13,7 +13,7 @@
  * Optimistic updates are not handled here — they live in the React
  * component so the server remains the source of truth.
  */
-import type { MailboxActionInput, MailboxActionResult } from '@wrongstack/core';
+import type { MailboxActionInput, MailboxActionResult } from '@wrongstack/core/coordination';
 import { useHqStore } from '../store.js';
 import { authorizedFetch } from './auth.js';
 

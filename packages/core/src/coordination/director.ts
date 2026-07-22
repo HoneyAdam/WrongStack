@@ -3,7 +3,6 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { DirectorStateCheckpoint, type DirectorStateSnapshot } from '../storage/director-state.js';
 import type { BridgeMessage } from '../types/agent-bridge.js';
-import type { ModelMatrixEntry } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
 import type {
   AwaitAnyResult,
@@ -14,7 +13,6 @@ import type {
   TaskResult,
   TaskSpec,
 } from '../types/multi-agent.js';
-import { type DirectorFleetHost, type ManifestEntry, spawn as fleetSpawn } from './fleet-spawn.js';
 import type { SessionWriter } from '../types/session.js';
 import type { Tool } from '../types/tool.js';
 import { atomicWrite } from '../utils/atomic-write.js';
@@ -23,15 +21,12 @@ import { safeParse, safeStringify } from '../utils/safe-json.js';
 import type { WorktreeManager } from '../worktree/worktree-manager.js';
 import { InMemoryAgentBridge } from './agent-bridge.js';
 import type { BrainArbiter } from './brain.js';
-import { formatSubagentStructuredReport } from './subagent-result-tool.js';
-import { resolveMaxSpawnDepth } from './spawn-budget.js';
 import type { CollabDebugReport, CollabSessionOptions } from './collab-debug.js';
-import type { ProviderModelStatusTracker } from './provider-status-tracker.js';
-import {
-  FleetSpawnBudgetError,
-} from './director/director-errors.js';
-import { DirectorCollabController } from './director/director-collab.js';
 import { DirectorBtwNotes } from './director/director-btw-notes.js';
+import { DirectorBudgetPolicy } from './director/director-budget-policy.js';
+import { DirectorCollabController } from './director/director-collab.js';
+import { FleetSpawnBudgetError } from './director/director-errors.js';
+import { DirectorTaskRegistry } from './director/director-task-registry.js';
 import {
   composeDirectorPrompt,
   composeSubagentPrompt,
@@ -57,11 +52,18 @@ import {
 } from './director-tools.js';
 import { FleetBus, type FleetUsage, FleetUsageAggregator } from './fleet-bus.js';
 import type { FleetManager } from './fleet-manager.js';
+import { type DirectorFleetHost, spawn as fleetSpawn, type ManifestEntry } from './fleet-spawn.js';
 import type { ICoordinator } from './icoordinator.js';
 import { InMemoryBridgeTransport } from './in-memory-transport.js';
 import { LargeAnswerStore } from './large-answer-store.js';
-import { resolveModelMatrixResolution, roleNeedsIndependentReviewModel } from './model-matrix.js';
+import {
+  type ModelMatrixSource,
+  resolveModelMatrixResolution,
+  roleNeedsIndependentReviewModel,
+} from './model-matrix.js';
 import { DefaultMultiAgentCoordinator } from './multi-agent-coordinator.js';
+import type { ProviderModelStatusTracker } from './provider-status-tracker.js';
+import { resolveMaxSpawnDepth } from './spawn-budget.js';
 import { nicknameKeyFromDisplay } from './subagent-nicknames.js';
 import {
   type FleetWorktreePolicy,
@@ -115,8 +117,8 @@ interface DirectorOptions {
   /**
    * Called when a task completes with NO pending `awaitTasks` waiter —
    * i.e. a fire-and-forget `assign_task`. Wire this to the project
-   * mailbox so the result reaches the leader's conversation automatically
-   * instead of waiting for a poll. Synchronous `delegate` calls attach a
+   * mailbox so the result reaches the leader's next model evaluation
+   * automatically instead of waiting for a poll. Synchronous `delegate` calls attach a
    * waiter up front, so they never double-report through this hook.
    * Internal tasks (shadow passes) are excluded. Errors are swallowed.
    */
@@ -373,11 +375,6 @@ interface DirectorOptions {
   sessionModel?: string | undefined;
 }
 
-/** Either a static matrix or a live getter (re-read on every spawn). */
-export type ModelMatrixSource =
-  | Record<string, ModelMatrixEntry>
-  | (() => Record<string, ModelMatrixEntry> | undefined);
-
 // Re-exported from director-errors.ts for backward compatibility
 export {
   FleetContextOverflowError,
@@ -385,6 +382,8 @@ export {
   FleetSpawnBudgetError,
   FleetTokenCapError,
 } from './director/director-errors.js';
+/** @deprecated Import from model-matrix.ts; retained for public compatibility. */
+export type { ModelMatrixSource } from './model-matrix.js';
 
 export class Director implements DirectorFleetHost, ICoordinator {
   /* eslint-disable-next-line @typescript-eslint/no-unused-vars — just a cast helper */
@@ -449,8 +448,6 @@ export class Director implements DirectorFleetHost, ICoordinator {
       typeof this.sessionIdSource === 'function' ? this.sessionIdSource() : this.sessionIdSource;
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
-  /** Optional Brain arbiter for director-level policy decisions. */
-  private readonly brain?: BrainArbiter | undefined;
   /**
    * Optional fleet-level policy container. When provided the Director
    * delegates spawn budgeting, manifest entries, and checkpointing to it
@@ -466,33 +463,8 @@ export class Director implements DirectorFleetHost, ICoordinator {
   readonly bridge: InMemoryAgentBridge;
   readonly transport: InMemoryBridgeTransport;
   readonly coordinator: DefaultMultiAgentCoordinator;
-  /** Resolves with the matching `TaskResult` the first time the
-   *  coordinator emits `task.completed` for a given task id. Each entry
-   *  is created lazily on first poll/await and cleared once consumed. */
-  readonly taskWaiters = new Map<
-    string,
-    {
-      promise: Promise<TaskResult>;
-      resolve: (r: TaskResult) => void;
-    }
-  >();
-  /** First-completion waiters registered by `awaitTasksAny`. Kept separate
-   *  from `taskWaiters` on purpose: a `taskWaiters` entry marks a result as
-   *  "will be delivered in-band" and suppresses the fire-and-forget
-   *  report-back — but an any-await only consumes ONE of its ids, so the
-   *  losers must stay eligible for the mailbox notifier. Entries carry an
-   *  optional timeout timer so `shutdown()` can clear them. */
-  private readonly anyWaiters = new Set<{
-    ids: ReadonlySet<string>;
-    resolve: (r: TaskResult) => void;
-    timer?: ReturnType<typeof setTimeout> | undefined;
-  }>();
-  /** Cache of completed results in case the consumer asks AFTER the
-   *  coordinator already fired the event — `awaitTasks(['t-1'])` after
-   *  t-1 finished should resolve immediately, not hang. */
-  readonly completed = new Map<string, TaskResult>();
-  /** Prevents the completed Map from growing unbounded in long-running directors. */
-  private static readonly MAX_COMPLETED = 10_000;
+  /** Canonical task identity, ownership, result cache, and waiter state. */
+  private readonly tasks: DirectorTaskRegistry;
   /** Per-subagent provider/model metadata, captured at spawn time so the
    *  FleetUsageAggregator's metaLookup can surface readable rows. */
   readonly subagentMeta = new Map<
@@ -550,28 +522,16 @@ export class Director implements DirectorFleetHost, ICoordinator {
   readonly maxFleetCostUsd: number;
   /** Fleet-wide input+output token cap. Infinity means no cap. */
   readonly maxFleetTokens: number;
-  /** Max auto-extensions per subagent per budget kind before denying. */
-  private readonly maxBudgetExtensions: number;
   /** Sessions root for direct subagent JSONL reads (fleet tool, action: session). */
   private readonly sessionsRoot?: string | undefined;
   /** Director run id for JSONL path resolution. */
   private readonly directorRunId: string;
   /** Optional logger for structured logging. Falls back to noop when omitted. */
   private readonly logger: Logger | undefined;
-  /** Resolves task descriptions back from `assign()` so completion events
-   *  can also carry a human-readable title. */
-  readonly taskDescriptions = new Map<string, string>();
   /** Latest worktree state per task id (allocated/committed/merged/conflict/etc.). */
   readonly taskWorktrees = new Map<string, WorktreeTaskStateUpdate>();
-  /** Snapshot of which subagent owns each task — drives state-checkpoint
-   *  status updates without re-walking the manifest. */
-  readonly taskOwners = new Map<string, string>();
-  /** Infrastructure-owned task ids that should not appear in user-visible
-   *  manifest/session/checkpoint/rollup state. */
-  readonly internalTaskIds = new Set<string>();
-  /** Cumulative auto-extension grants per subagent (all budget kinds). Lets
-   *  /fleet render "⚡ extended ×N" without replaying the event stream. */
-  readonly extendTotals = new Map<string, number>();
+  /** Budget admission, progress heartbeat, and extension authority. */
+  private readonly budgetPolicy: DirectorBudgetPolicy;
   /**
    * Handle to the coordinator-side `task.completed` listener so we can
    * unsubscribe in `shutdown()`. Without this, repeated Director
@@ -591,8 +551,6 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * EventEmitter past its default cap. Mirrors the rationale on
    * `taskCompletedListener` above.
    */
-  private toolExecFilter: (() => void) | null = null;
-  private budgetFilter: (() => void) | null = null;
   /** Optional LLM classifier for smart dispatch. Passed from options. */
   readonly dispatchClassifier?:
     | import('../coordination/dispatcher.js').DispatchClassifier
@@ -630,7 +588,6 @@ export class Director implements DirectorFleetHost, ICoordinator {
 
   constructor(opts: DirectorOptions) {
     this.id = opts.config.coordinatorId || randomUUID();
-    this.brain = opts.brain;
     this.manifestPath = opts.manifestPath;
     this.roster = opts.roster;
     this.directorPreamble = opts.directorPreamble ?? DEFAULT_DIRECTOR_PREAMBLE;
@@ -645,7 +602,8 @@ export class Director implements DirectorFleetHost, ICoordinator {
     this.retireSubagentOnTaskComplete = opts.retireSubagentOnTaskComplete ?? true;
     this.sharedScratchpadPath = opts.sharedScratchpadPath ?? null;
     this.maxSpawns = opts.maxSpawns ?? Number.POSITIVE_INFINITY;
-    this.maxSpawnDepth = opts.fleetManager?.maxSpawnDepth ?? resolveMaxSpawnDepth(opts.maxSpawnDepth);
+    this.maxSpawnDepth =
+      opts.fleetManager?.maxSpawnDepth ?? resolveMaxSpawnDepth(opts.maxSpawnDepth);
     this.spawnDepth = opts.fleetManager?.spawnDepth ?? opts.spawnDepth ?? 0;
     this.sessionWriter = opts.sessionWriter ?? null;
     this.sessionIdSource = opts.sessionId ?? (() => opts.sessionWriter?.id);
@@ -653,7 +611,6 @@ export class Director implements DirectorFleetHost, ICoordinator {
     this.dispatchClassifier = opts.dispatchClassifier;
     this.maxFleetCostUsd = opts.directorBudget?.maxCostUsd ?? Number.POSITIVE_INFINITY;
     this.maxFleetTokens = opts.directorBudget?.maxTokens ?? Number.POSITIVE_INFINITY;
-    this.maxBudgetExtensions = opts.maxBudgetExtensions ?? 12;
     this.maxLeaderContextLoad = opts.maxLeaderContextLoad ?? 0.85;
     this.maxContext = opts.maxContext ?? 128_000;
     this.modelMatrix = opts.modelMatrix;
@@ -723,6 +680,24 @@ export class Director implements DirectorFleetHost, ICoordinator {
     );
     this.coordinator.setFleetBus(this.fleet);
     this.fleetManager?.setCoordinator(this.coordinator);
+    this.tasks = new DirectorTaskRegistry({
+      coordinator: this.coordinator,
+      stateCheckpoint: this.stateCheckpoint,
+      isWorkComplete: () => this.workCompleteFlag,
+      addTaskToManifest: (subagentId, taskId) => {
+        if (this.fleetManager) {
+          this.fleetManager.addTaskToSubagent(subagentId, taskId);
+          return;
+        }
+        const entry = Director._asManifestEntry(this.manifestEntries.get(subagentId));
+        if (entry && !entry.taskIds.includes(taskId)) entry.taskIds.push(taskId);
+      },
+      recordPendingTask: (taskId, subagentId, description) =>
+        this.fleetManager?.addPendingTask(taskId, subagentId, description),
+      appendSessionEvent: (event) => this.appendSessionEvent(event),
+      scheduleManifest: () => this.scheduleManifest(),
+      getSubagentMeta: (subagentId) => this.subagentMeta.get(subagentId),
+    });
     // Mirror coordinator completion events into the waiter table. This
     // lets `awaitTasks([...])` resolve on the *next* completion event
     // without polling — and the `completed` cache covers the case where
@@ -736,7 +711,15 @@ export class Director implements DirectorFleetHost, ICoordinator {
     this.taskCompletedListener = (payload) => this.handleTaskCompleted(payload);
     this.coordinator.on('task.completed', this.taskCompletedListener);
 
-    this.wireBudgetPolicy();
+    this.budgetPolicy = new DirectorBudgetPolicy({
+      fleet: this.fleet,
+      usage: this.usage,
+      brain: opts.brain,
+      maxBudgetExtensions: opts.maxBudgetExtensions ?? 12,
+      maxFleetCostUsd: this.maxFleetCostUsd,
+      currentSessionId: () => this.currentSessionId(),
+    });
+    this.budgetPolicy.start();
     // Large-answer store: prevents big `ask_subagent` responses from
     // bloating the leader's context window. Responses above 2K chars
     // are stored out-of-band; only a summary goes into ctx.messages.
@@ -751,42 +734,11 @@ export class Director implements DirectorFleetHost, ICoordinator {
 
   private handleTaskCompleted(payload: { task: TaskSpec; result: TaskResult }): void {
     const r = payload.result;
-    const internalTask = this.internalTaskIds.delete(r.taskId);
-    if (!internalTask) {
-      this.completed.set(r.taskId, r);
-      // Trim oldest entries when the cap is exceeded — keep most recent results
-      // so rollUp() and completedResults() still have data to return.
-      if (this.completed.size > Director.MAX_COMPLETED) {
-        const toDelete = this.completed.size - Director.MAX_COMPLETED;
-        const keys = [...this.completed.keys()].slice(0, toDelete);
-        for (const k of keys) this.completed.delete(k);
-      }
-    }
-    const waiter = this.taskWaiters.get(r.taskId);
-    if (waiter) {
-      waiter.resolve(r);
-      this.taskWaiters.delete(r.taskId);
-    }
-    // Sweep first-completion waiters: every unresolved any-await whose id
-    // set contains this task consumes the result in-band (each caller
-    // wants "the first of MY set" — overlapping sets all wake). Later
-    // completions of the same batch (the "losers") match no waiter and
-    // fall through to the report-back below — that is the whole point of
-    // awaitTasksAny: early finishers return in-band, slow siblings arrive
-    // as mailbox results instead of going silent.
-    let anyConsumed = false;
-    for (const aw of [...this.anyWaiters]) {
-      if (!aw.ids.has(r.taskId)) continue;
-      if (aw.timer) clearTimeout(aw.timer);
-      this.anyWaiters.delete(aw);
-      aw.resolve(r);
-      anyConsumed = true;
-    }
-    const consumedInBand = !!waiter || anyConsumed;
-    if (internalTask) return;
+    const settled = this.tasks.settle(r);
+    if (settled.internal) return;
     // Mirror into the on-disk checkpoint + session event stream so a
     // crashed director leaves a complete picture of which tasks landed.
-    const title = this.taskDescriptions.get(r.taskId) ?? payload.task.description ?? r.taskId;
+    const title = this.tasks.descriptionFor(r.taskId, payload.task.description ?? r.taskId);
     // Fire-and-forget report-back: this result is not being returned
     // in-band (no batch waiter, not the winning result of an any-await),
     // so it would otherwise sit in the cache until the leader polls.
@@ -794,7 +746,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
     // which injects it into the leader's conversation before its next
     // step). In-band-consumed tasks skip this — their result returns
     // directly from await_tasks.
-    if (!consumedInBand && this.taskResultNotifier) {
+    if (!settled.consumedInBand && this.taskResultNotifier) {
       const resultText =
         typeof r.result === 'string'
           ? r.result
@@ -879,217 +831,9 @@ export class Director implements DirectorFleetHost, ICoordinator {
     );
   }
 
-  private wireBudgetPolicy(): void {
-    // Wire budget.threshold_reached events from the FleetBus into the
-    // coordinator's task completion path. When a subagent hits a soft
-    // limit, the runner emits this event; we intercept it here, resolve
-    // the decision promise (via extend/deny), and let the normal
-    // task.completed flow handle the rest.
-    //
-    // Extension guard: a subagent that hits the same soft limit
-    // `maxBudgetExtensions` times without completing its task is looping
-    // on a prompt/config issue, not running out of budget legitimately.
-    // After the configured number of extends we deny and let the task
-    // fail — the host agent should then split the work or narrow the
-    // scope. We track this per subagent+kind combination.
-    const extendCounts = new Map<string, number>();
-    // Per-subagent progress heartbeat: counts tool executions so the timeout
-    // kind can extend indefinitely WHILE the agent is doing work, yet still
-    // deny a wedged agent that produces no new tool calls between grants.
-    // Wall-clock time always advances, so timeout alone is never a reliable
-    // "stuck" signal — tool activity is.
-    const progressBySubagent = new Map<string, number>();
-    const lastTimeoutProgress = new Map<string, number>();
-    this.toolExecFilter = this.fleet.filter('tool.executed', (e) => {
-      progressBySubagent.set(e.subagentId, (progressBySubagent.get(e.subagentId) ?? 0) + 1);
-    });
-    this.budgetFilter = this.fleet.filter('budget.threshold_reached', (e) => {
-      const payload = e.payload as {
-        kind: 'timeout' | 'idle_timeout' | 'iterations' | 'tool_calls' | 'tokens' | 'cost';
-        used: number;
-        limit: number;
-        timeoutMs: number;
-        extend: (extra: Record<string, unknown>) => void;
-        deny: () => void;
-      };
-      // -----------------------------------------------------------------------
-      // Collab agents are NOT handled here. Their CollabSession owns the
-      // budget.threshold_reached routing — it calls session.cancel() (never
-      // payload.deny()) when the Director decides to stop, so the agent
-      // finishes naturally. The Director's auto-extend/deny logic would
-      // conflict with that decision and must not run for collab subagents.
-      // -----------------------------------------------------------------------
-      if (
-        e.subagentId.startsWith('bug-hunter-') ||
-        e.subagentId.startsWith('refactor-planner-') ||
-        e.subagentId.startsWith('critic-')
-      ) {
-        // Skip — let the CollabSession's fleet handler deal with it.
-        // The session calls session.cancel() on the FleetBus, which causes
-        // the subagent to finish naturally without Director intervention.
-        return;
-      }
-      // Both timeout kinds — wall-clock `timeout` and `idle_timeout` (the
-      // default roster guard) — are governed by the heartbeat, not the
-      // extension cap. While the subagent keeps executing tools it never dies
-      // on time; once it stops making progress between grants, it's genuinely
-      // stuck → deny. `timeout` extends the wall-clock cap; `idle_timeout`
-      // extends the idle window. idle_timeout MUST be handled here: if it fell
-      // through to the generic grantExtension() switch below (which has no case
-      // for it) the Director would emit a no-op extend({}) — raising no limit
-      // while still burning the extension counter and broadcasting a bogus
-      // extension event. The collab handler treats both kinds the same way.
-      if (payload.kind === 'timeout' || payload.kind === 'idle_timeout') {
-        // Key the heartbeat by subagent+kind so a wall-clock grant and an idle
-        // grant for the same subagent don't suppress each other.
-        const heartbeatKey = `${e.subagentId}:${payload.kind}`;
-        const progress = progressBySubagent.get(e.subagentId) ?? 0;
-        const lastProgress = lastTimeoutProgress.get(heartbeatKey) ?? -1;
-        if (progress <= lastProgress) {
-          payload.deny();
-          return;
-        }
-        lastTimeoutProgress.set(heartbeatKey, progress);
-        const field = payload.kind === 'timeout' ? 'timeoutMs' : 'idleTimeoutMs';
-        setImmediate(() => {
-          const newLimit = Math.min(Math.ceil(payload.limit * 2), 24 * 60 * 60_000);
-          this.recordExtension(e.subagentId, e.taskId, payload.kind, newLimit);
-          payload.extend({ [field]: newLimit });
-        });
-        return;
-      }
-      const guardKey = `${e.subagentId}:${payload.kind}`;
-      const prior = extendCounts.get(guardKey) ?? 0;
-      if (prior >= this.maxBudgetExtensions) {
-        payload.deny();
-        extendCounts.delete(guardKey);
-        return;
-      }
-      if (payload.kind === 'cost' && this.maxFleetCostUsd < Number.POSITIVE_INFINITY) {
-        const totalCost = this.usage.snapshot().total?.cost ?? 0;
-        if (totalCost >= this.maxFleetCostUsd) {
-          payload.deny();
-          return;
-        }
-      }
-      const grantExtension = () => {
-        setImmediate(() => {
-          const extra: Record<string, unknown> = {};
-          const base = Math.max(payload.limit, payload.used);
-          const grow = (ceiling: number) => Math.min(Math.ceil(base * 1.5), ceiling);
-          let newLimit = base;
-          switch (payload.kind) {
-            case 'iterations':
-              newLimit = grow(50_000);
-              extra.maxIterations = newLimit;
-              break;
-            case 'tool_calls':
-              newLimit = grow(100_000);
-              extra.maxToolCalls = newLimit;
-              break;
-            case 'tokens':
-              newLimit = grow(5_000_000);
-              extra.maxTokens = newLimit;
-              break;
-            case 'cost':
-              newLimit = Math.min(base * 1.5, 100);
-              extra.maxCostUsd = newLimit;
-              break;
-          }
-          extendCounts.set(guardKey, prior + 1);
-          this.recordExtension(e.subagentId, e.taskId, payload.kind, newLimit);
-          payload.extend(extra);
-        });
-      };
-      // Iteration, tool-call, and token extensions are routine control-plane
-      // bookkeeping. They are already bounded by maxBudgetExtensions and hard
-      // per-kind ceilings, so asking the Brain on every threshold adds an LLM
-      // round trip, emits visible Brain activity, and can turn a safe automatic
-      // grant into an arbitrary denial. Keep those grants deterministic. Cost is
-      // different: it authorizes additional spend, so preserve Brain authority.
-      if (payload.kind !== 'cost' || !this.brain) {
-        grantExtension();
-        return;
-      }
-      void this.brain
-        .decide({
-          id: `director-budget-${e.subagentId}-${payload.kind}`,
-          sessionId: this.currentSessionId(),
-          source: 'director',
-          question: `Should the director extend the ${payload.kind} budget for subagent ${e.subagentId}?`,
-          context: [
-            e.taskId ? `Task id: ${e.taskId}` : undefined,
-            `Used: ${payload.used}`,
-            `Limit: ${payload.limit}`,
-            `Prior extensions for this kind: ${prior}`,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-          risk: 'high',
-          fallback: 'continue',
-          options: [
-            {
-              id: 'extend',
-              label: 'Grant the director default budget extension',
-              consequence: 'The subagent continues with a larger cost budget.',
-              risk: 'high',
-              recommended: true,
-            },
-            {
-              id: 'stop',
-              label: 'Stop this subagent at the current budget limit',
-              consequence: 'The current task will fail or stop due to budget pressure.',
-              risk: 'low',
-            },
-          ],
-        })
-        .then((decision) => {
-          if (decision.type === 'deny') {
-            payload.deny();
-            return;
-          }
-          if (decision.type === 'ask_human') {
-            payload.deny();
-            return;
-          }
-          // Control-plane check: only the exact option id refuses. Free
-          // text is never sniffed — "extend; stopping would waste work"
-          // must not read as a stop.
-          if (decision.optionId === 'stop') {
-            payload.deny();
-            return;
-          }
-          grantExtension();
-        })
-        .catch(() => payload.deny());
-    });
-  }
-
-  /**
-   * Record a granted budget extension and broadcast it on the FleetBus so
-   * the host can re-emit `subagent.budget_extended` for live UI badges.
-   * Called from both the timeout heartbeat path and the per-kind grant path.
-   */
-  private recordExtension(
-    subagentId: string,
-    taskId: string | undefined,
-    kind: string,
-    newLimit: number,
-  ): void {
-    const total = (this.extendTotals.get(subagentId) ?? 0) + 1;
-    this.extendTotals.set(subagentId, total);
-    this.fleet.emit({
-      subagentId,
-      taskId,
-      ts: Date.now(),
-      type: 'budget.extended',
-      payload: { kind, newLimit, totalExtensions: total },
-    });
-  }
-
   /** Cumulative auto-extension count for one subagent (0 when never extended). */
   extensionsFor(subagentId: string): number {
-    return this.extendTotals.get(subagentId) ?? 0;
+    return this.budgetPolicy.extensionsFor(subagentId);
   }
 
   /**
@@ -1235,7 +979,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
 
   private recordWorktreeTaskUpdate(update: WorktreeTaskStateUpdate): void {
     this.taskWorktrees.set(update.taskId, update);
-    const owner = this.taskOwners.get(update.taskId) ?? update.subagentId;
+    const owner = this.tasks.ownerFor(update.taskId) ?? update.subagentId;
     const entry = Director._asManifestEntry(this.manifestEntries.get(owner));
     if (entry) {
       entry.worktrees = { ...(entry.worktrees ?? {}), [update.taskId]: update };
@@ -1251,11 +995,8 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * Director-specific pre-processing (session fallback, status tracker) runs
    * before delegation; idle-retirement arming runs after.
    *
-   * NOTE: Only `spawn()` and parts of the cleanup path in `remove()` have
-   * been migrated to fleet-spawn.ts so far. `assign()`, `awaitTasks()`,
-   * `terminate()`, `terminateAll()`, and `remove()` still have inline copies
-   * in this class. Tracked by the "Fix 1" kanban card — the remaining methods
-   * should be migrated in follow-up work to prevent drift.
+   * Task assignment, ownership, result retention, and waiting are owned by
+   * DirectorTaskRegistry; this method delegates spawn admission to fleet-spawn.
    *
    * Caller-supplied `priceLookup` is optional but recommended — without
    * it the `cost` column in `usage.snapshot()` stays at 0.
@@ -1361,8 +1102,6 @@ export class Director implements DirectorFleetHost, ICoordinator {
   // extracted to fleet-spawn.ts — see Director.spawn() which delegates
   // to fleetSpawn(this, config, priceLookup).
 
-
-
   /**
    * Synchronously ask a subagent something via the bridge. Sends a
    * `task` message addressed to the subagent and awaits a matching
@@ -1407,43 +1146,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * (useful when the director model is doing structured-output work).
    */
   rollUp(taskIds: string[], style: 'markdown' | 'json' = 'markdown'): string {
-    const rows = taskIds.map((id) => this.completed.get(id)).filter((r): r is TaskResult => !!r);
-    if (style === 'json') {
-      return JSON.stringify(
-        rows.map((r) => ({
-          taskId: r.taskId,
-          subagentId: r.subagentId,
-          status: r.status,
-          iterations: r.iterations,
-          toolCalls: r.toolCalls,
-          durationMs: r.durationMs,
-          result: r.result,
-          report: r.report,
-          error: r.error,
-        })),
-        null,
-        2,
-      );
-    }
-    if (rows.length === 0) {
-      return '_No completed tasks for the requested ids — try waiting first._';
-    }
-    const lines: string[] = [];
-    for (const r of rows) {
-      const meta = this.subagentMeta.get(r.subagentId);
-      const tag = meta?.provider && meta?.model ? ` · ${meta.provider}/${meta.model}` : '';
-      lines.push(`### ${r.subagentId}${tag}`);
-      lines.push(`_${r.status} — ${r.iterations} iter · ${r.toolCalls} tools · ${r.durationMs}ms_`);
-      lines.push('');
-      if (r.error) lines.push(`**Error:** ${r.error}`);
-      else if (r.report) lines.push(formatSubagentStructuredReport(r.report));
-      else if (typeof r.result === 'string') lines.push(r.result);
-      else if (r.result !== undefined)
-        lines.push('```json\n' + JSON.stringify(r.result, null, 2) + '\n```');
-      else lines.push('_(no output)_');
-      lines.push('');
-    }
-    return lines.join('\n').trimEnd();
+    return this.tasks.rollUp(taskIds, style);
   }
 
   /**
@@ -1473,7 +1176,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
         // becomes much more useful for replay when it carries the
         // success/failure state.
         const results = entry.taskIds.map((tid) => {
-          const r = this.completed.get(tid);
+          const r = this.tasks.completedResult(tid);
           const worktree = entry.worktrees?.[tid];
           return r
             ? {
@@ -1528,52 +1231,16 @@ export class Director implements DirectorFleetHost, ICoordinator {
       this.coordinator.off('task.completed', this.taskCompletedListener);
       this.taskCompletedListener = null;
     }
-    // Drop any-await waiters: clear their timeout timers and resolve
-    // each pending promise with a synthetic 'stopped' result so callers
-    // don't hang forever. The same applies to taskWaiters below.
-    for (const aw of [...this.anyWaiters]) {
-      if (aw.timer) clearTimeout(aw.timer);
-      const firstId = [...aw.ids][0];
-      aw.resolve({
-        taskId: firstId ?? 'unknown',
-        subagentId: 'director',
-        status: 'stopped' as const,
-        iterations: 0,
-        toolCalls: 0,
-        durationMs: 0,
-      });
-    }
-    this.anyWaiters.clear();
     // Detach the FleetBus filters installed in the constructor. Same
     // rationale as the coordinator listener above — repeated Director
     // construction without these unsubs accumulates listeners on the
     // shared FleetBus and eventually trips the EventEmitter max-listener
     // warning.
-    if (this.toolExecFilter) {
-      this.toolExecFilter();
-      this.toolExecFilter = null;
-    }
-    if (this.budgetFilter) {
-      this.budgetFilter();
-      this.budgetFilter = null;
-    }
+    this.budgetPolicy.dispose();
     for (const timer of this.subagentIdleTimers.values()) clearTimeout(timer);
     this.subagentIdleTimers.clear();
     await this.coordinator.stopAll();
-    // Resolve any remaining task waiters that weren't settled by the
-    // (now-detached) taskCompletedListener during coordinator stopAll.
-    // Without this, awaitTasks() callers hang forever after shutdown.
-    for (const [id, waiter] of this.taskWaiters) {
-      waiter.resolve({
-        taskId: id,
-        subagentId: 'director',
-        status: 'stopped' as const,
-        iterations: 0,
-        toolCalls: 0,
-        durationMs: 0,
-      });
-    }
-    this.taskWaiters.clear();
+    this.tasks.resolveWaitersOnShutdown();
     for (const b of this.subagentBridges.values()) {
       await b.stop().catch((err) => this.logShutdownError('subagent_bridge_stop', err));
     }
@@ -1632,73 +1299,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * concurrency limit applies — the task may queue before running.
    */
   async assign(task: TaskSpec): Promise<string> {
-    const taskWithId: TaskSpec = task.id ? task : { ...task, id: randomUUID() };
-    // When workComplete() has been called, drain the pending queue as aborted
-    // rather than dispatching new work. The director has decided the goal is
-    // satisfied — queued tasks never get a chance to run, so synthesize their
-    // completion now so any caller awaiting them unblocks immediately.
-    if (this.workCompleteFlag) {
-      const synthetic: TaskResult = {
-        subagentId: taskWithId.subagentId ?? 'unassigned',
-        taskId: taskWithId.id,
-        status: 'stopped',
-        error: {
-          kind: 'aborted_by_parent',
-          message: 'Director called workComplete() — no further tasks will run',
-          retryable: false,
-        },
-        iterations: 0,
-        toolCalls: 0,
-        durationMs: 0,
-      };
-      this.completed.set(taskWithId.id, synthetic);
-      const waiter = this.taskWaiters.get(taskWithId.id);
-      if (waiter) {
-        waiter.resolve(synthetic);
-        this.taskWaiters.delete(taskWithId.id);
-      }
-      // Also wake any-await callers watching this id — a post-workComplete
-      // assign never reaches the coordinator, so the taskCompletedListener
-      // sweep would otherwise never see it and the any-await would hang.
-      for (const aw of [...this.anyWaiters]) {
-        if (!aw.ids.has(taskWithId.id)) continue;
-        if (aw.timer) clearTimeout(aw.timer);
-        this.anyWaiters.delete(aw);
-        aw.resolve(synthetic);
-      }
-      return taskWithId.id;
-    }
-    if (task.subagentId) {
-      // Update manifest entry — delegate to FleetManager when available.
-      if (this.fleetManager) {
-        this.fleetManager.addTaskToSubagent(task.subagentId, taskWithId.id);
-      } else {
-        const entry = Director._asManifestEntry(this.manifestEntries.get(task.subagentId));
-        if (entry) entry.taskIds.push(taskWithId.id);
-      }
-    }
-    await this.coordinator.assign(taskWithId);
-    // Snapshot task metadata for completion-event titles + state checkpoint
-    // bookkeeping. Done AFTER coordinator.assign() so we don't checkpoint a
-    // task the coordinator rejected.
-    this.taskDescriptions.set(taskWithId.id, taskWithId.description);
-    if (taskWithId.subagentId) this.taskOwners.set(taskWithId.id, taskWithId.subagentId);
-    const assignedAt = new Date().toISOString();
-    this.stateCheckpoint?.recordTaskAssigned({
-      taskId: taskWithId.id,
-      subagentId: taskWithId.subagentId,
-      description: taskWithId.description,
-      status: 'running',
-      assignedAt,
-    });
-    void this.appendSessionEvent({
-      type: 'task_created',
-      ts: assignedAt,
-      taskId: taskWithId.id,
-      title: taskWithId.description,
-    });
-    this.scheduleManifest();
-    return taskWithId.id;
+    return this.tasks.assign(task);
   }
 
   /**
@@ -1708,15 +1309,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * rollups and persisted fleet task history.
    */
   async assignInternal(task: TaskSpec): Promise<string> {
-    const taskWithId: TaskSpec = task.id ? task : { ...task, id: randomUUID() };
-    this.internalTaskIds.add(taskWithId.id);
-    try {
-      await this.coordinator.assign(taskWithId);
-    } catch (err) {
-      this.internalTaskIds.delete(taskWithId.id);
-      throw err;
-    }
-    return taskWithId.id;
+    return this.tasks.assignInternal(task);
   }
 
   /**
@@ -1727,20 +1320,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * whose results were already cached.
    */
   awaitTasks(taskIds: string[]): Promise<TaskResult[]> {
-    return Promise.all(
-      taskIds.map((id) => {
-        const cached = this.completed.get(id);
-        if (cached) return cached;
-        const existing = this.taskWaiters.get(id);
-        if (existing) return existing.promise;
-        let resolve!: (r: TaskResult) => void;
-        const promise = new Promise<TaskResult>((res) => {
-          resolve = res;
-        });
-        this.taskWaiters.set(id, { promise, resolve });
-        return promise;
-      }),
-    );
+    return this.tasks.awaitTasks(taskIds);
   }
 
   /**
@@ -1759,42 +1339,12 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * completions when the window elapses first.
    */
   awaitTasksAny(taskIds: string[], opts?: { timeoutMs?: number }): Promise<AwaitAnyResult> {
-    const completed = taskIds
-      .map((id) => this.completed.get(id))
-      .filter((r): r is TaskResult => r !== undefined);
-    if (completed.length > 0 || taskIds.length === 0) {
-      const done = new Set(completed.map((r) => r.taskId));
-      return Promise.resolve({
-        completed,
-        pending: taskIds.filter((id) => !done.has(id)),
-      });
-    }
-    return new Promise<AwaitAnyResult>((resolve) => {
-      const entry: {
-        ids: ReadonlySet<string>;
-        resolve: (r: TaskResult) => void;
-        timer?: ReturnType<typeof setTimeout> | undefined;
-      } = {
-        ids: new Set(taskIds),
-        resolve: (r) =>
-          resolve({
-            completed: [r],
-            pending: taskIds.filter((id) => id !== r.taskId),
-          }),
-      };
-      if (opts?.timeoutMs !== undefined) {
-        entry.timer = setTimeout(() => {
-          this.anyWaiters.delete(entry);
-          resolve({ completed: [], pending: [...taskIds], timedOut: true });
-        }, opts.timeoutMs);
-      }
-      this.anyWaiters.add(entry);
-    });
+    return this.tasks.awaitTasksAny(taskIds, opts);
   }
 
   /** Defensive snapshot of tasks still queued (not yet dispatched). */
   listPendingTasks(): readonly TaskSpec[] {
-    return this.coordinator.listPendingTasks();
+    return this.tasks.listPendingTasks();
   }
 
   /**
@@ -1806,30 +1356,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * sync with the coordinator's queue.
    */
   retargetPendingTask(taskId: string, subagentId: string | undefined): boolean {
-    const ok = this.coordinator.retargetPendingTask(taskId, subagentId);
-    if (!ok) return false;
-    if (subagentId) {
-      this.taskOwners.set(taskId, subagentId);
-      if (this.fleetManager) {
-        this.fleetManager.addTaskToSubagent(subagentId, taskId);
-      } else {
-        const entry = Director._asManifestEntry(this.manifestEntries.get(subagentId));
-        if (entry && !entry.taskIds.includes(taskId)) entry.taskIds.push(taskId);
-      }
-    } else {
-      this.taskOwners.delete(taskId);
-    }
-    const description = this.taskDescriptions.get(taskId) ?? taskId;
-    this.fleetManager?.addPendingTask(taskId, subagentId ?? '', description);
-    this.stateCheckpoint?.recordTaskAssigned({
-      taskId,
-      subagentId,
-      description,
-      status: 'running',
-      assignedAt: new Date().toISOString(),
-    });
-    this.scheduleManifest();
-    return true;
+    return this.tasks.retargetPendingTask(taskId, subagentId);
   }
 
   async terminate(subagentId: string): Promise<void> {
@@ -1838,9 +1365,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
     // coordinator but keeps the entry, the bridge, nicknames, and fleet
     // state alive. Without remove(), every explicit terminate_subagent
     // call leaks a stopped agent that accumulates on HQ forever.
-    void this.remove(subagentId).catch((err) =>
-      this.logShutdownError('terminate_remove', err),
-    );
+    void this.remove(subagentId).catch((err) => this.logShutdownError('terminate_remove', err));
   }
 
   async terminateAll(): Promise<void> {
@@ -1851,9 +1376,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
     // be gone by the time the stop completes; remove() is a no-op for
     // already-deleted ids.
     for (const id of ids) {
-      void this.remove(id).catch((err) =>
-        this.logShutdownError('terminate_all_remove', err),
-      );
+      void this.remove(id).catch((err) => this.logShutdownError('terminate_all_remove', err));
     }
   }
 
@@ -1898,15 +1421,12 @@ export class Director implements DirectorFleetHost, ICoordinator {
     // retirement so awaitTasks(), rollUp(), and completedResults() stay usable.
     const entryForCleanup = Director._asManifestEntry(this.manifestEntries.get(subagentId));
     if (entryForCleanup) {
+      this.tasks.removeTasks(entryForCleanup.taskIds);
       for (const tid of entryForCleanup.taskIds) {
-        this.taskOwners.delete(tid);
-        this.taskDescriptions.delete(tid);
         this.taskWorktrees.delete(tid);
       }
     }
-    // extendTotals and internalTaskIds are also per-subagent but have no
-    // manifest entry to iterate — clean extendTotals by subagentId directly.
-    this.extendTotals.delete(subagentId);
+    this.budgetPolicy.removeSubagent(subagentId);
     this.manifestEntries.delete(subagentId);
   }
 
@@ -1921,10 +1441,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * Arm one lifecycle timer per worker. The callback re-checks coordinator
    * state so a task assigned in the same turn always wins over retirement.
    */
-  private armSubagentIdleRetirement(
-    subagentId: string,
-    delayMs: number | undefined,
-  ): void {
+  private armSubagentIdleRetirement(subagentId: string, delayMs: number | undefined): void {
     this.clearSubagentIdleRetirement(subagentId);
     if (delayMs === undefined) return;
     const timer = setTimeout(() => {
@@ -1951,7 +1468,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
       ...base,
       subagents: base.subagents.map((s) => ({
         ...s,
-        extensions: this.extendTotals.get(s.id) ?? 0,
+        extensions: this.budgetPolicy.extensionsFor(s.id),
       })),
     };
   }
@@ -1982,7 +1499,7 @@ export class Director implements DirectorFleetHost, ICoordinator {
    * paint the completed table without reaching into private state.
    */
   completedResults(): TaskResult[] {
-    return Array.from(this.completed.values());
+    return this.tasks.completedResults();
   }
 
   /**

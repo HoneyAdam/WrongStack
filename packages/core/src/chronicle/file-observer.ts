@@ -67,7 +67,7 @@ export async function startChronicleFileObserver(
   const pending = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
-  let flushTail: Promise<void> = Promise.resolve();
+  let flushTail: Promise<void> | null = null;
 
   const schedule = (filename: string | Buffer | null): void => {
     if (closed) return;
@@ -83,9 +83,7 @@ export async function startChronicleFileObserver(
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      const paths = [...pending];
-      pending.clear();
-      flushTail = flushTail.then(() => reconcile(paths)).catch((error) => options.onError?.(error));
+      drainPending();
     }, debounceMs);
   };
 
@@ -209,6 +207,22 @@ export async function startChronicleFileObserver(
     await Promise.all(journalWrites);
   };
 
+  const drainPending = (): Promise<void> => {
+    if (flushTail) return flushTail;
+    const drain = (async () => {
+      while (pending.size > 0) {
+        const paths = [...pending];
+        pending.clear();
+        await reconcile(paths).catch((error) => options.onError?.(error));
+      }
+    })().finally(() => {
+      if (flushTail === drain) flushTail = null;
+      if (!closed && pending.size > 0) drainPending();
+    });
+    flushTail = drain;
+    return drain;
+  };
+
   let watcher: fs.FSWatcher;
   try {
     watcher = fs.watch(root, { recursive: true, persistent: false }, (_eventType, filename) =>
@@ -232,10 +246,8 @@ export async function startChronicleFileObserver(
       if (timer) {
         clearTimeout(timer);
         timer = undefined;
-        const paths = [...pending];
-        pending.clear();
-        if (paths.length > 0) flushTail = flushTail.then(() => reconcile(paths));
       }
+      if (pending.size > 0) drainPending();
       await flushTail;
     },
   };

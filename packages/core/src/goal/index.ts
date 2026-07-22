@@ -57,6 +57,23 @@ export { PHASE_EVENT_NAMES } from './types.js';
 
 export { PhaseStore, type PhaseStoreOptions } from './phase-store.js';
 export {
+  appendJournal,
+  emptyGoal,
+  formatGoal,
+  goalFilePath,
+  loadGoal,
+  MAX_JOURNAL_ENTRIES,
+  MAX_PROGRESS_HISTORY,
+  parseProgressFromText,
+  recordProgress,
+  saveGoal,
+  setProgress,
+  summarizeUsage,
+  type GoalFile,
+  type JournalEntry,
+  type ProgressSnapshot,
+} from '../storage/goal-store.js';
+export {
   CheckpointManager,
   type CheckpointManagerOptions,
   type Checkpoint,

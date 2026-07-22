@@ -51,7 +51,7 @@ function storageErrorString(err: unknown): string {
  * the agent tries to construct a provider, with a message that points
  * users at `wstack init`.
  */
-const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
+export const CONFIG_BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
   version: 1,
   context: {
     mode: DEFAULT_CONTEXT_WINDOW_MODE_ID,
@@ -180,13 +180,27 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
 };
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }
 
 function cloneJsonValue<T>(value: T): T {
   return structuredClone(value);
 }
 
+/**
+ * Add-only default filling: copies missing keys from `defaults` into `target`
+ * without removing or replacing any existing values. Recursively fills nested
+ * plain objects. Safe for the normal boot path where a user's explicit config
+ * must never be overwritten.
+ *
+ * For the add+replace variant (which also replaces type-incompatible values)
+ * see `repairConfigDefaults`.
+ */
 function fillMissingDefaults(
   target: Record<string, unknown>,
   defaults: Record<string, unknown>,
@@ -213,6 +227,91 @@ function fillMissingDefaultsInPlace(
     }
   }
   return changed;
+}
+
+export interface ConfigDefaultRepair {
+  path: string;
+  action: 'added' | 'replaced';
+}
+
+export interface ConfigDefaultRepairReport {
+  fixed: Record<string, unknown>;
+  changes: ConfigDefaultRepair[];
+  changed: boolean;
+}
+
+/**
+ * Materialize the canonical behavior defaults into a persisted profile config.
+ * Add+replace variant: missing fields are added AND values whose JSON shape is
+ * incompatible with the default are replaced (not just skipped). This is useful
+ * for the config-doctor repair path where a user-edited file may have wrong
+ * types. For the normal boot path (add-only) see `fillMissingDefaults`.
+ *
+ * Identity fields (`provider`, `model`) are intentionally not invented.
+ *
+ * NOTE: This function assumes JSON-roundtripped input. Non-JSON values such
+ * as `Buffer` or `Uint8Array` are objects and may not be correctly detected
+ * as type-incompatible with primitive defaults.
+ */
+export function repairConfigDefaults(input: Record<string, unknown>): ConfigDefaultRepairReport {
+  const fixed = cloneJsonValue(input);
+  const changes: ConfigDefaultRepair[] = [];
+
+  const MAX_REPAIR_DEPTH = 20;
+
+  const repair = (
+    target: Record<string, unknown>,
+    defaults: Record<string, unknown>,
+    prefix: string,
+    depth: number = 0,
+  ): void => {
+    if (depth > MAX_REPAIR_DEPTH) {
+      throw new ConfigError({
+        message:
+          `Config repair exceeded maximum depth (${MAX_REPAIR_DEPTH}) at "${prefix}". ` +
+          'This likely indicates a circular reference or deeply nested user-provided config.',
+        code: ERROR_CODES.CONFIG_INVALID,
+        context: { depth, prefix },
+      });
+    }
+    for (const [key, defaultValue] of Object.entries(defaults)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (!Object.hasOwn(target, key)) {
+        target[key] = cloneJsonValue(defaultValue);
+        changes.push({ path, action: 'added' });
+        continue;
+      }
+
+      const current = target[key];
+      if (isPlainRecord(defaultValue)) {
+        if (isPlainRecord(current)) {
+          repair(current, defaultValue, path, depth + 1);
+        } else {
+          target[key] = cloneJsonValue(defaultValue);
+          changes.push({ path, action: 'replaced' });
+        }
+        continue;
+      }
+
+      const defaultIsArray = Array.isArray(defaultValue);
+      // Array element shape is NOT validated here — if an array default's
+      // element type changes in a future version, existing arrays with the
+      // old element type will be kept even though their elements no longer
+      // match the new default element type. This is acceptable because:
+      // (a) config changes that widen element types are extremely rare, and
+      // (b) the config-doctor is a best-effort repair, not a type checker.
+      const compatible = defaultIsArray
+        ? Array.isArray(current)
+        : !Array.isArray(current) && typeof current === typeof defaultValue;
+      if (!compatible) {
+        target[key] = cloneJsonValue(defaultValue);
+        changes.push({ path, action: 'replaced' });
+      }
+    }
+  };
+
+  repair(fixed, CONFIG_BEHAVIOR_DEFAULTS as Record<string, unknown>, '');
+  return { fixed, changes, changed: changes.length > 0 };
 }
 
 /** Parse a boolean-ish env var: "0"/"false"/"no"/"off" → false, anything else → true. */
@@ -837,7 +936,7 @@ export class DefaultConfigLoader implements ConfigLoader {
       skipIdentityValidation?: boolean;
     } = {},
   ): Promise<Config> {
-    let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
+    let cfg: PartialConfig = { ...CONFIG_BEHAVIOR_DEFAULTS } as PartialConfig;
 
     // Materialize behavior/settings defaults into the active profile before
     // env vars or CLI flags are applied. The root config remains bootstrap-only.
@@ -1124,7 +1223,7 @@ export class DefaultConfigLoader implements ConfigLoader {
    * Ensure a profile config file exists at the given path.
    * On first boot: migrate content from the old flat global config, or seed
    * with behavior defaults. Subsequent boots: fill any missing keys from
-   * BEHAVIOR_DEFAULTS (keeping user settings intact).
+   * CONFIG_BEHAVIOR_DEFAULTS (keeping user settings intact).
    *
    * Once a profile file exists, settings found in the root bootstrap are
    * ignored. This prevents stale or accidentally-written root values from
@@ -1183,11 +1282,14 @@ export class DefaultConfigLoader implements ConfigLoader {
       delete seed['activeProfile'];
       removeLegacySuperMemoryEngine(seed);
       // Fill in any missing behavior defaults.
-      const filled = fillMissingDefaults(seed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+      const filled = fillMissingDefaults(seed, CONFIG_BEHAVIOR_DEFAULTS as Record<string, unknown>);
       seed = filled.value;
     } else {
       // Normal boot: fill missing defaults on existing (or empty) profile.
-      const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+      const filled = fillMissingDefaults(
+        parsed,
+        CONFIG_BEHAVIOR_DEFAULTS as Record<string, unknown>,
+      );
       if (!filled.changed && !removedLegacyEngine) return; // Nothing to write
       seed = filled.value;
     }

@@ -26,7 +26,7 @@
  * (cause checks, message regex, custom context fields) without re-
  * implementing the try/catch scaffolding.
  */
-import { type ConfigError, isConfigError } from '@wrongstack/core';
+import { type ConfigError, isConfigError } from '@wrongstack/core/types';
 import { expect } from 'vitest';
 
 export interface ExpectConfigErrorOptions {

@@ -1,9 +1,5 @@
-import {
-  GlobalMailbox,
-  HQ_AUTH_FILE_VERSION,
-  HQ_PROTOCOL_VERSION,
-  writeHqAuthFile,
-} from '@wrongstack/core';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
+import { HQ_AUTH_FILE_VERSION, HQ_PROTOCOL_VERSION, writeHqAuthFile } from '@wrongstack/core/hq';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as os from 'node:os';
@@ -1835,7 +1831,7 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
     projectSlug: string,
     projectRoot: string,
   ): Promise<() => Promise<void>> {
-    const { SessionRegistry } = await import('@wrongstack/core');
+    const { SessionRegistry } = await import('@wrongstack/core/storage');
     const registry = new SessionRegistry(globalRoot);
     await registry.register({
       sessionId,
@@ -1969,7 +1965,7 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
 
       // The message must be readable from the SAME project mailbox the server
       // resolved — proving the write landed with zero connected clients.
-      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
       const projectDir = resolveProjectDir(projectRoot, globalRoot);
       const mailbox = new GlobalMailbox(projectDir);
       const msgs = await mailbox.query({ to: 'leader' });
@@ -2002,7 +1998,7 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
       // queue is delivered as a plain `note` mailbox message.
       expect(body.type).toBe('note');
 
-      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
       const mailbox = new GlobalMailbox(resolveProjectDir(projectRoot, globalRoot));
       const msgs = await mailbox.query({ to: 'leader' });
       const found = msgs.find((m) => m.body === 'later task');
@@ -2045,7 +2041,7 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
         audience: 'leaders',
       });
 
-      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
+      const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core/coordination');
       const mailbox = new GlobalMailbox(resolveProjectDir(projectRoot, globalRoot));
       const messages = await mailbox.query({ to: 'leader' });
       expect(messages.find((message) => message.body === 'review complete')).toMatchObject({

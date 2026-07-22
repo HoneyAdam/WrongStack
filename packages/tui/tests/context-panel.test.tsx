@@ -1,4 +1,4 @@
-import type { ContextBreakdown } from '@wrongstack/core';
+import type { ContextBreakdown } from '@wrongstack/core/utils';
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';

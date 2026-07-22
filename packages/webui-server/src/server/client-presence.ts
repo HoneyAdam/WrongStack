@@ -3,16 +3,16 @@ import * as path from 'node:path';
 import {
   GlobalMailbox,
   resolveProjectDir,
-  startSessionTelemetryBridge,
-  wstackGlobalRoot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/coordination';
+import { startSessionTelemetryBridge } from '@wrongstack/core/hq';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
+import type { Config } from '@wrongstack/core/types';
 import type {
-  Config,
   CreateHqPublisherOptions,
-  EventBus,
   HqClientCapability,
   HqPublisher,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
+import type { EventBus } from '@wrongstack/core/kernel';
 
 const CLIENT_HEARTBEAT_MS = 15_000;
 

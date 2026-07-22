@@ -25,7 +25,7 @@ import {
   writeJsonArtifacts,
   writePredictionsJsonl,
 } from '@wrongstack/bench';
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 import { CLI_VERSION } from '../../version.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 

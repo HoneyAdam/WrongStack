@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import {
-  buildChildEnv,
   emitProcessCompleted,
   emitProcessOutput,
   emitProcessStarted,
-} from '@wrongstack/core';
-import type { ToolProgressEvent } from '@wrongstack/core';
+} from '@wrongstack/core/observability';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import type { ToolProgressEvent } from '@wrongstack/core/types';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
 import {

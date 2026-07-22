@@ -4,7 +4,7 @@ import type {
   ModelsRegistry,
   ResolvedProvider,
   WireFamily,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { capabilitiesForFamily } from './family-capabilities.js';
 
 const REGISTRY_CAP_CACHE = new WeakMap<ModelsRegistry, Map<string, Capabilities>>();

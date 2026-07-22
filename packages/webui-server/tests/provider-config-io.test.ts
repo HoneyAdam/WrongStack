@@ -10,15 +10,16 @@ vi.mock('@wrongstack/core/security', () => ({
   encryptConfigSecrets: mockEncrypt,
 }));
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/types', () => ({
   ConfigError: class extends Error {
     constructor(opts: any) {
       super(opts.message);
       this.name = 'ConfigError';
     }
   },
-  atomicWrite: mockAtomicWrite,
 }));
+
+vi.mock('@wrongstack/core/utils', () => ({ atomicWrite: mockAtomicWrite }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,

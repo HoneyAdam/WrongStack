@@ -1,8 +1,5 @@
-import {
-  type Context,
-  SlashCommandRegistry,
-  ToolRegistry,
-} from '@wrongstack/core';
+import { type Context } from '@wrongstack/core/agent';
+import { SlashCommandRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import { HybridCompactor } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { describe, expect, it, vi } from 'vitest';

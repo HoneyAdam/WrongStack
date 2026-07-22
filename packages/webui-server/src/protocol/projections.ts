@@ -1,4 +1,4 @@
-import type { HqAlertMessage, HqCommandAuditEntry, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import type { HqAlertMessage, HqCommandAuditEntry, HqEventEnvelope, HqSnapshot } from '@wrongstack/core/hq';
 import type { ProtocolEnvelope } from './types.js';
 
 function record(value: unknown): Record<string, unknown> | null {

@@ -1,0 +1,598 @@
+import { expectDefined } from '@wrongstack/core/utils';
+import type React from 'react';
+import type { AppViewProps } from './app-view-contract.js';
+import { AppStatusRegion } from './app-status-region.js';
+import { AuditPanel } from './components/audit-panel.js';
+import { AuthPanel } from './components/auth-panel.js';
+import { AutonomyPicker } from './components/autonomy-picker.js';
+import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
+import { BrainPanel } from './components/brain-panel.js';
+import { CheckpointTimeline } from './components/checkpoint-timeline.js';
+import { ClearConfirmPanel } from './components/clear-confirm-panel.js';
+import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
+import { ContinueConfirmPanel } from './components/continue-confirm-panel.js';
+import { CoordinatorPanel } from './components/coordinator-panel.js';
+import { DesignPicker } from './components/design-picker.js';
+import { EnhancePanel, RefiningPanel } from './components/enhance-panel.js';
+import { EscConfirmPrompt } from './components/esc-confirm-prompt.js';
+import { ExitConfirmPanel } from './components/exit-confirm-panel.js';
+import { FKeyPicker } from './components/f-key-picker.js';
+import { FilePicker } from './components/file-picker.js';
+import { HelpPanel } from './components/help-panel.js';
+import { DEFAULT_INPUT_PROMPT, Input } from './components/input.js';
+import { McpPicker } from './components/mcp-picker.js';
+import { ModePicker } from './components/mode-picker.js';
+import { ModelPicker } from './components/model-picker.js';
+import { PluginPicker } from './components/plugin-picker.js';
+import { ProjectPicker } from './components/project-picker.js';
+import { filterPromptPicker, PromptPicker } from './components/prompt-picker.js';
+import { RefineFailurePanel } from './components/refine-failure-panel.js';
+import { ResumePicker } from './components/resume-picker.js';
+import { ScrollableHistory } from './components/scrollable-history.js';
+import { SendModePicker } from './components/send-mode-picker.js';
+import { ShadowPanel } from './components/shadow-panel.js';
+import { type ShellCommandWarningDecision, ShellCommandWarning } from './components/shell-command-warning.js';
+import { SlashConfirmPanel } from './components/slash-confirm-panel.js';
+import { SlashMenu } from './components/slash-menu.js';
+import { SettingsPicker } from './components/settings-picker.js';
+import { StatuslinePicker } from './components/statusline-picker.js';
+import { ToolsPicker } from './components/tools-picker.js';
+import { Box } from './ink.js';
+import type { SendMode } from './ui-contracts.js';
+
+const CONTINUE_CONFIRM_DELAY_MS = 4000;
+const INPUT_PROMPT = DEFAULT_INPUT_PROMPT;
+
+export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
+  const {
+    agent,
+    appVersion,
+    events,
+    getSettings,
+    onYolo,
+    profileConfigPath,
+    saveSettings,
+    setSuggestions,
+  } = host;
+  const {
+    state,
+    dispatch,
+    activity,
+    environment,
+    viewState,
+    onMeasure,
+    bottomRegionRef,
+    stableOnKey,
+    liveTodos,
+    liveSettings,
+    handleRewindTo,
+    activeCtrlRef,
+    clearPendingConfirms,
+    liveDirector,
+    dismissedEscAtRef,
+    enhanceOriginalRef,
+    enhanceStartedAt,
+    enhanceDurationMs,
+    refineProviderId,
+    refineModel,
+    setEnhanceCountdown,
+    enhanceDelayMs,
+  } = runtime;
+  const {
+    nowTick,
+    workingTimeMs,
+    enhanceDots,
+  } = activity;
+  const {
+    setYoloLive,
+    autonomyLive,
+  } = environment;
+  const {
+    inputHint,
+    composerStatus,
+    composerAnimationStyle,
+    inputHeight,
+    hideInput,
+  } = viewState;
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="column" flexGrow={1} flexShrink={0}>
+        <ScrollableHistory
+          entries={state.entries}
+          streamingText={state.streamingText}
+          toolStream={state.toolStream}
+          scrollOffset={state.scrollOffset}
+          viewportRows={state.viewportRows}
+          totalLines={state.totalLines}
+          onMeasure={onMeasure}
+          setSuggestions={setSuggestions}
+          autonomyMode={autonomyLive}
+          multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
+          todos={liveTodos}
+          showModelReasoning={
+            state.settingsPicker.open
+              ? state.settingsPicker.showModelReasoning
+              : (liveSettings?.showModelReasoning ?? true)
+          }
+        />
+        <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
+          {/* NOTE: the LiveActivityStrip is deliberately NOT rendered here yet.
+              It sits
+              at the bottom edge of a full terminal, so every fleet tool.progress
+              re-render scrolls the screen by a line and strands the strip's top
+              row permanently in native scrollback — a busy subagent (100+ rapid
+              tool calls) re-stamps the "● <name> … last: …" line dozens of times,
+              differing only by the elapsed timer. The strip's constant-height
+              guard only defends against height-change leaks, not bottom-edge
+              scroll; Ink can't avoid this without owning the screen. Fleet
+              activity stays visible via the status bar and the F3 agents monitor.
+              The component + its tests are kept until it can be integrated into
+              the managed history viewport with stable layout accounting. */}
+          {/* While enhance is active or a monitor overlay is open, the Input is
+              rendered HIDDEN: its visible rows collapse to a constant-height
+              placeholder (so Ink's log-update never bleeds the live region into
+              static scrollback, and no characters pollute the history area), but
+              its keyboard listeners stay mounted. Keeping them mounted is what
+              keeps the central `handleKey` router — and the F-key/Esc toggles
+              that close the monitor overlays — alive. Unmounting the Input here
+              previously left the F3 agents monitor (and the other panels)
+              un-closable: F-key parsing and Esc handling both live in Input. */}
+          <Input
+            prompt={INPUT_PROMPT}
+            value={state.buffer}
+            cursor={state.cursor}
+            title={`WRONGSTACK${appVersion ? ` v${appVersion}` : ''}`}
+            status={composerStatus}
+            animationStyle={composerAnimationStyle}
+            hidden={hideInput}
+            placeholderHeight={inputHeight}
+            disabled={
+              (state.status === 'aborting' && !state.steeringPending) ||
+              state.confirmQueue.length > 0
+            }
+            hint={inputHint}
+            onKey={stableOnKey}
+            workingTime={workingTimeMs}
+          />
+          {state.picker.open ? (
+            <FilePicker
+              query={state.picker.query}
+              matches={state.picker.matches}
+              selected={state.picker.selected}
+            />
+          ) : null}
+          {state.slashPicker.open ? (
+            <SlashMenu
+              query={state.slashPicker.query}
+              matches={state.slashPicker.matches}
+              selected={state.slashPicker.selected}
+            />
+          ) : null}
+          {state.modelPicker.open ? (
+            <ModelPicker
+              step={state.modelPicker.step}
+              providerOptions={state.modelPicker.providerOptions}
+              modelOptions={state.modelPicker.modelOptions}
+              filteredOptions={state.modelPicker.filteredOptions}
+              selected={state.modelPicker.selected}
+              pickedProviderId={state.modelPicker.pickedProviderId}
+              searchQuery={state.modelPicker.searchQuery}
+              hint={state.modelPicker.hint}
+              titleLabel={state.modelPicker.title}
+            />
+          ) : null}
+          {state.autonomyPicker.open ? (
+            <AutonomyPicker
+              options={state.autonomyPicker.options}
+              selected={state.autonomyPicker.selected}
+              hint={state.autonomyPicker.hint}
+            />
+          ) : null}
+          {state.modePicker.open ? (
+            <ModePicker
+              modes={state.modePicker.modes}
+              selected={state.modePicker.selected}
+              hint={state.modePicker.hint}
+            />
+          ) : null}
+          {state.designPicker.open ? (
+            <DesignPicker
+              kits={state.designPicker.kits}
+              selected={state.designPicker.selected}
+              stack={state.designPicker.stack}
+            />
+          ) : null}
+          {state.promptPicker.open ? (
+            <PromptPicker
+              entries={filterPromptPicker(
+                state.promptPicker.all,
+                state.promptPicker.categories,
+                state.promptPicker.catIndex,
+                state.promptPicker.recentSlugs,
+              )}
+              selected={state.promptPicker.selected}
+              category={state.promptPicker.categories[state.promptPicker.catIndex] ?? 'all'}
+              total={state.promptPicker.all.length}
+            />
+          ) : null}
+          {state.resumePicker.open ? (
+            <ResumePicker
+              sessions={state.resumePicker.sessions}
+              selected={state.resumePicker.selected}
+              busy={state.resumePicker.busy}
+              error={state.resumePicker.error}
+              hint={state.resumePicker.hint}
+            />
+          ) : null}
+          {state.settingsPicker.open ? (
+            <SettingsPicker
+              field={state.settingsPicker.field}
+              mode={state.settingsPicker.mode}
+              delayMs={state.settingsPicker.delayMs}
+              titleAnimation={state.settingsPicker.titleAnimation}
+              yolo={state.settingsPicker.yolo}
+              fleetChat={state.settingsPicker.fleetChat}
+              chime={state.settingsPicker.chime}
+              confirmExit={state.settingsPicker.confirmExit}
+              nextPrediction={state.settingsPicker.nextPrediction}
+              featureMcp={state.settingsPicker.featureMcp}
+              featurePlugins={state.settingsPicker.featurePlugins}
+              featureMemory={state.settingsPicker.featureMemory}
+              featureSkills={state.settingsPicker.featureSkills}
+              featureModelsRegistry={state.settingsPicker.featureModelsRegistry}
+              tokenSavingTier={state.settingsPicker.tokenSavingTier}
+              allowOutsideProjectRoot={state.settingsPicker.allowOutsideProjectRoot}
+              contextAutoCompact={state.settingsPicker.contextAutoCompact}
+              contextStrategy={state.settingsPicker.contextStrategy}
+              contextMode={state.settingsPicker.contextMode}
+              maxConcurrent={state.settingsPicker.maxConcurrent}
+              logLevel={state.settingsPicker.logLevel}
+              auditLevel={state.settingsPicker.auditLevel}
+              indexOnStart={state.settingsPicker.indexOnStart}
+              multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
+              thinkingWord={state.settingsPicker.thinkingWord}
+              thinkingWordEditing={state.settingsPicker.thinkingWordEditing}
+              thinkingWordDraft={state.settingsPicker.thinkingWordDraft}
+              maxIterations={state.settingsPicker.maxIterations}
+              autoProceedMaxIterations={state.settingsPicker.autoProceedMaxIterations}
+              enhanceDelayMs={state.settingsPicker.enhanceDelayMs}
+              enhanceEnabled={state.settingsPicker.enhanceEnabled}
+              enhanceLanguage={state.settingsPicker.enhanceLanguage}
+              debugStream={state.settingsPicker.debugStream}
+              statuslineMode={state.settingsPicker.statuslineMode}
+              reasoningMode={state.settingsPicker.reasoningMode}
+              reasoningEffort={state.settingsPicker.reasoningEffort}
+              reasoningPreserve={state.settingsPicker.reasoningPreserve}
+              cacheTtl={state.settingsPicker.cacheTtl}
+              configScope={state.settingsPicker.configScope}
+              profileConfigPath={profileConfigPath}
+              animationStyle={state.settingsPicker.animationStyle}
+              breakerEnabled={state.settingsPicker.breakerEnabled}
+              breakerAutoKillResetMs={state.settingsPicker.breakerAutoKillResetMs}
+              showModelReasoning={state.settingsPicker.showModelReasoning}
+              filter={state.settingsPicker.filter}
+              hint={state.settingsPicker.hint}
+            />
+          ) : null}
+          {state.statuslinePicker.open ? (
+            <StatuslinePicker
+              field={state.statuslinePicker.field}
+              hiddenItems={state.statuslinePicker.hiddenItems}
+              visibleChips={state.statuslinePicker.visibleChips}
+              hint={state.statuslinePicker.hint}
+            />
+          ) : null}
+          {state.pluginPicker.open ? (
+            <PluginPicker
+              items={state.pluginPicker.items}
+              selected={state.pluginPicker.selected}
+              busy={state.pluginPicker.busy}
+              hint={state.pluginPicker.hint}
+            />
+          ) : null}
+          {state.mcpPicker.open ? (
+            <McpPicker
+              items={state.mcpPicker.items}
+              selected={state.mcpPicker.selected}
+              busy={state.mcpPicker.busy}
+              hint={state.mcpPicker.hint}
+            />
+          ) : null}
+          {state.toolsPicker.open ? (
+            <ToolsPicker
+              items={state.toolsPicker.items}
+              selected={state.toolsPicker.selected}
+              busy={state.toolsPicker.busy}
+              hint={state.toolsPicker.hint}
+              filter={state.toolsPicker.filter}
+            />
+          ) : null}
+          {state.brainPanel.open && !state.modelPicker.open ? (
+            <BrainPanel {...state.brainPanel} />
+          ) : null}
+          {state.helpPanel.open ? (
+            <HelpPanel
+              entries={state.helpPanel.entries}
+              filter={state.helpPanel.filter}
+              selected={state.helpPanel.selected}
+              hint={state.helpPanel.hint}
+            />
+          ) : null}
+          {state.shadowPanel.open ? (
+            <ShadowPanel shadow={state.shadowPanel.shadow} hint={state.shadowPanel.hint} />
+          ) : null}
+          {state.authPanel.open ? <AuthPanel panel={state.authPanel} /> : null}
+          {state.projectPicker.open ? (
+            <ProjectPicker
+              items={state.projectPicker.items}
+              selected={state.projectPicker.selected}
+              filter={state.projectPicker.filter}
+              hint={state.projectPicker.hint}
+            />
+          ) : null}
+          {state.fKeyPicker.open ? <FKeyPicker selected={state.fKeyPicker.selected} /> : null}
+          {state.coordinator.monitorOpen ? (
+            <CoordinatorPanel
+              coordinator={state.coordinator}
+              nowTick={nowTick}
+              onClose={() => dispatch({ type: 'toggleCoordinatorMonitor' })}
+            />
+          ) : null}
+          {state.auditPanelOpen ? (
+            <AuditPanel
+              sideEffects={agent.ctx.sideEffects ?? []}
+              onClose={() => dispatch({ type: 'toggleAuditPanel' })}
+            />
+          ) : null}
+          {state.rewindOverlay
+            ? (() => {
+                const overlay = state.rewindOverlay;
+                return (
+                  <CheckpointTimeline
+                    checkpoints={overlay.checkpoints}
+                    selected={overlay.selected}
+                    onSelect={(i) =>
+                      dispatch({ type: 'rewindOverlayMove', delta: i - overlay.selected })
+                    }
+                    onConfirm={(i) => {
+                      const checkpoint = overlay.checkpoints[i];
+                      if (checkpoint) handleRewindTo(checkpoint.promptIndex);
+                    }}
+                    onClose={() => dispatch({ type: 'rewindOverlayClose' })}
+                  />
+                );
+              })()
+            : null}
+          {state.brainPrompt ? (
+            <Box flexDirection="column" marginY={1} flexShrink={0}>
+              <BrainDecisionPrompt
+                {...state.brainPrompt}
+                onAnswer={(answer) => {
+                  events.emit('brain.human_answered', { ...answer, at: Date.now() });
+                  dispatch({ type: 'brainPromptClear' });
+                }}
+              />
+            </Box>
+          ) : null}
+          {state.shellCommandWarning
+            ? (() => {
+                const info = state.shellCommandWarning;
+                let resolved = false;
+                const onDecision = (decision: ShellCommandWarningDecision) => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                  dispatch({ type: 'shellCommandWarningClose' });
+                };
+                return <ShellCommandWarning command={info.command} onDecision={onDecision} />;
+              })()
+            : null}
+          {state.confirmQueue.length > 0 &&
+            (() => {
+              const head = expectDefined(state.confirmQueue[0]);
+              let resolved = false;
+              const onDecision = (decision: ConfirmDecision) => {
+                if (resolved) return;
+                resolved = true;
+                head.resolve(decision);
+                dispatch({ type: 'confirmClose' });
+              };
+              // Capital-Y: enable YOLO mode straight from the prompt. Persists
+              // via saveSettings (→ applyLiveSettings → permissionPolicy.setYolo)
+              // and flips the statusline chip live. YOLO also approves this
+              // pending call.
+              const onEnableYolo = () => {
+                if (resolved) return;
+                onYolo?.(true);
+                setYoloLive(true);
+                const cur = getSettings?.();
+                if (cur && saveSettings) {
+                  Promise.resolve(saveSettings({ ...cur, yolo: true })).catch(() => {});
+                }
+                resolved = true;
+                head.resolve('yes');
+                dispatch({ type: 'confirmClose' });
+              };
+              return (
+                <ConfirmPrompt
+                  toolName={head.toolName}
+                  input={head.input}
+                  suggestedPattern={head.suggestedPattern}
+                  onDecision={onDecision}
+                  onEnableYolo={onEnableYolo}
+                  destructive={head.destructive}
+                  boundaryReason={head.boundaryReason}
+                />
+              );
+            })()}
+          {state.clearConfirm ? (
+            <ClearConfirmPanel
+              leaderActive={state.clearConfirm.leaderActive}
+              subagentCount={state.clearConfirm.subagentCount}
+              value={state.clearConfirm.value}
+            />
+          ) : null}
+          {state.exitConfirm ? (
+            <ExitConfirmPanel
+              leaderActive={state.exitConfirm.leaderActive}
+              subagentCount={state.exitConfirm.subagentCount}
+              backgroundCount={state.exitConfirm.backgroundCount}
+            />
+          ) : null}
+          {state.slashConfirm ? (
+            <SlashConfirmPanel
+              question={state.slashConfirm.question}
+              defaultYes={state.slashConfirm.defaultYes}
+            />
+          ) : null}
+          {state.escConfirm ? (
+            <Box flexDirection="column" marginY={1} flexShrink={0}>
+              <EscConfirmPrompt
+                runningTools={state.escConfirm.snapshot.runningTools}
+                subagentCount={state.escConfirm.snapshot.subagentsTerminated}
+                onConfirm={() => {
+                  const escConfirm = state.escConfirm;
+                  if (!escConfirm) return;
+                  const { snapshot } = escConfirm;
+                  activeCtrlRef.current?.abort('user interrupt (Esc)');
+                  clearPendingConfirms();
+                  dispatch({ type: 'status', status: 'aborting' });
+                  dispatch({ type: 'steerStart', snapshot });
+                  const escConfirmDir = liveDirector();
+                  if (escConfirmDir && snapshot.subagentsTerminated > 0) {
+                    const cap = new Promise<void>((resolve) => {
+                      const t = setTimeout(resolve, 1500);
+                      t.unref?.();
+                    });
+                    void Promise.race([escConfirmDir.terminateAll().catch(() => undefined), cap]);
+                  }
+                  const droppedCount = state.queue.length;
+                  if (droppedCount > 0) dispatch({ type: 'queueClear' });
+                  const droppedTag = droppedCount > 0 ? ` · dropped ${droppedCount} queued` : '';
+                  const fleetTag =
+                    snapshot.subagentsTerminated > 0
+                      ? ` · stopped ${snapshot.subagentsTerminated} subagent${snapshot.subagentsTerminated === 1 ? '' : 's'}`
+                      : '';
+                  dispatch({
+                    type: 'addEntry',
+                    entry: {
+                      kind: 'warn',
+                      text: `↯ Interrupted${droppedTag}${fleetTag}. Type your new direction.`,
+                    },
+                  });
+                  dispatch({ type: 'escConfirmClose' });
+                }}
+                onCancel={() => {
+                  dismissedEscAtRef.current = Date.now();
+                  dispatch({ type: 'escConfirmClose' });
+                }}
+              />
+            </Box>
+          ) : null}
+          {state.sendModePicker
+            ? (() => {
+                const info = state.sendModePicker;
+                let resolved = false;
+                const finish = (decision: SendMode | 'cancel') => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                };
+                return (
+                  <SendModePicker
+                    selected={info.selected}
+                    messagePreview={info.displayText}
+                    onMove={(delta) => dispatch({ type: 'sendModePickerMove', delta })}
+                    onSelect={finish}
+                  />
+                );
+              })()
+            : null}
+          {state.enhanceBusy && !state.enhance ? (
+            <RefiningPanel
+              original={enhanceOriginalRef.current}
+              elapsedMs={enhanceStartedAt === null ? 0 : Math.max(0, Date.now() - enhanceStartedAt)}
+              pulseFrame={enhanceDots}
+              providerId={
+                refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id
+              }
+              model={refineModel ?? agent.ctx.model}
+            />
+          ) : null}
+          {state.enhance
+            ? (() => {
+                const info = state.enhance;
+                let resolved = false;
+                const onDecision = (decision: Parameters<typeof info.resolve>[0]) => {
+                  if (resolved) return;
+                  resolved = true;
+                  setEnhanceCountdown(null);
+                  info.resolve(decision);
+                };
+                return (
+                  <EnhancePanel
+                    original={info.original}
+                    refined={info.refined}
+                    english={info.english}
+                    durationMs={enhanceDurationMs ?? 0}
+                    delayMs={enhanceDelayMs}
+                    enhanceLanguage={state.settingsPicker.enhanceLanguage}
+                    onDecision={onDecision}
+                    onTick={(r) => setEnhanceCountdown(r > 0 ? r : null)}
+                    providerId={
+                      refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id
+                    }
+                    model={refineModel ?? agent.ctx.model}
+                  />
+                );
+              })()
+            : null}
+          {state.refineFailure
+            ? (() => {
+                const info = state.refineFailure;
+                let resolved = false;
+                const onDecision = (decision: Parameters<typeof info.resolve>[0]) => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                };
+                return (
+                  <RefineFailurePanel
+                    original={info.original}
+                    error={info.error}
+                    elapsedMs={info.elapsedMs}
+                    fallbackRef={info.fallbackRef}
+                    models={info.models}
+                    onDecision={onDecision}
+                  />
+                );
+              })()
+            : null}
+          {state.continueConfirm
+            ? (() => {
+                const info = state.continueConfirm;
+                let resolved = false;
+                const onDecision = (decision: 'proceed' | 'edit' | 'cancel') => {
+                  if (resolved) return;
+                  resolved = true;
+                  info.resolve(decision);
+                };
+                return (
+                  <ContinueConfirmPanel
+                    label={info.label}
+                    instruction={info.instruction}
+                    source={info.source}
+                    grounded={info.grounded}
+                    delayMs={CONTINUE_CONFIRM_DELAY_MS}
+                    onDecision={onDecision}
+                  />
+                );
+              })()
+            : null}
+          <AppStatusRegion host={host} runtime={runtime} />
+        </Box>
+      </Box>
+    </Box>
+  );
+}

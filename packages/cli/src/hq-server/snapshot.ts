@@ -4,24 +4,7 @@
  * @module hq-server/snapshot
  */
 
-import type {
-  HqBrowserMessage,
-  HqClientCapability,
-  HqClientRecord,
-  HqCommandAuditEntry,
-  HqEventEnvelope,
-  HqFleetSnapshotPayload,
-  HqFleetSummary,
-  HqMachineRecord,
-  HqMailboxSnapshotPayload,
-  HqMailboxSummary,
-  HqMcpServerHealth,
-  HqPersistence,
-  HqProjectRecord,
-  HqSessionSnapshotPayload,
-  HqSessionSummary,
-  HqSnapshot,
-} from '@wrongstack/core';
+import type { HqBrowserMessage, HqClientCapability, HqClientRecord, HqCommandAuditEntry, HqEventEnvelope, HqFleetSnapshotPayload, HqFleetSummary, HqMachineRecord, HqMailboxSnapshotPayload, HqMailboxSummary, HqMcpServerHealth, HqPersistence, HqProjectRecord, HqSessionSnapshotPayload, HqSessionSummary, HqSnapshot } from '@wrongstack/core/hq';
 import { WebSocket } from 'ws';
 import type { ConnectedClient, HqSnapshotBroadcaster, ProjectDetail } from './types.js';
 import { hqMachineKey } from './utils.js';

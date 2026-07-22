@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import React, { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import type { FleetEntry } from '../src/app.js';
 import { ProjectPicker } from '../src/components/project-picker.js';
 import { FleetMonitor } from '../src/components/fleet-monitor.js';

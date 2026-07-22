@@ -12,7 +12,7 @@
  * Pure config → meta projection. No behaviour change.
  */
 
-import { FallbackProfileManager } from '@wrongstack/core';
+import { FallbackProfileManager } from '@wrongstack/core/agent';
 import type { Config } from '@wrongstack/core/types';
 
 /**

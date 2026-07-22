@@ -42,8 +42,8 @@ export function createSyncPlugin(opts?: SyncPluginOptions): Plugin {
       vault = opts?.vault ?? (rawConfig.vault as typeof vault | undefined);
       syncConfigPath = paths?.syncConfig;
 
-      if (!paths || !configStore) {
-        api.log.warn('[sync] paths or configStore not available — /sync disabled');
+      if (!paths || !configStore || !paths.configDir) {
+        api.log.warn('[sync] paths, configStore, or configDir not available — /sync disabled');
         return;
       }
 

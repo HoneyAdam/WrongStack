@@ -34,13 +34,30 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 
 export type ShellOpenTarget = 'terminal' | 'file-manager';
 
 export interface ShellOpenRequest {
   path: string;
   target: ShellOpenTarget;
+}
+
+/**
+ * Normalize a raw wire-format target value to a valid `ShellOpenTarget`.
+ *
+ * Maps `'terminal'` → `'terminal'`, everything else (including `'file'`,
+ * `'file-manager'`, `undefined`, unknown strings) → `'file-manager'`.
+ *
+ * This reconciles the legacy wire format (`target: 'file'`) which the
+ * payload validators may still accept, with the handler contract
+ * (`'terminal' | 'file-manager'`), and ensures consistent behavior
+ * across both the standalone and embedded WebUI routers.
+ */
+export function normalizeShellOpenTarget(
+  target: string | undefined,
+): ShellOpenTarget {
+  return target === 'terminal' ? 'terminal' : 'file-manager';
 }
 
 /**

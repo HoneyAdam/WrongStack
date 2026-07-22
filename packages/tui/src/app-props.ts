@@ -1,31 +1,25 @@
-import type {
-  Agent,
-  AttachmentStore,
-  AutonomyStage,
-  CoordinatorEvent,
-  Director,
-  EventBus,
-  FleetChatVerbosity,
-  Message,
-  QueueStore,
-  SlashCommandRegistry,
-  TokenCounter,
-  TokenSavingTier,
-} from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { CoordinatorEvent, Director } from '@wrongstack/core/coordination';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
+import type { QueueStore } from '@wrongstack/core/storage';
+import type { AttachmentStore, AutonomyStage, FleetChatVerbosity, Message, TokenCounter, TokenSavingTier } from '@wrongstack/core/types';
+import type { EventBus } from '@wrongstack/core/kernel';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
 import type React from 'react';
 import type { ResumeSessionEntry, Settings } from './app-reducer.js';
-import type { AgentTranscriptReader } from './components/agents-monitor.js';
-import type { AuthPanelHost } from './components/auth-panel-model.js';
-import type { BrainRiskLevel } from './components/brain-panel.js';
-import type { HistoryEntry } from './components/history.js';
-import type { McpPickerItem } from './components/mcp-picker.js';
-import type { ProviderOption } from './components/model-picker.js';
-import type { PluginPickerItem } from './components/plugin-picker.js';
-import type { StatuslineItem } from './components/statusline-picker.js';
-import type { ToolPickerItem } from './components/tools-picker.js';
+import type { AuthPanelHost } from './auth-panel-model.js';
+import type { BrainRiskLevel } from './brain-contracts.js';
+import type { AutonomyAgentStatus, HistoryEntry } from './history-entry.js';
 import type { SessionInterruptController } from './hooks/use-session-interrupt-controller.js';
+import type {
+  AgentTranscriptReader,
+  McpPickerItem,
+  PluginPickerItem,
+  ProviderOption,
+  StatuslineItem,
+  ToolPickerItem,
+} from './ui-contracts.js';
 
 /**
  * Props for the TUI `<App>` shell.
@@ -83,8 +77,8 @@ export interface AppProps {
    * Global mouse tracking. When true, SGR mouse reporting stays on for the
    * whole session. When false (default), the App still enables it *only* while
    * a selectable overlay (model/autonomy/settings/slash/@ picker) is open, so
-   * the wheel scrolls the picker selection without sacrificing native
-   * scrollback in the chat. See mouse.ts for the trade-off.
+   * the wheel scrolls the picker selection. Chat history stays in its bounded
+   * managed viewport in either mode. See mouse.ts for the trade-off.
    */
   mouse?: boolean | undefined;
   /**
@@ -93,7 +87,7 @@ export interface AppProps {
    * (locked in at boot). Drives feature-gates so the TUI degrades gracefully
    * on legacy, non-TTY, or restricted-terminal environments.
    */
-  capability?: import('@wrongstack/core').TerminalCapability | undefined;
+  capability?: import('@wrongstack/core/utils').TerminalCapability | undefined;
   /**
    * When true, free-text prompts are run through the prompt refiner
    * ("did you mean this?") before reaching the main agent. Default on;
@@ -128,7 +122,7 @@ export interface AppProps {
    * field, exactly as before.
    */
   getEnhancerReasoning?:
-    | (() => import('@wrongstack/core').ReasoningRequest | undefined)
+    | (() => import('@wrongstack/core/types').ReasoningRequest | undefined)
     | undefined;
   /**
    * Build a Provider for a (providerId, modelId) pair WITHOUT switching the
@@ -140,7 +134,7 @@ export interface AppProps {
     | ((
         providerId: string,
         modelId: string,
-      ) => Promise<import('@wrongstack/core').Provider | undefined>)
+      ) => Promise<import('@wrongstack/core/types').Provider | undefined>)
     | undefined;
   /**
    * Resolve the one-key "retry with another model" fallback ref
@@ -172,7 +166,7 @@ export interface AppProps {
    */
   getModes?:
     | (() => Promise<{
-        modes: import('@wrongstack/core').Mode[];
+        modes: import('@wrongstack/core/types').Mode[];
         activeId: string | null;
       }>)
     | undefined;
@@ -183,13 +177,13 @@ export interface AppProps {
    * 'eternal' the TUI drives `runOneIteration()` from a post-slash hook
    * so the engine and TUI never race for the shared Context.
    */
-  getEternalEngine?: (() => import('@wrongstack/core').EternalAutonomyEngine | null) | undefined;
+  getEternalEngine?: (() => import('@wrongstack/core/execution').EternalAutonomyEngine | null) | undefined;
   /**
    * Access the parallel-eternal engine. When autonomy mode goes to
    * 'eternal-parallel' the TUI drives `runOneIteration()` from a post-slash
    * hook so the engine and TUI never race for the shared Context.
    */
-  getParallelEngine?: (() => import('@wrongstack/core').ParallelEternalEngine | null) | undefined;
+  getParallelEngine?: (() => import('@wrongstack/core/execution').ParallelEternalEngine | null) | undefined;
   /**
    * Access the active SDD parallel run's control surface (or null). The SIGINT
    * handler uses it to stop a running `/sdd parallel` on the first Ctrl+C — the
@@ -213,7 +207,7 @@ export interface AppProps {
    * goal.json after the fact.
    */
   subscribeEternalIteration?:
-    | ((fn: (entry: import('@wrongstack/core').JournalEntry) => void) => () => void)
+    | ((fn: (entry: import('@wrongstack/core/goal').JournalEntry) => void) => () => void)
     | undefined;
   /**
    * Subscribe to per-iteration stage transitions from the autonomy engines.
@@ -226,9 +220,7 @@ export interface AppProps {
    * Drives `state.goalRun` used by the PhaseMonitor component.
    * Handlers receive the event name and payload from PhaseEventMap.
    */
-  subscribeGoal?:
-    | ((handler: (event: string, payload: unknown) => void) => () => void)
-    | undefined;
+  subscribeGoal?: ((handler: (event: string, payload: unknown) => void) => () => void) | undefined;
   /**
    * Read the persisted autonomy settings (defaultMode, autoProceedDelayMs).
    * Used by the SettingsPicker in the TUI on mount and after Ctrl+S toggle.
@@ -288,7 +280,7 @@ export interface AppProps {
   /** Set brain risk ceiling. */
   onBrainRiskLevel?: ((level: BrainRiskLevel) => string | undefined) | undefined;
   /** Full Brain settings editor bridge (live apply + persist). */
-  brainPanelHost?: import('./components/brain-panel-model.js').BrainPanelHost | undefined;
+  brainPanelHost?: import('./brain-panel-model.js').BrainPanelHost | undefined;
   /** Get current Shadow Agent state. */
   getShadowData?:
     | (() => { activeId: string | null; running: boolean; model: string; intervalMs: number })
@@ -366,7 +358,7 @@ export interface AppProps {
   profileConfigPath?: string | undefined;
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). */
-  autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
+  autonomyAgents?: AutonomyAgentStatus[] | undefined;
   /** Latest version published to the npm registry, when known. Drives
    *  the "update available" indicator next to the banner version chip
    *  when paired with {@link updateAvailable}. Sourced from the CLI's
@@ -479,7 +471,7 @@ export interface AppProps {
    * Called each time the project picker panel opens (F1).
    */
   getProjectPickerItems?:
-    | (() => Promise<import('./components/project-picker.js').ProjectPickerItem[]>)
+    | (() => Promise<import('./ui-contracts.js').ProjectPickerItem[]>)
     | undefined;
 
   /**
@@ -499,9 +491,7 @@ export interface AppProps {
    * Load live session data from the cross-process SessionRegistry.
    * Called when the sessions panel opens (F10).
    */
-  getLiveSessions?:
-    | (() => Promise<import('./components/sessions-panel.js').LiveSessionEntry[]>)
-    | undefined;
+  getLiveSessions?: (() => Promise<import('./ui-contracts.js').LiveSessionEntry[]>) | undefined;
 
   /**
    * Called when the user selects a session from a DIFFERENT project
@@ -634,7 +624,7 @@ export interface AppProps {
    * rebuilt with the canonical renderer (tool I/O + interleaved audit markers)
    * instead of meta-only tool chips. Omitted → legacy fallback.
    */
-  restoredEvents?: import('@wrongstack/core').SessionEvent[] | undefined;
+  restoredEvents?: import('@wrongstack/core/types').SessionEvent[] | undefined;
   /**
    * When true, the agents monitor (F3) is open by default at TUI startup.
    * Used by the `wrongstack quick` command to show agents panel immediately.
@@ -682,5 +672,5 @@ export interface AppProps {
    */
   clientId?: string | undefined;
   /** Access the persistent memory store for listing and inspecting memories. */
-  memoryStore?: import('@wrongstack/core').MemoryStore | undefined;
+  memoryStore?: import('@wrongstack/core/types').MemoryPort | undefined;
 }

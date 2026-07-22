@@ -23,7 +23,6 @@ describe('providers.json static file serving', () => {
     const server = createHttpServer({
       host: '127.0.0.1',
       distDir,
-      wsPort: 3457,
     });
 
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

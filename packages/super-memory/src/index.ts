@@ -5,6 +5,20 @@ export {
 } from './embeddings/hashing.js';
 export { SuperMemoryGraph } from './graph/graph.js';
 export {
+  createJsonlCompatibilityMemoryPort,
+  createSqliteMemoryPort,
+  getSuperMemoryRetrieval,
+  getSuperMemoryService,
+  getSuperMemorySurface,
+  JsonlMemoryPort,
+  LegacyMemoryPortAdapter,
+  SqliteMemoryPort,
+  SUPER_MEMORY_RETRIEVAL_CAPABILITY,
+  SUPER_MEMORY_SERVICE_CAPABILITY,
+  SUPER_MEMORY_SURFACE_CAPABILITY,
+  type SuperMemoryRetrievalCapability,
+} from './memory-port.js';
+export {
   createSuperMemoryContextMonitorMiddleware,
   type SuperMemoryContextMonitorOptions,
 } from './middleware/context-monitor.js';
@@ -27,10 +41,8 @@ export {
 } from './middleware/tool-call-memory.js';
 export {
   createSuperMemoryTurnMiddleware,
-  normalizeTextKey,
   overlapCoefficient,
   type SuperMemoryTurnMiddlewareOptions,
-  tokenize,
 } from './middleware/turn-memory.js';
 export {
   ancestorPaths,
@@ -50,10 +62,11 @@ export {
   memoryQueryRelevance,
   memoryStructuralRelevance,
 } from './retrieval/relevance.js';
-export type { SuperMemoryServiceLike } from './service-contract.js';
+export type { SuperMemoryServiceLike, SuperMemorySurface } from './service-contract.js';
 export { isSuperMemoryService } from './service-guard.js';
 export { isSqliteAvailable, SqliteSuperMemoryStore } from './sqlite-store.js';
 export { SuperMemoryStore } from './store.js';
+export { normalizeTextKey, tokenize } from './store-helpers.js';
 export { createSuperMemoryTools } from './tools/memory-tools.js';
 export type { UpdateSuperMemoryInput } from './types.js';
 export * from './types.js';

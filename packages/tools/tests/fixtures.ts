@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 
 export interface Sandbox {
   dir: string;

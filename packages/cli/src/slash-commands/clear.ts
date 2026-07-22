@@ -1,5 +1,6 @@
-import { createContextEvidenceState, type SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import { createContextEvidenceState } from '@wrongstack/core/utils';
+import { type SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 import { interruptAll } from './interrupt.js';
 
 export function buildClearCommand(opts: SlashCommandContext): SlashCommand {

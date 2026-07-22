@@ -1,4 +1,5 @@
-import { color, resolveWstackPaths, ToolAuditLog } from '@wrongstack/core';
+import { color, resolveWstackPaths } from '@wrongstack/core/utils';
+import { ToolAuditLog } from '@wrongstack/core/storage';
 import type { SubcommandHandler } from '../index.js';
 
 /**

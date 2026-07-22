@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-import type { HqSnapshot } from '@wrongstack/core';
+import type { HqSnapshot } from '@wrongstack/core/hq';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

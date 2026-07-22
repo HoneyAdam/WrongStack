@@ -4,7 +4,7 @@ import {
   refineGoalWithFallback,
   resolveRefinerTarget,
 } from '../src/slash-commands/goal-refiner.js';
-import type { Config, Provider, Response } from '@wrongstack/core';
+import type { Config, Provider, Response } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Helper: a fake Provider whose `complete()` returns a canned Response

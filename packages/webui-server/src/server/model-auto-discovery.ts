@@ -6,7 +6,7 @@ import type {
   ModelsDevPayload,
   ModelsDevProvider,
   ProviderConfig,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { COMPATIBLE_PRESETS, discoverOpenAICompatibleModels } from '@wrongstack/providers';
 
 interface DiscoverCacheEntry {

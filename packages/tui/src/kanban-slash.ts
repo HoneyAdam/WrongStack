@@ -18,7 +18,7 @@
  * remains the rich interactive view (navigate, move, assign); this command
  * is the text-first equivalent for when the panel is closed.
  */
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import type {
   CreateKanbanTaskInput,
   KanbanBoundaryAccess,

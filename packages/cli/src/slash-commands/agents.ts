@@ -12,12 +12,13 @@
  *   /agents list          — List all active subagents
  *   /agents show <id>     — Show transcript for a specific agent
  */
-import type { FleetChatVerbosity, SlashCommand } from '@wrongstack/core';
-import { noOpVault } from '@wrongstack/core';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { noOpVault } from '@wrongstack/core/security';
 import type { AgentMonitorService, AgentVirtualSession, AgentTimelineEntry } from '@wrongstack/core/coordination';
 import { persistAutonomySetting } from '../settings-menu.js';
 import { parseSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 function formatAgentLine(a: { subagentId: string; agentName: string; status: string; task?: string }): string {
   const statusIcon: Record<string, string> = {

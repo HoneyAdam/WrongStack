@@ -26,7 +26,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { createServer, type Server } from 'node:http';
-import { writeErr } from '@wrongstack/core';
+import { writeErr } from '@wrongstack/core/utils';
 import type { ACPMessage } from '../types/acp-messages.js';
 import {
   ACPProtocolHandler,
@@ -68,6 +68,8 @@ export interface WrongStackACPServerOptions {
    * restored session's Agent resumes the model context, not just the UI.
    */
   seedFor?: ((sessionId: string, history: Array<{ sessionUpdate: string; content: unknown }>) => void) | undefined;
+  /** Per-session cleanup hook, normally `makeACPServerAgentTurn(...).dispose`. */
+  disposeFor?: ((sessionId: string) => void) | undefined;
   /**
    * Durable session store. When set, sessions + history are persisted and
    * restored across restarts for `session/load`. Pass an `ACPSessionStore`.
@@ -94,6 +96,7 @@ export class WrongStackACPServer {
       agentName: opts.agentName,
       ...(opts.replayFor ? { replayFor: opts.replayFor } : {}),
       ...(opts.seedFor ? { seedFor: opts.seedFor } : {}),
+      ...(opts.disposeFor ? { disposeFor: opts.disposeFor } : {}),
       ...(opts.store ? { store: opts.store } : {}),
     });
   }
@@ -117,13 +120,17 @@ export class WrongStackACPServer {
       this.transport.sendStartupMarker();
     }
     this.running = true;
-    while (this.running) {
-      const msg = await this.transport.read();
-      if (!msg) break;
-      const terminal = await this.handler.handleMessage(msg);
-      if (terminal) break;
+    try {
+      while (this.running) {
+        const msg = await this.transport.read();
+        if (!msg) break;
+        const terminal = await this.handler.handleMessage(msg);
+        if (terminal) break;
+      }
+    } finally {
+      this.handler.close();
+      this.transport.close();
     }
-    this.transport.close();
   }
 
   private async startHttp(port: number): Promise<void> {
@@ -292,6 +299,7 @@ export class WrongStackACPServer {
   /** Stop the server. */
   stop(): void {
     this.running = false;
+    this.handler.close();
     this.transport.close();
     if (this.httpServer) {
       this.httpServer.close();

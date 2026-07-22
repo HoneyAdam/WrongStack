@@ -1,4 +1,5 @@
-import type { Context, Message, TokenCounter, Usage } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { Message, TokenCounter, Usage } from '@wrongstack/core/types';
 import type { WebSocket } from 'ws';
 import { decodeProtocolFrame, protocolAdvertisement } from '../protocol/index.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';

@@ -1,5 +1,5 @@
-import type { Config, SecretVault } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { Config, SecretVault } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import type { ReadlineInputReader } from './input-reader.js';
 import { loadConfigProviders, normalizeKeys } from './provider-config-utils.js';
 import type { TerminalRenderer } from './renderer.js';

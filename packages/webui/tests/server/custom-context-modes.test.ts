@@ -4,8 +4,8 @@ import { createCustomModeStore } from '@wrongstack/webui-server';
 const mockAtomicWrite = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
 
-vi.mock('@wrongstack/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@wrongstack/core')>();
+vi.mock('@wrongstack/core/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@wrongstack/core/utils')>();
   return {
     ...actual,
     atomicWrite: mockAtomicWrite,
@@ -21,8 +21,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 // Minimal mock for listContextWindowModes
-vi.mock('@wrongstack/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@wrongstack/core')>();
+vi.mock('@wrongstack/core/types', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@wrongstack/core/types')>();
   return {
     ...actual,
     listContextWindowModes: () => [

@@ -35,9 +35,8 @@ export interface RegisterWebuiInstanceParams {
   /** Surface kind — 'webui' or 'simpleui'. */
   surface: SurfaceKind;
   host: string;
+  /** Port serving both HTTP and WebSocket (single-port design). */
   httpPort: number;
-  /** WebSocket backend port. Now always equals httpPort (single-port design). */
-  wsPort: number;
   /** Browser-facing public URL when served through a tunnel/proxy. */
   publicUrl?: string | undefined;
   projectRoot: string;
@@ -67,7 +66,6 @@ export function registerWebuiInstance(
       pid: p.pid,
       surface: p.surface,
       httpPort: p.httpPort,
-      wsPort: p.wsPort,
       host: p.host,
       projectRoot: p.projectRoot,
       projectName: path.basename(p.projectRoot) || p.projectRoot,
@@ -90,8 +88,8 @@ export interface AnnounceWebuiReadyParams {
   /** The HTTP server (StaticServeHandle.server). */
   server: { on: (event: 'listening', cb: () => void) => void };
   host: string;
+  /** Port serving both HTTP and WebSocket. */
   httpPort: number;
-  wsPort: number;
   open: boolean;
   /** Auth token for WS connections. Included in the URL so the frontend can exchange it for an HttpOnly cookie via /ws-auth. */
   wsToken?: string;
@@ -120,7 +118,7 @@ export function announceWebuiReady(p: AnnounceWebuiReadyParams): void {
   p.server.on('listening', () => {
     log(
       `\n  ▸ ${p.surface === 'webui' ? 'WebUI' : 'SimpleUI'} ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
-        `\n    (same agent as this terminal · ws:${p.wsPort})\n`,
+        `    (same agent as this terminal)\n`,
     );
     if (p.open) launch(openUrl);
   });

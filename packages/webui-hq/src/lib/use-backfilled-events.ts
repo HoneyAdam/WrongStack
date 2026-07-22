@@ -9,7 +9,7 @@
  *
  * @module lib/use-backfilled-events
  */
-import type { HqEventEnvelope } from '@wrongstack/core';
+import type { HqEventEnvelope } from '@wrongstack/core/hq';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchJson, useHqStore } from '../store.js';
 

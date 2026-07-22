@@ -1,12 +1,12 @@
+import type { Context } from '@wrongstack/core/agent';
+import type { EnhanceFailureKind } from '@wrongstack/core/execution';
 import type {
   Config,
-  Context,
-  EnhanceFailureKind,
-  MemoryStore,
+  MemoryPort,
   ModelsRegistry,
   Provider,
   ProviderConfig,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import {
   buildRefinerContextSections,
   enhanceUserPrompt,
@@ -15,7 +15,7 @@ import {
   recentTextTurns,
   resolveConfiguredRefinerRef,
   resolveEnhanceFallbackRef,
-} from '@wrongstack/core';
+} from '@wrongstack/core/execution';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { WebSocket } from 'ws';
 import { resolveProviderModelMetadata } from './model-catalog.js';
@@ -34,7 +34,7 @@ export interface ModelRefinePayload {
 
 export interface ModelOperationsContext {
   context: Context;
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: MemoryPort | undefined;
   modelsRegistry?: ModelsRegistry | undefined;
   getConfig: () => Config | undefined;
   getLiveProviderId: () => string;

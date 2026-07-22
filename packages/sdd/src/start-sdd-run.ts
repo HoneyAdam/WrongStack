@@ -8,12 +8,13 @@
 // runtime light factory) and whether git worktrees are available — both are
 // passed in, keeping this helper free of CLI/host coupling.
 
-import type { Agent } from '@wrongstack/core';
-import { TOKENS, type AgentFactory, type SecretScrubber } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { AgentFactory } from '@wrongstack/core/coordination';
+import { TOKENS } from '@wrongstack/core/kernel';
 import type { EventBus } from '@wrongstack/core/kernel';
-import type { TaskGraph } from '@wrongstack/core/types';
+import type { SecretScrubber, TaskGraph } from '@wrongstack/core/types';
 import type { TaskTracker } from '@wrongstack/core/tasking';
-import type { WorktreeManager } from '@wrongstack/core';
+import type { WorktreeManager } from '@wrongstack/core/worktree';
 import { SddBoardProjector } from './sdd-board-projector.js';
 import type { SddBoardStore } from './sdd-board-store.js';
 import type { SddRunRegistry } from './sdd-run-registry.js';

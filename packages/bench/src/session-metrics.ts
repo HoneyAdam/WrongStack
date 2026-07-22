@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { resolveWstackPaths } from '@wrongstack/core';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import type { ToolMetrics } from './types.js';
 
 /** A minimally typed event from a persisted session JSONL file. */

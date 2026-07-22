@@ -29,7 +29,7 @@
  */
 import * as fsp from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,4 +1,4 @@
-import type { ModelBlackoutRule } from '@wrongstack/core';
+import type { ModelBlackoutRule } from '@wrongstack/core/models';
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';

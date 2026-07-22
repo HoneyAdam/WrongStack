@@ -1,7 +1,7 @@
 import { runEnsemble, renderEnsembleText } from '@wrongstack/acp';
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 /**
  * /ensemble <agent-csv> <task description>

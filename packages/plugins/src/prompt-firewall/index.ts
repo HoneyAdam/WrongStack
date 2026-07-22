@@ -38,7 +38,7 @@
  *
  * @public
  */
-import type { Plugin, PluginAPI } from '@wrongstack/core';
+import type { Plugin, PluginAPI } from '@wrongstack/core/types';
 
 // ---------------------------------------------------------------------------
 // Secret patterns — high-confidence only, to keep false positives low.

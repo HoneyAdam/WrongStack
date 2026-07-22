@@ -19,33 +19,35 @@
 import { randomUUID } from 'node:crypto';
 import {
   Agent,
-  type AgentFactory,
-  type AgentFactoryResult,
-  AutoApprovePermissionPolicy,
-  applyModelRuntime,
-  type Config,
-  type Container,
   FallbackProfileManager,
   Context,
   createDefaultPipelines,
   createFallbackModelExtension,
-  EventBus,
-  installSubagentAutoCompaction,
-  type ModelsRegistry,
-  mergeModelRuntime,
-  type ProviderRegistry,
-  type ReasoningConfig,
-  type Request,
+} from '@wrongstack/core/agent';
+import {
+  type AgentFactory,
+  type AgentFactoryResult,
   resolveSubagentModelTarget,
-  type SessionWriter,
-  type SubagentConfig,
-  type TextBlock,
-  TOKENS,
-  type Tool,
+} from '@wrongstack/core/coordination';
+import {
+  applyModelRuntime,
+  installSubagentAutoCompaction,
+  mergeModelRuntime,
   ToolExecutor,
-  ToolRegistry,
-  WIDE_SUBAGENT_CAPABILITIES,
-} from '@wrongstack/core';
+} from '@wrongstack/core/execution';
+import { type Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { type ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { AutoApprovePermissionPolicy, WIDE_SUBAGENT_CAPABILITIES } from '@wrongstack/core/security';
+import type {
+  Config,
+  ModelsRegistry,
+  ReasoningConfig,
+  Request,
+  SessionWriter,
+  SubagentConfig,
+  TextBlock,
+  Tool,
+} from '@wrongstack/core/types';
 
 export interface LightSubagentFactoryDeps {
   /** DI container — used to resolve configStore / tokenCounter / scrubber / prompt builder. */

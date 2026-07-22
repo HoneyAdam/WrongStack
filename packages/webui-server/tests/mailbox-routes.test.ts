@@ -22,6 +22,7 @@ function handlers(): MailboxRouteHandlers {
     agents: vi.fn(),
     clear: vi.fn(),
     purge: vi.fn(),
+    compact: vi.fn(),
   };
 }
 
@@ -45,6 +46,7 @@ describe('handleMailboxRoute', () => {
     ['mailbox.agents', 'agents'],
     ['mailbox.clear', 'clear'],
     ['mailbox.purge', 'purge'],
+    ['mailbox.compact', 'compact'],
   ] as const)('dispatches %s to %s', async (type, handlerName) => {
     const ws = mockWs();
     const h = handlers();

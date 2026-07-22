@@ -6,7 +6,7 @@
  * fleet without bouncing between tabs.
  */
 
-import type { HqAlert, HqSnapshot } from '@wrongstack/core';
+import type { HqAlert, HqSnapshot } from '@wrongstack/core/hq';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';

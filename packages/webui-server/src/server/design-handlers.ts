@@ -17,7 +17,6 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { DesignStack } from '@wrongstack/core';
 import {
   applyTokenOverrides,
   clearPersistedActiveKit,
@@ -33,7 +32,8 @@ import {
   runDesignVerify,
   setActiveKit,
   setDesignOverrides,
-} from '@wrongstack/core';
+  type DesignStack,
+} from '@wrongstack/core/design';
 import type { WebSocket } from 'ws';
 import { send } from './ws-utils.js';
 

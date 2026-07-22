@@ -1,14 +1,6 @@
-import type {
-  Capabilities,
-  Config,
-  CustomModelDefinition,
-  Logger,
-  ModelsRegistry,
-  Provider,
-  ProviderConfig,
-} from '@wrongstack/core';
+import type { Capabilities, Config, CustomModelDefinition, Logger, ModelsRegistry, Provider, ProviderConfig } from '@wrongstack/core/types';
 import { toErrorMessage } from '@wrongstack/core/utils';
-import { mergeCustomModelDefs } from '@wrongstack/core';
+import { mergeCustomModelDefs } from '@wrongstack/core/utils';
 import { capabilitiesFor } from '@wrongstack/providers';
 
 /**

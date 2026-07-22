@@ -1,5 +1,5 @@
-import type { Request } from '@wrongstack/core';
-import type { Capabilities, ReasoningEffort } from '@wrongstack/core';
+import type { Request } from '@wrongstack/core/types';
+import type { Capabilities, ReasoningEffort } from '@wrongstack/core/types';
 import type { CompatibilityQuirks } from './compatibility-quirks.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { applyOpenAICompatiblePolicy } from './openai-compatible-policy.js';

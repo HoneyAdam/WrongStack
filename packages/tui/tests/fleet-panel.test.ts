@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import { render } from 'ink-testing-library';
 import React from 'react';
 import type { FleetEntry } from '../src/app-reducer.js';

@@ -1,9 +1,11 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import type { PhaseGraph, PhaseProgress, SlashCommand } from '@wrongstack/core';
-import { ConfigError, PhaseStore } from '@wrongstack/core';
+import type { PhaseGraph, PhaseProgress } from '@wrongstack/core/goal';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { ConfigError } from '@wrongstack/core/types';
+import { PhaseStore } from '@wrongstack/core/goal';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 function getStore(opts: SlashCommandContext): PhaseStore {
   // Per-project: ~/.wrongstack/projects/<hash>/goal

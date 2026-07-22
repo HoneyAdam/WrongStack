@@ -57,4 +57,26 @@ describe('LargeAnswerStore', () => {
     expect(s.size).toBe(0);
     expect(s.totalChars).toBe(0);
   });
+
+  it('evicts oldest answers to stay within entry and byte budgets', () => {
+    const s = new LargeAnswerStore(1, { maxEntries: 2, maxBytes: 70 });
+    const first = s.storeAnswer('a'.repeat(30)).key!;
+    const second = s.storeAnswer('b'.repeat(30)).key!;
+    const third = s.storeAnswer('c'.repeat(30)).key!;
+
+    expect(s.size).toBe(2);
+    expect(s.totalBytes).toBeLessThanOrEqual(70);
+    expect(s.hasAnswer(first)).toBe(false);
+    expect(s.hasAnswer(second)).toBe(true);
+    expect(s.hasAnswer(third)).toBe(true);
+  });
+
+  it('does not retain one answer larger than the total byte budget', () => {
+    const s = new LargeAnswerStore(1, { maxBytes: 16 });
+    const result = s.storeAnswer('x'.repeat(100));
+    expect(result.inline).toBe(false);
+    expect(result.key).toBeUndefined();
+    expect(s.size).toBe(0);
+    expect(s.totalBytes).toBe(0);
+  });
 });

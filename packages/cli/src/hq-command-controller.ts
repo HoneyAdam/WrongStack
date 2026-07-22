@@ -14,9 +14,9 @@
  *
  * @module hq-command-controller
  */
-import type { HqPublisherCommandResult } from '@wrongstack/core';
-import type { GlobalMailbox } from '@wrongstack/core';
-import type { HqCommand } from '@wrongstack/core';
+import type { HqPublisherCommandResult } from '@wrongstack/core/hq';
+import type { GlobalMailbox } from '@wrongstack/core/coordination';
+import type { HqCommand } from '@wrongstack/core/hq';
 
 /**
  * Mutable holder for the command dispatch targets. Each field is populated

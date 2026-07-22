@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SuperMemoryStore } from '@wrongstack/super-memory';
+import { JsonlMemoryPort } from '@wrongstack/super-memory';
 import { handleSuperMemoryGraph } from '@wrongstack/webui-server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
@@ -28,7 +28,7 @@ function mockSocket(): WebSocket & { sent: unknown[] } {
 
 describe('handleSuperMemoryGraph', () => {
   it('returns persisted edges, evidence, and referenced memory records', async () => {
-    const store = new SuperMemoryStore({ projectRoot: root });
+    const store = new JsonlMemoryPort({ projectRoot: root });
     const first = await store.rememberSuper({
       text: 'The auth package owns session state.',
       kind: 'file_note',

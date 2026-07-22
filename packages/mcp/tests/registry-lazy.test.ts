@@ -1,7 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventBus, type Logger, type MCPServerConfig, ToolRegistry } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
+import { ToolRegistry } from '@wrongstack/core/registry';
+import type { Logger, MCPServerConfig } from '@wrongstack/core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Shared, hoisted state so the mocked MCPClient can be inspected from tests.

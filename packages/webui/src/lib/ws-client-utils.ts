@@ -108,7 +108,7 @@ export type WsStatus =
 /**
  * Read `?token=…` from the WS URL the client was constructed with.
  * Used by the cookie bootstrap (`ensureAuthCookie`) — when the server
- * prints the WS URL to its startup banner (e.g. `ws://127.0.0.1:3457?token=…`)
+ * prints the WS URL to its startup banner (e.g. `ws://127.0.0.1:3456?token=…`)
  * the page is loaded with the token in the URL, the client reads it
  * here, hits `/ws-auth?token=…` to swap it for an HttpOnly cookie, and
  * the cookie carries forward on every reconnect. There is no

@@ -22,7 +22,7 @@ import {
   ProviderError,
   type Request,
   type StreamEvent,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
 import { anthropicWireFormat } from './presets/anthropic.js';
 import type { AnthropicStreamState } from './presets/anthropic.js';

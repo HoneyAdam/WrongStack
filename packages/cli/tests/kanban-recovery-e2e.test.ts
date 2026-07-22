@@ -1,12 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  type SubagentConfig,
-  type TaskResult,
-  type TaskSpec,
-  makeKanbanQueueTool,
-} from '@wrongstack/core';
+import { type SubagentConfig } from '@wrongstack/core/types';
+import { type TaskResult, type TaskSpec } from '@wrongstack/core/types';
+import { makeKanbanQueueTool } from '@wrongstack/core/coordination';
 import {
   addTask,
   assignTask,

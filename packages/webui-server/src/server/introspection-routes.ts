@@ -1,4 +1,5 @@
-import type { Agent, Config, ConfigStore, ModelsRegistry } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import type { Config, ConfigStore, ModelsRegistry } from '@wrongstack/core/types';
 import type { WebSocket } from 'ws';
 import { resolveProviderModelMetadata } from './model-catalog.js';
 import type { WSClientMessage, WSServerMessage } from './types.js';

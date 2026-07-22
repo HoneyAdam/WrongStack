@@ -5,24 +5,8 @@
  */
 
 import type { WebSocket } from 'ws';
-import type {
-  HqClientCapability,
-  HqAlertRuleConfig,
-  HqClientRecord,
-  HqEventEnvelope,
-  HqFleetSnapshotPayload,
-  HqMailboxSnapshotPayload,
-  HqMcpServerHealth,
-  HqPersistence,
-  HqProjectIdentity,
-  HqProjectRecord,
-  HqQueuedCommand,
-  HqRedactionPolicy,
-  HqSessionSnapshotPayload,
-  HqToken,
-  HqTranscriptEntry,
-} from '@wrongstack/core';
-import type { HqBrowserMessage } from '@wrongstack/core';
+import type { HqClientCapability, HqAlertRuleConfig, HqClientRecord, HqEventEnvelope, HqFleetSnapshotPayload, HqMailboxSnapshotPayload, HqMcpServerHealth, HqPersistence, HqProjectIdentity, HqProjectRecord, HqQueuedCommand, HqRedactionPolicy, HqSessionSnapshotPayload, HqToken, HqTranscriptEntry } from '@wrongstack/core/hq';
+import type { HqBrowserMessage } from '@wrongstack/core/hq';
 
 export type {
   HqClientCapability,

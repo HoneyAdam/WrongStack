@@ -2,7 +2,7 @@ import type { EventBus } from '@wrongstack/core/kernel';
 import type { DoneCondition } from '@wrongstack/core/types';
 import type { SpecAnalysis, Specification } from '@wrongstack/core/types';
 import type { TaskGraph, TaskNode } from '@wrongstack/core/types';
-import { SddError, ERROR_CODES } from '@wrongstack/core';
+import { SddError, ERROR_CODES } from '@wrongstack/core/types';
 import { SpecParser } from './spec-parser.js';
 import { TaskGenerator } from './task-generator.js';
 import { DefaultTaskStore, TaskTracker } from '@wrongstack/core/tasking';

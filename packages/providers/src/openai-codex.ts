@@ -27,9 +27,9 @@ import {
   type Request,
   type StopReason,
   type StreamEvent,
-  safeParse,
   type Usage,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
+import { safeParse } from '@wrongstack/core/utils';
 import { parseToolInput } from './_tool-input.js';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import { extractAccountId } from './openai-codex-account.js';

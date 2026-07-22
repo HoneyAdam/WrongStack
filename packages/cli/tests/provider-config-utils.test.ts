@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '@wrongstack/core';
+import type { ProviderConfig } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   activeLabel,

@@ -14,7 +14,8 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { openBrowser, startLoopbackServer } from './loopback-server.js';
-import { color, FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
+import { FetchError, ParseError, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core/types';
 import {
   mutateConfigProviders,
   normalizeKeys,

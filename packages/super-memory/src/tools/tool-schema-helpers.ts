@@ -1,4 +1,4 @@
-import type { MemoryScope } from '@wrongstack/core';
+import type { MemoryScope } from '@wrongstack/core/types';
 import type {
   MemoryAnchor,
   SuperMemoryKind,

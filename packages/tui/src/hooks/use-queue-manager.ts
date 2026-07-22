@@ -1,5 +1,7 @@
-import { useEffect } from 'react';
-import type { ContentBlock, PersistedQueueItem, QueueStore, SlashCommandRegistry } from '@wrongstack/core';
+import type { SlashCommandRegistry } from '@wrongstack/core/registry';
+import type { PersistedQueueItem, QueueStore } from '@wrongstack/core/storage';
+import type { ContentBlock } from '@wrongstack/core/types';
+import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import type { Settings } from '../app-state.js';
 import { createQueueSlashCommand } from '../queue-slash.js';
@@ -16,9 +18,7 @@ export interface UseQueueManagerOptions {
   dispatch: React.Dispatch<Action>;
   /** Settings access for persisting the mid-run send-mode picker toggle. */
   getSettings?: (() => Settings) | undefined;
-  saveSettings?:
-    | ((settings: Settings) => string | Promise<string | null> | null)
-    | undefined;
+  saveSettings?: ((settings: Settings) => string | Promise<string | null> | null) | undefined;
   /** Live mirror of the mid-run send-mode picker enabled flag. */
   midRunSendPickerRef: React.MutableRefObject<boolean>;
 }
@@ -38,6 +38,11 @@ export function useQueueManager({
   saveSettings,
   midRunSendPickerRef,
 }: UseQueueManagerOptions): void {
+  const persistState = useRef<{
+    running: boolean;
+    pending: { store: QueueStore; items: PersistedQueueItem[] } | null;
+  }>({ running: false, pending: null });
+
   // ── Rehydrate persisted queue on mount ──────────────────────────────
   useEffect(() => {
     if (!queueStore) return;
@@ -75,13 +80,35 @@ export function useQueueManager({
   useEffect(() => {
     if (!queueStore) return;
     const raw = stateRef.current.queue.map(
-      ({ displayText, blocks, shouldRefine }: { displayText: string; blocks: ContentBlock[]; shouldRefine?: boolean | undefined }) => ({
+      ({
+        displayText,
+        blocks,
+        shouldRefine,
+      }: {
+        displayText: string;
+        blocks: ContentBlock[];
+        shouldRefine?: boolean | undefined;
+      }) => ({
         displayText,
         blocks,
         ...(shouldRefine !== undefined ? { shouldRefine } : {}),
       }),
     );
-    queueStore.write(raw).catch(() => undefined);
+    const persistence = persistState.current;
+    persistence.pending = { store: queueStore, items: raw };
+    if (persistence.running) return;
+    persistence.running = true;
+    void (async () => {
+      try {
+        while (persistence.pending !== null) {
+          const latest = persistence.pending;
+          persistence.pending = null;
+          await latest.store.write(latest.items).catch(() => undefined);
+        }
+      } finally {
+        persistence.running = false;
+      }
+    })();
   }, [stateRef.current.queue, queueStore, stateRef]);
 
   // ── Mirror queue to host on every change ───────────────────────────

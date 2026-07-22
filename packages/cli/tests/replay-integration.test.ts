@@ -2,15 +2,9 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  hashRequest,
-  ReplayLogStore,
-  ReplayProviderRunner,
-  type ProviderRunner,
-  type Request,
-  type Response,
-  type RunProviderOptions,
-} from '@wrongstack/core';
+import { ReplayLogStore } from '@wrongstack/core/storage';
+import { hashRequest, ReplayProviderRunner } from '@wrongstack/core/replay';
+import { type ProviderRunner, type Request, type Response, type RunProviderOptions } from '@wrongstack/core/types';
 
 /**
  * End-to-end test for idea #2 (Deterministic Replay).

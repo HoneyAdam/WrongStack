@@ -24,7 +24,9 @@
  * accidentally captured in a probe log can never echo to the terminal
  * in plaintext.
  */
-import { type SecretScrubber, color, DefaultSecretScrubber } from '@wrongstack/core';
+import { type SecretScrubber } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
 import {
   mutateConfigProviders,
   normalizeKeys,

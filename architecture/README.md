@@ -16,7 +16,7 @@ pnpm check:build-manifest
 pnpm report:architecture
 ```
 
-`check:architecture` fails for workspace cycles, unclassified Core areas, test files without exactly one runtime-test owner, unowned module cycles, expired exceptions, and stale exceptions.
+`check:architecture` fails for workspace cycles, unclassified Core areas, test files without exactly one runtime-test owner, non-command imports of CLI slash-command adapters, unowned module cycles, expired exceptions, and stale exceptions. The slash-command catalog entry point is the only permitted composition import; reusable behavior belongs under `packages/cli/src/services/`.
 
 `report:architecture` writes the current JSON and Markdown evidence to `docs/reports/`. Generated evidence must be updated in the same PR that intentionally changes the architecture baseline.
 

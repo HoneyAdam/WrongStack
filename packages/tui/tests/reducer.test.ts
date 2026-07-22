@@ -5,8 +5,9 @@ import {
   reducer,
   selectedSlashCommandLine,
 } from '../src/app.js';
-import { SETTINGS_FIELD_COUNT } from '../src/components/settings-picker.js';
 import type { State } from '../src/app-state.js';
+import { SETTINGS_FIELD_COUNT } from '../src/components/settings-picker.js';
+import { TUI_HISTORY_MAX_ENTRIES } from '../src/history-retention.js';
 
 export function initial(over: Partial<State> = {}): State {
   const state = {
@@ -490,10 +491,7 @@ describe('TUI reducer', () => {
     expect(cleared.brainPrompt).toBeNull();
   });
 
-  it('addEntry is append-only and never drops oldest entries', () => {
-    // Entries are rendered via Ink's <Static>, which forbids removals or
-    // reordering. Trimming would break the scrollback. Memory growth is
-    // bounded in practice by the terminal's own scrollback limit.
+  it('addEntry retains only the newest bounded display history', () => {
     let s = initial();
     for (let i = 0; i < 600; i++) {
       s = reducer(s, {
@@ -501,9 +499,11 @@ describe('TUI reducer', () => {
         entry: { kind: 'info', text: `entry-${i}` },
       });
     }
-    expect(s.entries.length).toBe(600);
-    expect((s.entries[0] as { text: string }).text).toBe('entry-0');
-    expect((s.entries[599] as { text: string }).text).toBe('entry-599');
+    expect(s.entries.length).toBe(TUI_HISTORY_MAX_ENTRIES + 1);
+    expect((s.entries[0] as { text: string }).text).toBe(
+      '… 200 earlier TUI entries omitted (full session remains on disk).',
+    );
+    expect((s.entries.at(-1) as { text: string }).text).toBe('entry-599');
   });
 
   // ── /clear regression: bump historyGen so <Static> remounts ─────────────

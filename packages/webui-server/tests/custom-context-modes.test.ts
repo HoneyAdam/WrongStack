@@ -4,8 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockListModes = vi.hoisted(() => vi.fn());
 const mockAtomicWrite = vi.hoisted(() => vi.fn());
 
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/types', () => ({
   listContextWindowModes: mockListModes,
+}));
+
+vi.mock('@wrongstack/core/utils', () => ({
   atomicWrite: mockAtomicWrite,
 }));
 

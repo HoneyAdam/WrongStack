@@ -12,7 +12,7 @@ import type {
   HqAgentMessagePayload,
   HqTranscriptAppendPayload,
   HqTranscriptEntry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { VListHandle } from 'virtua';
 import {

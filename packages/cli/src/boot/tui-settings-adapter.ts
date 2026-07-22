@@ -12,18 +12,12 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {
-  type Config,
-  type ConfigStore,
-  type FleetChatVerbosity,
-  type WstackPaths,
-  atomicWrite,
-  decryptConfigSecrets,
-  encryptConfigSecrets,
-  noOpVault,
-  normalizeTokenSavingTier,
-  resolveFleetChatVerbosity,
-} from '@wrongstack/core';
+import { type Config, type FleetChatVerbosity } from '@wrongstack/core/types';
+import { type ConfigStore } from '@wrongstack/core/types';
+import { type WstackPaths, atomicWrite } from '@wrongstack/core/utils';
+import { normalizeTokenSavingTier } from '@wrongstack/core/types';
+import { decryptConfigSecrets, encryptConfigSecrets, noOpVault } from '@wrongstack/core/security';
+import { resolveFleetChatVerbosity } from '@wrongstack/core/types';
 import { getProcessRegistry } from '@wrongstack/tools';
 import { deriveFsAccessPair, filterSafeForProject, resolveActualTarget, resolvePersistPath } from '../settings-menu.js';
 import { normalizeTuiThinkingWord } from '../tui-thinking-word.js';

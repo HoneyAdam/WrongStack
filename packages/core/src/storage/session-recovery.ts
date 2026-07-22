@@ -1,6 +1,7 @@
-import { expectDefined } from '../utils/expect-defined.js';
+import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline';
 import type { SessionEvent } from '../types/session.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 /**
@@ -58,6 +59,8 @@ export interface RecoveryPlan {
  * external side effects.
  */
 export class SessionRecovery {
+  private static readonly MAX_PENDING_EVENTS = 10_000;
+  private static readonly MAX_PENDING_BYTES = 16 * 1024 * 1024;
   /**
    * Scan a session log and return a `StaleSession` if and only if the newest
    * lifecycle boundary is an `in_flight_start` without a later
@@ -115,43 +118,61 @@ export class SessionRecovery {
    */
   async recover(sessionId: string): Promise<RecoveryPlan | null> {
     const fp = this.filePath(sessionId);
-    let raw: string;
+    const pendingEvents: SessionEvent[] = [];
+    const pendingSizes: number[] = [];
+    let pendingBytes = 0;
+    let lastCheckpoint: SessionEvent | null = null;
+    let latestBoundary: LifecycleBoundary | null = null;
+    let sawEvent = false;
+    const stream = createReadStream(fp, { encoding: 'utf8' });
+    const lines = createInterface({ input: stream, crlfDelay: Infinity });
     try {
-      raw = await fs.readFile(fp, 'utf8');
+      for await (const line of lines) {
+        if (!line.trim()) continue;
+        let event: SessionEvent;
+        try {
+          event = JSON.parse(line) as SessionEvent;
+        } catch {
+          continue;
+        }
+        if (!event || typeof event !== 'object' || typeof event.type !== 'string') continue;
+        sawEvent = true;
+        if (event.type === 'checkpoint') {
+          lastCheckpoint = event;
+          pendingEvents.length = 0;
+          pendingSizes.length = 0;
+          pendingBytes = 0;
+        } else {
+          const bytes = Buffer.byteLength(line, 'utf8');
+          if (bytes <= SessionRecovery.MAX_PENDING_BYTES) {
+            while (
+              pendingEvents.length >= SessionRecovery.MAX_PENDING_EVENTS ||
+              pendingBytes + bytes > SessionRecovery.MAX_PENDING_BYTES
+            ) {
+              pendingEvents.shift();
+              pendingBytes = Math.max(0, pendingBytes - (pendingSizes.shift() ?? 0));
+            }
+            pendingEvents.push(event);
+            pendingSizes.push(bytes);
+            pendingBytes += bytes;
+          }
+        }
+        if (isLifecycleBoundary(event)) latestBoundary = event;
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
       /* v8 ignore next -- defensive: any other read failure is also non-recoverable */
       return null;
+    } finally {
+      lines.close();
+      stream.close();
     }
-    const events: SessionEvent[] = [];
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        events.push(JSON.parse(line) as SessionEvent);
-      } catch {
-        // skip corrupt lines
-      }
-    }
-    if (events.length === 0) return null;
-    // Find the last checkpoint.
-    let lastCheckpoint: SessionEvent | null = null;
-    let lastCheckpointIdx = -1;
-    for (let i = 0; i < events.length; i++) {
-      if (events[i]?.type === 'checkpoint') {
-        lastCheckpoint = expectDefined(events[i]);
-        lastCheckpointIdx = i;
-      }
-    }
-    // Events after the last checkpoint = the diagnostic in-flight tail.
-    const pendingEvents =
-      lastCheckpointIdx >= 0 ? events.slice(lastCheckpointIdx + 1) : events;
+    if (!sawEvent) return null;
     // The dangling in_flight_start, if it is the newest lifecycle boundary.
     // Provider/tool events may follow the marker and are still pending work.
-    const latestBoundary = events.findLast(isLifecycleBoundary);
     const inFlightStart = latestBoundary?.type === 'in_flight_start' ? latestBoundary : null;
-    const context = inFlightStart && inFlightStart.type === 'in_flight_start'
-      ? inFlightStart.context
-      : null;
+    const context =
+      inFlightStart && inFlightStart.type === 'in_flight_start' ? inFlightStart.context : null;
     return {
       sessionId,
       stale: inFlightStart !== null,
@@ -183,11 +204,7 @@ export class SessionRecovery {
       /* v8 ignore stop */
       for (const entry of entries) {
         if (entry.name.startsWith('.')) continue;
-        if (
-          entry.name === 'shared' ||
-          entry.name === 'subagents' ||
-          entry.name === 'attachments'
-        )
+        if (entry.name === 'shared' || entry.name === 'subagents' || entry.name === 'attachments')
           continue;
         if (entry.isDirectory()) {
           if (depth === 0) {

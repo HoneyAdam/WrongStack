@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       '@wrongstack/tools': path.resolve(__dirname, '../tools/src'),
       '@wrongstack/tools/languages': path.resolve(__dirname, '../tools/src/languages'),
+      '@wrongstack/core/agent': path.resolve(__dirname, '../core/src/core'),
       '@wrongstack/core': path.resolve(__dirname, '../core/src'),
     },
   },

@@ -10,7 +10,13 @@ import {
 } from './lib/architecture-health.mjs';
 
 const args = new Set(process.argv.slice(2));
-const supported = new Set(['--json', '--print-hotspot-baseline', '--report-only', '--write']);
+const supported = new Set([
+  '--json',
+  '--print-hotspot-baseline',
+  '--report-only',
+  '--write',
+  '--write-hotspot-baseline',
+]);
 for (const arg of args) {
   if (!supported.has(arg)) {
     console.error(`Unknown argument: ${arg}`);
@@ -21,6 +27,25 @@ for (const arg of args) {
 const repoRoot = process.cwd();
 const { registry, exceptions, hotspots } = await loadArchitectureInputs(repoRoot);
 const report = await buildArchitectureHealth({ repoRoot, registry, exceptions, hotspots });
+
+const hotspotBaseline = {
+  schemaVersion: 1,
+  thresholdLines: hotspots.thresholdLines,
+  files: Object.fromEntries(
+    report.hotspotCandidates.map((item) => [
+      item.file,
+      { lines: item.lines, relativeImports: item.relativeImports },
+    ]),
+  ),
+};
+
+if (args.has('--write-hotspot-baseline')) {
+  await writeFile(
+    path.join(repoRoot, 'architecture/hotspots.json'),
+    `${JSON.stringify(hotspotBaseline, null, 2)}\n`,
+    'utf8',
+  );
+}
 
 if (args.has('--write')) {
   const reportDir = path.join(repoRoot, 'docs/reports');
@@ -40,16 +65,7 @@ if (args.has('--write')) {
 if (args.has('--print-hotspot-baseline')) {
   console.log(
     JSON.stringify(
-      {
-        schemaVersion: 1,
-        thresholdLines: hotspots.thresholdLines,
-        files: Object.fromEntries(
-          report.hotspotCandidates.map((item) => [
-            item.file,
-            { lines: item.lines, relativeImports: item.relativeImports },
-          ]),
-        ),
-      },
+      hotspotBaseline,
       null,
       2,
     ),
@@ -60,4 +76,9 @@ if (args.has('--print-hotspot-baseline')) {
   console.log(renderArchitectureHealthMarkdown(report));
 }
 
-if (report.errors.length > 0 && !args.has('--report-only') && !args.has('--print-hotspot-baseline')) process.exitCode = 1;
+if (
+  report.errors.length > 0 &&
+  !args.has('--report-only') &&
+  !args.has('--print-hotspot-baseline') &&
+  !args.has('--write-hotspot-baseline')
+) process.exitCode = 1;

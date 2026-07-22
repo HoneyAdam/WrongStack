@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Message } from '@wrongstack/core';
+import type { Message } from '@wrongstack/core/types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // input-tokens.ts — remaining branch gaps

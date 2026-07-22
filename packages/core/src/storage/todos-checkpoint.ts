@@ -1,7 +1,7 @@
 import * as fsp from 'node:fs/promises';
-import type { EventBus } from '../kernel/events.js';
 import type { TodoItem } from '../core/context.js';
 import type { ConversationState } from '../core/conversation-state.js';
+import type { EventBus } from '../kernel/events.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 
@@ -135,7 +135,18 @@ export async function saveTodosCheckpoint(
       error: toErrorMessage(err),
       recoverable: false,
     });
-    (warn ?? ((m) => console.warn(JSON.stringify({ level: 'warn', event: 'todos_checkpoint.save_failed', message: m, timestamp: new Date().toISOString() }))))(toErrorMessage(err));
+    (
+      warn ??
+      ((m) =>
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'todos_checkpoint.save_failed',
+            message: m,
+            timestamp: new Date().toISOString(),
+          }),
+        ))
+    )(toErrorMessage(err));
   }
 }
 
@@ -157,20 +168,39 @@ export function attachTodosCheckpoint(
 ): TodosCheckpointDetach {
   let timer: NodeJS.Timeout | null = null;
   let pending: readonly TodoItem[] | null = null;
-  let writeChain: Promise<void> = Promise.resolve();
+  let queuedWrite: readonly TodoItem[] | null = null;
+  let writeInFlight: Promise<void> | null = null;
 
   const enqueueWrite = (todos: readonly TodoItem[]) => {
-    writeChain = writeChain
-      .then(() => saveTodosCheckpoint(filePath, sessionId, todos, events, traceId))
-      /* v8 ignore start -- defensive: saveTodosCheckpoint swallows its own errors and never rejects */
-      .catch((err) => {
-        // Log and keep the chain alive — a failed write must not
-        // poison the chain and silently stop all subsequent writes.
-        const msg = toErrorMessage(err);
-        (warn ?? ((m) => console.error(JSON.stringify({ level: 'error', event: 'todos_checkpoint.write_chain_failed', sessionId, message: m, timestamp: new Date().toISOString() }))))(msg);
-      });
-      /* v8 ignore stop */
-    return writeChain;
+    queuedWrite = todos;
+    if (writeInFlight) return writeInFlight;
+    const drain = (async () => {
+      while (queuedWrite) {
+        const latest = queuedWrite;
+        queuedWrite = null;
+        await saveTodosCheckpoint(filePath, sessionId, latest, events, traceId).catch((err) => {
+          const msg = toErrorMessage(err);
+          (
+            warn ??
+            ((m) =>
+              console.error(
+                JSON.stringify({
+                  level: 'error',
+                  event: 'todos_checkpoint.write_failed',
+                  sessionId,
+                  message: m,
+                  timestamp: new Date().toISOString(),
+                }),
+              ))
+          )(msg);
+        });
+      }
+    })().finally(() => {
+      if (writeInFlight === drain) writeInFlight = null;
+      if (queuedWrite) enqueueWrite(queuedWrite);
+    });
+    writeInFlight = drain;
+    return drain;
   };
 
   const flush = () => {
@@ -181,7 +211,7 @@ export function attachTodosCheckpoint(
       return enqueueWrite(todos);
     }
     /* v8 ignore next -- defensive: flush is only invoked when a change is pending */
-    return writeChain;
+    return writeInFlight ?? Promise.resolve();
   };
 
   const unsubscribe = state.onChange((change) => {
@@ -200,7 +230,7 @@ export function attachTodosCheckpoint(
       // unsubscribe at shutdown without losing the last update.
       await flush();
     } else {
-      await writeChain;
+      await writeInFlight;
     }
   };
 }

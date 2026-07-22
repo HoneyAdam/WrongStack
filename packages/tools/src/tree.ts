@@ -1,7 +1,7 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { Tool, ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core';
+import type { Tool, ToolProgressEvent, ToolStreamEvent } from '@wrongstack/core/types';
 import { safeResolve } from './_util.js';
 const DEFAULT_IGNORE = [
   'node_modules',

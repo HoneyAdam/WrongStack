@@ -1,4 +1,4 @@
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { describe, expect, it, vi } from 'vitest';
 import { buildAuditCommand } from '../src/slash-commands/audit.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

@@ -1,32 +1,16 @@
 import * as path from 'node:path';
-import {
-  allServers,
-  type Config,
-  countShellHooks,
-  GlobalMailbox,
-  type HealthRegistry,
-  HookRegistry,
-  HookRunner,
-  type HqPublisher,
-  type Logger,
-  type MetricsRuntimeStatus,
-  type ModelsRegistry,
-  NotifierImpl,
-  normalizeTokenSavingTier,
-  type PluginHostHandle,
-  type PromptLoader,
-  type Provider,
-  type ProviderConfig,
-  type ProviderRegistry,
-  type SecretVault,
-  type SessionWriter,
-  type SkillLoader,
-  SlashCommandRegistry,
-  shellHooksEqual,
-  TOKENS,
-  type ToolRegistry,
-  type WstackPaths,
-} from '@wrongstack/core';
+import { allServers } from '@wrongstack/core/infrastructure';
+import { type Config, type Logger, type MetricsRuntimeStatus, type ModelsRegistry, type PromptLoader, type Provider, type ProviderConfig, type SecretVault, type SessionWriter, type SkillLoader } from '@wrongstack/core/types';
+import { type HqPublisher } from '@wrongstack/core/hq';
+import { countShellHooks, HookRegistry, HookRunner, shellHooksEqual } from '@wrongstack/core/hooks';
+import { GlobalMailbox } from '@wrongstack/core/coordination';
+import { type HealthRegistry } from '@wrongstack/core/types';
+import { NotifierImpl } from '@wrongstack/core/notifications';
+import { normalizeTokenSavingTier } from '@wrongstack/core/types';
+import { type WstackPaths } from '@wrongstack/core/utils';
+import { type PluginHostHandle } from '@wrongstack/core/plugin';
+import { type ProviderRegistry, SlashCommandRegistry, type ToolRegistry } from '@wrongstack/core/registry';
+import { TOKENS } from '@wrongstack/core/kernel';
 import {
   createVaultBackedMcpAuthorizationProviderFactory,
   MCPAuthorizationManager,
@@ -353,6 +337,7 @@ export async function setupLifecycleAndPlugins(
     vault,
     paths: {
       globalRoot: wpaths.globalRoot,
+      configDir: wpaths.configDir,
       globalConfig: wpaths.profileConfig(config.activeProfile ?? 'default'),
       globalSkills: wpaths.globalSkills,
       globalPrompts: wpaths.globalPrompts,

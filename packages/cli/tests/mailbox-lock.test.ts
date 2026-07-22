@@ -3,12 +3,7 @@ import { createServer, type Server } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import {
-  acquireOrJoin,
-  finalize,
-  release,
-  type MailboxBridgeLock,
-} from '@wrongstack/core/coordination';
+import { acquireOrJoin, finalize, release, type MailboxBridgeLock } from '@wrongstack/core/coordination';
 
 /**
  * Tests for the single-instance mailbox-bridge lock.

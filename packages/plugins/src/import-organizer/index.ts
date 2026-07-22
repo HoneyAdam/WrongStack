@@ -48,7 +48,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { basename, isAbsolute } from 'node:path';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { withinProject } from '../runtime/index.js';
 
 // ---------------------------------------------------------------------------

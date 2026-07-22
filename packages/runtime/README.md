@@ -1,20 +1,19 @@
 # @wrongstack/runtime
 
-Default runtime implementations and host composition types for WrongStack.
+Host composition and platform adapters for WrongStack.
 
-`@wrongstack/core` should stay focused on the agent kernel, public contracts,
-registries, and lifecycle primitives. This package is the migration target for
-concrete defaults such as storage, config, permissions, metrics, compaction,
-models, skills, and host-level assembly helpers.
+`@wrongstack/runtime` owns container composition, canonical host-tool
+registration, image routing, clipboard access, the local-model probe, and
+light-subagent assembly. These are real implementations, not aliases.
 
-In the first refactor slice, runtime re-exports the existing default
-implementations from `@wrongstack/core/defaults`. That lets CLI, TUI, WebUI,
-and future hosts start importing defaults from `@wrongstack/runtime` while the
-physical module moves happen incrementally.
+Core defaults are intentionally not re-exported. Import their declared Core
+subpaths directly. The R4 observability pilot proved that moving a Core-owned
+implementation here while retaining Core compatibility would create the
+`Core -> Runtime -> Core` package cycle prohibited by ADR-004.
 
 ```ts
-import { DefaultSessionStore, DefaultPermissionPolicy } from '@wrongstack/runtime';
-import { Agent, Container, EventBus } from '@wrongstack/core';
+import { createDefaultContainer } from '@wrongstack/runtime';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 ```
 
 The `WrongStackPack` interface in `@wrongstack/runtime/pack` is the target shape

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { SlashCommand } from '@wrongstack/core';
-import { formatTodosList, type TodoItem } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { formatTodosList } from '@wrongstack/core/utils';
+import { type TodoItem } from '@wrongstack/core/agent';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 /** Find a todo by 1-based index, exact id, or case-insensitive substring. */
 function findTodo(todos: TodoItem[], query: string): { idx: number; item: TodoItem } | null {

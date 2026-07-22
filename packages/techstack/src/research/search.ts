@@ -10,7 +10,7 @@
  * finding to registry-only evidence instead of failing the analyze job.
  */
 
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { searchTool } from '@wrongstack/tools';
 import type { ResearchSearch, ResearchSearchResult } from './types.js';
 

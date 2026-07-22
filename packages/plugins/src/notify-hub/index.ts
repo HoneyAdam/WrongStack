@@ -54,7 +54,8 @@
  * @public
  */
 import { lookup } from 'node:dns/promises';
-import type { Logger, NotificationMessage, NotificationResult, Plugin } from '@wrongstack/core';
+import type { NotificationMessage, NotificationResult } from '@wrongstack/core/notifications';
+import type { Logger, Plugin } from '@wrongstack/core/types';
 import { WebhookNotificationChannel } from './webhook-channel.js';
 
 // ---------------------------------------------------------------------------

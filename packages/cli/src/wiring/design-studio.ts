@@ -7,8 +7,8 @@
  * per-turn detection + kit-menu-injection middleware, which needs a live Context.
  */
 
-import type { AgentPipelines, Context } from '@wrongstack/core';
-import { installDesignStudioMiddleware } from '@wrongstack/core';
+import type { AgentPipelines, Context } from '@wrongstack/core/agent';
+import { installDesignStudioMiddleware } from '@wrongstack/core/design';
 
 export interface InstallDesignStudioDeps {
   pipelines: AgentPipelines;

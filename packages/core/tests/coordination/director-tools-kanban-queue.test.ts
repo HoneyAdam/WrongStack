@@ -260,6 +260,46 @@ describe('kanban_queue lease fencing', () => {
     );
   });
 
+  it('awaitCompletion: never overlaps slow heartbeat batches', async () => {
+    vi.useFakeTimers();
+    claimReadyTaskMock.mockResolvedValueOnce(makeClaim());
+    updateTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });
+    const heartbeatResolvers: Array<() => void> = [];
+    heartbeatTaskAssignmentMock.mockImplementation(
+      () => new Promise((resolve) => heartbeatResolvers.push(() => resolve({ id: 'board-1' }))),
+    );
+    let settleAwait: (value: unknown[]) => void = () => {};
+    director.awaitTasks = vi.fn(() => new Promise<unknown[]>((resolve) => (settleAwait = resolve)));
+
+    const heartbeatIntervalMs = 10_000;
+    const tool = makeKanbanQueueTool(asDir());
+    const execPromise = tool.execute(
+      {
+        taskId: 'task-1',
+        awaitCompletion: true,
+        leaseTtlMs: 60_000,
+        heartbeatIntervalMs,
+      },
+      ctx,
+      {} as never,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs * 3 + 50);
+    expect(heartbeatTaskAssignmentMock).toHaveBeenCalledTimes(1);
+
+    heartbeatResolvers.shift()?.();
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs + 50);
+    expect(heartbeatTaskAssignmentMock).toHaveBeenCalledTimes(2);
+
+    const assignedTaskId = (director.assign.mock.calls[0]?.[0] as { id?: string })?.id ?? '';
+    settleAwait([
+      { taskId: assignedTaskId, subagentId: 'sub-1', status: 'success', result: 'done' },
+    ]);
+    heartbeatResolvers.shift()?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await execPromise;
+  });
+
   it('worker prompt instructs the lease token on all three lifecycle calls', async () => {
     claimReadyTaskMock.mockResolvedValueOnce(makeClaim());
     updateTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });

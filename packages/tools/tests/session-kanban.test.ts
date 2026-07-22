@@ -1,14 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { Context, TodoItem } from '@wrongstack/core/agent';
 import {
-  type Context,
   loadPlan,
   loadTasks,
   savePlan,
   saveTasks,
-  type TodoItem,
-} from '@wrongstack/core';
+} from '@wrongstack/core/storage';
 import {
   addTask,
   createBoard,

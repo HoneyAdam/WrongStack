@@ -1,33 +1,18 @@
 import { join } from 'node:path';
-import {
-  type BrainAutoRisk,
-  BrainDecisionLedger,
-  BrainTraceRecorder,
-  BrainDecisionQueue,
-  type BrainEscalationMode,
-  BrainMonitor,
-  type BrainRuntime,
-  type Config,
-  createBrainRuntime,
-  createDelegateTool,
-  createMcpControlTool,
-  createMcpUseTool,
-  EscalationRoutingBrainArbiter,
-  FLEET_ROSTER,
-  ObservableBrainArbiter,
-  type Provider,
-  resolveBrainConfigDefaults,
-  type SecretVault,
-  type SessionWriter,
-  terminalPolicyDecision,
-  TOKENS,
-  type ToolRegistry,
-} from '@wrongstack/core';
-import { persistConfigSetting } from '../settings-menu.js';
-import { activeProfileConfigPath } from '../profile-config-path.js';
-import { buildProviderForId } from './provider-runtime.js';
-import { MultiAgentHost } from '../multi-agent.js';
+import { type BrainAutoRisk, type BrainRuntime, createBrainRuntime, resolveBrainConfigDefaults } from '@wrongstack/core/execution';
+import { BrainDecisionLedger, BrainDecisionQueue, BrainMonitor, EscalationRoutingBrainArbiter, ObservableBrainArbiter, terminalPolicyDecision } from '@wrongstack/core/coordination';
+import { type BrainEscalationMode, createDelegateTool } from '@wrongstack/core/coordination';
+import { type Config, type Provider, type SecretVault, type SessionWriter } from '@wrongstack/core/types';
+import { BrainTraceRecorder } from '@wrongstack/core/coordination';
+import { createMcpControlTool, createMcpUseTool } from '@wrongstack/core/tools';
+import { FLEET_ROSTER } from '@wrongstack/core/coordination';
+import { TOKENS } from '@wrongstack/core/kernel';
+import { type ToolRegistry } from '@wrongstack/core/registry';
 import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
+import { MultiAgentHost } from '../multi-agent.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
+import { persistConfigSetting } from '../settings-menu.js';
+import { buildProviderForId } from './provider-runtime.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +53,7 @@ export interface BrainOrchestrationDeps {
   modelsRegistry: AnyObj;
   promptBuilder: AnyObj;
   tokenCounter: AnyObj;
+  skillLoader: import('@wrongstack/core/types').SkillLoader | undefined;
   projectRoot: string;
   cwd: string;
   wpaths: AnyObj;
@@ -112,9 +98,7 @@ export interface BrainOrchestrationResult {
  * between brain chain setup and brain monitor creation in cli-main.ts,
  * which is why this function has two logical halves stitched together.
  */
-export function setupBrainAndOrchestration(
-  deps: BrainOrchestrationDeps,
-): BrainOrchestrationResult {
+export function setupBrainAndOrchestration(deps: BrainOrchestrationDeps): BrainOrchestrationResult {
   const {
     events,
     config,
@@ -129,6 +113,7 @@ export function setupBrainAndOrchestration(
     modelsRegistry,
     promptBuilder,
     tokenCounter,
+    skillLoader,
     projectRoot,
     cwd,
     wpaths,
@@ -375,6 +360,7 @@ export function setupBrainAndOrchestration(
       tokenCounter,
       projectRoot,
       cwd,
+      skillLoader,
       secretScrubber: container.resolve(TOKENS.SecretScrubber),
     },
     {

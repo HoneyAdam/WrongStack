@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 const mockProjectSlug = vi.hoisted(() => vi.fn());
-vi.mock('@wrongstack/core', () => ({
+vi.mock('@wrongstack/core/utils', () => ({
   projectSlug: mockProjectSlug,
 }));
 

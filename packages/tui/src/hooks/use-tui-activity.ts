@@ -1,4 +1,6 @@
-import { type Agent, loadGoal, resolveWstackPaths } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
+import { loadGoal } from '@wrongstack/core/storage';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as os from 'node:os';
 import type { Action, State } from '../app-reducer.js';

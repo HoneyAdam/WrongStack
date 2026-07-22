@@ -1,5 +1,7 @@
 import * as path from 'node:path';
-import { type Context, type Tool, ToolCapabilities } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { ToolCapabilities } from '@wrongstack/core/security';
+import type { Tool } from '@wrongstack/core/types';
 import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { BrowserSessionManager, browserInstallationDiagnostics } from './manager.js';
 import { parsePrivateOriginAllowlist } from './security.js';
@@ -24,12 +26,20 @@ function managerFor(ctx: Context): BrowserSessionManager {
   if (cleanupSignalByContext.get(ctx) !== runSignal) {
     cleanupSignalByContext.set(ctx, runSignal);
     const managerForRun = manager;
+    const rootForRun = root;
     const ownerForRun = owner(ctx);
     ctx.registerAbortHook?.(async () => {
       if (cleanupSignalByContext.get(ctx) === runSignal) {
         cleanupSignalByContext.delete(ctx);
       }
       await managerForRun.closeOwner(ownerForRun);
+      // Managers are keyed by project root and own a listening network proxy.
+      // Drop the entry as soon as the final owner is gone so project switching
+      // cannot accumulate one proxy/server handle per visited repository.
+      if (managerForRun.isIdle() && managers.get(rootForRun) === managerForRun) {
+        managers.delete(rootForRun);
+        await managerForRun.dispose();
+      }
     });
   }
   return manager;

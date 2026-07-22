@@ -27,7 +27,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import type { Plugin } from '@wrongstack/core';
+import type { Plugin } from '@wrongstack/core/types';
 import { withinProject } from '../runtime/index.js';
 import { parseLlmJsonObject, runOptionalPluginLlm } from '../runtime/llm.js';
 

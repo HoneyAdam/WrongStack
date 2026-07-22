@@ -1,3 +1,4 @@
+import { ERROR_CODES, SddError } from '../types/errors.js';
 import type {
   TaskFilter,
   TaskGraph,
@@ -6,7 +7,6 @@ import type {
   TaskSort,
 } from '../types/task-graph.js';
 import { computeTaskProgress } from '../types/task-graph.js';
-import { ERROR_CODES, SddError } from '../types/errors.js';
 import { toErrorMessage } from '../utils/error.js';
 
 export interface TaskStore {
@@ -24,7 +24,7 @@ export interface TaskTrackerOptions {
    * fire-and-forget their writes; without this, a failing store silently
    * loses graph mutations. Defaults to a console.warn.
    */
-  onPersistError?: (((err: unknown) => void)) | undefined;
+  onPersistError?: ((err: unknown) => void) | undefined;
 }
 
 export interface TaskTransition {
@@ -49,6 +49,7 @@ export class TaskTracker {
   private graph: TaskGraph | null = null;
   private transitions: TaskTransition[] = [];
   private listeners: TaskTrackerListener[] = [];
+  private static readonly MAX_TRANSITIONS = 10_000;
 
   constructor(private readonly opts: TaskTrackerOptions) {}
 
@@ -104,10 +105,11 @@ export class TaskTracker {
   }
 
   addNode(node: Omit<TaskNode, 'id' | 'createdAt' | 'updatedAt'>): TaskNode {
-    if (!this.graph) throw new SddError({
-      message: 'No graph loaded',
-      code: ERROR_CODES.SDD_INVALID_STATE,
-    });
+    if (!this.graph)
+      throw new SddError({
+        message: 'No graph loaded',
+        code: ERROR_CODES.SDD_INVALID_STATE,
+      });
 
     const now = Date.now();
     const newNode: TaskNode = {
@@ -132,10 +134,11 @@ export class TaskTracker {
   }
 
   addEdge(from: string, to: string, type: TaskGraph['edges'][0]['type'] = 'depends_on'): void {
-    if (!this.graph) throw new SddError({
-      message: 'No graph loaded',
-      code: ERROR_CODES.SDD_INVALID_STATE,
-    });
+    if (!this.graph)
+      throw new SddError({
+        message: 'No graph loaded',
+        code: ERROR_CODES.SDD_INVALID_STATE,
+      });
 
     this.graph.edges.push({
       id: crypto.randomUUID(),
@@ -218,17 +221,19 @@ export class TaskTracker {
   }
 
   updateNodeStatus(id: string, status: TaskNode['status'], reason?: string): void {
-    if (!this.graph) throw new SddError({
-      message: 'No graph loaded',
-      code: ERROR_CODES.SDD_INVALID_STATE,
-    });
+    if (!this.graph)
+      throw new SddError({
+        message: 'No graph loaded',
+        code: ERROR_CODES.SDD_INVALID_STATE,
+      });
 
     const node = this.graph.nodes.get(id);
-    if (!node) throw new SddError({
-      message: `Node ${id} not found`,
-      code: ERROR_CODES.SDD_NOT_READY,
-      context: { nodeId: id },
-    });
+    if (!node)
+      throw new SddError({
+        message: `Node ${id} not found`,
+        code: ERROR_CODES.SDD_NOT_READY,
+        context: { nodeId: id },
+      });
 
     const from = node.status;
     const now = Date.now();
@@ -244,6 +249,9 @@ export class TaskTracker {
     }
 
     this.transitions.push({ from, to: status, timestamp: now, reason });
+    if (this.transitions.length > TaskTracker.MAX_TRANSITIONS) {
+      this.transitions.splice(0, this.transitions.length - TaskTracker.MAX_TRANSITIONS);
+    }
 
     // Auto-unblock dependents
     if (status === 'completed') {
@@ -265,18 +273,25 @@ export class TaskTracker {
     });
   }
 
-  updateNode(id: string, patch: Partial<Pick<TaskNode, 'title' | 'description' | 'priority' | 'estimateHours' | 'tags' | 'assignee'>>): void {
-    if (!this.graph) throw new SddError({
-      message: 'No graph loaded',
-      code: ERROR_CODES.SDD_INVALID_STATE,
-    });
+  updateNode(
+    id: string,
+    patch: Partial<
+      Pick<TaskNode, 'title' | 'description' | 'priority' | 'estimateHours' | 'tags' | 'assignee'>
+    >,
+  ): void {
+    if (!this.graph)
+      throw new SddError({
+        message: 'No graph loaded',
+        code: ERROR_CODES.SDD_INVALID_STATE,
+      });
 
     const node = this.graph.nodes.get(id);
-    if (!node) throw new SddError({
-      message: `Node ${id} not found`,
-      code: ERROR_CODES.SDD_NOT_READY,
-      context: { nodeId: id },
-    });
+    if (!node)
+      throw new SddError({
+        message: `Node ${id} not found`,
+        code: ERROR_CODES.SDD_NOT_READY,
+        context: { nodeId: id },
+      });
 
     if (patch.title !== undefined) node.title = patch.title;
     if (patch.description !== undefined) node.description = patch.description;
@@ -424,12 +439,14 @@ export class TaskTracker {
     this.opts.store.saveGraph(this.graph).catch((err) => {
       this.opts.onPersistError
         ? this.opts.onPersistError(err)
-        : console.warn(JSON.stringify({
-            level: 'warn',
-            event: 'task_tracker.save_graph_failed',
-            message: toErrorMessage(err),
-            timestamp: new Date().toISOString(),
-          }));
+        : console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'task_tracker.save_graph_failed',
+              message: toErrorMessage(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
     });
   }
 }
@@ -452,9 +469,13 @@ const STATUS_RANK: Record<TaskNode['status'], number> = {
 
 function compareByField(a: TaskNode, b: TaskNode, field: TaskSort['field']): number {
   switch (field) {
-    case 'priority': return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-    case 'status': return STATUS_RANK[a.status] - STATUS_RANK[b.status];
-    case 'createdAt': return a.createdAt - b.createdAt;
-    case 'updatedAt': return a.updatedAt - b.updatedAt;
+    case 'priority':
+      return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    case 'status':
+      return STATUS_RANK[a.status] - STATUS_RANK[b.status];
+    case 'createdAt':
+      return a.createdAt - b.createdAt;
+    case 'updatedAt':
+      return a.updatedAt - b.updatedAt;
   }
 }

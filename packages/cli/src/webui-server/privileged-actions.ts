@@ -1,10 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-  isTrustDecisionAllowed,
-  type TrustBoundary,
-  type TrustRisk,
-  type TrustSubject,
-} from '@wrongstack/core/security';
+import { isTrustDecisionAllowed, type TrustBoundary, type TrustRisk, type TrustSubject } from '@wrongstack/core/security';
 import {
   handleProcessKill,
   handleProcessKillAll,

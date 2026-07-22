@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { ToolProgressEvent } from '@wrongstack/core';
+import type { ToolProgressEvent } from '@wrongstack/core/types';
 import { type SpawnStreamResult, spawnStream } from '../_spawn-stream.js';
 import { normalizeCommandOutput } from '../_util.js';
 import {

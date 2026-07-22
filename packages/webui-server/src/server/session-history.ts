@@ -1,4 +1,4 @@
-import type { SessionSummary } from '@wrongstack/core';
+import type { SessionSummary } from '@wrongstack/core/types';
 
 /**
  * Stable WebSocket projection for the WebUI history surfaces.

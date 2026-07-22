@@ -4,7 +4,7 @@ import type {
   HqMailboxMessageType,
   HqMailboxPriority,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import type React from 'react';
 import { useEffect, useMemo, useReducer } from 'react';
 import { useHqStore } from '../store.js';

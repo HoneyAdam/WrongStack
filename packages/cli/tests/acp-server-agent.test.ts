@@ -11,14 +11,11 @@
  * filled to construct Context + Agent.
  */
 
-import type {
-  Config,
-  Provider,
-  ProviderRegistry,
-  ResolvedProvider,
-  WstackPaths,
-} from '@wrongstack/core';
-import { Agent, ToolRegistry as RealToolRegistry } from '@wrongstack/core';
+import type { Config, Provider, ResolvedProvider } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { ProviderRegistry } from '@wrongstack/core/registry';
+import { Agent } from '@wrongstack/core/agent';
+import { ToolRegistry as RealToolRegistry } from '@wrongstack/core/registry';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -48,7 +45,8 @@ import {
 } from '../src/acp-server-agent.js';
 import type { RunTurnApi } from '@wrongstack/acp/agent';
 import type { SubcommandDeps } from '../src/subcommands/index.js';
-import { ToolCapabilities, type Tool } from '@wrongstack/core';
+import { ToolCapabilities } from '@wrongstack/core/security';
+import { type Tool } from '@wrongstack/core/types';
 
 function makeStubProvider(): Provider {
   return {

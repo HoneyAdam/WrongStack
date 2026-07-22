@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
-import type { Context, SlashCommand } from '@wrongstack/core';
-import { color, ToolValidationError } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
+import { ToolValidationError } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_LINES = 500;

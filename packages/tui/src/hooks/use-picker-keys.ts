@@ -10,7 +10,7 @@
 
 import { useCallback } from 'react';
 import type { Action, State } from '../app-reducer.js';
-import { brainPanelRows } from '../components/brain-panel-model.js';
+import { brainPanelRows } from '../brain-panel-model.js';
 import type { KeyEvent } from '../components/input.js';
 import { settingsPickerJumpField } from '../components/settings-picker.js';
 import { STATUSLINE_ITEMS } from '../components/statusline-picker.js';
@@ -35,6 +35,10 @@ export interface PickerKeysHost {
   getAgentCtxMaxContext: () => number;
   activeMaxContext: number | undefined;
   currentContextTokens: number;
+  /** Live provider id *before* the switch — the "from" row of the switch card. */
+  currentProvider: string | undefined;
+  /** Live model id *before* the switch. */
+  currentModel: string | undefined;
 
   // `opt.mode` is an AutonomyStage, so accept that union (not bare string) to
   // match the app's `switchAutonomy`.
@@ -63,11 +67,11 @@ export interface PickerKeysHost {
   onHelpPanelEnter: (() => void) | undefined;
   onBrainRiskChange: ((delta: number) => void) | undefined;
   /** Settings-view value edit: ←/→ on the focused row. */
-  onBrainAdjust: ((row: import('../components/brain-panel-model.js').BrainPanelRow, delta: number) => void) | undefined;
+  onBrainAdjust: ((row: import('../brain-panel-model.js').BrainPanelRow, delta: number) => void) | undefined;
   /** Settings-view Enter: toggle a boolean row or open the model picker. */
-  onBrainEnter: ((row: import('../components/brain-panel-model.js').BrainPanelRow) => void) | undefined;
+  onBrainEnter: ((row: import('../brain-panel-model.js').BrainPanelRow) => void) | undefined;
   /** Settings-view d/Delete on a removable row. */
-  onBrainDelete: ((row: import('../components/brain-panel-model.js').BrainPanelRow) => void) | undefined;
+  onBrainDelete: ((row: import('../brain-panel-model.js').BrainPanelRow) => void) | undefined;
   /** Voter row modifiers: p = cycle persona, v = toggle veto. */
   onBrainVoterMod: ((index: number, mod: 'persona' | 'veto') => void) | undefined;
   /**
@@ -85,7 +89,6 @@ export interface PickerKeysHost {
 }
 
 const ENTER_DOUBLE_TAP_MS = 50;
-const formatTokens = (tokens: number): string => tokens.toLocaleString('en-US');
 
 function debouncedEnter(host: PickerKeysHost): boolean {
   const now = Date.now();
@@ -276,24 +279,26 @@ export function usePickerKeys(
                 dispatch({ type: 'modelPickerHint', text: err });
                 return;
               }
+              const previousProvider = host.currentProvider;
+              const previousModel = host.currentModel;
               const previousMaxContext = host.activeMaxContext;
               const nextMaxContext = host.getAgentCtxMaxContext();
               host.setLiveProvider?.(providerId);
               host.setLiveModel?.(modelId);
               host.setActiveMaxContext?.(nextMaxContext);
-              const contextWarning =
-                previousMaxContext &&
-                nextMaxContext > 0 &&
-                nextMaxContext < previousMaxContext
-                  ? `\n⚠ smaller context window: ${formatTokens(previousMaxContext)} → ${formatTokens(nextMaxContext)} tokens${
-                      host.currentContextTokens > 0
-                        ? `; current request ≈ ${formatTokens(host.currentContextTokens)} tokens (${Math.round((host.currentContextTokens / nextMaxContext) * 100)}% of new window)`
-                        : ''
-                    }`
-                  : '';
               dispatch({
                 type: 'addEntry',
-                entry: { kind: 'info', text: `Switched to ${providerId} / ${modelId}.${contextWarning}` },
+                entry: {
+                  kind: 'model-switch',
+                  fromProvider: previousProvider,
+                  fromModel: previousModel,
+                  toProvider: providerId,
+                  toModel: modelId,
+                  fromContext: previousMaxContext,
+                  toContext: nextMaxContext > 0 ? nextMaxContext : undefined,
+                  requestTokens:
+                    host.currentContextTokens > 0 ? host.currentContextTokens : undefined,
+                },
               });
               dispatch({ type: 'modelPickerClose' });
             };

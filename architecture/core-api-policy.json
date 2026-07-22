@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "maxRootImportFiles": 0,
+  "rootEntryPolicy": "compatibility-only",
+  "canonicalObservabilityImport": "@wrongstack/core/observability",
+  "reviewedAt": "2026-07-22",
+  "removalGate": "Lower maxRootImportFiles after each canonical subpath migration; never raise it to admit new root consumers."
+}

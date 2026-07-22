@@ -6,8 +6,8 @@
  * with drop accounting, spawn/budget one-shots, heartbeat enrichment on
  * task start/stop, and stop() teardown.
  */
-import { EventBus } from '@wrongstack/core';
-import type { Mailbox } from '@wrongstack/core';
+import { EventBus } from '@wrongstack/core/kernel';
+import type { Mailbox } from '@wrongstack/core/coordination';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFleetStatusBroadcaster } from '../src/fleet/status-broadcast.js';
 

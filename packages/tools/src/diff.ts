@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { buildChildEnv } from '@wrongstack/core';
-import type { Tool } from '@wrongstack/core';
+import { buildChildEnv } from '@wrongstack/core/utils';
+import type { Tool } from '@wrongstack/core/types';
 import { safeResolve } from './_util.js';
 
 interface DiffInput {
@@ -89,7 +89,7 @@ export const diffTool: Tool<DiffInput, DiffOutput> = {
 
 async function gitDiff(
   input: DiffInput,
-  ctx: import('@wrongstack/core').Context,
+  ctx: import('@wrongstack/core/agent').Context,
   signal: AbortSignal,
 ): Promise<DiffOutput> {
   // Flag injection: a/b are passed as positional args BEFORE the `--`
@@ -174,7 +174,7 @@ function runGit(
 
 async function fileDiff(
   input: DiffInput,
-  ctx: import('@wrongstack/core').Context,
+  ctx: import('@wrongstack/core/agent').Context,
   _signal: AbortSignal,
 ): Promise<DiffOutput> {
   // `context` is accepted on the input schema for API stability but is

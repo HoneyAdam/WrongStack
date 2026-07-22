@@ -18,13 +18,9 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type {
-  AgentPipelines,
-  Context,
-  IndexingConfig,
-  Logger,
-  ToolCallPipelinePayload,
-} from '@wrongstack/core';
+import type { AgentPipelines, Context } from '@wrongstack/core/agent';
+import type { IndexingConfig, Logger } from '@wrongstack/core/types';
+import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
 import {
   cancelPendingReindexes,
   enqueueReindex,

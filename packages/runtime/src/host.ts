@@ -1,14 +1,12 @@
+import type { Agent, Context } from '@wrongstack/core/agent';
+import type { ExtensionRegistry } from '@wrongstack/core/extension';
+import type { EventBus } from '@wrongstack/core/kernel';
 import type {
-  Agent,
-  Context,
-  EventBus,
-  ExtensionRegistry,
-  PluginAPI,
   ProviderRegistry,
-  SessionWriter,
   SlashCommandRegistry,
   ToolRegistry,
-} from '@wrongstack/core';
+} from '@wrongstack/core/registry';
+import type { PluginAPI, SessionWriter } from '@wrongstack/core/types';
 import type { WrongStackPack } from './pack.js';
 
 export interface RuntimeHost {

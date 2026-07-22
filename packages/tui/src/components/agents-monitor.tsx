@@ -2,7 +2,9 @@ import { Box, Text, useInput, useStdout } from '../ink.js';
 import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import type { AgentTimelineEntry } from '@wrongstack/core/coordination';
-import type { FleetEntry } from '../app.js';
+import type { AgentTranscriptReader } from '../ui-contracts.js';
+export type { AgentTranscriptReader } from '../ui-contracts.js';
+import type { FleetEntry } from '../app-state.js';
 import type { HistoryEntry } from './history/types.js';
 import { theme } from '../theme.js';
 import { fmtModelLabel } from './fleet-monitor.js';
@@ -25,10 +27,6 @@ import {
  * imports from @wrongstack/cli. `getTranscript` returns entries NEWEST
  * FIRST (mirroring AgentMonitorService.getTranscript).
  */
-export interface AgentTranscriptReader {
-  getTranscript(subagentId: string, limit?: number): AgentTimelineEntry[];
-}
-
 export interface AgentsMonitorProps {
   entries: Record<string, FleetEntry>;
   totalCost: number;

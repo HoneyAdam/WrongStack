@@ -8,26 +8,14 @@
  * and enable focused testing.
  */
 
-import {
-  ChronicleJournal,
-  DefaultSecretScrubber,
-  createChronicleContext,
-  createSessionEventBridge,
-  recordFileAction,
-  resolveChronicleRuntimeLocation,
-  resolveSessionLoggingConfig,
-  startChronicleFileObserver,
-  startChronicleHealthMonitor,
-  startNetworkTelemetryMonitor,
-  wireProviderAttemptsToChronicle,
-  wireProcessesToChronicle,
-  wireDecisionsToChronicle,
-  wireDomainEventsToChronicle,
-  wireProviderStreamsToChronicle,
-  wireRollupsToChronicle,
-  wireToolsToChronicle,
-} from '@wrongstack/core';
-import type { ChronicleFileObserver, EventBus, SessionEventBridge } from '@wrongstack/core';
+import { ChronicleJournal, createChronicleContext, resolveChronicleRuntimeLocation, startChronicleFileObserver, startChronicleHealthMonitor, wireProviderAttemptsToChronicle, wireProcessesToChronicle, wireDecisionsToChronicle, wireDomainEventsToChronicle, wireProviderStreamsToChronicle, wireRollupsToChronicle, wireToolsToChronicle } from '@wrongstack/core/chronicle';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { createSessionEventBridge, resolveSessionLoggingConfig } from '@wrongstack/core/storage';
+import { recordFileAction } from '@wrongstack/core/coordination';
+import { startNetworkTelemetryMonitor } from '@wrongstack/core/observability';
+import type { ChronicleFileObserver } from '@wrongstack/core/chronicle';
+import type { EventBus } from '@wrongstack/core/kernel';
+import type { SessionEventBridge } from '@wrongstack/core/storage';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -81,8 +69,8 @@ export function wireSessionEvents(deps: WireSessionEventsDeps): WireSessionEvent
   const sessionConfig = resolveSessionLoggingConfig(
     config as never as Parameters<typeof resolveSessionLoggingConfig>[0],
   );
-  const sessionWriter: () => import('@wrongstack/core').SessionWriter | null | undefined = () =>
-    (context as Record<string, unknown>).session as import('@wrongstack/core').SessionWriter | undefined ?? session as unknown as import('@wrongstack/core').SessionWriter;
+  const sessionWriter: () => import('@wrongstack/core/types').SessionWriter | null | undefined = () =>
+    (context as Record<string, unknown>).session as import('@wrongstack/core/types').SessionWriter | undefined ?? session as unknown as import('@wrongstack/core/types').SessionWriter;
   const sessionBridge: SessionEventBridge = createSessionEventBridge(
     sessionWriter,
     sessionConfig.auditLevel,

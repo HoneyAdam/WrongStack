@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { resolveProjectDir, wstackGlobalRoot } from '@wrongstack/core';
+import { resolveProjectDir } from '@wrongstack/core/coordination';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { readLiveLock, type MailboxBridgeLock } from '@wrongstack/core/coordination';
 
 export interface MailboxBridgeParams {

@@ -1,4 +1,4 @@
-import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core';
+import type { Capabilities, Provider, Request, Response, StreamEvent } from '@wrongstack/core/types';
 import { AnthropicProvider } from './anthropic.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OpenAICompatibleProvider } from './openai-compatible.js';

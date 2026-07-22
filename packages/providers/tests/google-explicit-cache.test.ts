@@ -1,4 +1,4 @@
-import type { Request } from '@wrongstack/core';
+import type { Request } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { GoogleProvider } from '../src/google.js';
 

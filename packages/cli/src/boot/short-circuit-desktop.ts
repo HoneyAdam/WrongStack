@@ -8,7 +8,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import { color } from '@wrongstack/core';
+import { color } from '@wrongstack/core/utils';
 
 export function stripDesktopLauncherArgs(argv: string[]): string[] {
   const out: string[] = [];

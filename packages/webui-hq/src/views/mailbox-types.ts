@@ -9,7 +9,7 @@
  * This is a leaf module — no React state. It depends only on the core types
  * and Lucide icons so it can be unit-tested with vitest.
  */
-import type { HqMailboxMessageType } from '@wrongstack/core';
+import type { HqMailboxMessageType } from '@wrongstack/core/hq';
 import {
   Megaphone,
   MessageCircle,

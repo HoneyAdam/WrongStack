@@ -1,4 +1,5 @@
-import type { BrainConfigPatch, BrainConfigSnapshot, BrainRuntime } from '@wrongstack/core';
+import type { BrainConfigPatch, BrainRuntime } from '@wrongstack/core/execution';
+import type { BrainConfigSnapshot } from '@wrongstack/core/execution';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import {

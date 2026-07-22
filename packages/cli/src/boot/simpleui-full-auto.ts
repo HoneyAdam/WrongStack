@@ -1,4 +1,4 @@
-import type { Config } from '@wrongstack/core';
+import type { Config } from '@wrongstack/core/types';
 
 export type CliFlags = Record<string, string | boolean>;
 

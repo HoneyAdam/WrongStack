@@ -1,4 +1,7 @@
-import type { AgentExtension, HookRunner, TextBlock, UserInputPayload } from '@wrongstack/core';
+import type { AgentExtension } from '@wrongstack/core/extension';
+import type { HookRunner } from '@wrongstack/core/hooks';
+import type { TextBlock } from '@wrongstack/core/types';
+import type { UserInputPayload } from '@wrongstack/core/agent';
 
 /** Raised by the UserPromptSubmit middleware to block a turn before it runs. */
 export class HookBlockedError extends Error {

@@ -263,9 +263,11 @@ export class DefaultSessionStore implements SessionStore {
    * processes. When the limit is reached, the oldest entry is evicted.
    */
   private readonly _loadCache = new Map<string, LoadCacheEntry>();
+  private _loadCacheBytes = 0;
   private _indexCache: IndexCacheEntry | null = null;
   private readonly shardManifestCache = new Map<string, ShardManifestEntry>();
   private static readonly LOAD_CACHE_MAX_ENTRIES = 50;
+  private static readonly LOAD_CACHE_MAX_BYTES = 64 * 1024 * 1024;
   private static readonly LIST_SCAN_CONCURRENCY = 32;
 
   constructor(opts: SessionStoreOptions) {
@@ -296,9 +298,7 @@ export class DefaultSessionStore implements SessionStore {
   }
 
   private scrubSummaries(summaries: readonly SessionSummary[]): SessionSummary[] {
-    return summaries.map((summary) =>
-      scrubPersistedSessionSummary(summary, this.secretScrubber),
-    );
+    return summaries.map((summary) => scrubPersistedSessionSummary(summary, this.secretScrubber));
   }
 
   /**
@@ -307,10 +307,17 @@ export class DefaultSessionStore implements SessionStore {
    */
   clearLoadCache(sessionId?: string): void {
     if (sessionId !== undefined) {
-      this._loadCache.delete(sessionId);
+      this.deleteLoadCacheEntry(sessionId);
     } else {
       this._loadCache.clear();
+      this._loadCacheBytes = 0;
     }
+  }
+
+  private deleteLoadCacheEntry(sessionId: string): void {
+    const cached = this._loadCache.get(sessionId);
+    if (cached) this._loadCacheBytes = Math.max(0, this._loadCacheBytes - cached.size);
+    this._loadCache.delete(sessionId);
   }
 
   // â”€â”€ Storage event helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -710,10 +717,7 @@ export class DefaultSessionStore implements SessionStore {
               typeof (parsed as { type?: unknown | undefined }).type === 'string' &&
               typeof (parsed as { ts?: unknown | undefined }).ts === 'string'
             ) {
-              const ev = scrubPersistedSessionEvent(
-                parsed as SessionEvent,
-                this.secretScrubber,
-              );
+              const ev = scrubPersistedSessionEvent(parsed as SessionEvent, this.secretScrubber);
               events.push(ev);
 
               // Track metadata in the same pass.
@@ -906,14 +910,21 @@ export class DefaultSessionStore implements SessionStore {
       // through (they're cheap, and a hot loop on events-only would
       // otherwise evict full-load entries that callers also need).
       if (mode.full) {
-        if (this._loadCache.size >= DefaultSessionStore.LOAD_CACHE_MAX_ENTRIES) {
-          // Map iteration order is insertion order â€” delete the first key.
+        this.deleteLoadCacheEntry(id);
+        while (
+          stat.size <= DefaultSessionStore.LOAD_CACHE_MAX_BYTES &&
+          (this._loadCache.size >= DefaultSessionStore.LOAD_CACHE_MAX_ENTRIES ||
+            this._loadCacheBytes + stat.size > DefaultSessionStore.LOAD_CACHE_MAX_BYTES)
+        ) {
+          // Map iteration order is insertion order — delete the first key.
           const oldest = this._loadCache.keys().next().value;
-          if (oldest !== undefined) {
-            this._loadCache.delete(oldest);
-          }
+          if (oldest === undefined) break;
+          this.deleteLoadCacheEntry(oldest);
         }
-        this._loadCache.set(id, { mtimeMs: stat.mtimeMs, size: stat.size, data });
+        if (stat.size <= DefaultSessionStore.LOAD_CACHE_MAX_BYTES) {
+          this._loadCache.set(id, { mtimeMs: stat.mtimeMs, size: stat.size, data });
+          this._loadCacheBytes += stat.size;
+        }
       }
 
       return data;
@@ -1040,10 +1051,7 @@ export class DefaultSessionStore implements SessionStore {
             typeof (parsed as { type?: unknown }).type === 'string' &&
             typeof (parsed as { ts?: unknown }).ts === 'string'
           ) {
-            const ev = scrubPersistedSessionEvent(
-              parsed as SessionEvent,
-              this.secretScrubber,
-            );
+            const ev = scrubPersistedSessionEvent(parsed as SessionEvent, this.secretScrubber);
             if (predicate(ev, eventIndex, ev.ts)) {
               out.push({ event: ev, eventIndex, ts: ev.ts });
             }

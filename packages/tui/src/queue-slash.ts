@@ -1,5 +1,5 @@
-import type { SlashCommand } from '@wrongstack/core';
-import type { QueueItem } from './app.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { QueueItem } from './app-state.js';
 
 /**
  * Dependencies the `/queue` command needs from the App. The TUI registers

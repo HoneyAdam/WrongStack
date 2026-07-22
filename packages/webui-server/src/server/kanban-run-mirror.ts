@@ -20,13 +20,15 @@
  *      phantom assignments or a per-tick event storm.
  */
 
-import type { EventBus } from '@wrongstack/core';
+import type { EventBus } from '@wrongstack/core/kernel';
 import {
   deserializeTaskGraph,
-  type SerializedTaskGraph,
-  type TaskEdge,
-  type TaskNode,
-} from '@wrongstack/core';
+} from '@wrongstack/core/tasking';
+import type {
+  SerializedTaskGraph,
+  TaskEdge,
+  TaskNode,
+} from '@wrongstack/core/types';
 import {
   createBoard,
   getBoard,

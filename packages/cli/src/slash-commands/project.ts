@@ -2,10 +2,11 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import type { Context, SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { runProjectPicker } from '../project-picker.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 import {
   ensureProjectDataDir,
   findProject,

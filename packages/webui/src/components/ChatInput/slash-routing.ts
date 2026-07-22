@@ -32,6 +32,7 @@ type SlashRoutingClientMessage = Extract<
   | { type: 'goal.pause' }
   | { type: 'goal.resume' }
   | { type: 'goal.stop' }
+  | { type: 'config.doctor' }
 >;
 
 interface SlashRoutingClient {
@@ -136,7 +137,10 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       return true;
     case '/exit':
       client?.send?.({ type: 'webui.shutdown' });
-      addMessage({ role: 'assistant', content: '👋 Shutting down WebUI server…' });
+      addMessage({
+        role: 'assistant',
+        content: '👋 Shutting down WebUI server… Detached background processes will remain running.',
+      });
       return true;
     case '/compact':
     case '/compact!':
@@ -323,6 +327,25 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       });
       return true;
     }
+    case '/doctor': {
+      const subcommand = args.trim().toLowerCase();
+      if (subcommand && subcommand !== 'fix') {
+        addMessage({
+          role: 'assistant',
+          content: 'Usage: `/doctor` to preview or `/doctor fix` to repair and create a backup.',
+        });
+        return true;
+      }
+      client?.send?.({ type: 'config.doctor', payload: { apply: subcommand === 'fix' } });
+      addMessage({
+        role: 'assistant',
+        content:
+          subcommand === 'fix'
+            ? '🩺 Config Doctor is repairing the active profile config…'
+            : '🩺 Config Doctor is checking the active profile config…',
+      });
+      return true;
+    }
     case '/working-dir':
     case '/cwd': {
       const path = args.trim();
@@ -345,7 +368,24 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       const [sub, ...rest] = args.split(/\s+/).filter(Boolean);
       const subcmd = (sub ?? '').toLowerCase();
       if (subcmd === 'risk') {
-        client?.send?.({ type: 'brain.risk', payload: { level: (rest[0] ?? '').toLowerCase() } });
+        const level = (rest[0] ?? '').toLowerCase();
+        const valid = ['off', 'low', 'medium', 'high', 'all'];
+        if (!level) {
+          addMessage({
+            role: 'assistant',
+            content: `Usage: \`/brain risk <level>\` — one of: ${valid.map((m) => `\`${m}\``).join(', ')}.`,
+          });
+          return true;
+        }
+        if (!valid.includes(level)) {
+          addMessage({
+            role: 'assistant',
+            content: `Unknown risk level \`${level}\`. Try: ${valid.join(', ')}.`,
+          });
+          return true;
+        }
+        client?.send?.({ type: 'brain.risk', payload: { level } });
+        addMessage({ role: 'assistant', content: `🧠 Brain — risk → **${level}**.` });
       } else if (subcmd === 'ask') {
         const question = rest.join(' ').trim();
         if (!question) {

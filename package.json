@@ -44,7 +44,7 @@
     "check:clean-dist": "node scripts/check-build-lineage.mjs --assert-clean",
     "check:build-manifest": "node scripts/check-build-lineage.mjs --verify .reports/build-artifact-manifest.json",
     "write:build-manifest": "node scripts/check-build-lineage.mjs --write .reports/build-artifact-manifest.json",
-    "check:architecture": "node scripts/check-architecture-health.mjs",
+    "check:architecture": "node scripts/snapshot-core-public-api.mjs && node scripts/check-architecture-health.mjs",
     "check:test-inventory": "node scripts/check-test-inventory.mjs",
     "check:test-skips": "node scripts/check-test-skips.mjs",
     "check:test-types": "node scripts/check-test-typecheck.mjs",

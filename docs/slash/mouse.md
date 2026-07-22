@@ -2,22 +2,22 @@
 
 ## What It Does
 
-`/mouse on` enables **full mouse mode** in the TUI. The chat history stops
-riding the terminal's native scrollback and is instead rendered into a managed,
-in-app-scrolled viewport (`ScrollableHistory`). SGR mouse tracking stays on for
-the whole session, so:
+The chat history always uses a bounded, in-app-scrolled viewport
+(`ScrollableHistory`). `/mouse on` enables **full mouse mode** by keeping SGR
+mouse tracking on for the whole session, so:
 
 - The wheel scrolls the chat **in-app** (3 rows per notch).
 - `Shift+wheel` and `PgUp`/`PgDn` page through the in-app history.
 - A drag-able scrollbar is shown on the right edge.
 - Status-bar chips and confirm-prompt buttons become clickable.
 
-The trade-off is that the terminal's native wheel-scroll of its own scrollback
-is captured while tracking is active. The full session scroll lives in-app, and
-the complete log is always on disk. See `packages/tui/src/mouse.ts` for the
+The trade-off is that the terminal's native wheel-scroll is captured while
+tracking is active. The recent retained history lives in-app, and the complete
+session log remains on disk. See `packages/tui/src/mouse.ts` for the
 protocol-level rationale.
 
-`/mouse off` restores the default `<Static>` rendering and native scrollback.
+`/mouse off` disables persistent pointer tracking. The bounded history remains
+available with `PgUp`/`PgDn`.
 
 The command is stateless — it emits a toggle intent that the TUI App resolves
 against its live state, persists, and confirms. Outside the TUI it is a no-op.
@@ -28,7 +28,7 @@ against its live state, persists, and confirms. Outside the TUI it is a no-op.
 |---|---|
 | `/mouse` | Show current mouse-mode status |
 | `/mouse on` | Enable full mouse mode |
-| `/mouse off` | Disable it (restore native scrollback) |
+| `/mouse off` | Disable persistent pointer tracking |
 | `/mouse toggle` | Toggle current state |
 
 The command also accepts `enable`, `true`, `1`, `disable`, `false`, and `0`.

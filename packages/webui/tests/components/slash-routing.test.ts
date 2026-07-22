@@ -422,6 +422,27 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
     expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('settings');
   });
 
+  it.each([
+    ['/doctor', false],
+    ['/doctor fix', true],
+  ] as const)('%s runs Config Doctor with apply=%s', (raw, apply) => {
+    const opts = makeOptions({ raw });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).toHaveBeenCalledWith({
+      type: 'config.doctor',
+      payload: { apply },
+    });
+  });
+
+  it('/doctor rejects unsupported arguments', () => {
+    const opts = makeOptions({ raw: '/doctor heal' });
+    expect(runChatSlashCommand(opts)).toBe(true);
+    expect(opts.client?.send).not.toHaveBeenCalled();
+    expect(opts.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Usage') }),
+    );
+  });
+
   it('/mcp resources requests discovery without opening settings', () => {
     const opts = makeOptions({ raw: '/mcp resources docs --refresh' });
     expect(runChatSlashCommand(opts)).toBe(true);

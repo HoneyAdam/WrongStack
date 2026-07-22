@@ -1,4 +1,4 @@
-import type { ConfigStore } from '@wrongstack/core';
+import type { ConfigStore } from '@wrongstack/core/types';
 import { getProcessRegistry } from '@wrongstack/tools';
 import type { WebSocket } from 'ws';
 import { type PendingConfirm, resolveYoloEligiblePendingConfirms } from './pending-confirms.js';

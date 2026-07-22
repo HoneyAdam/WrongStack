@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Agent } from '@wrongstack/core';
+import type { Agent } from '@wrongstack/core/agent';
 
 import type { AgentServerTransport } from '../src/agent/stdio-transport.js';
 import { ACPProtocolHandler } from '../src/agent/protocol-handler.js';
@@ -69,6 +69,50 @@ function makeHandlerWithFactory(agentFor: (sessionId: string) => FakeAgent) {
 }
 
 describe('makeACPServerAgentTurn', () => {
+  it('drops agent and replay state when the protocol session closes', async () => {
+    const agentFor = vi.fn(async () => makeFakeAgent('bounded') as never as Agent);
+    const turn = makeACPServerAgentTurn({ agentFor });
+    const transport = fakeTransport();
+    const handler = new ACPProtocolHandler({
+      transport: transport as never as AgentServerTransport,
+      defaultCwd: '/test',
+      runTurn: turn,
+      disposeFor: turn.dispose,
+    });
+    await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });
+    await handler.handleMessage({ id: 2, method: 'session/new', params: {} });
+    const sessionId = (transport.sent.at(-1) as { result: { sessionId: string } }).result.sessionId;
+    await handler.handleMessage({
+      id: 3,
+      method: 'session/prompt',
+      params: { sessionId, prompt: [{ type: 'text', text: 'remember me' }] },
+    });
+    expect(turn.replay(sessionId)).toHaveLength(2);
+    await handler.handleMessage({ id: 4, method: 'session/close', params: { sessionId } });
+    expect(turn.replay(sessionId)).toEqual([]);
+  });
+
+  it('bounds in-memory replay history per session', async () => {
+    const turn = makeACPServerAgentTurn({
+      agentFor: async () => makeFakeAgent('answer') as never as Agent,
+      maxHistoryEntries: 2,
+      maxHistoryBytes: 1_024,
+    });
+    const signal = new AbortController().signal;
+    await turn(
+      { sessionId: 'bounded', cwd: '/test', prompt: [{ type: 'text', text: 'first' }], signal },
+      () => {},
+    );
+    await turn(
+      { sessionId: 'bounded', cwd: '/test', prompt: [{ type: 'text', text: 'second' }], signal },
+      () => {},
+    );
+    expect(turn.replay('bounded')).toEqual([
+      { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'second' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'answer' } },
+    ]);
+  });
+
   it('runs a turn, emits agent_message_chunk with the agent text, and resolves end_turn', async () => {
     const { handler, transport } = makeHandlerWithFactory(() => makeFakeAgent('hello world'));
     await handler.handleMessage({ id: 1, method: 'initialize', params: { protocolVersion: 1 } });

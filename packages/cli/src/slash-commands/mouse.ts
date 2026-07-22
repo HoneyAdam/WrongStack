@@ -1,5 +1,5 @@
-import type { SlashCommand } from '@wrongstack/core';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommand } from '@wrongstack/core/types';
+import type { SlashCommandContext } from './command-context.js';
 
 /**
  * `/mouse` — toggle "full mouse mode" in the TUI: the chat history is rendered

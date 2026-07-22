@@ -49,6 +49,31 @@ export interface AgentCapability {
    * prefer specific terms ("graphql", "wcag") over generic ones ("code").
    */
   keywords: string[];
+  /**
+   * Optional `RoleDispatcherSignal` attached to the role. Wave-1/2/3/4 roles
+   * carry this to make the "why this role wins" rationale auditable; legacy
+   * roles omit it and the dispatcher falls back to `summary` + `keywords`.
+   */
+  rationale?: RoleDispatcherSignal | undefined;
+}
+
+/**
+ * Read-only view of a role's dispatcher rationale, surfaceable to operators.
+ *
+ * `rationale` explains what the role owns; `signals` are the dispatcher's
+ * routing tokens (extended with role id, sibling keywords, etc. at scoring
+ * time); `differentiatesFrom` is the human-readable contrast against the
+ * closest sibling.
+ */
+export interface RoleDispatcherSignal {
+  rationale: string;
+  signals: readonly string[];
+  /**
+   * One-line description of how this role differs from its closest sibling
+   * ("X finds defects; Y designs threats before code exists"). Used by tests
+   * to assert distinct boundaries and by docs to explain routing.
+   */
+  differentiatesFrom: string;
 }
 
 /** A single catalog entry: runtime config + budget tier + routing metadata. */

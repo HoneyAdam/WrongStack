@@ -145,19 +145,47 @@ export interface SubagentConfig {
   systemPromptOverride?: string | undefined;
 
   /**
-   * Domain-specific knowledge injected into the subagent's system prompt
-   * between the shared scratchpad and the override. Typically populated
-   * from SKILL.md body content matching the subagent's role (e.g. the
-   * bug-hunter skill body for a bug-hunter subagent). Keeps subagents
-   * informed of same domain patterns the host agent knows.
+   * Skill names the host should prioritize for this subagent. Distinct from
+   * `Config.skills`, which configures discovery. The runtime resolves installed
+   * bodies through `SkillLoader`; missing optional skills are skipped safely.
+   */
+  skillNames?: string[] | undefined;
+
+  /**
+   * Project-level identity customization for this agent role.
+   * When set, the runtime loads project-specific overrides and learned
+   * wisdom files from `.wrongstack/agents/<role>/` and merges them
+   * on top of the base catalog definition.
+   */
+  projectIdentity?: {
+    /** Path to the project root (defaults to the factory's projectRoot). */
+    projectRoot?: string | undefined;
+    /**
+     * When true, the agent may update its own `learned.md` file after a
+     * task to pass project-specific patterns to future invocations.
+     */
+    canLearn?: boolean | undefined;
+    /**
+     * Static identity appendix overrides the identity.md file when set.
+     * Useful for programmatic overrides from CI or orchestration flows.
+     */
+    identityOverride?: string | undefined;
+  } | undefined;
+
+  /**
+   * Domain-specific knowledge injected into the subagent's system prompt after
+   * shared memory and before the role persona. Callers may supply this directly;
+   * runtimes append resolved `skillNames` content when available.
    */
   skillContent?: string | undefined;
 
   /** Optional task/mode selectors combined with the stable role for project agent-memory lookup. */
-  memoryContext?: {
-    taskType?: string | undefined;
-    mode?: string | undefined;
-  } | undefined;
+  memoryContext?:
+    | {
+        taskType?: string | undefined;
+        mode?: string | undefined;
+      }
+    | undefined;
 
   /**
    * Routing for streaming output. `'director'` (default) forwards

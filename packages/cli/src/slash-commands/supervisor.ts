@@ -12,10 +12,10 @@
  *   /supervisor on|off       arm / disarm the evaluation loop for this session
  *   /supervisor log [n]      show the last n signal→decision→action entries
  */
-import type { SlashCommand } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
+import { color } from '@wrongstack/core/utils';
 import { getActiveFleetSupervisor } from '../fleet/supervisor-registry.js';
-import type { SlashCommandContext } from './index.js';
+import type { SlashCommandContext } from './command-context.js';
 
 function fmtAge(at: number): string {
   const s = Math.max(0, Math.round((Date.now() - at) / 1000));

@@ -1,4 +1,4 @@
-import type { WireFamily } from '@wrongstack/core';
+import type { WireFamily } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import {
   CAPABILITIES_BY_FAMILY,

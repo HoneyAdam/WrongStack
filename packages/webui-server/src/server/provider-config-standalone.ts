@@ -4,7 +4,8 @@
  * don't bundle the AES-GCM `DefaultSecretVault`.
  */
 import * as path from 'node:path';
-import { DefaultSecretVault, type ProviderConfig } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core/security';
+import type { ProviderConfig } from '@wrongstack/core/types';
 import { loadSavedProviders, saveProviders } from './provider-config-io.js';
 
 /**

@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import type { MCPServerConfig, SecretVault } from '@wrongstack/core';
+import type { MCPServerConfig, SecretVault } from '@wrongstack/core/types';
 import { atomicWrite, withFileLock } from '@wrongstack/core/utils';
 import {
   authorizationHeaderForToken,

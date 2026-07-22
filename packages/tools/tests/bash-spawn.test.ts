@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { wrapPowerShellScript } from '../src/_shell-pick.js';
 
-// Drive bash's spawn-dependent branches deterministically (background buffering
-// + truncation, foreground error/throw, backpressure, teardown, both
+// Drive bash's spawn-dependent branches deterministically (background detach,
+// foreground error/throw, backpressure, teardown, both
 // platform kill paths) without launching a real shell.
 type Mode = 'close' | 'error' | 'hang';
 const hoisted = vi.hoisted(() => ({
@@ -209,20 +209,18 @@ describe('bashTool background (faked shell)', () => {
     expect(out.exit_code).toBeNull();
   });
 
-  it('caps background buffer at MAX_OUTPUT', async () => {
-    cfg.stdout = 'y'.repeat(200_000); // exceeds MAX_OUTPUT → truncated path
-    const out = await runFinal({ command: 'noisy', background: true });
-    expect(out.pid).toBe(7777);
-    // Background output arrives after the tool returns (fire-and-forget); let
-    // the onBgData handler run so the truncation path executes.
-    await new Promise((r) => setTimeout(r, 10));
+  it('disconnects background stdout/stderr so the job survives host exit', async () => {
+    await runFinal({ command: 'noisy', background: true });
+    expect((cfg.spawnCalls.at(-1)?.opts.stdio as string[]).slice(1)).toEqual([
+      'ignore',
+      'ignore',
+    ]);
   });
 
-  it('feeds the background buffer with a small chunk', async () => {
-    cfg.stdout = 'small bg output';
+  it('returns an empty output envelope for detached background jobs', async () => {
     const out = await runFinal({ command: 'svc', background: true });
     expect(out.pid).toBe(7777);
-    await new Promise((r) => setTimeout(r, 10));
+    expect(out.output).toBe('');
   });
 });
 

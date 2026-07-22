@@ -19,7 +19,7 @@
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as v8 from 'node:v8';
-import { wstackGlobalRoot } from '@wrongstack/core';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 
 export interface HeapSample {
   ts: string;

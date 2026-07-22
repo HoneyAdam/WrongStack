@@ -11,7 +11,7 @@
  * multi-project usage trivially correct and crash recovery simple.
  */
 
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { runIndexer } from './indexer.js';
 import type { CodeMapGraph, IndexResult, IndexStats, SymbolKind, SymbolLang } from './schema.js';
 import type { IndexOpArgs, SearchOpArgs, SearchOpResult, StatsOpArgs } from './worker-protocol.js';

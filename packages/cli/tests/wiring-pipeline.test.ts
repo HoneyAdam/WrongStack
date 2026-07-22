@@ -1,17 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { setupPipelines, setupCompaction, createAgent } from '../src/wiring/pipeline.js';
-import {
-  Agent,
-  AutoCompactionMiddleware,
-  Container,
-  EventBus,
-  ProviderRegistry,
-  ToolRegistry,
-  TOKENS,
-  DefaultLogger,
-  DefaultSecretScrubber,
-  DefaultPermissionPolicy,
-} from '@wrongstack/core';
+import { Agent } from '@wrongstack/core/agent';
+import { AutoCompactionMiddleware } from '@wrongstack/core/execution';
+import { Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { DefaultLogger } from '@wrongstack/core/infrastructure';
+import { DefaultSecretScrubber, DefaultPermissionPolicy } from '@wrongstack/core/security';
 
 vi.mock('@wrongstack/providers', () => ({
   capabilitiesFor: vi.fn(),

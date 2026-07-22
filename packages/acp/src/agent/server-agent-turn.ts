@@ -38,7 +38,7 @@
  * it. On abort, the adapter maps the resulting `AbortError` to
  * `{stopReason: 'cancelled'}`.
  */
-import type { Agent, AgentInput } from '@wrongstack/core';
+import type { Agent, AgentInput } from '@wrongstack/core/agent';
 import type {
   ContentBlock,
   PlanEntry,
@@ -76,6 +76,10 @@ export interface ACPServerAgentTurnOptions {
    * Default 5 minutes.
    */
   timeoutMs?: number | undefined;
+  /** Maximum replay entries retained per session. Default 1000. */
+  maxHistoryEntries?: number | undefined;
+  /** Maximum serialized replay bytes retained per session. Default 8 MiB. */
+  maxHistoryBytes?: number | undefined;
 }
 
 /** A recorded conversation turn, replayable on `session/load`. */
@@ -99,6 +103,8 @@ export interface ACPServerAgentTurn {
    * client UI. Call before the first post-load `session/prompt`.
    */
   seed(sessionId: string, history: ReadonlyArray<{ sessionUpdate: string; content: unknown }>): void;
+  /** Drop the session's Agent, timers, seed marker, and in-memory replay history. */
+  dispose(sessionId: string): void;
 }
 
 /**
@@ -115,10 +121,13 @@ export function makeACPServerAgentTurn(
   const agents = new Map<string, Agent>();
   const timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   const history = new Map<string, SessionReplayUpdate[]>();
+  const historyBytes = new Map<string, number>();
   // Sessions restored from a durable store whose freshly-created Agent must
   // be primed with the prior conversation before its first turn runs.
   const pendingSeed = new Set<string>();
   const timeoutMs = opts.timeoutMs ?? 5 * 60_000;
+  const maxHistoryEntries = finitePositiveLimit(opts.maxHistoryEntries, 1_000);
+  const maxHistoryBytes = finitePositiveLimit(opts.maxHistoryBytes, 8 * 1024 * 1024);
 
   const turn = async (
     input: Parameters<RunTurn>[0],
@@ -210,13 +219,36 @@ export function makeACPServerAgentTurn(
       // Record the turn so `session/load` can replay the conversation.
       const userText = promptToText(input.prompt);
       const hist = history.get(input.sessionId) ?? [];
+      let retainedHistoryBytes = historyBytes.get(input.sessionId) ?? 0;
       if (userText) {
-        hist.push({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: userText } });
+        const update: SessionReplayUpdate = {
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'text', text: userText },
+        };
+        hist.push(update);
+        retainedHistoryBytes += replayEntryBytes(update);
       }
       if (text) {
-        hist.push({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+        const update: SessionReplayUpdate = {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text },
+        };
+        hist.push(update);
+        retainedHistoryBytes += replayEntryBytes(update);
       }
-      if (hist.length > 0) history.set(input.sessionId, hist);
+      retainedHistoryBytes = trimHistory(
+        hist,
+        retainedHistoryBytes,
+        maxHistoryEntries,
+        maxHistoryBytes,
+      );
+      if (hist.length > 0) {
+        history.set(input.sessionId, hist);
+        historyBytes.set(input.sessionId, retainedHistoryBytes);
+      } else {
+        history.delete(input.sessionId);
+        historyBytes.delete(input.sessionId);
+      }
 
       // Emit plan if the agent provided one
       const plan = extractPlan(result);
@@ -256,19 +288,60 @@ export function makeACPServerAgentTurn(
     }
   };
 
-  const replay = (sessionId: string): SessionReplayUpdate[] =>
-    history.get(sessionId) ?? [];
+  const replay = (sessionId: string): SessionReplayUpdate[] => [
+    ...(history.get(sessionId) ?? []),
+  ];
 
   const seed = (
     sessionId: string,
     incoming: ReadonlyArray<{ sessionUpdate: string; content: unknown }>,
   ): void => {
     if (incoming.length === 0) return;
-    history.set(sessionId, [...incoming] as SessionReplayUpdate[]);
+    const seeded = [...incoming] as SessionReplayUpdate[];
+    const retainedBytes = trimHistory(
+      seeded,
+      seeded.reduce((total, entry) => total + replayEntryBytes(entry), 0),
+      maxHistoryEntries,
+      maxHistoryBytes,
+    );
+    history.set(sessionId, seeded);
+    historyBytes.set(sessionId, retainedBytes);
     pendingSeed.add(sessionId);
   };
 
-  return Object.assign(turn, { replay, seed });
+  const dispose = (sessionId: string): void => {
+    const timer = timeouts.get(sessionId);
+    if (timer) clearTimeout(timer);
+    timeouts.delete(sessionId);
+    agents.delete(sessionId);
+    history.delete(sessionId);
+    historyBytes.delete(sessionId);
+    pendingSeed.delete(sessionId);
+  };
+
+  return Object.assign(turn, { replay, seed, dispose });
+}
+
+function finitePositiveLimit(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.floor(value as number) : fallback;
+}
+
+function trimHistory(
+  entries: SessionReplayUpdate[],
+  retainedBytes: number,
+  maxEntries: number,
+  maxBytes: number,
+): number {
+  while (entries.length > maxEntries || retainedBytes > maxBytes) {
+    const removed = entries.shift();
+    if (!removed) break;
+    retainedBytes -= replayEntryBytes(removed);
+  }
+  return Math.max(0, retainedBytes);
+}
+
+function replayEntryBytes(entry: SessionReplayUpdate): number {
+  return Buffer.byteLength(JSON.stringify(entry), 'utf8');
 }
 
 /**

@@ -24,7 +24,7 @@ import type {
   HqMailboxSnapshotPayload,
   HqMailboxSummary,
   HqSnapshot,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 
 export type MessageSource = 'event' | 'snapshot';
 

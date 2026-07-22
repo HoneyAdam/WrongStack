@@ -1,33 +1,27 @@
 import {
-  type Config,
-  Container,
-  createStrategyCompactor,
-  DefaultConfigStore,
-  DefaultErrorHandler,
-  FallbackProfileManager,
-  DefaultModeStore,
-  DefaultPermissionPolicy,
-  DefaultPromptLoader,
-  DefaultRetryPolicy,
-  DefaultSecretScrubber,
-  DefaultSessionStore,
-  DefaultSkillLoader,
   DefaultSystemPromptBuilder,
   type DefaultSystemPromptBuilderOptions,
-  type EventBus,
-  type Logger,
-  type ModelsRegistry,
-  TOKENS,
-  type Tool,
-  type WstackPaths,
-} from '@wrongstack/core';
+  FallbackProfileManager,
+} from '@wrongstack/core/agent';
+import {
+  createStrategyCompactor,
+  DefaultErrorHandler,
+  DefaultPromptLoader,
+  DefaultRetryPolicy,
+  DefaultSkillLoader,
+} from '@wrongstack/core/execution';
+import { Container, type EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { DefaultModeStore } from '@wrongstack/core/models';
+import { DefaultPermissionPolicy, DefaultSecretScrubber } from '@wrongstack/core/security';
+import { DefaultConfigStore, DefaultSessionStore } from '@wrongstack/core/storage';
+import type { Config, Logger, ModelsRegistry, Tool } from '@wrongstack/core/types';
+import type { WstackPaths } from '@wrongstack/core/utils';
 // PR-C1 (66c4eb68): execution/ and infrastructure/ symbols come from the
 // published subpaths now that types/index.ts no longer re-exports them.
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
-import { SqliteSuperMemoryStore, isSqliteAvailable } from '@wrongstack/super-memory';
-import type { MemoryStore } from '@wrongstack/core';
+import { createSqliteMemoryPort, isSqliteAvailable } from '@wrongstack/super-memory';
 
 export interface CreateContainerOptions {
   config: Config;
@@ -144,12 +138,13 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
         'The JSONL compatibility fallback has been removed.',
     );
   }
-  const memoryStore = new SqliteSuperMemoryStore({
+  const memoryStore = createSqliteMemoryPort({
     projectRoot: wpaths.projectRoot,
     directory: config.superMemory?.storage?.directory,
     events: opts.events,
   });
-  container.bind(TOKENS.MemoryStore, () => memoryStore as unknown as MemoryStore);
+  container.bind(TOKENS.MemoryStore, () => memoryStore);
+  container.bind(TOKENS.MemoryPort, () => memoryStore);
 
   const skillLoader = new DefaultSkillLoader({
     paths: wpaths,

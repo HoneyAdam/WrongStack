@@ -1,6 +1,6 @@
 import type { AutonomyAgentStatus } from './components/history/types.js';
-import type { FleetChatVerbosity, Message, SessionEvent, TokenSavingTier } from '@wrongstack/core';
-import { AUTH_PANEL_INITIAL } from './components/auth-panel-model.js';
+import type { FleetChatVerbosity, Message, SessionEvent, TokenSavingTier } from '@wrongstack/core/types';
+import { AUTH_PANEL_INITIAL } from './auth-panel-model.js';
 import { replaySessionMessages } from './components/history/replay.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
 import { rehydrateHistory } from './rehydrate-history.js';

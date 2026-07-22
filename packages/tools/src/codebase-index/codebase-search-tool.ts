@@ -16,7 +16,7 @@
  * slow this tool down but can never freeze the terminal.
  */
 
-import type { Tool } from '@wrongstack/core';
+import type { Tool } from '@wrongstack/core/types';
 import {
   codebaseIndexStats,
   getIndexState,

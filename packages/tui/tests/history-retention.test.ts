@@ -1,6 +1,7 @@
-import type { Message } from '@wrongstack/core';
+import type { Message } from '@wrongstack/core/types';
 import { describe, expect, it } from 'vitest';
 import { buildRestoredEntries, createInitialState } from '../src/app-initial-state.js';
+import { reducer } from '../src/app-reducer.js';
 import type { HistoryEntry } from '../src/components/history/types.js';
 import { retainTuiHistory, TUI_HISTORY_MAX_ENTRIES } from '../src/history-retention.js';
 
@@ -52,6 +53,30 @@ describe('bounded TUI display history', () => {
       text: '… 3 earlier TUI entries omitted (full session remains on disk).',
     });
     expect(next.slice(1).map((entry) => entry.id)).toEqual([4, 5]);
+  });
+
+  it('bounds live reducer history without waiting for a render effect', () => {
+    let state = createInitialState({
+      banner: false,
+      model: 'test-model',
+      cwd: '/project',
+      restoredEntries: [],
+      enhanceEnabled: false,
+    });
+
+    for (let index = 0; index < TUI_HISTORY_MAX_ENTRIES + 25; index += 1) {
+      state = reducer(state, {
+        type: 'addEntry',
+        entry: { kind: 'info', text: `live-${index + 1}` },
+      });
+    }
+
+    expect(state.entries).toHaveLength(TUI_HISTORY_MAX_ENTRIES + 1);
+    expect(state.entries[0]).toMatchObject({
+      text: '… 25 earlier TUI entries omitted (full session remains on disk).',
+    });
+    expect(state.entries.at(-1)).toMatchObject({ text: `live-${TUI_HISTORY_MAX_ENTRIES + 25}` });
+    expect(state.nextId).toBe(TUI_HISTORY_MAX_ENTRIES + 26);
   });
 
   it('also enforces a byte budget without dropping the newest entry', () => {

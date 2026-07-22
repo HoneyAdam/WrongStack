@@ -41,6 +41,8 @@ export interface TrackedProcess {
    *  Used for infrastructure processes (browser, dev servers, …) that
    *  must outlive the agent session. */
   protected: boolean;
+  /** True for an explicitly detached/background tool launch. */
+  background: boolean;
 }
 
 // redactCommand (and its sensitive-flag patterns) lives in _redact-command.ts
@@ -53,6 +55,8 @@ interface KillOpts {
   force?: boolean | undefined;
   /** MS to wait between SIGTERM and SIGKILL on POSIX. Default: 2000. */
   graceMs?: number | undefined;
+  /** Leave explicitly backgrounded jobs alive. Default false. */
+  preserveBackground?: boolean | undefined;
 }
 
 /**
@@ -68,6 +72,7 @@ type BreakerCountdownListener = (snapshot: BreakerCountdown | null) => void;
 
 export interface RegistryStats {
   activeCount: number;
+  backgroundCount: number;
   totalCount: number;
   breaker: CircuitBreakerSnapshot;
 }
@@ -167,8 +172,18 @@ export class ProcessRegistryImpl {
     this.breaker.setEnabled(false);
   }
 
-  register(info: Omit<TrackedProcess, 'killed' | 'protected'> & { protected?: boolean | undefined }): void {
-    this.processes.set(info.pid, { ...info, killed: false, protected: info.protected ?? false });
+  register(
+    info: Omit<TrackedProcess, 'killed' | 'protected' | 'background'> & {
+      protected?: boolean | undefined;
+      background?: boolean | undefined;
+    },
+  ): void {
+    this.processes.set(info.pid, {
+      ...info,
+      killed: false,
+      protected: info.protected ?? false,
+      background: info.background ?? false,
+    });
   }
 
   private _isSafeSignalPid(pid: number): boolean {
@@ -241,12 +256,22 @@ export class ProcessRegistryImpl {
     return n;
   }
 
+  /** Count of active jobs explicitly launched in background mode. */
+  get activeBackgroundCount(): number {
+    let n = 0;
+    for (const p of this.processes.values()) {
+      if (p.background && !p.killed) n++;
+    }
+    return n;
+  }
+
   /**
    * Combined stats for observability — used by /ps and the TUI status bar.
    */
   stats(): RegistryStats {
     return {
       activeCount: this.activeCount,
+      backgroundCount: this.activeBackgroundCount,
       totalCount: this.processes.size,
       breaker: this.breaker.snapshot(),
     };
@@ -363,7 +388,7 @@ export class ProcessRegistryImpl {
       this.autoKillTimer = null;
       this.autoKillArmedAt = null;
       // Forced recovery: nuke runaway processes and reopen the circuit.
-      this.killAll({ force: false });
+      this.killAll({ force: false, preserveBackground: true });
       this.breaker.forceReset();
       this._emitBreakerCountdown();
     }, this.autoKillResetMs);
@@ -407,6 +432,7 @@ export class ProcessRegistryImpl {
     if (!p) return false;
     if (p.killed) return true; // already kill()ed, don't double-send
     if (p.protected) return false; // protected processes are never kill()ed
+    if (opts.preserveBackground && p.background) return false;
 
     const { force = false, graceMs = DEFAULT_GRACE_MS } = opts;
     const isWin = os.platform() === 'win32';

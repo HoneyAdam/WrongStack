@@ -30,15 +30,9 @@ import {
   openBrowser,
   startLoopbackServer as startSharedLoopbackServer,
 } from './loopback-server.js';
-import {
-  CODEX_MODELS,
-  color,
-  FetchError,
-  ParseError,
-  type ModelsRegistry,
-  type ProviderApiKey,
-  type ProviderConfig,
-} from '@wrongstack/core';
+import { CODEX_MODELS } from '@wrongstack/core/models';
+import { color } from '@wrongstack/core/utils';
+import { FetchError, ParseError, type ModelsRegistry, type ProviderApiKey, type ProviderConfig } from '@wrongstack/core/types';
 import {
   mutateConfigProviders,
   normalizeKeys,

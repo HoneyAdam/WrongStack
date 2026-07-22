@@ -18,7 +18,7 @@ describe('ACP stdio transport env sanitization', () => {
 
   it('buildChildEnv strips API keys from child environment', async () => {
     // Import buildChildEnv directly to verify it strips secrets
-    const { buildChildEnv } = await import('@wrongstack/core');
+    const { buildChildEnv } = await import('@wrongstack/core/utils');
     const childEnv = buildChildEnv();
 
     // API keys should NOT be forwarded
@@ -35,7 +35,7 @@ describe('ACP stdio transport env sanitization', () => {
 
   it('buildChildEnv preserves non-secret env vars', async () => {
     process.env['MY_CUSTOM_VAR'] = 'safe-value';
-    const { buildChildEnv } = await import('@wrongstack/core');
+    const { buildChildEnv } = await import('@wrongstack/core/utils');
     const childEnv = buildChildEnv();
 
     // Non-secret custom vars should pass through
@@ -48,7 +48,7 @@ describe('ACP stdio transport env sanitization', () => {
   it('passthrough mode forwards all env vars including secrets', async () => {
     process.env['WRONGSTACK_CHILD_ENV_PASSTHROUGH'] = '1';
     process.env['CI'] = ''; // Clear CI to enable passthrough
-    const { buildChildEnv } = await import('@wrongstack/core');
+    const { buildChildEnv } = await import('@wrongstack/core/utils');
     const childEnv = buildChildEnv();
 
     // In passthrough mode, everything should be forwarded

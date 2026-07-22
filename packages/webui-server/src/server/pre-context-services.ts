@@ -22,44 +22,54 @@
 
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import type { Config, Logger, MemoryStore } from '@wrongstack/core';
+import { Context, DefaultSystemPromptBuilder } from '@wrongstack/core/agent';
 import {
-  type AgentStatusTracker,
-  AnnotationsStore,
-  type ConfigStore,
-  type Container,
-  Context,
-  configureChildEnvGitIdentity,
-  DEFAULT_SESSION_PRUNE_DAYS,
-  DefaultModelsRegistry,
-  DefaultModeStore,
-  DefaultPromptLoader,
-  DefaultSessionReader,
-  DefaultSessionStore,
-  DefaultSkillLoader,
-  DefaultSystemPromptBuilder,
-  EventBus,
   GlobalMailbox,
-  getSessionRegistry,
-  type ModelsRegistry,
   makeFleetStatusTool,
   makeMailboxTool,
   makeMailInboxTool,
   makeMailSendTool,
-  normalizeTokenSavingTier,
+} from '@wrongstack/core/coordination';
+import {
+  DefaultPromptLoader,
+  DefaultSkillLoader,
+} from '@wrongstack/core/execution';
+import {
+  Container,
+  EventBus,
+  TOKENS,
+} from '@wrongstack/core/kernel';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import { DefaultModelsRegistry, DefaultModeStore } from '@wrongstack/core/models';
+import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { SkillInstaller } from '@wrongstack/core/skills';
+import {
+  type AgentStatusTracker,
+  AnnotationsStore,
+  DefaultSessionReader,
+  DefaultSessionStore,
+  getSessionRegistry,
   PromptUsageStore,
-  type Provider,
-  ProviderRegistry,
+} from '@wrongstack/core/storage';
+import {
+  DEFAULT_SESSION_PRUNE_DAYS,
+  normalizeTokenSavingTier,
   resolveContextWindowPolicy,
+  type Config,
+  type ConfigStore,
+  type Logger,
+  type MemoryPort,
+  type ModelsRegistry,
+  type Provider,
   type SecretVault,
   type SessionStore,
-  SkillInstaller,
-  TOKENS,
-  ToolRegistry,
-} from '@wrongstack/core';
-import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
-import type { WstackPaths } from '@wrongstack/core/utils';
-import { sessionScopedPath, toErrorMessage } from '@wrongstack/core/utils';
+} from '@wrongstack/core/types';
+import {
+  configureChildEnvGitIdentity,
+  sessionScopedPath,
+  toErrorMessage,
+  type WstackPaths,
+} from '@wrongstack/core/utils';
 import {
   createVaultBackedMcpAuthorizationProviderFactory,
   MCPAuthorizationManager,
@@ -106,7 +116,7 @@ interface PreContextServices {
   configStore: ConfigStore;
   providerRegistry: ProviderRegistry;
   toolRegistry: ToolRegistry;
-  memoryStore: MemoryStore;
+  memoryStore: MemoryPort;
   events: EventBus;
   mcpRegistry: import('@wrongstack/mcp').MCPRegistry;
   sessionStore: SessionStore;
@@ -198,7 +208,7 @@ export async function createPreContextServices(
 
   // ── Tool registry (+ memory + mailbox tools) ──
   const toolRegistry = opts.services?.toolRegistry ?? new ToolRegistry();
-  const memoryStore = container.resolve<MemoryStore>(TOKENS.MemoryStore);
+  const memoryStore = container.resolve(TOKENS.MemoryStore);
   if (!opts.services?.toolRegistry) {
     registerCanonicalHostTools({
       registry: toolRegistry,
@@ -414,7 +424,7 @@ export async function createPreContextServices(
   }
 
   // ── System prompt (with online agents from the shared mailbox) ──
-  let onlineAgents: import('@wrongstack/core').MailboxAgentStatus[] = [];
+  let onlineAgents: import('@wrongstack/core/coordination').MailboxAgentStatus[] = [];
   try {
     const systemMailbox = new GlobalMailbox(wpaths.projectDir);
     onlineAgents = await systemMailbox.getAgentStatuses();

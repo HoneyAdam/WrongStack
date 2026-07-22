@@ -8,6 +8,7 @@ export const SERVER_KNOWLEDGE_MESSAGE_TYPES = [
   'chronicle.facets_result',
   'chronicle.graph_result',
   'chronicle.query_result',
+  'config.doctor.result',
   'design.list',
   'design.materialize',
   'design.set',

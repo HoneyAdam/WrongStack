@@ -1,7 +1,7 @@
-import type { TodoItem } from '@wrongstack/core';
+import type { TodoItem } from '@wrongstack/core/agent';
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import type { FleetEntry } from '../app.js';
+import type { FleetEntry } from '../app-state.js';
 import { Box, Text, useStdout } from '../ink.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';

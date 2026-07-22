@@ -51,13 +51,10 @@
  *   is simpler to sync back than 8 separate refs, and the mutation
  *   pattern (`.field = x`) is cleaner than `.field.current = x`.
  */
-import type {
-  AutonomousCoordinator,
-  CoordinatorEvent,
-  RecoveryLock,
-  SessionStore,
-  WstackPaths,
-} from '@wrongstack/core';
+import type { AutonomousCoordinator, CoordinatorEvent } from '@wrongstack/core/coordination';
+import type { RecoveryLock } from '@wrongstack/core/storage';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import type { SessionStore } from '@wrongstack/core/types';
 import type { PendingProjectSwitch } from './tui-project-spawn.js';
 
 /**

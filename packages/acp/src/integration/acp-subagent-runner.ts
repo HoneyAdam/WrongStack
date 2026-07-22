@@ -18,7 +18,7 @@ import type {
   SubagentRunOutcome,
   SubagentRunner,
   TaskSpec,
-} from '@wrongstack/core';
+} from '@wrongstack/core/types';
 import {
   ACPSession,
   ACPSessionError,

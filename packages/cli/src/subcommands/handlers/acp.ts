@@ -158,7 +158,7 @@ async function runACPWebSocketServer(deps: SubcommandDeps, port: number): Promis
   // `--echo` over WS: a no-provider connectivity test, mirroring stdio `--echo`.
   const echo = deps.flags?.echo === true || deps.flags?.echo === 'true';
 
-  let turn: ReturnType<typeof makeACPServerAgentTurn> | undefined;
+  let turnFactory: (() => ReturnType<typeof makeACPServerAgentTurn>) | undefined;
   let echoTurn: RunTurn | undefined;
   let store: ACPSessionStore | undefined;
   if (echo) {
@@ -174,13 +174,13 @@ async function runACPWebSocketServer(deps: SubcommandDeps, port: number): Promis
       }
       throw err;
     }
-    turn = makeACPServerAgentTurn({ agentFor });
+    turnFactory = () => makeACPServerAgentTurn({ agentFor });
     store = deps.paths?.projectDir
       ? new ACPSessionStore({ dir: path.join(deps.paths.projectDir, 'acp-sessions') })
       : undefined;
   }
 
-  const wss = new WebSocketServer({ host, port });
+  const wss = new WebSocketServer({ host, port, maxPayload: 20 * 1024 * 1024 });
   wss.on('connection', (socket, req) => {
     // Origin guard: real ACP clients send no Origin; reject cross-origin
     // browser connections so a web page can't drive this loopback agent.
@@ -189,12 +189,26 @@ async function runACPWebSocketServer(deps: SubcommandDeps, port: number): Promis
       socket.close(1008, 'cross-origin forbidden');
       return;
     }
-    const transport = new WsBridgeTransport((m) => socket.send(JSON.stringify(m)));
+    const connectionTurn = turnFactory?.();
+    const transport = new WsBridgeTransport((m) => {
+      const data = JSON.stringify(m);
+      if (socket.bufferedAmount + Buffer.byteLength(data, 'utf8') > 32 * 1024 * 1024) {
+        socket.terminate();
+        return;
+      }
+      socket.send(data);
+    });
     const handler = new ACPProtocolHandler({
       transport,
       defaultCwd: deps.cwd ?? process.cwd(),
-      runTurn: turn ?? echoTurn!,
-      ...(turn ? { replayFor: turn.replay, seedFor: turn.seed } : {}),
+      runTurn: connectionTurn ?? echoTurn!,
+      ...(connectionTurn
+        ? {
+            replayFor: connectionTurn.replay,
+            seedFor: connectionTurn.seed,
+            disposeFor: connectionTurn.dispose,
+          }
+        : {}),
       ...(store ? { store } : {}),
     });
     socket.on('message', (data: { toString(): string }) => {
@@ -268,6 +282,7 @@ async function runACPServer(deps: SubcommandDeps): Promise<number> {
             runTurn: turn,
             replayFor: turn.replay,
             seedFor: turn.seed,
+            disposeFor: turn.dispose,
             ...(store ? { store } : {}),
           };
         })(),

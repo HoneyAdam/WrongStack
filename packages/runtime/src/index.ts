@@ -1,27 +1,10 @@
 /**
  * @wrongstack/runtime
  *
- * Transitional home for concrete runtime implementations.
- *
- * The long-term package boundary is:
- *   - @wrongstack/core: kernel, agent runtime, registries, public contracts.
- *   - @wrongstack/runtime: default storage, security, config, observability,
- *     compaction, models, skills, and host composition helpers.
- *
- * For this first refactor slice, the implementations still physically live in
- * @wrongstack/core and are re-exported here. That gives hosts a stable import
- * target while later moves can happen behind this facade.
+ * Concrete host composition and platform adapters. Core-owned defaults are
+ * deliberately not re-exported: doing so obscures ownership and makes a
+ * Core-compatible Runtime implementation move cyclic at package level.
  */
-
-export {
-  DefaultSystemPromptBuilder,
-  type DefaultSystemPromptBuilderOptions,
-} from '@wrongstack/core';
-export * from '@wrongstack/core/defaults';
-export {
-  DefaultPathResolver,
-  DefaultTokenCounter,
-} from '@wrongstack/core/infrastructure';
 export * from './clipboard.js';
 export * from './container.js';
 export {

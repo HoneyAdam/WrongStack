@@ -111,7 +111,7 @@ describe('<Entry /> — comprehensive coverage', () => {
   describe('warn kind', () => {
     it('renders warn text', () => {
       const frame = renderEntry({ id: 1, kind: 'warn', text: 'warning message' });
-      expect(frame).toContain('WARN');
+      expect(frame).toContain('⚠');
       expect(frame).toContain('warning message');
     });
   });

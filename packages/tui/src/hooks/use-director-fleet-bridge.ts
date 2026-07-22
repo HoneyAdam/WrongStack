@@ -1,4 +1,5 @@
-import type { Director, FleetChatVerbosity, FleetEvent } from '@wrongstack/core';
+import type { Director, FleetEvent } from '@wrongstack/core/coordination';
+import type { FleetChatVerbosity } from '@wrongstack/core/types';
 import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
@@ -265,17 +266,8 @@ export function useDirectorFleetBridge({
           break;
         }
         case 'provider.retry': {
-          const payload = event.payload as {
-            attempt?: number | undefined;
-            delayMs?: number | undefined;
-          };
-          enqueue({
-            type: 'addEntry',
-            entry: {
-              kind: 'warn',
-              text: `subagent retry ${payload?.attempt ?? '?'}${payload?.delayMs ? ` (${payload.delayMs}ms)` : ''}`,
-            },
-          });
+          // Subagent retries are visible in the fleet/agents monitor (F2/F3).
+          // No need to clutter chat history with them.
           break;
         }
         case 'provider.error': {

@@ -1,4 +1,4 @@
-import { expectDefined } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import { useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 function detectStackBoundary(text: string): number {

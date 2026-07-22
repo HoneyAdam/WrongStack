@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultSecretVault, type ModelsRegistry, } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core/security';
+import { type ModelsRegistry } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { type AuthMenuDeps, runAuthLocal } from '../src/auth-menu/index.js';
 import type { ReadlineInputReader } from '../src/input-reader.js';

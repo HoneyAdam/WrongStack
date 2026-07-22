@@ -16,7 +16,7 @@ import {
   mintHqToken,
   readHqAuthFile,
   tokenHasCapability,
-} from '@wrongstack/core';
+} from '@wrongstack/core/hq';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';

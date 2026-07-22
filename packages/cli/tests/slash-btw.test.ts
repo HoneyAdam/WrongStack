@@ -1,4 +1,4 @@
-import type { Context } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
 import { describe, expect, it } from 'vitest';
 import { buildBtwCommand } from '../src/slash-commands/btw.js';
 import type { SlashCommandContext } from '../src/slash-commands/index.js';

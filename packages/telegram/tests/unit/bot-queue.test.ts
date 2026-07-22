@@ -1,4 +1,4 @@
-import type { Logger } from '@wrongstack/core';
+import type { Logger } from '@wrongstack/core/types';
 import { describe, expect, it, vi } from 'vitest';
 import { TelegramBotOutbound } from '../../src/bot-queue.js';
 import type { TelegramBot } from '../../src/bot.js';

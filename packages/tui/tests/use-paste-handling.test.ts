@@ -2,7 +2,7 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import type { InputBuilder } from '@wrongstack/core';
+import type { InputBuilder } from '@wrongstack/core/agent';
 import { Text } from '../src/ink.js';
 import { usePasteHandling, type UsePasteHandlingOptions } from '../src/hooks/use-paste-handling.js';
 import * as clipboardModule from '../src/clipboard.js';

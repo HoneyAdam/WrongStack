@@ -37,6 +37,7 @@ function build(cfgGet: CfgGetter = () => ({}), apiConfig: Record<string, unknown
   const api = { config: apiConfig, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() }, log: { info: vi.fn(), warn } } as never;
   const opts = withOpts ? {
     paths: {
+      configDir: tmp,
       syncConfig: path.join(tmp, 'sync.json'),
       profileConfig: (name: string) => path.join(tmp, 'profiles', name, 'config.json'),
     } as never,
@@ -75,7 +76,7 @@ describe('createSyncPlugin lifecycle', () => {
   it('reads paths/configStore/vault from api.config as a fallback', () => {
     const configStore = { get: vi.fn(() => ({})), update: vi.fn() };
     const registered: SlashCommand[] = [];
-    const api = { config: { paths: { syncConfig: path.join(tmp, 's.json') }, configStore, vault: { encrypt: (t: string) => t } }, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() }, log: { info: vi.fn(), warn: vi.fn() } } as never;
+    const api = { config: { paths: { configDir: tmp, syncConfig: path.join(tmp, 's.json'), profileConfig: (name: string) => path.join(tmp, 'profiles', name, 'config.json') }, configStore, vault: { encrypt: (t: string) => t } }, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() }, log: { info: vi.fn(), warn: vi.fn() } } as never;
     createSyncPlugin().setup!(api);
     expect(registered[0]?.name).toBe('sync');
   });
@@ -128,7 +129,7 @@ describe('/sync verbs', () => {
     const registered: SlashCommand[] = [];
     const configStore = { get: () => ({}), update: vi.fn() };
     const api = { config: {}, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() }, log: { info: vi.fn(), warn: vi.fn() } } as never;
-    createSyncPlugin({ paths: { syncConfig: path.join(tmp, 'sync.json') } as never, configStore: configStore as never }).setup!(api);
+    createSyncPlugin({ paths: { configDir: tmp, syncConfig: path.join(tmp, 'sync.json'), profileConfig: (name: string) => path.join(tmp, 'profiles', name, 'config.json') } as never, configStore: configStore as never }).setup!(api);
     await registered[0]!.run!('enable me/data ghp_raw', ctx);
     const written = JSON.parse(await fs.readFile(path.join(tmp, 'sync.json'), 'utf8'));
     expect(written.githubToken).toBe('ghp_raw'); // no vault → not encrypted

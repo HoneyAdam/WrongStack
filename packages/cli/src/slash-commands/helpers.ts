@@ -1,5 +1,5 @@
-import type { Context } from '@wrongstack/core';
-import { color, estimateMessageTokens } from '@wrongstack/core';
+import type { Context } from '@wrongstack/core/agent';
+import { color, estimateMessageTokens } from '@wrongstack/core/utils';
 
 export { detectProjectFacts, renderAgentsTemplate } from '../services/project-facts.js';
 export type { ProjectFacts } from '../services/project-facts.js';

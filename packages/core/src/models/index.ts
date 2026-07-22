@@ -1,4 +1,5 @@
 // Models domain: model registry, mode store, LLM selection
+export type { ModelBlackoutRule } from '../core/model-availability-calendar.js';
 export {
   DefaultModelsRegistry,
   classifyFamily,

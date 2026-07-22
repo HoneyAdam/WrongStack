@@ -18,7 +18,7 @@
  * Secrets never cross into the TUI: key values are masked here, and the
  * modal prompt sends the plaintext only INTO the flow (never back out).
  */
-import type { ModelsRegistry, ProviderConfig, SecretScrubber, SecretVault } from '@wrongstack/core';
+import type { ModelsRegistry, ProviderConfig, SecretScrubber, SecretVault } from '@wrongstack/core/types';
 import type {
   AuthCatalogRow,
   AuthFlowIo,

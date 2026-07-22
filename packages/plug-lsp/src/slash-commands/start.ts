@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { SlashCommand } from '@wrongstack/core/types';
 import type { LSPRegistry } from '../registry.js';
 
 export function startCommand(registry: LSPRegistry): SlashCommand {

@@ -36,6 +36,10 @@ export interface MCPServer {
   lastError?: string;
   pid?: number;
   lazy?: boolean;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
   health?: {
     healthState: 'disabled' | 'dormant' | 'connecting' | 'healthy' | 'degraded' | 'failed';
     consecutiveFailures: number;
@@ -270,10 +274,16 @@ function ServerDialog({
         setDescription(server.description ?? '');
         setEnabled(server.enabled);
         setLazy(server.lazy ?? false);
-        setCommand('');
-        setArgs('');
-        setEnv('');
-        setUrl('');
+        setCommand(server.command ?? '');
+        setArgs(server.args?.join(' ') ?? '');
+        setEnv(
+          server.env
+            ? Object.entries(server.env)
+                .map(([k, v]) => `${k}=${v}`)
+                .join('\n')
+            : '',
+        );
+        setUrl(server.url ?? '');
       } else if (prefillConfig) {
         setName(prefillConfig.name);
         setTransport(prefillConfig.transport);

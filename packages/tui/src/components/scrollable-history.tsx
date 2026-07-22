@@ -90,11 +90,11 @@ function Scrollbar({
 }
 
 /**
- * Mouse-mode replacement for {@link History}. Instead of streaming each entry
- * into the terminal's native scrollback via `<Static>`, it renders all entries
+ * Bounded history viewport. Instead of streaming each entry into the terminal's
+ * native scrollback via `<Static>`, it renders retained entries
  * into a fixed-height, `overflowY:'hidden'` viewport that the app scrolls
- * itself. The terminal's wheel is captured by mouse mode, so scrolling MUST be
- * managed here.
+ * itself. PageUp/PageDown always scroll it; mouse mode additionally captures
+ * wheel and scrollbar interactions.
  *
  * Mechanism (Ink-5 verified): the parent Box is height-bounded with
  * `justifyContent:'flex-end'`, so when content overflows, its BOTTOM aligns to
