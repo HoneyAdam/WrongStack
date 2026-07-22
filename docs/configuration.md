@@ -1049,7 +1049,7 @@ When unset, git's own configuration applies (default behavior). Manage at runtim
 | `WRONGSTACK_HQ_TOKEN` | Client enrollment token for HQ authentication. Required for non-loopback HQ servers. Passed as `?token=` on the outbound `/ws/client` WebSocket. |
 | `WRONGSTACK_HQ_ENABLED` | Set `1` to force HQ publishing even when `WRONGSTACK_HQ_URL` is unset (defaults to `http://localhost:3499`). Set `0` to explicitly disable when `WRONGSTACK_HQ_URL` is set. |
 | `WRONGSTACK_HQ_RAW_CONTENT` | Raw prompt/tool/mailbox content publishing to HQ. **Defaults on for every HQ target** unless explicitly disabled. Set `0` to force raw-content redaction. |
-| `WRONGSTACK_HQ_PROJECT_ALIAS` | Override the project display name sent to HQ (e.g. `monorepo-core` instead of the directory basename). |
+| `WRONGSTACK_HQ_PROJECT_ALIAS` | Set the shared HQ project identity and display name (config equivalent: `hq.projectAlias`). **Every client that should synchronize Kanban data for the same project across machines or independent project copies must use the exact same value.** When unset, HQ retains the legacy identity derived from each client's absolute project path, so different directories or machines do not synchronize Kanban data. |
 | `METRICS_HOST` | Prometheus metrics bind address (default `127.0.0.1`). |
 | `NO_COLOR` | Disable ANSI color output. |
 
@@ -1073,9 +1073,24 @@ export WRONGSTACK_HQ_URL=http://localhost:3499
 export WRONGSTACK_HQ_TOKEN=<enrollment-token>   # required for remote HQ
 wstack
 
-# Override project display name:
+# Required on every client that should share project Kanban state across
+# machines, worktrees checked out elsewhere, or independent project copies:
 export WRONGSTACK_HQ_PROJECT_ALIAS=my-project
 ```
+
+The config-file equivalent is:
+
+```jsonc
+{
+  "hq": {
+    "projectAlias": "my-project"
+  }
+}
+```
+
+`hq.projectAlias` is not only a label. HQ uses it as the stable project identity for project-scoped Kanban records. Use the **exact same alias, including case**, on every participating client. If Client A uses `my-project` and Client B omits the alias or uses another value, HQ treats them as different projects and their Kanban boards do not synchronize.
+
+When no alias is configured, WrongStack preserves the legacy behavior: it derives the project identity from the client's absolute project path. This keeps existing single-directory setups compatible, but two independent copies normally have different absolute paths—even when they contain the same Git repository—and paths also differ across machines. Therefore, cross-directory and cross-machine Kanban synchronization does not occur without a shared alias.
 
 **Defaults:** when `WRONGSTACK_HQ_URL` is unset, clients attempt same-machine HQ discovery and remain dormant when no live HQ is advertised; set `WRONGSTACK_HQ_ENABLED=0` (or `hq.enabled: false`) to opt out. Mailbox send/ack/register/heartbeat events are the primary telemetry source. Raw content publishing defaults on for HQ targets; set `WRONGSTACK_HQ_RAW_CONTENT=0` (or `hq.rawContent: false`) to redact it. Secret scrubbing and sensitive-field masking still apply.
 

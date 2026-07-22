@@ -45,6 +45,32 @@ class FakeSocket implements HqSocketLike {
 }
 
 describe('CLI HQ publisher connection', () => {
+  it('uses the same alias-backed project id for independent roots', () => {
+    const socketA = new FakeSocket();
+    const socketB = new FakeSocket();
+    const base = {
+      clientKind: 'cli' as const,
+      config: {
+        enabled: true,
+        url: 'http://127.0.0.1:3499',
+        projectAlias: 'shared-project',
+      },
+      retryIntervalMs: 60_000,
+    };
+    const a = startCliHqConnection({
+      ...base,
+      projectRoot: '/copy/a',
+      socketFactory: () => socketA,
+    });
+    const b = startCliHqConnection({
+      ...base,
+      projectRoot: '/copy/b',
+      socketFactory: () => socketB,
+    });
+    expect(a.getPublisher()?.project.projectId).toBe(b.getPublisher()?.project.projectId);
+    a.stop();
+    b.stop();
+  });
   it('connects later when the HQ runtime marker appears', async () => {
     dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-hq-late-'));
     process.env['WRONGSTACK_HQ_DATA_DIR'] = dataDir;

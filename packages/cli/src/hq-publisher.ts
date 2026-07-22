@@ -2,6 +2,7 @@ import { createHqPublisherFromEnv, resolveHqConfig } from '@wrongstack/core/hq';
 import { type CreateHqPublisherOptions } from '@wrongstack/core/hq';
 import { type HqPublisher, type HqSocketLike } from '@wrongstack/core/hq';
 import { WebSocket } from 'ws';
+import { createKanbanHqSync } from './kanban-hq-sync.js';
 
 type CliHqPublisherOptions = Omit<CreateHqPublisherOptions, 'socketFactory'> & {
   socketFactory?: CreateHqPublisherOptions['socketFactory'];
@@ -46,6 +47,14 @@ function resolvedHqConnectionKey(options: CliHqPublisherOptions): string | undef
 }
 
 export function startCliHqConnection(options: CliHqConnectionOptions): CliHqConnection {
+  const shouldOwnKanbanSync = options.onKanbanSnapshot === undefined;
+  let kanbanSync: ReturnType<typeof createKanbanHqSync> | undefined;
+  const publisherOptions: CliHqConnectionOptions = shouldOwnKanbanSync
+    ? {
+        ...options,
+        onKanbanSnapshot: (snapshot) => kanbanSync?.handleRemote(snapshot),
+      }
+    : options;
   let publisher: HqPublisher | undefined;
   let publisherKey: string | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -59,11 +68,16 @@ export function startCliHqConnection(options: CliHqConnectionOptions): CliHqConn
     publisher = undefined;
     publisherKey = undefined;
 
-    const next = createCliHqPublisher(options);
+    const next = createCliHqPublisher(publisherOptions);
     if (next === undefined) return;
     publisher = next;
     publisherKey = nextKey;
+    if (shouldOwnKanbanSync) {
+      kanbanSync?.stop();
+      kanbanSync = createKanbanHqSync(options.projectRoot, next.project.projectId);
+    }
     next.connect();
+    if (kanbanSync !== undefined) void kanbanSync.attachPublisher(next);
     options.onConnect?.(next);
   };
 
@@ -80,6 +94,7 @@ export function startCliHqConnection(options: CliHqConnectionOptions): CliHqConn
         clearInterval(timer);
         timer = undefined;
       }
+      kanbanSync?.stop();
       publisher?.close();
       publisher = undefined;
       publisherKey = undefined;

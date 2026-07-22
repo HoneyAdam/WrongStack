@@ -1239,6 +1239,91 @@ describe('HQ server frame validation', () => {
   });
 });
 
+describe('HQ server Kanban synchronization', () => {
+  it('persists a project snapshot, exposes it through the API, and returns it on reconnect', async () => {
+    handle = await startOpenHqServer({ port: getPort() });
+    const connect = async (clientId: string): Promise<WebSocket> => {
+      const ws = new WebSocket(`ws://127.0.0.1:${handle!.port}/ws/client`);
+      await waitForOpen(ws);
+      ws.send(
+        JSON.stringify({
+          type: 'client.hello',
+          payload: {
+            protocolVersion: HQ_PROTOCOL_VERSION,
+            client: {
+              clientId,
+              kind: 'cli',
+              machineId: 'machine-1',
+              startedAt: new Date().toISOString(),
+            },
+            project: {
+              projectId: 'project-kanban',
+              projectRoot: '/repo',
+              projectName: 'repo',
+              machineId: 'machine-1',
+              workspaceKind: 'git',
+            },
+            capabilities: ['telemetry.publish'],
+            redactionPolicy: { rawContent: true, toolArgs: 'summary', paths: 'project-relative' },
+          },
+        }),
+      );
+      return ws;
+    };
+
+    const first = await connect('kanban-client-1');
+    first.send(
+      JSON.stringify({
+        type: 'client.event',
+        event: {
+          id: 'kanban-event-1',
+          type: 'kanban.snapshot',
+          schemaVersion: HQ_PROTOCOL_VERSION,
+          timestamp: '2026-07-22T12:00:00Z',
+          clientId: 'kanban-client-1',
+          projectId: 'project-kanban',
+          seq: 1,
+          payload: {
+            projectId: 'project-kanban',
+            generatedAt: '2026-07-22T12:00:00Z',
+            boards: [
+              {
+                boardId: 'board-1',
+                revision: 1,
+                updatedAt: '2026-07-22T12:00:00Z',
+                board: { id: 'board-1', title: 'Central board' },
+              },
+            ],
+            tombstones: [],
+          },
+        },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    const response = await fetch(
+      `http://127.0.0.1:${handle.port}/api/projects/project-kanban/kanban`,
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).boards[0].board.title).toBe('Central board');
+
+    first.close();
+    const second = await connect('kanban-client-2');
+    const snapshot = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Kanban snapshot timeout')), 2_000);
+      second.on('message', (data) => {
+        const message = JSON.parse(String(data)) as Record<string, unknown>;
+        if (message.type === 'hq.kanban_snapshot') {
+          clearTimeout(timer);
+          resolve(message);
+        }
+      });
+    });
+    expect(snapshot.type).toBe('hq.kanban_snapshot');
+    second.close();
+  });
+});
+
 describe('HQ server fleet telemetry', () => {
   function helloFrame(clientId: string, machineId: string, projectId: string, kind = 'tui'): string {
     return JSON.stringify({

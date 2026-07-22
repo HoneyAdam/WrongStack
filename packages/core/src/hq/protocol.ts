@@ -7,4 +7,5 @@ export * from './protocol/brain.js';
 export * from './protocol/tool.js';
 export * from './protocol/project.js';
 export * from './protocol/browser.js';
+export * from './protocol/kanban.js';
 export * from './protocol/core.js';

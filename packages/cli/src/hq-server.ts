@@ -603,6 +603,7 @@ function startHqServerWithAuth(
                   persistence.eventLog.drain(),
                   persistence.snapshotStore.drain(),
                   persistence.timeseries.drain(),
+                  persistence.kanban.drain(),
                 ])
                   .then(() => clearHqRuntimeMarker(dataDir, hqUrl))
                   .catch(() => undefined)

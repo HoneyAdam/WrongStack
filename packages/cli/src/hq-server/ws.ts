@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { HQ_PROTOCOL_VERSION, HQ_TRANSCRIPT_TEXT_CAP, parseHqEventPayload, parseHqFrame, redactHqEvent, resolveHqRedactionPolicy, tightenHqRedactionPolicy, tokenHasCapability } from '@wrongstack/core/hq';
-import { type HqCommandAuditLog, type HqEventEnvelope, type HqFleetSnapshotPayload, type HqMailboxEventPayload, type HqMailboxSnapshotPayload, type HqMcpHealthSnapshotPayload, type HqPersistence, type HqQueuedCommand, type HqRedactionPolicy, type HqSessionEndedPayload, type HqSessionSnapshotPayload, type HqToken, type HqTranscriptAppendPayload, type HqTranscriptEntry, type HqWelcomePayload } from '@wrongstack/core/hq';
+import { type HqCommandAuditLog, type HqEventEnvelope, type HqFleetSnapshotPayload, type HqKanbanSnapshotPayload, type HqMailboxEventPayload, type HqMailboxSnapshotPayload, type HqMcpHealthSnapshotPayload, type HqPersistence, type HqQueuedCommand, type HqRedactionPolicy, type HqSessionEndedPayload, type HqSessionSnapshotPayload, type HqToken, type HqTranscriptAppendPayload, type HqTranscriptEntry, type HqWelcomePayload } from '@wrongstack/core/hq';
 import type { ConnectedClient, HqSnapshotBroadcaster, TranscriptRing } from './types.js';
 import {
   TRANSCRIPT_RING_MAX,
@@ -207,6 +207,13 @@ export function handleClient(
         ),
       };
       ws.send(JSON.stringify(welcome));
+      if (persistence !== undefined) {
+        void persistence.kanban.load(client.projectId).then((payload) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'hq.kanban_snapshot', payload }));
+          }
+        });
+      }
 
       const event: HqEventEnvelope = {
         id: randomUUID(),
@@ -332,6 +339,22 @@ export function handleClient(
       ).value;
 
       if (event.type === 'client.heartbeat') {
+        return;
+      }
+
+      if (event.type === 'kanban.snapshot') {
+        const payload = event.payload as HqKanbanSnapshotPayload;
+        if (payload.projectId !== client.projectId || persistence === undefined) return;
+        void persistence.kanban.merge(payload).then((merged) => {
+          const message = JSON.stringify({ type: 'hq.kanban_snapshot', payload: merged });
+          for (const peer of clients.values()) {
+            if (peer.projectId === client.projectId && peer.ws.readyState === WebSocket.OPEN) {
+              peer.ws.send(message);
+            }
+          }
+        });
+        persistEvent(event);
+        broadcastEvent(event, browsers);
         return;
       }
 

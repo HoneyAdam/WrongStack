@@ -12,6 +12,36 @@ import {
 } from '../../src/hq/redaction.js';
 
 describe('HQ redaction', () => {
+  it('preserves Kanban user content when telemetry raw content is disabled', () => {
+    const event = createHqEventEnvelope({
+      id: 'kanban-1',
+      type: 'kanban.snapshot',
+      timestamp: '2026-07-22T12:00:00Z',
+      clientId: 'client-1',
+      projectId: 'project-1',
+      seq: 1,
+      payload: {
+        projectId: 'project-1',
+        generatedAt: '2026-07-22T12:00:00Z',
+        boards: [
+          {
+            boardId: 'board-1',
+            revision: 1,
+            updatedAt: '2026-07-22T12:00:00Z',
+            board: { id: 'board-1', description: 'Keep this', notes: [{ content: 'Keep note' }] },
+          },
+        ],
+        tombstones: [],
+      },
+    });
+    const result = redactHqEvent(event, { policy: { rawContent: false } });
+    const board = result.value.payload.boards[0]!.board as {
+      description: string;
+      notes: Array<{ content: string }>;
+    };
+    expect(board.description).toBe('Keep this');
+    expect(board.notes[0]?.content).toBe('Keep note');
+  });
   it('keeps raw prompt/tool/file content by default', () => {
     const result = redactHqValue({
       prompt: 'implement a secret feature',

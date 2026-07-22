@@ -18,7 +18,12 @@ import type {
   HqProjectIdentity,
   HqRedactionPolicy,
 } from './protocol.js';
-import { HqPublisher, type HqPublisherCommandHandler, type HqSocketFactory } from './publisher.js';
+import {
+  HqPublisher,
+  type HqPublisherCommandHandler,
+  type HqPublisherOptions,
+  type HqSocketFactory,
+} from './publisher.js';
 
 export interface HqPublisherEnvConfig {
   url: string;
@@ -159,8 +164,10 @@ function stableMachineId(): string {
   return createHash('sha256').update(hostname()).digest('hex').slice(0, 12);
 }
 
-function deriveProjectId(projectRoot: string): string {
-  return createHash('sha256').update(projectRoot).digest('hex').slice(0, 12);
+export function deriveHqProjectId(projectRoot: string, projectAlias?: string): string {
+  const alias = projectAlias?.trim();
+  const identity = alias ? `alias:${alias}` : projectRoot;
+  return createHash('sha256').update(identity).digest('hex').slice(0, 12);
 }
 
 export interface CreateHqPublisherOptions {
@@ -177,6 +184,8 @@ export interface CreateHqPublisherOptions {
   capabilities?: readonly HqClientCapability[];
   /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
   onCommand?: HqPublisherCommandHandler;
+  /** Receives the latest merged Kanban snapshot from HQ. */
+  onKanbanSnapshot?: HqPublisherOptions['onKanbanSnapshot'];
   /** Dormant discovery re-check interval override (tests / tight loops). */
   discoveryPollMs?: number;
   /** Logger for structured connect-failure diagnostics. */
@@ -189,7 +198,8 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
 
   const machineId = options.machineId ?? stableMachineId();
   const host = options.hostnameOverride ?? hostname();
-  const projectName = options.projectName ?? config.projectAlias ?? (basename(options.projectRoot) || 'unknown');
+  const projectAlias = config.projectAlias?.trim() || undefined;
+  const projectName = projectAlias ?? options.projectName ?? (basename(options.projectRoot) || 'unknown');
 
   const client: HqClientIdentity = {
     clientId: `${machineId}:${options.clientKind}:${process.pid}:${randomUUID().slice(0, 8)}`,
@@ -201,7 +211,7 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
   };
 
   const project: HqProjectIdentity = {
-    projectId: deriveProjectId(options.projectRoot),
+    projectId: deriveHqProjectId(options.projectRoot, projectAlias),
     projectRoot: options.projectRoot,
     projectName,
     machineId,
@@ -226,6 +236,9 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
     ...(redactionPolicy !== undefined ? { redactionPolicy } : {}),
     ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
     ...(options.onCommand !== undefined ? { onCommand: options.onCommand } : {}),
+    ...(options.onKanbanSnapshot !== undefined
+      ? { onKanbanSnapshot: options.onKanbanSnapshot }
+      : {}),
     // Auto-discovery: re-read the local HQ runtime marker + client token on
     // every connect attempt so late-started/restarted HQs are picked up.
     ...(config.discover

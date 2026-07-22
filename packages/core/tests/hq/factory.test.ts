@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   createHqPublisherFromEnv,
+  deriveHqProjectId,
   HQ_AUTH_FILE_VERSION,
   resolveHqConfig,
   resolveHqConfigFromEnv,
@@ -265,6 +266,26 @@ describe('HQ publisher factory env config', () => {
       });
       expect(config).toMatchObject({ discover: true, rawContent: true });
     });
+  });
+
+  it('uses projectAlias as a stable project identity across independent roots', () => {
+    expect(deriveHqProjectId('/copy/a', 'shared-project')).toBe(
+      deriveHqProjectId('/copy/b', 'shared-project'),
+    );
+    expect(deriveHqProjectId('/copy/a')).not.toBe(deriveHqProjectId('/copy/b'));
+
+    const publisher = createHqPublisherFromEnv({
+      clientKind: 'cli',
+      projectRoot: '/copy/a',
+      projectName: 'copy-a',
+      config: {
+        enabled: true,
+        url: 'http://127.0.0.1:3499',
+        projectAlias: 'shared-project',
+      },
+    });
+    expect(publisher?.project.projectName).toBe('shared-project');
+    publisher?.close();
   });
 
   it('honors config hq.rawContent + hq.projectAlias in discovery mode', async () => {

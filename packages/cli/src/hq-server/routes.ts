@@ -240,6 +240,20 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
         return;
       }
 
+      const projectKanbanMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/kanban$/);
+      if (projectKanbanMatch && req.method === 'GET') {
+        const projectId = decodePathSegment(projectKanbanMatch[1]!);
+        if (projectId === null) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Invalid project id.' } }));
+          return;
+        }
+        const snapshot = await persistence.kanban.load(projectId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(snapshot));
+        return;
+      }
+
       if (url.pathname.startsWith('/api/projects/') && req.method === 'GET') {
         await handleApiProjectDetail(req, res, url, clients);
         return;

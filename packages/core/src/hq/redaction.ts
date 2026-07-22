@@ -42,6 +42,11 @@ const RAW_CONTENT_KEYS = new Set([
   'logs',
 ]);
 
+// Kanban records are an explicitly configured project-state synchronization
+// channel, not telemetry summaries. Their user-authored fields must round-trip
+// intact; sensitive-key and secret-pattern scrubbing still applies recursively.
+const HQ_PROJECT_STATE_EVENT_TYPES = new Set(['kanban.snapshot']);
+
 const SENSITIVE_KEYS = new Set([
   'authorization',
   'cookie',
@@ -211,6 +216,7 @@ function visitValue(
     policy: HqRedactionPolicy;
     projectRoot?: string;
     maxSummaryLength: number;
+    preserveRawContentKeys?: boolean;
     seen: WeakSet<object>;
   },
   key?: string,
@@ -225,7 +231,12 @@ function visitValue(
       return { value: redactedPath, redacted: redactedPath !== value };
     }
 
-    if (!options.policy.rawContent && key !== undefined && isRawContentKey(key)) {
+    if (
+      !options.preserveRawContentKeys &&
+      !options.policy.rawContent &&
+      key !== undefined &&
+      isRawContentKey(key)
+    ) {
       return { value: RAW_CONTENT_REPLACEMENT, redacted: true };
     }
 
@@ -260,21 +271,37 @@ function visitValue(
   return { value: out, redacted };
 }
 
-export function redactHqValue<T>(value: T, options: HqRedactOptions = {}): HqRedactionResult<T> {
+function redactHqValueInternal<T>(
+  value: T,
+  options: HqRedactOptions,
+  preserveRawContentKeys: boolean,
+): HqRedactionResult<T> {
   const result = visitValue(value, {
     policy: resolveHqRedactionPolicy(options.policy),
     ...(options.projectRoot !== undefined ? { projectRoot: options.projectRoot } : {}),
     maxSummaryLength: options.maxSummaryLength ?? 500,
+    preserveRawContentKeys,
     seen: new WeakSet<object>(),
   });
   return { value: result.value as T, redacted: result.redacted };
+}
+
+export function redactHqValue<T>(
+  value: T,
+  options: HqRedactOptions = {},
+): HqRedactionResult<T> {
+  return redactHqValueInternal(value, options, false);
 }
 
 export function redactHqEvent<TPayload>(
   event: HqEventEnvelope<TPayload>,
   options: HqRedactOptions = {},
 ): HqRedactionResult<HqEventEnvelope<TPayload>> {
-  const payload = redactHqValue(event.payload, options);
+  const payload = redactHqValueInternal(
+    event.payload,
+    options,
+    HQ_PROJECT_STATE_EVENT_TYPES.has(event.type),
+  );
   const nextEvent = {
     ...event,
     payload: payload.value,

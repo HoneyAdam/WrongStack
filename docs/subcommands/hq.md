@@ -746,7 +746,7 @@ when configured. The resolution logic lives in
 | `WRONGSTACK_HQ_TOKEN` | string | _(unset)_ | Optional client enrollment token. When set, the publisher appends it as a `?token=…` query parameter on the `/ws/client` upgrade. Required by Phase 2+ when the server runs in remote/auth mode |
 | `WRONGSTACK_HQ_PASSWORD` | string | _(unset)_ | Server-side browser password used when `--password` is omitted. Sets or rotates the scrypt hash at startup; minimum 8 characters |
 | `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `1` | Publish raw prompt / output / file / log content. Defaults to **on** for every HQ target unless explicitly disabled. Set `0` to force raw-content redaction. Maps to `HqRedactionPolicy.rawContent` |
-| `WRONGSTACK_HQ_PROJECT_ALIAS` | string | basename of project root | Human-readable project name shown in HQ. Overrides the default `basename(projectRoot)` fallback (`"unknown"` if both are missing) |
+| `WRONGSTACK_HQ_PROJECT_ALIAS` | string | _(unset)_ | Stable HQ project identity and display name. Maps to config `hq.projectAlias`. Clients must use the exact same value to synchronize project Kanban records across different machines or independent project copies. Without it, identity falls back to the legacy absolute project path and cross-directory/cross-machine Kanban sync does not occur |
 
 ### Auto-discovery mode (default)
 
@@ -778,6 +778,40 @@ The `hq` block in the active profile config (`hq.url`, `hq.token`,
 `hq.enabled`, `hq.rawContent`, `hq.projectAlias`, `hq.dataDir`) is consumed
 by `resolveHqConfig()`; env vars override the config file. The `/hq` slash
 command writes this block (see [`/hq`](../slash/hq.md)).
+
+### Project identity and Kanban synchronization
+
+HQ stores Kanban records under a project identity. To synchronize the same
+project's boards from clients on different machines or from independent local
+copies, configure the **same exact** `hq.projectAlias` value on every client:
+
+```jsonc
+{
+  "hq": {
+    "url": "https://hq.example.com",
+    "projectAlias": "payments-platform"
+  }
+}
+```
+
+The environment equivalent is:
+
+```bash
+export WRONGSTACK_HQ_PROJECT_ALIAS=payments-platform
+```
+
+The value is case-sensitive and serves two purposes: it is the project name
+shown in HQ and the stable identity key for project-scoped Kanban records.
+Clients using different aliases—or a mix of aliased and unaliased
+configuration—belong to different HQ projects and do not exchange Kanban
+updates.
+
+When `hq.projectAlias` and `WRONGSTACK_HQ_PROJECT_ALIAS` are both unset,
+WrongStack intentionally preserves the legacy identity derived from the
+client's **absolute project path**. That fallback works for multiple clients
+pointing at the same directory, but independent copies typically have different
+paths, and paths differ between machines. Consequently, cross-directory and
+cross-machine Kanban synchronization does not occur without a shared alias.
 
 ### URL normalization examples
 

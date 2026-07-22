@@ -2,6 +2,32 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MailboxAgentStatus, MailboxMessage } from '../../src/coordination/mailbox-types.js';
 import { HqPublisher, type HqSocketLike } from '../../src/hq/publisher.js';
 
+describe('HqPublisher Kanban snapshots', () => {
+  it('delivers server snapshots to the registered handler', async () => {
+    const socket = new FakeSocket();
+    const onKanbanSnapshot = vi.fn();
+    const publisher = new HqPublisher({
+      url: 'http://localhost:3499',
+      client,
+      project,
+      onKanbanSnapshot,
+      socketFactory: () => socket,
+    });
+    publisher.connect();
+    socket.open();
+    const payload = {
+      projectId: project.projectId,
+      generatedAt: '2026-07-22T12:00:00.000Z',
+      boards: [],
+      tombstones: [],
+    };
+    socket.message(JSON.stringify({ type: 'hq.kanban_snapshot', payload }));
+    await Promise.resolve();
+    expect(onKanbanSnapshot).toHaveBeenCalledWith(payload);
+    publisher.close();
+  });
+});
+
 describe('HqPublisher connect-failure diagnostics', () => {
   it('emits ONE warning after repeated consecutive connect failures', async () => {
     const warn = vi.fn();

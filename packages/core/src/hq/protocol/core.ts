@@ -29,6 +29,7 @@ import type {
   HqMcpOperationPayload,
   HqMcpServerHealth,
 } from './mcp.js';
+import { isHqKanbanSnapshotPayload, type HqServerKanbanSnapshotMessage } from './kanban.js';
 import type { HqProjectIdentity, HqWorkspaceKind } from './project.js';
 import type {
   HqSessionAgentSummary,
@@ -81,6 +82,7 @@ export type HqEventType =
   | 'fleet.event'
   | 'mailbox.snapshot'
   | 'mailbox.event'
+  | 'kanban.snapshot'
   | 'worklist.snapshot'
   | 'git.snapshot'
   | 'agent.message'
@@ -145,7 +147,10 @@ export interface HqServerCommandBatchMessage {
   commands: readonly HqQueuedCommand[];
 }
 
-export type HqServerMessage = HqServerCommandBatchMessage | HqWelcomePayload;
+export type HqServerMessage =
+  | HqServerCommandBatchMessage
+  | HqServerKanbanSnapshotMessage
+  | HqWelcomePayload;
 
 /**
  * Discriminated parse result for {@link parseHqFrame}. The `reason` field
@@ -376,6 +381,7 @@ export function parseHqFrame(raw: string | Buffer): HqParseResult {
 const KNOWN_HQ_EVENT_PAYLOAD_TYPES = new Set<string>([
   'mailbox.snapshot',
   'mailbox.event',
+  'kanban.snapshot',
   'session.snapshot',
   'session.transcript',
   'session.ended',
@@ -824,6 +830,10 @@ export function parseHqEventPayload(
         : { ok: false, reason: 'malformed-payload' };
     case 'mailbox.event':
       return isHqMailboxEventPayload(payload)
+        ? { ok: true, payload }
+        : { ok: false, reason: 'malformed-payload' };
+    case 'kanban.snapshot':
+      return isHqKanbanSnapshotPayload(payload)
         ? { ok: true, payload }
         : { ok: false, reason: 'malformed-payload' };
     case 'session.snapshot':

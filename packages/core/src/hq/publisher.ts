@@ -23,10 +23,12 @@ import {
   type HqFleetSnapshotPayload,
   type HqMailboxEventPayload,
   type HqMailboxSnapshotPayload,
+  type HqKanbanSnapshotPayload,
   type HqProjectIdentity,
   type HqQueuedCommand,
   type HqRedactionPolicy,
   type HqServerCommandBatchMessage,
+  type HqServerKanbanSnapshotMessage,
   type HqSessionEndedPayload,
   type HqSessionSnapshotPayload,
   type HqTranscriptAppendPayload,
@@ -77,6 +79,8 @@ export interface HqPublisherOptions {
   commandPollIntervalMs?: number;
   commandPollLimit?: number;
   onCommand?: HqPublisherCommandHandler;
+  /** Called whenever HQ sends the merged Kanban state for this project. */
+  onKanbanSnapshot?: (snapshot: HqKanbanSnapshotPayload) => void | Promise<void>;
   /**
    * Local auto-discovery hook: re-resolve the HQ endpoint before EVERY
    * connect attempt (e.g. by reading `<hq dataDir>/runtime.json`). Returning
@@ -566,17 +570,41 @@ export class HqPublisher {
 
   private async handleServerMessage(event: unknown): Promise<void> {
     const message = this.parseServerMessage(event);
-    if (message?.type !== 'hq.command_batch') return;
-    await this.handleCommandBatch(message);
+    if (message?.type === 'hq.command_batch') {
+      await this.handleCommandBatch(message);
+      return;
+    }
+    if (message?.type === 'hq.kanban_snapshot') {
+      await this.options.onKanbanSnapshot?.(message.payload);
+    }
   }
 
-  private parseServerMessage(event: unknown): HqServerCommandBatchMessage | null {
+  private parseServerMessage(
+    event: unknown,
+  ): HqServerCommandBatchMessage | HqServerKanbanSnapshotMessage | null {
     const data = this.extractMessageData(event);
     if (data === null) return null;
     try {
-      const parsed = JSON.parse(data) as Partial<HqServerCommandBatchMessage>;
-      if (parsed.type !== 'hq.command_batch' || !Array.isArray(parsed.commands)) return null;
-      return parsed as HqServerCommandBatchMessage;
+      const parsed = JSON.parse(data) as
+        | Partial<HqServerCommandBatchMessage>
+        | Partial<HqServerKanbanSnapshotMessage>;
+      if (parsed.type === 'hq.command_batch' && Array.isArray(parsed.commands)) {
+        return parsed as HqServerCommandBatchMessage;
+      }
+      if (parsed.type === 'hq.kanban_snapshot') {
+        const payload = (parsed as Partial<HqServerKanbanSnapshotMessage>).payload;
+        if (
+          payload !== undefined &&
+          typeof payload === 'object' &&
+          typeof payload.projectId === 'string' &&
+          payload.projectId === this.options.project.projectId &&
+          Array.isArray(payload.boards) &&
+          Array.isArray(payload.tombstones)
+        ) {
+          return parsed as HqServerKanbanSnapshotMessage;
+        }
+      }
+      return null;
     } catch {
       return null;
     }
