@@ -93,7 +93,22 @@ function message(overrides: Partial<MailboxMessage> = {}): MailboxMessage {
 }
 
 function makeMailbox() {
-  const send = vi.fn(async (input: MailboxSendInput) => message({ ...input, id: 'sent-1' }));
+  const send = vi.fn(async (input: MailboxSendInput) =>
+    message({
+      id: 'sent-1',
+      from: input.from,
+      to: input.to,
+      type: input.type,
+      subject: input.subject,
+      body: input.body,
+      ...(input.audience !== undefined ? { audience: input.audience } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
+      ...(input.taskContext !== undefined ? { taskContext: input.taskContext } : {}),
+      ...(input.senderSessionId !== undefined ? { senderSessionId: input.senderSessionId } : {}),
+      ...(input.ttlMs !== undefined ? { ttlMs: input.ttlMs } : {}),
+    }),
+  );
   const query = vi.fn(async (_query: MailboxQuery) => [] as MailboxMessage[]);
   const ack = vi.fn(async (input: MailboxAckInput) =>
     message({ id: input.messageId, completed: input.completed ?? false }),

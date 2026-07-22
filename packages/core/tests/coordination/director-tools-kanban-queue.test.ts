@@ -61,7 +61,11 @@ function makeClaim(taskId = 'task-1', assignment?: MutableAssignment) {
   };
 }
 
-type MockDirector = Record<string, ReturnType<typeof vi.fn>> & {
+type MockDirector = {
+  spawn: ReturnType<typeof vi.fn>;
+  assign: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+  awaitTasks: ReturnType<typeof vi.fn>;
   fleet?: { subscribe: ReturnType<typeof vi.fn> };
 };
 let director: MockDirector;

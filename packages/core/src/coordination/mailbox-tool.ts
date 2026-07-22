@@ -132,7 +132,7 @@ export function applyMailboxSendPolicy(
   };
 }
 
-export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
+export function makeMailboxTool(opts: MailboxToolOptions = {}) {
   const resolveMailbox = opts.resolveMailbox ?? ((ctx: Context) => {
     const dir = opts.projectDir ?? defaultResolveProjectDir(ctx);
     return new GlobalMailbox(dir, opts.events);
@@ -235,7 +235,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
           return { ok: false, error: `Unknown action: "${action}". Use check, send, ack, query, status, online, or unread.` };
       }
     },
-  };
+  } satisfies Tool;
 }
 
 // ── Action handlers ──────────────────────────────────────────────────────

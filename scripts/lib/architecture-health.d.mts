@@ -10,6 +10,7 @@ export function stronglyConnectedComponents(
   adjacency: Map<string, Set<string>>,
 ): string[][];
 export function globToRegExp(pattern: string): RegExp;
+export function findNonCommandSlashImports<T extends { from: string; to: string }>(edges: T[]): T[];
 export function validateHotspotBaseline(
   sourceMetrics: Array<{ file: string; lines: number; relativeImports: number }>,
   baseline: { thresholdLines: number; files: Record<string, { lines: number; relativeImports: number }> },

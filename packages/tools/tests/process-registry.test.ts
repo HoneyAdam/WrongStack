@@ -32,9 +32,9 @@ const makeProc = (overrides: Partial<Tracked> = {}): Tracked => ({
   name: overrides.name ?? 'bash',
   command: overrides.command ?? 'echo hi',
   startedAt: overrides.startedAt ?? Date.now(),
-  sessionId: overrides.sessionId,
   child: overrides.child ?? fakeChild(),
-  background: overrides.background,
+  ...(overrides.sessionId !== undefined ? { sessionId: overrides.sessionId } : {}),
+  ...(overrides.background !== undefined ? { background: overrides.background } : {}),
 });
 
 describe('ProcessRegistry', () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   AGENT_CATALOG,
   AGENTS_BY_PHASE,
@@ -132,8 +132,13 @@ describe('agent catalog integrity', () => {
       } else {
         process.env['WRONGSTACK_AGENT_POLICY'] = previousPolicy;
       }
-      (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean }).__WS_DISABLE_PROMPT_CACHE__ =
-        previousBypass;
+      if (previousBypass === undefined) {
+        delete (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean })
+          .__WS_DISABLE_PROMPT_CACHE__;
+      } else {
+        (globalThis as { __WS_DISABLE_PROMPT_CACHE__?: boolean }).__WS_DISABLE_PROMPT_CACHE__ =
+          previousBypass;
+      }
     }
   });
 

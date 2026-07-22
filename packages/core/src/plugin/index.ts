@@ -30,6 +30,7 @@ export {
   type ChimeraCascadeNeededPayload,
   type ChimeraReviewCompletePayload,
   type ChimeraReviewNeededPayload,
+  type ReviewContextBundle,
 } from '../plugins/chimera-plugin.js';
 export { createPromptsPlugin } from '../plugins/prompts-plugin.js';
 export { createSkillsPlugin } from '../plugins/skills-plugin.js';
