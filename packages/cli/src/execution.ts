@@ -778,7 +778,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   // cascade replies, system messages, or stale replies from
                   // a prior session that happen to share the replyTo UUID
                   // from being misclassified by the approval/denial regex.
-                  const replyFromBase = firstReply.from.split('@')[0];
+                  const replyFromBase = (firstReply.from ?? '').split('@')[0];
                   if (replyFromBase !== 'leader' || firstReply.audience === 'leaders') {
                     nonLeaderReplyCount++;
                     if (nonLeaderReplyCount >= 5) {
@@ -842,7 +842,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                   // "No, skip it" matches denial — with no ambiguity from
                   // mid-sentence keywords. NOTE: body is lowercased above.
                   leaderApproved =
-                    /^\s*(?:y(?:es)?|sure|ok(?:ay)?|go ahead|proceed|approve|fix it|please do|do it|yep|yeah)\s*$/.test(
+                    /^\s*(?:y(?:es)?|sure|ok(?:ay)?|go ahead|proceed|approve|fix it|please do|do it|yep|yeah)\b/.test(
                       body,
                     ) || /^\s*👍/.test(body);
                   if (leaderApproved) {
@@ -857,6 +857,17 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                     pollDone = true;
                     return;
                   } // denied — exit early
+
+                  // Forgiveness fallback: a non-start-anchored word-boundary
+                  // check catches free-form approval like "Looks fine, yes"
+                  // or "I think we should approve it" that the start-anchored
+                  // patterns above missed. This runs AFTER the denial check
+                  // so explicit denials or "No, don't approve" are not flipped.
+                  leaderApproved = /\b(?:y(?:es)?|sure|approve|proceed|go ahead)\b/i.test(body);
+                  if (leaderApproved) {
+                    pollDone = true;
+                    return;
+                  }
 
                   // Unmatched reply (neither explicit approval nor denial):
                   // log a diagnostic but keep polling — the leader may
@@ -918,7 +929,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                     content: [
                       {
                         type: 'text',
-                        text: `🦂 Chimera auto-fix request sent to leader — no approval received within ${ASK_TIMEOUT_MS / 1000}s timeout. Falling back to manual review mode. Re-run \`/chimera-review\` with autoFix=auto to retry, or set autoFix via \`/chimera autoFix auto\`.`,
+                        text: `🦂 Chimera auto-fix request sent to leader — no approval received within ${ASK_TIMEOUT_MS / 1000}s timeout. Falling back to manual review mode. Set autoFix via \`/chimera autoFix auto\` to auto-approve future reviews.`,
                       },
                     ],
                     stopReason: 'end_turn' as StopReason,
@@ -956,18 +967,45 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           }
 
           // ── Wake-up signal for the leader ──────────────────────────
-          // Emit a custom event so the agent loop (or its TUI/REPL
-          // caller) can catch it and trigger a new iteration, rather
-          // than waiting for the next user input to discover the result.
-          // The event carries the subject and autoFix mode so the
-          // listener can decide what action to take (show notification,
-          // auto-continue, or ignore if already processing).
+          // Emit an event so the TUI/REPL dispatch layer can react when
+          // a chimera result arrives and the leader is idle. The mailbox
+          // message itself is the durable cross-session wake-up signal.
           events.emitCustom('chimera.mailbox_delivered', {
             subject,
             autoFixMode: autoFix,
             fileCount: p.files.length,
             reviewLength: reviewText.length,
           });
+
+          // ── Offline leader consumer ─────────────────────────────────
+          // If no leader was online when the result was sent, send a
+          // second high-priority companion message so the next leader
+          // session sees the notification prominently and knows to check
+          // the full mailbox for the chimera review result.
+          // This is more durable than an in-process EventBus listener
+          // (which dies with the session) — the mailbox persists in JSONL.
+          if (!leaderOnline) {
+            try {
+              await mailbox.send({
+                from: 'chimera-review',
+                to: 'leader',
+                type: 'note',
+                audience: 'leaders',
+                subject: `⏰ Chimera review pending — ${p.files.length} file(s) checked`,
+                body: `The leader was offline when a chimera review completed. A full review result with "LEADER ACTION REQUIRED" directive is waiting in this mailbox from chimera-review. Open it, read the findings, and fix any Critical or High issues.`,
+                priority: 'high',
+              });
+            } catch (wakeErr) {
+              console.warn(
+                JSON.stringify({
+                  level: 'warn',
+                  event: 'execution.chimera_wakeup_companion_failed',
+                  message: wakeErr instanceof Error ? wakeErr.message : String(wakeErr),
+                  timestamp: new Date().toISOString(),
+                }),
+              );
+            }
+          }
 
           // Spawn fix subagent when:
           //   auto mode  → always (immediate)
