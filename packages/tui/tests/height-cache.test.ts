@@ -31,6 +31,61 @@ describe('EntryHeightCache', () => {
     expect(c.totalHeight()).toBe(10); // 3 + 5 + 2
   });
 
+  it('defers prefix rebuilds: a burst of mutations costs one rebuild at first read', () => {
+    // NOTE: this deliberately monkey-patches the private `rebuild()` to
+    // observe the batching behavior, which is otherwise invisible through
+    // the public API. A rename/refactor of `rebuild` makes this test FAIL
+    // LOUDLY (undefined.bind throws TypeError), never silently pass.
+    const c = new EntryHeightCache();
+    let rebuilds = 0;
+    const internal = c as unknown as { rebuild(): void };
+    const original = internal.rebuild.bind(c);
+    internal.rebuild = () => {
+      rebuilds++;
+      original();
+    };
+
+    // A render-cycle burst: membership sync + many measurements, no reads.
+    c.sync([1, 2, 3, 4, 5]);
+    c.record(1, 3);
+    c.recordMany([
+      [2, 4],
+      [3, 5],
+    ]);
+    c.record(4, 2);
+    c.record(5, 6);
+    expect(rebuilds).toBe(0); // nothing rebuilt yet — reads are what trigger it
+
+    expect(c.totalHeight()).toBe(20);
+    expect(rebuilds).toBe(1); // single batched rebuild for the whole burst
+
+    // Further reads are pure O(1) lookups.
+    expect(c.accumulatedHeight(3)).toBe(12);
+    expect(c.entryIndexAtOffset(15)).toBe(4); // prefix ends: 3,7,12,14,20 — first end > 15 is idx 4
+    expect(rebuilds).toBe(1);
+
+    // A mutation burst with NO read at all never rebuilds.
+    c.record(1, 10);
+    c.record(2, 10);
+    expect(rebuilds).toBe(1);
+    expect(c.totalHeight()).toBe(33); // 10 + 10 + 5 + 2 + 6
+    expect(rebuilds).toBe(2);
+  });
+
+  it('stays correct when mutations interleave with reads', () => {
+    const c = new EntryHeightCache();
+    c.record(1, 3);
+    expect(c.totalHeight()).toBe(3);
+    c.record(2, 5);
+    expect(c.accumulatedHeight(2)).toBe(8);
+    c.retain([2]);
+    expect(c.totalHeight()).toBe(5);
+    c.clear();
+    expect(c.totalHeight()).toBe(0);
+    c.record(9, 4);
+    expect(c.totalHeight()).toBe(4);
+  });
+
   it('returns accumulatedHeight for prefixes', () => {
     const c = new EntryHeightCache();
     c.record(10, 4);
@@ -101,6 +156,87 @@ describe('EntryHeightCache', () => {
     expect(c.size).toBe(0);
     expect(c.totalHeight()).toBe(0);
     expect(c.getHeight(1)).toBeUndefined();
+  });
+
+  it('seeds and prunes retained ids in one sync', () => {
+    const c = new EntryHeightCache();
+    expect(c.sync([1, 2, 3], 4)).toBe(true);
+    expect(c.size).toBe(3);
+    expect(c.totalHeight()).toBe(12);
+    expect(c.sync([2, 3, 4], 2)).toBe(true);
+    expect(c.getHeight(1)).toBeUndefined();
+    expect(c.getHeight(2)).toBe(4);
+    expect(c.getHeight(4)).toBe(2);
+    expect(c.totalHeight()).toBe(10);
+  });
+
+  it('records batches with one consistent prefix update', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2, 3]);
+    expect(c.recordMany([[1, 5], [2, 7], [3, 2]])).toBe(true);
+    expect(c.totalHeight()).toBe(14);
+    expect(c.accumulatedHeight(2)).toBe(12);
+  });
+
+  it('sync is idempotent and clears on empty membership', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2, 3], 4);
+    expect(c.sync([1, 2, 3], 4)).toBe(false); // identical input → no work
+    expect(c.sync([])).toBe(true); // membership change
+    expect(c.size).toBe(0);
+    expect(c.totalHeight()).toBe(0);
+    expect(c.getHeight(1)).toBeUndefined();
+    expect(c.sync([])).toBe(false); // already empty → no work
+  });
+
+  it('sync seeds unmeasured ids with the estimate and keeps measured heights', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2, 3], 7);
+    expect(c.getHeight(2)).toBe(7); // seeded estimate
+    c.record(2, 10); // real measurement arrives
+    expect(c.sync([1, 2, 3], 7)).toBe(false); // nothing changed
+    expect(c.getHeight(2)).toBe(10); // measurement preserved, not re-seeded
+  });
+
+  it('recordMany filters invalid rows and short-circuits on no-change', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2, 3]);
+    c.recordMany([[1, 5], [2, 7], [3, 2]]);
+    expect(c.recordMany([[1, 5], [2, 7]])).toBe(false); // all unchanged
+    expect(c.recordMany([[1, Number.NaN], [2, -3], [3, Number.POSITIVE_INFINITY]])).toBe(false);
+    expect(c.totalHeight()).toBe(14); // untouched
+  });
+
+  it('recordMany throws RangeError for unknown ids — call sync() first', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2]); // ids [1,2], estimates 3+3
+    expect(() => c.recordMany([[9, 4], [1, 5]])).toThrow(RangeError);
+  });
+
+  it('recordMany duplicate ids within one batch are last-write-wins', () => {
+    const c = new EntryHeightCache();
+    c.sync([1]);
+    expect(c.recordMany([[1, 5], [1, 7]])).toBe(true);
+    expect(c.getHeight(1)).toBe(7); // rows applied in order; the second overwrites
+    expect(c.totalHeight()).toBe(7);
+  });
+
+  it('record throws for unknown id after sync (contract match with recordMany)', () => {
+    const c = new EntryHeightCache();
+    c.sync([1, 2, 3]); // estimates 3+3+3
+    expect(() => c.record(9, 100)).toThrow(RangeError);
+    // Cache state unchanged
+    expect(c.size).toBe(3);
+    expect(c.totalHeight()).toBe(9);
+    expect(c.getHeight(9)).toBeUndefined();
+  });
+
+  it('record accepts unknown ids on a fresh cache before any sync', () => {
+    const c = new EntryHeightCache();
+    expect(c.record(9, 100)).toBe(true);
+    expect(c.size).toBe(1);
+    expect(c.totalHeight()).toBe(100);
+    expect(c.getHeight(9)).toBe(100);
   });
 
   describe('entryIndexAtOffset', () => {

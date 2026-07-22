@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReadlineInputReader } from '../src/input-reader.js';
 import type { TerminalRenderer } from '../src/renderer.js';
 import { runRepl } from '../src/repl.js';
-import { clearSuggestions } from '../src/slash-commands/suggestion-store.js';
+import { clearSuggestions } from '../src/services/suggestion-store.js';
 
 function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -553,10 +553,9 @@ describe('runRepl', () => {
         getSuggestions: () => suggestions,
       });
 
-      // 1 manual turn + the existing post-turn autonomy continuation +
-      // 1 successful automatic feed. The second identical automatic attempt
-      // is rejected before agent.run().
-      expect(run.mock.calls.length).toBe(3);
+      // 1 manual turn + 1 successful automatic feed. The second identical
+      // automatic attempt is rejected before agent.run().
+      expect(run.mock.calls.length).toBe(2);
       const warns = (renderer.writeWarning as ReturnType<typeof vi.fn>).mock.calls.map((c) =>
         String(c[0] ?? ''),
       );
@@ -646,6 +645,57 @@ describe('runRepl', () => {
 
       // 3 runs: "hello" + auto-proceed "Step one" + auto-proceed "Step two"
       expect(run).toHaveBeenCalledTimes(3);
+    });
+
+    it('consumes an auto-proceed suggestion before a turn with empty output', async () => {
+      const finalTexts = [
+        '<nextsteps>\n1. Run the focused check\n</nextsteps>',
+        '',
+      ];
+      let turn = 0;
+      const run = vi.fn(
+        async (): Promise<RunResult> => ({
+          status: 'done',
+          iterations: 1,
+          finalText: finalTexts[turn++] ?? '',
+        }),
+      );
+      const agent = makeFakeAgent({ run });
+      const suggestions: string[] = [];
+
+      await runRepl({
+        agent,
+        renderer: makeFakeRenderer(),
+        reader: makeFakeReader(['hello\n', '/exit\n']),
+        slashRegistry: makeExitRegistry(),
+        attachments: makeFakeAttachmentStore(),
+        banner: false,
+        getAutonomy: () => 'auto',
+        autoProceedDelayMs: 0,
+        onSuggestionsParsed: (parsed) => {
+          suggestions.length = 0;
+          if (parsed) suggestions.push(...parsed);
+        },
+        getSuggestions: () => suggestions,
+      });
+
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(suggestions).toEqual([]);
+      // The auto-proceed feed must carry the parsed suggestion text — a
+      // regression that fed an empty prompt (e.g. a stale `<nextsteps>`
+      // queue) would still pass the call-count check above, which is
+      // exactly the failure mode the TUI hook fix at
+      // packages/tui/src/hooks/use-next-steps-auto-submit.ts:57-70 guards
+      // against.
+      const allTexts = run.mock.calls.map((c: unknown[]) => {
+        const blocks = c[0] as Array<{ type: string; text?: string }> | undefined;
+        return blocks?.map((b) => b.text ?? '').join(' ') ?? '';
+      });
+      expect(allTexts.some((t) => t.includes('Run the focused check'))).toBe(true);
+      // Indexed check: the suggestion must be the SECOND turn's feed, not
+      // swallowed silently. (First turn is the user's "hello".)
+      const secondTurnBlocks = run.mock.calls[1]?.[0] as Array<{ text?: string }> | undefined;
+      expect(secondTurnBlocks?.[0]?.text).toContain('Run the focused check');
     });
 
     it('off mode does not auto-proceed', async () => {
@@ -936,12 +986,7 @@ describe('runRepl', () => {
       expect(writes.some((w) => w.includes('Suggested next steps'))).toBe(false);
     });
 
-    it('autonomy auto mode keeps re-prompting even when todos are open', async () => {
-      // The re-prompt is the auto driver — gating it would silently kill
-      // auto mode mid-tasklist. The countdown at the top of the loop is
-      // already gated (it consumes getSuggestions(), which is empty while
-      // a todo list is in flight), so the two mechanisms don't
-      // double-drive the agent.
+    it('autonomy auto mode uses the guarded todo driver exactly once per state', async () => {
       const run = vi.fn(
         async (): Promise<RunResult> => ({
           status: 'done',
@@ -953,7 +998,7 @@ describe('runRepl', () => {
         { id: '1', content: 'finish refactor', status: 'in_progress' },
       ]);
       const renderer = makeFakeRenderer();
-      const reader = makeFakeReader(['hello\n', '/exit\n']);
+      const reader = makeFakeReader([]);
       const slashRegistry = makeFakeSlashRegistry();
 
       await runRepl({
@@ -969,8 +1014,16 @@ describe('runRepl', () => {
         getSuggestions: () => [],
       });
 
-      // At least 2 runs: the user's input + the auto re-prompt.
-      expect(run.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // One todo-grounded automatic turn. The identical second attempt is
+      // stopped by the repetition guard before the exit input is read.
+      expect(run.mock.calls.length).toBe(1);
+      const autoPrompt = (run.mock.calls[0]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? '';
+      expect(autoPrompt).toContain('finish refactor');
+      // The halt is surfaced, not silent: the user sees why auto-proceed stopped.
+      const warns = (renderer.writeWarning as ReturnType<typeof vi.fn>).mock.calls.map((c) =>
+        String(c[0] ?? ''),
+      );
+      expect(warns.some((w) => w.includes('Auto-proceed halted'))).toBe(true);
     });
   });
 });

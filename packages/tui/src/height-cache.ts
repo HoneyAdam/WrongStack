@@ -33,20 +33,46 @@ export class EntryHeightCache {
   private readonly heights = new Map<number, number>();
 
   /**
-   * Prefix-sum of heights in insertion order. `prefix[i]` = sum of heights
-   * for entries with index < i. Rebuilt on every `record()` call.
-   * `prefix[0]` is always 0. Invariant: `prefix.length === this.ids.length + 1`.
+   * Prefix-sum of heights in the order last returned by `sync()` (transcript
+   * order), with later `record()` / `recordMany()` calls appended.
+   * `prefix[i]` = sum of heights for entries with index < i. `prefix[0]` is
+   * always 0.
+   * Invariant: `prefix.length === this.ids.length + 1` — but only once
+   * `prefixDirty` is false. Mutators mark the prefix dirty instead of
+   * rebuilding eagerly, so a burst of `record()`/`sync()`/`recordMany()`
+   * calls in one render cycle costs a single O(n) rebuild at the first read
+   * instead of one O(n) rebuild per mutation. After any mutator, `prefix`
+   * may lag until the next read; `size` and `ids` are always authoritative.
    */
   private prefix: number[] = [0];
 
   /** Ordered entry ids matching the prefix-sum positions. */
   private ids: number[] = [];
 
+  /** True when `prefix` no longer reflects `heights`/`ids` and must be rebuilt. */
+  private prefixDirty = false;
+
   /**
-   * Record or update the measured height for an entry.
-   * Rebuilds the prefix-sum — O(n) where n = distinct entries ever measured.
-   * In practice n is the number of entries in the session (hundreds to low
-   * thousands), and rebuild happens once per entry per render cycle.
+   * Set to `true` after the first call to `sync()`, so `record()` knows the
+   * id order is governed by transcript membership and must reject unknown ids.
+   * Reset by `clear()`.
+   */
+  private synced = false;
+
+  /**
+   * Record or update the measured height for an entry. O(1) — marks the
+   * prefix-sum dirty; the rebuild is deferred to the first read so a burst
+   * of records in one render cycle pays for a single rebuild.
+   *
+   * After the first `sync()`, the id MUST be a member of the synced set or
+   * have been previously recorded — unknown ids are rejected with a
+   * `RangeError` because appending them at the end would place them at the
+   * wrong transcript position, corrupting the virtual scroll viewport.
+   * Call `sync()` first if you need to register new ids.
+   *
+   * Before any `sync()` call (fresh cache), unknown ids are appended in
+   * insertion order, which is the only reasonable behaviour when no
+   * transcript order exists yet.
    *
    * Returns `true` when the height changed (new or different from last record).
    */
@@ -57,28 +83,105 @@ export class EntryHeightCache {
     if (prev === clamped) return false;
 
     if (prev === undefined) {
+      if (this.synced) {
+        throw new RangeError(
+          `record: id ${id} is not in the cache; call sync() first to register new ids`,
+        );
+      }
       this.ids.push(id);
     }
     this.heights.set(id, clamped);
-    this.rebuild();
+    this.prefixDirty = true;
     return true;
   }
 
   /**
+   * Synchronize cache membership/order with the retained transcript in one
+   * O(n) rebuild. Missing entries receive a bounded estimate immediately, so
+   * the first render of a resumed/long session can be virtualized instead of
+   * mounting the entire history tree just to discover its height.
+   */
+  sync(entryIds: readonly number[], estimatedHeight = DEFAULT_ENTRY_HEIGHT): boolean {
+    const clampedEstimate = Math.max(1, Math.round(estimatedHeight));
+    const retained = new Set(entryIds);
+    let changed = this.ids.length !== entryIds.length;
+    for (const id of this.heights.keys()) {
+      if (!retained.has(id)) {
+        this.heights.delete(id);
+        changed = true;
+      }
+    }
+    for (const id of entryIds) {
+      if (!this.heights.has(id)) {
+        this.heights.set(id, clampedEstimate);
+        changed = true;
+      }
+    }
+    // Compare order only over the overlap; a length mismatch is already
+    // caught above as a membership change, and ids beyond the overlap are
+    // undefined (which would count as a mismatch anyway).
+    if (!changed) {
+      const overlap = Math.min(entryIds.length, this.ids.length);
+      for (let index = 0; index < overlap; index++) {
+        if (entryIds[index] !== this.ids[index]) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) return false;
+    this.ids = [...entryIds];
+    this.prefixDirty = true;
+    this.synced = true;
+    return true;
+  }
+
+  /**
+   * Update several measured estimates with a single deferred prefix rebuild.
+   *
+   * Rows MUST reference ids already registered via `sync()`. Unknown ids are
+   * rejected with a `RangeError` because appending them at the end would place
+   * them at the wrong transcript position until the next `sync()`, corrupting
+   * the virtual scroll viewport. Call `sync()` first if you need to register
+   * new ids. Duplicate ids within one batch are last-write-wins (each row is
+   * applied in order).
+   */
+  recordMany(rows: Iterable<readonly [id: number, height: number]>): boolean {
+    let changed = false;
+    for (const [id, height] of rows) {
+      // Silently skip invalid rows, mirroring record()'s early-return.
+      if (!Number.isFinite(height) || height < 0) continue;
+      const clamped = Math.max(1, Math.round(height));
+      if (this.heights.get(id) === clamped) continue;
+      if (!this.heights.has(id)) {
+        throw new RangeError(
+          `recordMany: id ${id} is not in the cache; call sync() first to register new ids`,
+        );
+      }
+      this.heights.set(id, clamped);
+      changed = true;
+    }
+    if (changed) this.prefixDirty = true;
+    return changed;
+  }
+
+  /**
    * Total height in rows of all measured entries.
-   * O(1) — returns the last prefix-sum entry.
+   * Amortized O(1) — returns the last prefix-sum entry, rebuilding once if dirty.
    */
   totalHeight(): number {
+    this.ensurePrefix();
     return this.prefix[this.prefix.length - 1] ?? 0;
   }
 
   /**
    * Accumulated row height of entries with index < `entryIndex`.
-   * `accumulatedHeight(0)` = 0. Throws when `entryIndex > ids.length`.
-   * O(1) via prefix-sum lookup.
+   * `accumulatedHeight(0)` = 0. Clamps to total height when
+   * `entryIndex > ids.length`. O(1) via prefix-sum lookup.
    */
   accumulatedHeight(entryIndex: number): number {
     if (entryIndex <= 0) return 0;
+    this.ensurePrefix();
     if (entryIndex >= this.prefix.length) {
       return this.prefix[this.prefix.length - 1] ?? 0;
     }
@@ -109,6 +212,7 @@ export class EntryHeightCache {
    * Returns `ids.length` for offsets past the last entry.
    */
   entryIndexAtOffset(rowOffset: number): number {
+    this.ensurePrefix();
     const total = this.totalHeight();
     if (total <= 0 || rowOffset <= 0) return 0;
     if (rowOffset >= total) return this.ids.length;
@@ -118,7 +222,10 @@ export class EntryHeightCache {
     let hi = this.ids.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >>> 1;
-      const midEnd = this.prefix[mid + 1] ?? total;
+      // `mid + 1 <= ids.length` is guaranteed by the loop bounds (prefix has
+      // ids.length + 1 entries), so the fallback is unreachable — it only
+      // satisfies noUncheckedIndexedAccess.
+      const midEnd = this.prefix[mid + 1] ?? Number.POSITIVE_INFINITY;
       if (midEnd <= rowOffset) {
         lo = mid + 1;
       } else {
@@ -135,11 +242,17 @@ export class EntryHeightCache {
     this.heights.clear();
     this.ids = [];
     this.prefix = [0];
+    this.prefixDirty = false;
+    this.synced = false;
   }
 
   /**
    * Drop cached rows for entries no longer present in the bounded TUI history
    * and restore prefix ordering to match the current entry array.
+   *
+   * Unlike `sync()`, retained ids that are not yet measured are NOT seeded
+   * with a placeholder — call `sync()` if you need bounded estimates for ids
+   * that have never been recorded.
    */
   retain(entryIds: readonly number[]): void {
     const retained = new Set(entryIds);
@@ -154,10 +267,17 @@ export class EntryHeightCache {
     if (!changed) changed = nextIds.some((id, index) => id !== this.ids[index]);
     if (!changed) return;
     this.ids = nextIds;
-    this.rebuild();
+    this.prefixDirty = true;
   }
 
   // ── Private ──
+
+  /** Rebuild the prefix-sum once if any mutation since the last read dirtied it. */
+  private ensurePrefix(): void {
+    if (!this.prefixDirty) return;
+    this.rebuild();
+    this.prefixDirty = false;
+  }
 
   /** Rebuild the prefix-sum array from current heights in insertion order. */
   private rebuild(): void {

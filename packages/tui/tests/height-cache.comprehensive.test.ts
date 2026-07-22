@@ -200,6 +200,99 @@ describe('EntryHeightCache', () => {
       expect(c.getHeight(30)).toBe(2);
     });
   });
+
+  describe('sync', () => {
+    it('rebuilds prefix from estimates for new ids', () => {
+      const c = new EntryHeightCache();
+      c.sync([10, 20, 30], 4);
+      expect(c.size).toBe(3);
+      expect(c.totalHeight()).toBe(12); // 4 + 4 + 4
+      expect(c.accumulatedHeight(1)).toBe(4);
+      expect(c.accumulatedHeight(2)).toBe(8);
+    });
+
+    it('preserves previously-measured heights for retained ids', () => {
+      const c = new EntryHeightCache();
+      c.record(1, 5);
+      c.record(2, 3);
+      c.sync([1, 2, 3], 2);
+      expect(c.getHeight(1)).toBe(5); // preserved from earlier measurement
+      expect(c.getHeight(2)).toBe(3); // preserved from earlier measurement
+      expect(c.getHeight(3)).toBe(2); // seeded with estimate
+      expect(c.totalHeight()).toBe(10); // 5 + 3 + 2
+    });
+
+    it('replaces ids order and repositions prefix', () => {
+      const c = new EntryHeightCache();
+      c.record(1, 5);
+      c.record(2, 3);
+      c.sync([2, 1]);
+      expect(c.accumulatedHeight(0)).toBe(0);
+      expect(c.accumulatedHeight(1)).toBe(3); // entry 2
+      expect(c.accumulatedHeight(2)).toBe(8); // entry 2 + entry 1
+    });
+
+    it('handles empty entryIds — clears everything', () => {
+      const c = new EntryHeightCache();
+      c.record(1, 5);
+      c.record(2, 3);
+      c.sync([]);
+      expect(c.size).toBe(0);
+      expect(c.totalHeight()).toBe(0);
+      expect(c.getHeight(1)).toBeUndefined();
+    });
+
+    it('returns false on identical repeated input', () => {
+      const c = new EntryHeightCache();
+      c.record(1, 5);
+      c.record(2, 3);
+      expect(c.sync([1, 2])).toBe(false);
+    });
+
+    it('returns true when ids change even if height contents match', () => {
+      const c = new EntryHeightCache();
+      c.record(1, 5);
+      c.record(2, 3);
+      expect(c.sync([2, 1])).toBe(true);
+    });
+  });
+
+  describe('recordMany', () => {
+    it('short-circuits on no-change rows', () => {
+      const c = new EntryHeightCache();
+      c.sync([1, 2, 3], 4);
+      // All rows already at the estimated height (4).
+      expect(c.recordMany([[1, 4], [2, 4], [3, 4]])).toBe(false);
+      expect(c.size).toBe(3);
+      expect(c.totalHeight()).toBe(12);
+    });
+
+    it('returns true when at least one row changes', () => {
+      const c = new EntryHeightCache();
+      c.sync([1, 2], 4);
+      expect(c.recordMany([[1, 6], [2, 4]])).toBe(true);
+      expect(c.totalHeight()).toBe(10); // 6 + 4
+    });
+
+    it('clamps and filters non-finite or negative heights silently', () => {
+      const c = new EntryHeightCache();
+      c.sync([1, 2, 3], 4);
+      expect(c.recordMany([
+        [1, Infinity],
+        [2, NaN],
+        [3, -5],
+      ])).toBe(false);
+      expect(c.getHeight(1)).toBe(4); // unchanged
+      expect(c.getHeight(2)).toBe(4); // unchanged
+      expect(c.getHeight(3)).toBe(4); // unchanged
+    });
+
+    it('throws RangeError for unknown ids — call sync() first', () => {
+      const c = new EntryHeightCache();
+      c.sync([10, 20], 3);
+      expect(() => c.recordMany([[30, 5], [40, 2]])).toThrow(RangeError);
+    });
+  });
 });
 
 function filledCache(heights: number[]): EntryHeightCache {

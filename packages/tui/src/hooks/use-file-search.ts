@@ -14,6 +14,7 @@ import type { InputBuilder } from '@wrongstack/core/agent';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { Action, State } from '../app-reducer.js';
 import { searchFiles } from '../file-search.js';
+import type { TokenPreviewStore } from '../token-previews.js';
 
 // ── Exported helpers (pure, no hook dependency) ─────────────────────
 
@@ -51,7 +52,7 @@ export interface UseFileSearchOptions {
   builderRef: React.MutableRefObject<InputBuilder | null>;
   draftRef: React.MutableRefObject<{ buffer: string; cursor: number }>;
   setDraft: (buffer: string, cursor: number) => void;
-  tokenPreviewsRef: React.MutableRefObject<Map<string, string>>;
+  tokenPreviewsRef: React.MutableRefObject<TokenPreviewStore>;
 }
 
 export interface FileSearchResult {

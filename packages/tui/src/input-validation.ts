@@ -52,6 +52,7 @@
  */
 
 import { MAX_TOOL_STREAM_RETAINED_CHARS } from './reducers/helpers.js';
+import { TUI_CHECKPOINTS_MAX_ENTRIES } from './checkpoint-retention.js';
 import type { Action } from './app-state.js';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -1186,10 +1187,10 @@ export function validateAction(action: {
       if (!Array.isArray(checkpoints)) {
         return { valid: false, error: 'rewindOverlayOpen.checkpoints: not an array.' };
       }
-      if (checkpoints.length > MAX_HISTORY_ENTRIES) {
+      if (checkpoints.length > TUI_CHECKPOINTS_MAX_ENTRIES) {
         return {
           valid: false,
-          error: `rewindOverlayOpen.checkpoints: ${checkpoints.length} exceeds max ${MAX_HISTORY_ENTRIES}.`,
+          error: `rewindOverlayOpen.checkpoints: ${checkpoints.length} exceeds max ${TUI_CHECKPOINTS_MAX_ENTRIES}.`,
         };
       }
       return { valid: true, value: payload };

@@ -5,6 +5,7 @@ import type { Mock } from 'vitest';
 import type { InputBuilder } from '@wrongstack/core/agent';
 import { Text } from '../src/ink.js';
 import { detectAtToken, useFileSearch } from '../src/hooks/use-file-search.js';
+import { TokenPreviewStore } from '../src/token-previews.js';
 import * as fileSearchModule from '../src/file-search.js';
 
 // Mock node:fs/promises for file reading tests
@@ -75,7 +76,7 @@ interface HarnessRefs {
   builderRef: React.MutableRefObject<InputBuilder | null>;
   draftRef: React.MutableRefObject<{ buffer: string; cursor: number }>;
   setDraft: Mock;
-  tokenPreviewsRef: React.MutableRefObject<Map<string, string>>;
+  tokenPreviewsRef: React.MutableRefObject<TokenPreviewStore>;
   result: { current: ReturnType<typeof useFileSearch> | null };
 }
 
@@ -87,7 +88,7 @@ function buildHarness(): HarnessRefs {
     builderRef: { current: null },
     draftRef: { current: { buffer: '', cursor: 0 } },
     setDraft: vi.fn(),
-    tokenPreviewsRef: { current: new Map() },
+    tokenPreviewsRef: { current: new TokenPreviewStore() },
     result: { current: null },
   };
 }

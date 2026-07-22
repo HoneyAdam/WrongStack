@@ -5,6 +5,7 @@ import { replaySessionMessages } from './components/history/replay.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
 import { rehydrateHistory } from './rehydrate-history.js';
 import { retainTuiHistory } from './history-retention.js';
+import { retainCheckpoints } from './checkpoint-retention.js';
 import type { State } from './app-state.js';
 
 export type RestoredToolCall = {
@@ -63,7 +64,7 @@ export function buildRestoredCheckpoints(
       fileCount: 0,
     });
   }
-  return [...byIndex.values()].sort((a, b) => a.promptIndex - b.promptIndex);
+  return retainCheckpoints([...byIndex.values()].sort((a, b) => a.promptIndex - b.promptIndex));
 }
 
 export interface CreateInitialStateOptions {

@@ -5,6 +5,7 @@ import type { Mock } from 'vitest';
 import type { InputBuilder } from '@wrongstack/core/agent';
 import { Text } from '../src/ink.js';
 import { usePasteHandling, type UsePasteHandlingOptions } from '../src/hooks/use-paste-handling.js';
+import { TokenPreviewStore } from '../src/token-previews.js';
 import * as clipboardModule from '../src/clipboard.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,7 +24,7 @@ interface HarnessRefs {
   dispatch: Mock;
   draftRef: React.MutableRefObject<{ buffer: string; cursor: number }>;
   setDraft: Mock;
-  tokenPreviewsRef: React.MutableRefObject<Map<string, string>>;
+  tokenPreviewsRef: React.MutableRefObject<TokenPreviewStore>;
   result: { current: ReturnType<typeof usePasteHandling> | null };
 }
 
@@ -35,7 +36,7 @@ function buildHarness(): HarnessRefs {
     dispatch,
     draftRef: { current: { buffer: '', cursor: 0 } },
     setDraft,
-    tokenPreviewsRef: { current: new Map() },
+    tokenPreviewsRef: { current: new TokenPreviewStore() },
     result: { current: null },
   };
 }

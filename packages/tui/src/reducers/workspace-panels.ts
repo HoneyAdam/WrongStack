@@ -1,4 +1,5 @@
 import type { Action, State } from '../app-state.js';
+import { retainCheckpoints } from '../checkpoint-retention.js';
 import type { WorktreeRow } from '../ui-contracts.js';
 import { closePanels } from './helpers.js';
 
@@ -130,7 +131,7 @@ export function reduceWorkspacePanels(state: State, action: WorkspacePanelAction
     case 'checkpointReceived': {
       const existing = state.checkpoints.find((c) => c.promptIndex === action.cp.promptIndex);
       if (existing) return state;
-      return { ...state, checkpoints: [...state.checkpoints, action.cp] };
+      return { ...state, checkpoints: retainCheckpoints([...state.checkpoints, action.cp]) };
     }
     case 'rewindOverlayOpen':
       return {

@@ -3,13 +3,14 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import type { InputBuilder } from '@wrongstack/core/agent';
 import type { Action } from '../app-reducer.js';
 import { readClipboardImage, readClipboardText } from '../clipboard.js';
+import type { TokenPreviewStore } from '../token-previews.js';
 
 export interface UsePasteHandlingOptions {
   builderRef: React.MutableRefObject<InputBuilder | null>;
   dispatch: React.Dispatch<Action>;
   draftRef: React.MutableRefObject<{ buffer: string; cursor: number }>;
   setDraft: (buffer: string, cursor: number) => void;
-  tokenPreviewsRef: React.MutableRefObject<Map<string, string>>;
+  tokenPreviewsRef: React.MutableRefObject<TokenPreviewStore>;
 }
 
 export interface PasteHandlingResult {

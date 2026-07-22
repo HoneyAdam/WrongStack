@@ -11,7 +11,6 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -63,12 +62,13 @@ import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
 import { useTuiSlashCommands } from './hooks/use-tui-slash-commands.js';
 import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { useExitCommand } from './hooks/use-exit-command.js';
-import { type DOMElement, measureElement, useApp, useStdout } from './ink.js';
+import { type DOMElement, useApp, useStdout } from './ink.js';
 import { deriveAppViewState } from './app-view-state.js';
 import { AppView } from './app-view.js';
-import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
+import { MOUSE_DRAG_ON, MOUSE_OFF } from './mouse.js';
 import { createRunBlocksController } from './run-blocks-controller.js';
 import { createSubmitController } from './submit-controller.js';
+import { TokenPreviewStore } from './token-previews.js';
 
 export {
   type Action,
@@ -459,9 +459,9 @@ export function App(props: AppProps): React.ReactElement {
   const lastEnterAtRef = useRef(0);
   // Maps an inline attachment token (e.g. `[pasted #1, 123 lines]`) to a short
   // preview of its content, so the chat-history entry can show the collapsed
-  // text below the message. Append-only for the lifetime of the session; the
-  // token strings are unique per attachment seq, so stale entries are inert.
-  const tokenPreviewsRef = useRef<Map<string, string>>(new Map());
+  // text below the message. Bounded (count + chars, LRU-evicted) — values hold
+  // full paste/file contents, so an unbounded map would leak MBs per session.
+  const tokenPreviewsRef = useRef(new TokenPreviewStore());
   // The status-bar chip surfaces the basename so multiple WrongStack
   // windows running against different repos are immediately distinguishable.
   // Empty / root fallback to undefined so the chip just hides itself.
@@ -552,22 +552,6 @@ export function App(props: AppProps): React.ReactElement {
     refreshGoalSummary,
   } = activity;
 
-  // Keep the measurement callback referentially stable AND no-op-guarded.
-  // ScrollableHistory calls it from a layout effect on every commit. The
-  // callback identity is already stable (empty deps), but on Windows a large
-  // layout can re-measure to the same height across consecutive commits; an
-  // unguarded dispatch then fires a setMeasuredLines action on every one of
-  // those commits, chaining reducer updates within a single commit cycle until
-  // React throws "Maximum update depth exceeded" (error #185). Reading the live
-  // total via stateRef (not the closure-captured `state`) keeps the comparison
-  // correct across renders even though the callback identity is stable. This
-  // mirrors the guard on the sibling viewport-rows measurement callback below.
-  // See issue #276.
-  const onMeasure = useCallback((totalLines: number) => {
-    if (totalLines === stateRef.current.totalLines) return;
-    dispatch({ type: 'setMeasuredLines', totalLines });
-  }, []);
-
   // Live director accessor. The static `director` prop is captured at boot
   // and stays null when the fleet host builds its director LAZILY (first
   // delegate/spawn in a non---director session). Every fleet-teardown path
@@ -639,14 +623,14 @@ export function App(props: AppProps): React.ReactElement {
     [statuslineHiddenForPicker],
   );
 
-  // Live mirror of the `mouse` opt-in. History always uses the bounded managed
-  // viewport; mouse mode only controls SGR tracking and pointer interactions.
+  // Live mirror of the pointer opt-in. Chat history itself uses terminal-native
+  // scrollback; this setting only controls mouse input inside overlays.
   const [mouseMode, setMouseMode] = useState(mouse);
 
   // Mouse tracking ownership. We enable SGR mouse reporting while a selectable
   // overlay is open (so the wheel scrolls the picker selection — see the wheel
-  // handlers in handleKey), and while the global `mouse` prop is set. Outside
-  // those cases tracking stays OFF so the wheel scrolls the terminal's native
+  // handlers in handleKey) and pointer input is enabled. Outside those cases
+  // tracking stays OFF so the wheel scrolls the terminal's native
   // scrollback in the chat. A ref tracks the last write so we only emit a
   // sequence on an actual transition. Cleanup disables tracking on unmount;
   // run-tui also sends MOUSE_OFF as a belt-and-suspenders on process exit.
@@ -668,13 +652,13 @@ export function App(props: AppProps): React.ReactElement {
     state.fKeyPicker.open ||
     state.authPanel.open ||
     state.picker.open;
-  const mouseTrackingOn = mouseMode || pickerOverlayOpen;
+  const mouseTrackingOn = mouseMode && pickerOverlayOpen;
   const mouseWrittenRef = useRef(false);
   useEffect(() => {
     if (mouseWrittenRef.current === mouseTrackingOn) return;
     mouseWrittenRef.current = mouseTrackingOn;
     try {
-      process.stdout.write(mouseTrackingOn ? MOUSE_CLICK_ON : MOUSE_OFF);
+      process.stdout.write(mouseTrackingOn ? MOUSE_DRAG_ON : MOUSE_OFF);
     } catch {
       // stdout closed during shutdown — ignore.
     }
@@ -690,11 +674,8 @@ export function App(props: AppProps): React.ReactElement {
     [],
   );
 
-  // Managed history viewport height is (terminal rows
-  // − bottom-region height): we measure the bottom region (input + pickers +
-  // status bar + panels) after layout and subtract from the live row count.
-  // Guarded against a measure → dispatch → re-measure loop by only dispatching
-  // when the computed height actually changes.
+  // Bottom-region refs support status-bar hit testing. History is committed to
+  // native scrollback, so it no longer participates in a measured viewport.
   const bottomRegionRef = useRef<DOMElement | null>(null);
   // Measured on click to locate clickable status-bar chips: the status bar is
   // bottom-anchored above `belowStatusBarRef`'s panels, so its absolute rows are
@@ -709,16 +690,6 @@ export function App(props: AppProps): React.ReactElement {
       process.stdout.off('resize', onResize);
     };
   }, []);
-  useLayoutEffect(() => {
-    const node = bottomRegionRef.current;
-    if (!node) return;
-    const { height } = measureElement(node);
-    const vp = Math.max(1, termRows - height);
-    if (vp !== stateRef.current.viewportRows) {
-      dispatch({ type: 'setViewportRows', rows: vp });
-    }
-  });
-
   // Latest handleKey, so the keyboard event pipeline can be accessed from
   // effects and callbacks defined above handleKey in the component body.
   const handleKeyRef = useRef<((input: string, key: KeyEvent) => Promise<void>) | null>(null);
@@ -1407,7 +1378,6 @@ export function App(props: AppProps): React.ReactElement {
         gitInfo,
         viewState,
         mouseMode,
-        onMeasure,
         bottomRegionRef,
         statusBarWrapRef,
         belowStatusBarRef,

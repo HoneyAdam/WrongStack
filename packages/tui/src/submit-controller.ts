@@ -2,7 +2,7 @@ import type { Director } from '@wrongstack/core/coordination';
 import type { ContentBlock } from '@wrongstack/core/types';
 import {
   detectContinueIntent,
-  InputBuilder,
+  type InputBuilder,
   resolveContinuation,
   setBtwNote,
 } from '@wrongstack/core/agent';
@@ -17,6 +17,7 @@ import { buildSteeringPreamble } from './steering-preamble.js';
 import { shouldPushSubmittedHistory } from './submit-history.js';
 import type { SubmitCapabilities } from './tui-host-capabilities.js';
 import type { MutableCell } from './shared-types.js';
+import type { TokenPreviewStore } from './token-previews.js';
 
 export interface SubmitControllerHost {
   readonly capabilities: SubmitCapabilities;
@@ -44,7 +45,7 @@ export interface SubmitControllerHost {
     readonly autoSubmitStreak: MutableCell<number>;
     readonly autoSubmitCapWarned: MutableCell<boolean>;
     readonly autoSubmitLoopGuard: MutableCell<{ reset(): void }>;
-    readonly tokenPreviews: MutableCell<Map<string, string>>;
+    readonly tokenPreviews: MutableCell<TokenPreviewStore>;
     readonly builder: MutableCell<InputBuilder | null>;
     readonly sessionGeneration: MutableCell<number>;
     readonly eternalLoop: MutableCell<() => Promise<void>>;
@@ -285,7 +286,9 @@ export function createSubmitController(host: SubmitControllerHost) {
           const m = res.metadata.goalRunInit as { title: string };
           dispatch({ type: 'goalRunInit', title: m.title });
         }
-        // /mouse toggles full mouse mode. The command is stateless (it doesn't
+        // /mouse toggles pointer support inside overlays. Chat always leaves
+        // SGR tracking off so the terminal owns native wheel scrollback.
+        // The command is stateless (it doesn't
         // know the live value), so it emits an intent and the App resolves it
         // against its own `mouseMode` state, persists, and prints the result.
         const mouseToggle = res?.metadata?.mouseToggle as
@@ -315,8 +318,8 @@ export function createSubmitController(host: SubmitControllerHost) {
             entry: {
               kind: 'info',
               text: nextVal
-                ? 'Mouse mode: ON — wheel scrolls the bounded chat history in-app; clickable UI active.'
-                : 'Mouse mode: OFF — pointer tracking disabled; use PgUp/PgDn for chat history.',
+                ? 'Mouse mode: ON — pointer input enabled in pickers; chat wheel remains native terminal scrollback.'
+                : 'Mouse mode: OFF — picker pointer input disabled; chat wheel remains native terminal scrollback.',
             },
           });
         }
