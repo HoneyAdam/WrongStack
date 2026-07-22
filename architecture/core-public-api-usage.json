@@ -159,14 +159,19 @@
       "runtimeOrMixed": 1
     },
     "@wrongstack/core/utils": {
-      "files": 405,
+      "files": 392,
       "typeOnly": 36,
-      "runtimeOrMixed": 437
+      "runtimeOrMixed": 424
     },
     "@wrongstack/core/utils/error": {
-      "files": 3,
+      "files": 4,
       "typeOnly": 0,
-      "runtimeOrMixed": 3
+      "runtimeOrMixed": 4
+    },
+    "@wrongstack/core/utils/expect-defined": {
+      "files": 13,
+      "typeOnly": 0,
+      "runtimeOrMixed": 13
     },
     "@wrongstack/core/worktree": {
       "files": 9,
@@ -12909,84 +12914,6 @@
     },
     {
       "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/ChatInput.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/ChatInput/slash-commands.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/ChatView/utils.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/ContextModePicker.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/FilePicker.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/MessageBubble/ErrorBody.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/MessageBubble/index.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/ToolGroup.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/components/WorktreeGraph.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/hooks/useGlobalKeyboardShortcuts.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/hooks/ws-handlers/chat-handlers.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/main.tsx",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/webui/src/stores/chat-store.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
       "file": "packages/webui/tests/server/custom-context-modes.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -13024,6 +12951,90 @@
     {
       "specifier": "@wrongstack/core/utils/error",
       "file": "packages/tools/src/exec.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/error",
+      "file": "packages/webui/src/components/ChatInput.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/ChatInput.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/ChatInput/slash-commands.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/ChatView/utils.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/ContextModePicker.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/FilePicker.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/MessageBubble/ErrorBody.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/MessageBubble/index.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/ToolGroup.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/components/WorktreeGraph.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/hooks/useGlobalKeyboardShortcuts.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/hooks/ws-handlers/chat-handlers.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/main.tsx",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils/expect-defined",
+      "file": "packages/webui/src/stores/chat-store.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
     },

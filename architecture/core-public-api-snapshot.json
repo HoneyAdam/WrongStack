@@ -401,6 +401,17 @@
       ]
     },
     {
+      "subpath": "./utils/expect-defined",
+      "target": {
+        "types": "./dist/utils/expect-defined.d.ts",
+        "import": "./dist/utils/expect-defined.js"
+      },
+      "source": "packages/core/src/utils/expect-defined.ts",
+      "declarations": [
+        "export function expectDefined"
+      ]
+    },
+    {
       "subpath": "./utils/error",
       "target": {
         "types": "./dist/utils/error.d.ts",
