@@ -16,6 +16,10 @@ export default defineConfig({
       // The dist/ output is only needed for published consumers; local vitest
       // workers (fork pool) need to import from source directly.
       '@wrongstack/core/agent': path.resolve(__dirname, './packages/core/src/core'),
+      '@wrongstack/core/agent-catalog': path.resolve(
+        __dirname,
+        './packages/core/src/coordination/agents/index.ts',
+      ),
       '@wrongstack/core': path.resolve(__dirname, './packages/core/src'),
       // Same for @wrongstack/tools: CLI tests import wiring that reaches the
       // tools package, and root Vitest must not require a prebuilt dist/.

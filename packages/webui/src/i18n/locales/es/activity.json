@@ -1110,6 +1110,10 @@
     "pidLabel": "PID {{pid}}",
     "protected": "protegido",
     "protectedTitle": "Protegido — sobrevive a kill/killAll",
+    "background": "en segundo plano",
+    "backgroundTitle": "Tarea desvinculada — continúa tras cerrar la CLI/WebUI",
+    "confirmKillBackground": "¿Terminar el proceso desvinculado en segundo plano {{pid}}?",
+    "confirmKillAll": "¿Terminar los {{count}} procesos en ejecución?",
     "killTitle": "Matar PID {{pid}}"
   },
   "diff": {

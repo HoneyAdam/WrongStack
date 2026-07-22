@@ -1110,6 +1110,10 @@
     "pidLabel": "PID {{pid}}",
     "protected": "protetto",
     "protectedTitle": "Protetto — sopravvive a kill/killAll",
+    "background": "in background",
+    "backgroundTitle": "Processo scollegato — continua dopo la chiusura di CLI/WebUI",
+    "confirmKillBackground": "Terminare il processo scollegato in background {{pid}}?",
+    "confirmKillAll": "Terminare tutti i {{count}} processi in esecuzione?",
     "killTitle": "Termina PID {{pid}}"
   },
   "diff": {

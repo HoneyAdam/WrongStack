@@ -1110,6 +1110,10 @@
     "pidLabel": "PID {{pid}}",
     "protected": "protégé",
     "protectedTitle": "Protégé — survit à kill/killAll",
+    "background": "en arrière-plan",
+    "backgroundTitle": "Tâche détachée — continue après l’arrêt de la CLI/WebUI",
+    "confirmKillBackground": "Terminer le processus détaché en arrière-plan {{pid}} ?",
+    "confirmKillAll": "Terminer les {{count}} processus en cours ?",
     "killTitle": "Tuer PID {{pid}}"
   },
   "diff": {
