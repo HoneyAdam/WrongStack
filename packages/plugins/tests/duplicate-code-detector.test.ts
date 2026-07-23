@@ -1,3 +1,4 @@
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -56,9 +57,18 @@ function mockStatSync(p: string) {
     err.code = 'ENOENT';
     throw err;
   }
+  // Deterministic size (byte length) and mtimeMs (content-derived) so the
+  // plugin's (mtimeMs, size) cache key invalidates iff a file's content changes.
+  const content = entry.type === 'file' ? entry.content : '';
+  let mtimeHash = 0;
+  for (let i = 0; i < content.length; i++) {
+    mtimeHash = ((mtimeHash << 5) - mtimeHash + content.charCodeAt(i)) | 0;
+  }
   return {
     isDirectory: () => entry.type === 'dir',
     isFile: () => entry.type === 'file',
+    mtimeMs: mtimeHash >>> 0,
+    size: Buffer.byteLength(content, 'utf-8'),
   };
 }
 
@@ -71,13 +81,16 @@ vi.mock('node:fs', () => ({
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(async (p: string, encoding?: string) => mockReadFileSync(p, encoding)),
+  realpath: vi.fn(async (p: string) => normalizePath(p)),
   readdir: vi.fn(async (p: string, options?: { withFileTypes?: boolean }) =>
     mockReaddirSync(p, options),
   ),
   stat: vi.fn(async (p: string) => mockStatSync(p)),
 }));
 
-const plugin = (await import('../src/duplicate-code-detector')).default;
+const dcdModule = await import('../src/duplicate-code-detector');
+const plugin = dcdModule.default;
+const { hashFingerprint, hookIndexBudgets } = dcdModule;
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -86,7 +99,12 @@ const plugin = (await import('../src/duplicate-code-detector')).default;
 interface MockApi {
   tools: { register: ReturnType<typeof vi.fn> };
   config: { extensions: Record<string, unknown> };
-  log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+  log: {
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+    trace: ReturnType<typeof vi.fn>;
+  };
   metrics: { counter: ReturnType<typeof vi.fn> };
   registerHook: ReturnType<typeof vi.fn>;
 }
@@ -99,7 +117,7 @@ function makeApi(overrides: { extensions?: Record<string, unknown>; enabled?: bo
         overrides.extensions ??
         (overrides.enabled === true ? { 'duplicate-code-detector': { enabled: true } } : {}),
     },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), trace: vi.fn() },
     metrics: { counter: vi.fn() },
     registerHook: vi.fn(() => vi.fn()),
   };
@@ -373,6 +391,47 @@ describe('PostToolUse hook behavior', () => {
     });
     expect(result).toBeUndefined();
   });
+
+  it('uses one cwd snapshot throughout an asynchronous hook run', async () => {
+    setFilesystem({
+      '/project/src/original.ts': distinctSource('same'),
+      '/project/src/new.ts': distinctSource('same'),
+    });
+    vi.mocked(realpath).mockImplementationOnce(async (p) => {
+      vi.mocked(process.cwd).mockReturnValue('/elsewhere');
+      return normalizePath(p.toString());
+    });
+
+    const api = makeApi({ enabled: true });
+    plugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/new.ts', content: 'x' },
+      toolResult: { content: 'ok', isError: false },
+    });
+
+    expect(result?.additionalContext).toContain('duplicate-code-detector');
+    expect(vi.mocked(stat)).toHaveBeenCalledWith('/project/src/new.ts');
+  });
+
+  it('rejects a symlink whose canonical target is outside the project', async () => {
+    setFilesystem({ '/project/src/link.ts': distinctSource('link') });
+    vi.mocked(realpath).mockResolvedValueOnce('/outside/secret.ts');
+
+    const api = makeApi({ enabled: true });
+    plugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/link.ts', content: 'x' },
+      toolResult: { content: 'ok', isError: false },
+    });
+
+    expect(result).toBeUndefined();
+    expect(vi.mocked(stat)).not.toHaveBeenCalled();
+    expect(vi.mocked(readFile)).not.toHaveBeenCalled();
+  });
 });
 
 describe('teardown + counters', () => {
@@ -416,5 +475,186 @@ describe('config parsing', () => {
     const result = (await status({})) as { minLines: number; threshold: number };
     expect(result.minLines).toBe(8);
     expect(result.threshold).toBe(0.8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RAM fix: fingerprint-hash index (Set<number>) + budgets + LRU eviction
+// ---------------------------------------------------------------------------
+
+/** A distinct multi-line source file (10 non-empty const lines by default). */
+function distinctSource(tag: string, lines = 10): string {
+  const out = [`// file ${tag}`];
+  for (let i = 0; i < lines; i++) out.push(`const ${tag}_v${i} = ${i} + ${tag.length};`);
+  return `${out.join('\n')}\n`;
+}
+
+describe('hashFingerprint', () => {
+  it('is deterministic and returns a JS-safe unsigned 53-bit integer', () => {
+    const a = hashFingerprint('const x = 1;\nconst y = 2;');
+    const b = hashFingerprint('const x = 1;\nconst y = 2;');
+    expect(a).toBe(b);
+    expect(Number.isSafeInteger(a)).toBe(true);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(a).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
+    expect(hashFingerprint('a different fingerprint')).not.toBe(a);
+  });
+
+  it('hashes the complete input and remains within the safe-integer range', () => {
+    expect(hashFingerprint('')).toBeGreaterThanOrEqual(0);
+    const prefix = 'x'.repeat(65_536);
+    const h = hashFingerprint(`${prefix}a`);
+    expect(h).not.toBe(hashFingerprint(`${prefix}b`));
+    expect(Number.isSafeInteger(h)).toBe(true);
+  });
+});
+
+describe('hook fingerprint-index footprint + budgets', () => {
+  const savedBudgets = { ...hookIndexBudgets };
+  afterEach(() => {
+    Object.assign(hookIndexBudgets, savedBudgets);
+  });
+
+  async function fireHookOver(
+    files: Record<string, string>,
+    changed: string,
+    cfg: Record<string, unknown> = {},
+  ): Promise<Record<string, number>> {
+    setFilesystem(files);
+    const api = makeApi({
+      extensions: { 'duplicate-code-detector': { enabled: true, ...cfg } },
+    });
+    plugin.setup(api as never);
+    const hook = getHook(api);
+    await hook({
+      toolName: 'write',
+      toolInput: { path: changed, content: files[`/project/${changed}`] ?? 'x' },
+      toolResult: { content: 'ok', isError: false },
+    });
+    const status = getTool(api, 'duplicate_code_status');
+    return ((await status({})) as { counters: Record<string, number> }).counters;
+  }
+
+  it('reports compact index-footprint counters after a hook fire', async () => {
+    const counters = await fireHookOver(
+      { '/project/src/a.ts': distinctSource('a'), '/project/src/b.ts': distinctSource('b') },
+      'src/a.ts',
+    );
+    expect(counters['indexedFiles']).toBeGreaterThan(0);
+    expect(counters['indexedFingerprints']).toBeGreaterThan(0);
+    expect(counters['hookIndexEvictions']).toBe(0);
+    expect(counters['approxIndexBytes']).toBeGreaterThan(0);
+  });
+
+  it('LRU-evicts oldest files once maxFiles is exceeded', async () => {
+    hookIndexBudgets.maxFiles = 2;
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 5; i++) files[`/project/src/f${i}.ts`] = distinctSource(`f${i}`);
+    const counters = await fireHookOver(files, 'src/f0.ts');
+    expect(counters['indexedFiles']).toBe(2);
+    expect(counters['hookIndexEvictions']).toBeGreaterThan(0);
+  });
+
+  it('LRU-evicts files once the aggregate fingerprint budget is exceeded', async () => {
+    hookIndexBudgets.maxFiles = 10;
+    hookIndexBudgets.maxFingerprints = 10;
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 5; index += 1) {
+      files[`/project/src/f${index}.ts`] = distinctSource(`f${index}`, 8);
+    }
+    const counters = await fireHookOver(files, 'src/f0.ts', { minLines: 2 });
+    expect(counters['hookIndexEvictions']).toBeGreaterThan(0);
+    expect(counters['indexedFingerprints']).toBeLessThanOrEqual(
+      hookIndexBudgets.maxFingerprints,
+    );
+  });
+
+  it('caps candidate windows hashed per single file', async () => {
+    hookIndexBudgets.maxFingerprintsPerFile = 3;
+    const many = (tag: string) =>
+      `${Array.from({ length: 12 }, (_, i) => `const ${tag}${i} = ${i};`).join('\n')}\n`;
+    const counters = await fireHookOver(
+      { '/project/src/a.ts': many('a'), '/project/src/b.ts': many('b') },
+      'src/a.ts',
+      { minLines: 2 },
+    );
+    // two files, each limited to its first three candidate windows.
+    expect(counters['indexedFingerprints']).toBe(6);
+  });
+
+  it('stops after the candidate-window cap even when early hashes repeat', async () => {
+    hookIndexBudgets.maxFingerprintsPerFile = 2;
+    const repeatedPrefix = [
+      'const repeated = 1;',
+      'const repeated = 1;',
+      'const repeated = 1;',
+      'const unique = 2;',
+    ].join('\n');
+    const counters = await fireHookOver(
+      {
+        '/project/src/a.ts': repeatedPrefix,
+        '/project/src/b.ts': 'const alpha = 1;\nconst beta = 2;\nconst gamma = 3;',
+      },
+      'src/a.ts',
+      { minLines: 2 },
+    );
+    expect(counters['indexedFingerprints']).toBe(3);
+  });
+
+  it('skips files larger than maxFileBytes — no index growth, no warning', async () => {
+    hookIndexBudgets.maxFileBytes = 10; // bytes; distinctSource() is well over this
+    setFilesystem({
+      '/project/src/a.ts': distinctSource('a'),
+      '/project/src/b.ts': distinctSource('a'), // identical: would dup if it were read
+    });
+    const api = makeApi({ extensions: { 'duplicate-code-detector': { enabled: true } } });
+    plugin.setup(api as never);
+    const hook = getHook(api);
+    const result = await hook({
+      toolName: 'write',
+      toolInput: { path: 'src/a.ts', content: 'x' },
+      toolResult: { content: 'ok', isError: false },
+    });
+    expect(result).toBeUndefined(); // oversized changed file → no comparison
+    expect(api.log.trace).toHaveBeenCalledWith(
+      'duplicate-code-detector: skipped oversized file in hook index',
+      expect.objectContaining({ file: 'src/a.ts', maxFileBytes: 10 }),
+    );
+    const status = getTool(api, 'duplicate_code_status');
+    const { counters } = (await status({})) as { counters: Record<string, number> };
+    expect(counters['indexedFiles']).toBe(0);
+    expect(counters['indexedFingerprints']).toBe(0);
+    expect(counters['oversizedFileSkips']).toBe(1);
+    const health = (await plugin.health!()) as { counters: Record<string, number> };
+    expect(health.counters['indexedFiles']).toBe(0);
+    expect(health.counters['indexedFingerprints']).toBe(0);
+    expect(health.counters['hookIndexEvictions']).toBe(0);
+    expect(health.counters['oversizedFileSkips']).toBe(1);
+  });
+
+  it('re-extracts when a cached file changes (mtime/size invalidation)', async () => {
+    setFilesystem({
+      '/project/src/a.ts': distinctSource('a'),
+      '/project/src/b.ts': distinctSource('b', 10),
+    });
+    const api = makeApi({ extensions: { 'duplicate-code-detector': { enabled: true } } });
+    plugin.setup(api as never);
+    const hook = getHook(api);
+    const status = getTool(api, 'duplicate_code_status');
+    const fire = () =>
+      hook({
+        toolName: 'write',
+        toolInput: { path: 'src/a.ts', content: 'x' },
+        toolResult: { content: 'ok', isError: false },
+      });
+    const count = async () =>
+      ((await status({})) as { counters: Record<string, number> }).counters['indexedFingerprints']!;
+
+    await fire();
+    const before = await count();
+    // Grow b.ts → more windows → the index must re-extract on the next fire.
+    mockFs['/project/src/b.ts'] = { type: 'file', content: distinctSource('b', 40) };
+    await fire();
+    expect(await count()).toBeGreaterThan(before);
   });
 });

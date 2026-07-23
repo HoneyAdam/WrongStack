@@ -26,8 +26,8 @@
  * @public
  */
 
-import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Plugin } from '@wrongstack/core/types';
 import { collectSourceFilesAsync, withinProject } from '../runtime/index.js';
 
@@ -59,17 +59,32 @@ interface DuplicateCodeDetectorState {
   hookUnregister: null | (() => void);
   lastHookWarning: Map<string, number>;
   /**
-   * Process-lifetime fingerprint index. Maps `filePath -> {mtimeMs, size, windows}`.
+   * Process-lifetime fingerprint index. Maps `filePath -> {mtimeMs, size, fingerprints}`.
    * On every PostToolUse invocation the hook compares `(mtimeMs, size)` of each
    * source file against the cached value. When the pair matches, the file is
    * byte-identical to its last read and we skip both the read AND the per-window
    * extraction. This collapses the hook's per-edit cost from `O(all_sources *
    * lines)` re-extraction to `O(all_sources * stat())` for unchanged files.
    *
-   * The index is invalidated when the plugin reloads (module-scope reset in
-   * setup()) or when a file's `(mtimeMs, size)` changes.
+   * RAM: the entry stores only compact numeric fingerprint hashes (`Set<number>`),
+   * NOT the `CodeWindow` objects — which carry the raw snippet + normalized
+   * fingerprint TEXT for every overlapping window. Retaining those across a whole
+   * monorepo leaked ~1GB for the process lifetime. Snippets are needed only by the
+   * on-demand `detect_duplicate_code` tool, which re-reads files transiently.
+   *
+   * The index is bounded (see `hookIndexBudgets`) with LRU eviction, and
+   * invalidated when the plugin reloads (reset in setup()/teardown()) or when a
+   * file's `(mtimeMs, size)` changes.
    */
-  fileIndex: Map<string, { mtimeMs: number; size: number; windows: CodeWindow[] }>;
+  fileIndex: Map<string, { mtimeMs: number; size: number; fingerprints: Set<number> }>;
+  /** Per-file reads currently populating `fileIndex`, shared by concurrent background hooks. */
+  inFlightFingerprintReads: Map<string, Promise<Set<number> | null>>;
+  /** Running sum of `fingerprints.size` across `fileIndex`, kept in sync so eviction is O(evicted). */
+  indexFingerprintCount: number;
+  /** Number of file entries evicted from `fileIndex` under budget pressure (observability). */
+  hookIndexEvictions: number;
+  /** Number of hook fingerprint reads skipped because the source file exceeded the byte budget. */
+  oversizedFileSkips: number;
 }
 
 const state: DuplicateCodeDetectorState = {
@@ -81,6 +96,32 @@ const state: DuplicateCodeDetectorState = {
   hookUnregister: null,
   lastHookWarning: new Map(),
   fileIndex: new Map(),
+  inFlightFingerprintReads: new Map(),
+  indexFingerprintCount: 0,
+  hookIndexEvictions: 0,
+  oversizedFileSkips: 0,
+};
+
+// ---------------------------------------------------------------------------
+// Hook fingerprint-index budgets (bound the process-lifetime RAM footprint)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tunable budgets that bound the hook fingerprint index. Keeping the defaults
+ * together makes the file, fingerprint, and byte limits explicit.
+ */
+export const hookIndexBudgets = {
+  /** Max number of files retained in the hook fingerprint index (LRU-evicted). */
+  maxFiles: 5000,
+  /** Max total fingerprints across the whole index (running-sum enforced, LRU-evicted). */
+  maxFingerprints: 300_000,
+  /**
+   * Max candidate windows hashed and cached per file by the advisory hook. The
+   * on-demand detect_duplicate_code tool intentionally scans every window.
+   */
+  maxFingerprintsPerFile: 25_000,
+  /** Files larger than this are skipped entirely by the hook (never read/extracted/cached). */
+  maxFileBytes: 2 * 1024 * 1024,
 };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +194,12 @@ function readConfig(raw: unknown): DuplicateCodeDetectorConfig {
 
 // withinProject() imported from ../runtime/index.js
 
+/** Check a resolved/canonical path against one fixed project-root snapshot. */
+function isWithinRoot(projectRoot: string, candidate: string): boolean {
+  const rel = relative(projectRoot, candidate);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -178,6 +225,73 @@ function normalizeLine(line: string): string {
 
 function buildFingerprint(lines: string[]): string {
   return lines.map(normalizeLine).filter((l) => l.length > 0).join('\n');
+}
+
+/**
+ * Compact 53-bit hash of a fingerprint string. The hook index can retain up to
+ * 300k fingerprints, where a 32-bit hash has a material birthday-collision risk
+ * and can emit a false duplicate warning. The result remains a JS-safe integer,
+ * so the index keeps the compact `Set<number>` representation instead of storing
+ * raw fingerprint text.
+ */
+export function hashFingerprint(fp: string): number {
+  let low = 0xdeadbeef;
+  let high = 0x41c6ce57;
+  for (let index = 0; index < fp.length; index += 1) {
+    const code = fp.charCodeAt(index);
+    low = Math.imul(low ^ code, 2_654_435_761);
+    high = Math.imul(high ^ code, 1_597_334_677);
+  }
+  low =
+    Math.imul(low ^ (low >>> 16), 2_246_822_507) ^
+    Math.imul(high ^ (high >>> 13), 3_266_489_909);
+  high =
+    Math.imul(high ^ (high >>> 16), 2_246_822_507) ^
+    Math.imul(low ^ (low >>> 13), 3_266_489_909);
+  return 4_294_967_296 * (high & 0x1fffff) + (low >>> 0);
+}
+
+/** Compact hashes used only by the automatic advisory hook. */
+function extractFingerprintHashes(
+  content: string,
+  minLines: number,
+  maxWindows: number,
+): Set<number> {
+  const rawLines = content.split(/\r?\n/);
+  // Normalize once per source line. Normalizing every overlapping window
+  // repeated this work roughly minLines times and created large transient
+  // string heaps during project scans.
+  const normalizedLines = rawLines.map(normalizeLine);
+  const fingerprints = new Set<number>();
+  const windowCount = Math.min(Math.max(rawLines.length - minLines + 1, 0), maxWindows);
+  for (let index = 0; index < windowCount; index += 1) {
+    const fingerprint = normalizedLines
+      .slice(index, index + minLines)
+      .filter((line) => line.length > 0)
+      .join('\n');
+    if (fingerprint.length > 0) fingerprints.add(hashFingerprint(fingerprint));
+  }
+  return fingerprints;
+}
+
+/**
+ * LRU-evict the hook fingerprint index until it is within both the file-count and
+ * total-fingerprint budgets. Oldest entries (front of the Map's insertion order)
+ * go first; `indexFingerprintCount` is kept in sync so this is O(evicted).
+ */
+function evictHookIndex(): void {
+  while (
+    state.fileIndex.size > hookIndexBudgets.maxFiles ||
+    state.indexFingerprintCount > hookIndexBudgets.maxFingerprints
+  ) {
+    const oldest = state.fileIndex.keys().next();
+    if (oldest.done) break;
+    const key = oldest.value;
+    const entry = state.fileIndex.get(key);
+    if (entry) state.indexFingerprintCount -= entry.fingerprints.size;
+    state.fileIndex.delete(key);
+    state.hookIndexEvictions += 1;
+  }
 }
 
 interface CodeWindow {
@@ -314,6 +428,9 @@ const plugin: Plugin = {
     state.errorCount = 0;
     state.lastHookWarning.clear();
     state.fileIndex.clear();
+    state.indexFingerprintCount = 0;
+    state.hookIndexEvictions = 0;
+    state.oversizedFileSkips = 0;
     if (state.hookUnregister) {
       try {
         state.hookUnregister();
@@ -326,16 +443,18 @@ const plugin: Plugin = {
     const cfg = readConfig(api.config.extensions?.['duplicate-code-detector']);
 
     /**
-     * Cached read: stat() then either return cached windows (when mtime+size
-     * match) or read + extract + cache the new windows. Cheap stat() cost per
-     * unchanged file; only changed files pay the read + extract cost.
+     * Cached read of a file's fingerprint HASH set. stat() then either return the
+     * cached `Set<number>` (when mtime+size match) or read + extract + hash + cache.
+     * Only compact numeric hashes are retained — never the snippet/fingerprint text.
+     * Cheap stat() cost per unchanged file; only changed files pay read + extract.
      *
-     * Returns null if the file is unreadable.
+     * Files larger than `hookIndexBudgets.maxFileBytes` are skipped (empty set, not cached).
+     * Returns null only if the file is unreadable/unstattable.
      */
-    async function readCachedWindows(
+    async function readCachedFingerprints(
       filePath: string,
       minLines: number,
-    ): Promise<CodeWindow[] | null> {
+    ): Promise<Set<number> | null> {
       let st: { mtimeMs: number; size: number };
       try {
         st = await stat(filePath);
@@ -344,7 +463,24 @@ const plugin: Plugin = {
       }
       const cached = state.fileIndex.get(filePath);
       if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-        return cached.windows;
+        // LRU touch: re-insert to mark most-recently-used (moves to Map tail).
+        state.fileIndex.delete(filePath);
+        state.fileIndex.set(filePath, cached);
+        return cached.fingerprints;
+      }
+      // Never read/extract oversized files — they'd dominate the index and the read.
+      if (st.size > hookIndexBudgets.maxFileBytes) {
+        if (cached) {
+          state.indexFingerprintCount -= cached.fingerprints.size;
+          state.fileIndex.delete(filePath);
+        }
+        state.oversizedFileSkips += 1;
+        api.log.trace('duplicate-code-detector: skipped oversized file in hook index', {
+          file: relativePath(filePath),
+          sizeBytes: st.size,
+          maxFileBytes: hookIndexBudgets.maxFileBytes,
+        });
+        return new Set();
       }
       let content: string;
       try {
@@ -352,9 +488,17 @@ const plugin: Plugin = {
       } catch {
         return null;
       }
-      const windows = extractWindows(filePath, content, minLines);
-      state.fileIndex.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, windows });
-      return windows;
+      const fingerprints = extractFingerprintHashes(
+        content,
+        minLines,
+        hookIndexBudgets.maxFingerprintsPerFile,
+      );
+      // Update the running fingerprint count, replacing any prior entry's contribution.
+      if (cached) state.indexFingerprintCount -= cached.fingerprints.size;
+      state.fileIndex.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, fingerprints });
+      state.indexFingerprintCount += fingerprints.size;
+      evictHookIndex();
+      return fingerprints;
     }
 
     const hook = async (
@@ -378,7 +522,21 @@ const plugin: Plugin = {
       const inp = (input.toolInput ?? {}) as Record<string, unknown>;
       const sourcePath = inp['path'] as string | undefined;
       if (!sourcePath || typeof sourcePath !== 'string') return;
-      if (!withinProject(sourcePath)) return;
+
+      // Snapshot cwd once, resolve against that root, then canonicalize before
+      // any stat/read/cache operation. This prevents cwd changes or symlinks
+      // from redirecting the persistent fingerprint index outside the project.
+      const projectRoot = resolve(process.cwd());
+      const resolvedFile = isAbsolute(sourcePath) ? resolve(sourcePath) : resolve(projectRoot, sourcePath);
+      if (!isWithinRoot(projectRoot, resolvedFile)) return;
+      let changedFile: string;
+      try {
+        changedFile = await realpath(resolvedFile);
+      } catch {
+        state.errorCount += 1;
+        return;
+      }
+      if (!isWithinRoot(projectRoot, changedFile)) return;
 
       const ext = sourcePath.includes('.')
         ? sourcePath.slice(sourcePath.lastIndexOf('.')).toLowerCase()
@@ -393,57 +551,52 @@ const plugin: Plugin = {
       // we still report the total count, but we don't repeat the same message
       // for the same file on every edit.
       const now = Date.now();
-      const lastWarning = state.lastHookWarning.get(sourcePath);
+      const lastWarning = state.lastHookWarning.get(changedFile);
       if (lastWarning !== undefined && now - lastWarning < 60_000) return;
 
-      const changedFile = resolve(process.cwd(), sourcePath);
-      const changedWindows = await readCachedWindows(changedFile, cfg.minLines);
-      if (changedWindows === null) {
+      const changedFps = await readCachedFingerprints(changedFile, cfg.minLines);
+      if (changedFps === null) {
         state.errorCount += 1;
         return;
       }
-      if (changedWindows.length === 0) return;
+      if (changedFps.size === 0) return;
 
-      const projectRoot = resolve(process.cwd());
       let otherFilePaths: string[];
       try {
-        otherFilePaths = (await collectSourceFilesAsync(projectRoot, {
+        otherFilePaths = await collectSourceFilesAsync(projectRoot, {
           extensions: cfg.extensions,
           excludeDirs: cfg.excludeDirs,
-        })).filter((p) => p !== changedFile);
+        });
       } catch {
         state.errorCount += 1;
         return;
       }
 
-      // Build the comparison set with the fingerprint cache. Unchanged files
-      // pay only a stat() per file; only files that changed since the last
-      // hook fire pay the read + extract cost. This collapses the per-edit
-      // scan from O(all_sources * lines) to O(all_sources * stat()) on
-      // no-op projects.
-      const existingWindows: CodeWindow[] = [];
+      // Compare fingerprint HASH sets instead of concatenating every file's
+      // windows into one array (the old per-fire memory spike). Unchanged files
+      // pay only a stat(); changed files pay read + extract + hash. `matched`
+      // holds the changed-file fingerprints already found elsewhere (deduped),
+      // so the count preserves the old "number of changed blocks duplicated
+      // elsewhere" semantic without retaining any snippet text.
+      const matched = new Set<number>();
       for (const p of otherFilePaths) {
-        const w = await readCachedWindows(p, cfg.minLines);
-        if (w !== null) existingWindows.push(...w);
-      }
-
-      const hits: CodeWindow[] = [];
-      for (const cw of changedWindows) {
-        for (const ew of existingWindows) {
-          if (cw.fingerprint === ew.fingerprint) {
-            hits.push(ew);
-            break;
-          }
+        // Keep the changed file out even if collection/filtering is refactored.
+        if (resolve(p) === resolve(changedFile)) continue;
+        const otherFps = await readCachedFingerprints(p, cfg.minLines);
+        if (otherFps === null || otherFps.size === 0) continue;
+        for (const fp of changedFps) {
+          if (!matched.has(fp) && otherFps.has(fp)) matched.add(fp);
         }
+        if (matched.size === changedFps.size) break;
       }
 
-      if (hits.length === 0) return;
+      if (matched.size === 0) return;
 
-      state.warningCount += hits.length;
-      state.lastHookWarning.set(sourcePath, now);
+      state.warningCount += matched.size;
+      state.lastHookWarning.set(changedFile, now);
       return {
         additionalContext:
-          `⚠️ duplicate-code-detector: ${sourcePath} contains ${hits.length} block(s) already present elsewhere. ` +
+          `⚠️ duplicate-code-detector: ${sourcePath} contains ${matched.size} block(s) already present elsewhere. ` +
           `Run detect_duplicate_code for details.`,
         contextAs: 'separate',
       };
@@ -516,6 +669,14 @@ const plugin: Plugin = {
             hookInvocations: state.hookInvocationCount,
             warnings: state.warningCount,
             errors: state.errorCount,
+            // Hook fingerprint-index footprint (bounded; see hookIndexBudgets).
+            indexedFiles: state.fileIndex.size,
+            indexedFingerprints: state.indexFingerprintCount,
+            hookIndexEvictions: state.hookIndexEvictions,
+            oversizedFileSkips: state.oversizedFileSkips,
+            // Rough retained-bytes estimate: ~8B per numeric fingerprint + ~120B
+            // per file entry (key string + Set/entry overhead). Compact by design.
+            approxIndexBytes: state.indexFingerprintCount * 8 + state.fileIndex.size * 120,
           },
         };
       },
@@ -550,6 +711,10 @@ const plugin: Plugin = {
     state.warningCount = 0;
     state.errorCount = 0;
     state.lastHookWarning.clear();
+    state.fileIndex.clear();
+    state.indexFingerprintCount = 0;
+    state.hookIndexEvictions = 0;
+    state.oversizedFileSkips = 0;
     api.log.info('duplicate-code-detector: teardown complete', { final });
   },
 
@@ -565,6 +730,10 @@ const plugin: Plugin = {
         hookInvocations: state.hookInvocationCount,
         warnings: state.warningCount,
         errors: state.errorCount,
+        indexedFiles: state.fileIndex.size,
+        indexedFingerprints: state.indexFingerprintCount,
+        hookIndexEvictions: state.hookIndexEvictions,
+        oversizedFileSkips: state.oversizedFileSkips,
       },
     };
   },
