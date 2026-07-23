@@ -1,5 +1,5 @@
-import { Bot, Command, Cpu, Search, Settings, Sparkles } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Bot, Command, Cpu, Moon, Search, Settings, Sparkles, Sun } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDesktopBridge } from '@/hooks/useDesktopBridge';
 import { useF5Resilience } from '@/hooks/useF5Resilience';
@@ -28,6 +28,7 @@ import { ContextDashboard } from './components/ContextDashboard';
 import { CronTrigger } from './components/CronTrigger';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
+import { PromptLibraryModal } from './components/PromptLibraryModal';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
@@ -182,6 +183,18 @@ function WorkbenchTopbar({
   onModel: () => void;
   onSettings: () => void;
 }) {
+  const { theme, setTheme } = useTheme();
+  const effectiveTheme =
+    theme === 'system'
+      ? typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+      : theme;
+  // Cycle light → dark → light. The 'system' option stays accessible via
+  // the ActivityBar "More" menu and Settings → Appearance.
+  const toggleTheme = useCallback(() => {
+    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
+  }, [effectiveTheme, setTheme]);
   const serverProcess = useServerProcessMetrics();
   const heapLoad = serverProcess ? serverProcess.memoryUsage.heapUsed / serverProcess.heapLimit : 0;
   return (
@@ -262,6 +275,14 @@ function WorkbenchTopbar({
             <Cpu className="h-3.5 w-3.5" />
             Model
           </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border/70 bg-background/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            title={effectiveTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          >
+            {effectiveTheme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
           <InspectorTrigger />
           <CronTrigger />
           <button
@@ -308,6 +329,7 @@ function AppInner() {
     setShortcutsOpen,
     setModelSwitcherOpen,
     setPromptLibraryOpen,
+    promptLibraryOpen,
     toggleInspector,
     setFleetMonitorOpen,
     setAgentsMonitorOpen,
@@ -331,6 +353,7 @@ function AppInner() {
       setShortcutsOpen: s.setShortcutsOpen,
       setModelSwitcherOpen: s.setModelSwitcherOpen,
       setPromptLibraryOpen: s.setPromptLibraryOpen,
+      promptLibraryOpen: s.promptLibraryOpen,
       toggleInspector: s.toggleInspector,
       setFleetMonitorOpen: s.setFleetMonitorOpen,
       setAgentsMonitorOpen: s.setAgentsMonitorOpen,
@@ -813,6 +836,9 @@ function AppInner() {
       )}
 
       {/* Agent detail is now shown in the inspector sidebar — no modal needed */}
+
+      {/* Prompt library modal — triggered by /prompt slash command or library button */}
+      <PromptLibraryModal />
 
       {/* Context breakdown modal — triggered from side-panel session panel */}
       {sideContextBreakdownOpen && (
