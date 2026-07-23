@@ -90,7 +90,9 @@ export function memoryQueryRelevance(memory: SuperMemory, query: string): Memory
   const tagTerms = new Set(memory.tags.flatMap(informativeTerms));
   const anchorTerms = new Set(
     memory.anchors.flatMap((anchor) =>
-      informativeTerms([anchor.path, anchor.symbol, anchor.command].filter(Boolean).join(' ')),
+      informativeTerms(
+        [anchor.path, anchor.symbol, anchor.command, anchor.role].filter(Boolean).join(' '),
+      ),
     ),
   );
   const allTerms = new Set([...textTerms, ...tagTerms, ...anchorTerms]);
@@ -150,7 +152,7 @@ function informativeTerms(text: string): string[] {
 }
 
 function exactAnchorValue(anchor: MemoryAnchor): string | undefined {
-  const value = anchor.symbol ?? anchor.command ?? anchor.path;
+  const value = anchor.symbol ?? anchor.command ?? anchor.path ?? anchor.role;
   if (!value) return undefined;
   const normalized = value.normalize('NFKC').toLowerCase().replace(/\\/g, '/').replace(/^\.\//, '');
   if (normalized === '.' || normalized.length < 4) return undefined;

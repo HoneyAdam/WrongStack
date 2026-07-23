@@ -1,8 +1,9 @@
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { assertProjectAgentRole, FLEET_ROSTER } from '@wrongstack/core/coordination';
 import type {
   AnchorVerificationResult,
   MemoryAnchor,
@@ -40,6 +41,22 @@ async function verifyAnchor(
   if (anchor.type === 'command') {
     return { anchor, status: 'unknown', reason: 'Command anchors require execution evidence.' };
   }
+  if (anchor.type === 'agent') {
+    let role: string;
+    try {
+      role = assertProjectAgentRole(anchor.role ?? '').toLowerCase();
+    } catch {
+      return { anchor, status: 'stale', reason: 'Agent anchor has an invalid role.' };
+    }
+    const customRolePath = path.join(projectRoot, '.wrongstack', 'agents', role);
+    const customRoleExists = await fs
+      .stat(customRolePath)
+      .then((stat) => stat.isDirectory())
+      .catch(() => false);
+    return FLEET_ROSTER[role] || customRoleExists
+      ? { anchor, status: 'verified', reason: `Agent role "${role}" is available.` }
+      : { anchor, status: 'stale', reason: `Agent role "${role}" is not in the roster.` };
+  }
   if (!anchor.path) {
     return { anchor, status: 'unknown', reason: 'Anchor has no path.' };
   }
@@ -60,13 +77,25 @@ async function verifyAnchor(
 
   const realRoot = await fs.realpath(projectRoot).catch(() => path.resolve(projectRoot));
   if (!isInside(realRoot, realPath)) {
-    return { anchor, status: 'stale', reason: 'Anchor resolves through a symlink outside the project root.' };
+    return {
+      anchor,
+      status: 'stale',
+      reason: 'Anchor resolves through a symlink outside the project root.',
+    };
   }
 
   if (anchor.type === 'directory' || anchor.type === 'package') {
     return stat.isDirectory()
-      ? { anchor, status: 'verified', reason: anchor.type === 'package' ? 'Package directory exists.' : 'Directory exists.' }
-      : { anchor, status: 'stale', reason: `${anchor.type === 'package' ? 'Package' : 'Directory'} anchor points to a non-directory.` };
+      ? {
+          anchor,
+          status: 'verified',
+          reason: anchor.type === 'package' ? 'Package directory exists.' : 'Directory exists.',
+        }
+      : {
+          anchor,
+          status: 'stale',
+          reason: `${anchor.type === 'package' ? 'Package' : 'Directory'} anchor points to a non-directory.`,
+        };
   }
   if (!stat.isFile()) {
     return { anchor, status: 'stale', reason: 'File anchor points to a non-file.' };
@@ -81,7 +110,12 @@ async function verifyAnchor(
   if (anchor.symbol) {
     const text = body.toString('utf8');
     if (!containsSymbol(text, anchor.symbol)) {
-      return { anchor, status: 'stale', reason: `Symbol "${anchor.symbol}" no longer exists.`, contentHash };
+      return {
+        anchor,
+        status: 'stale',
+        reason: `Symbol "${anchor.symbol}" no longer exists.`,
+        contentHash,
+      };
     }
   }
 
@@ -96,10 +130,21 @@ async function verifyAnchor(
       });
       gitBlobHash = result.stdout.trim();
       if (anchor.gitBlobHash && anchor.gitBlobHash !== gitBlobHash) {
-        return { anchor, status: 'stale', reason: 'Git blob hash changed.', contentHash, gitBlobHash };
+        return {
+          anchor,
+          status: 'stale',
+          reason: 'Git blob hash changed.',
+          contentHash,
+          gitBlobHash,
+        };
       }
     } catch {
-      return { anchor, status: 'unknown', reason: 'Git blob could not be calculated.', contentHash };
+      return {
+        anchor,
+        status: 'unknown',
+        reason: 'Git blob could not be calculated.',
+        contentHash,
+      };
     }
   }
 

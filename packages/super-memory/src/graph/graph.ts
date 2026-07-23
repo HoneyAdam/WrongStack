@@ -9,6 +9,7 @@ const VALID_RELATIONS = new Set<MemoryGraphRelation>([
   'about_symbol',
   'about_package',
   'about_command',
+  'about_agent',
   'derived_from',
   'validated_by',
   'invalidated_by',

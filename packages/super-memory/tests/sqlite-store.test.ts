@@ -249,6 +249,63 @@ describe('SqliteSuperMemoryStore', () => {
     });
   });
 
+  describe('findRelatedSuper', () => {
+    it('expands a symbol memory to package/command relatives and excludes unrelated', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const symbol = await store.rememberSuper({
+        text: 'SessionStore owns refresh-token rotation.',
+        kind: 'symbol_note',
+        tags: ['auth', 'session'],
+        anchors: [{ type: 'symbol', path: 'packages/auth/src/session.ts', symbol: 'SessionStore' }],
+      });
+      const packageFact = await store.rememberSuper({
+        text: 'The auth package owns session lifecycle.',
+        kind: 'fact',
+        tags: ['auth'],
+        anchors: [{ type: 'package', path: 'packages/auth' }],
+        persistence: 'long_lived',
+      });
+      const command = await store.rememberSuper({
+        text: 'Run the auth package tests before changing session behavior.',
+        kind: 'command_note',
+        tags: ['auth', 'test'],
+        anchors: [
+          { type: 'package', path: 'packages/auth' },
+          { type: 'command', command: 'pnpm --filter @wrongstack/auth test' },
+        ],
+      });
+      await store.rememberSuper({
+        text: 'Unrelated renderer convention.',
+        kind: 'convention',
+        tags: ['ui'],
+        anchors: [{ type: 'package', path: 'packages/tui' }],
+      });
+
+      const related = await store.findRelatedSuper([symbol.id], { limit: 10 });
+      const ids = new Set(related.map((memory) => memory.id));
+
+      expect(ids.has(packageFact.id)).toBe(true);
+      expect(ids.has(command.id)).toBe(true);
+      expect(related.some((memory) => memory.text.includes('renderer'))).toBe(false);
+    });
+
+    it('returns empty when seeds share no structure with the corpus', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const seed = await store.rememberSuper({
+        text: 'Isolated fact with no tags or anchors',
+        kind: 'fact',
+      });
+      await store.rememberSuper({
+        text: 'Another isolated fact',
+        kind: 'fact',
+      });
+      const related = await store.findRelatedSuper([seed.id], { limit: 10 });
+      expect(related).toEqual([]);
+    });
+  });
+
   describe('listMemories', () => {
     it('lists memories sorted by updatedAt DESC', async () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
@@ -370,6 +427,45 @@ describe('SqliteSuperMemoryStore', () => {
       const active = await store.listMemories({ status: 'active', limit: 100 });
       const pnpmMems = active.filter((m) => m.text.includes('pnpm workspaces'));
       expect(pnpmMems.length).toBe(1);
+    });
+
+    it('deduplicates inside one mutation transaction and records the committed audit', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const keeper = await store.rememberSuper({
+        text: 'Transaction-safe hygiene duplicate',
+        importance: 0.9,
+      });
+      const duplicate = {
+        ...keeper,
+        id: `${keeper.id}_duplicate`,
+        importance: 0.1,
+      };
+      (
+        store as unknown as {
+          upsertMemory(memory: typeof duplicate): void;
+        }
+      ).upsertMemory(duplicate);
+
+      const report = await store.hygiene({ verify: false });
+
+      expect(report.deduplicated).toBe(1);
+      expect(report.superseded).toBe(1);
+      const active = await store.listMemories({ status: 'active', limit: 100 });
+      expect(active.filter((memory) => memory.text === keeper.text)).toHaveLength(1);
+      const db = (
+        store as unknown as {
+          db: {
+            prepare(sql: string): {
+              get(...args: unknown[]): { count: number } | undefined;
+            };
+          };
+        }
+      ).db;
+      const audit = db
+        .prepare("SELECT COUNT(*) AS count FROM audit_log WHERE event = 'memory.hygiene_dedup'")
+        .get();
+      expect(audit?.count).toBe(1);
     });
 
     it('creates review candidates for low-confidence memories', async () => {
@@ -812,6 +908,176 @@ describe('SqliteSuperMemoryStore', () => {
         [...first.memories, ...second.memories, ...third.memories].map((m) => m.id),
       );
       expect(seen.size).toBe(5);
+    });
+  });
+
+  describe('syncAnchorEdges', () => {
+    // Helper: collect every edge whose `from` is the given memory node id.
+    // We can't query the DB directly (it is private), so we use the public
+    // `traverseGraph` API, filtering on the source node.
+    async function edgesFrom(
+      store: SqliteSuperMemoryStore,
+      memoryId: string,
+    ): Promise<Array<{ to: string; relation: string }>> {
+      const from = `mem:${memoryId}`;
+      const all = await store.traverseGraph([from], { maxDepth: 1 });
+      return all
+        .filter((e) => e.from === from)
+        .map((e) => ({ to: e.to, relation: e.relation }));
+    }
+
+    it('creates one edge per anchor, one relation per type', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({
+        text: 'Multi-anchor parity test',
+        kind: 'fact',
+        anchors: [
+          { type: 'file', path: 'src/one.ts' },
+          { type: 'directory', path: 'src/lib' },
+          { type: 'symbol', path: 'src/two.ts', symbol: 'exportFn' },
+          { type: 'package', path: 'packages/foo' },
+          { type: 'command', command: 'pnpm test' },
+          { type: 'agent', role: 'Reviewer' }, // role is lower-cased by normalizeAnchors
+        ],
+      });
+
+      const edges = await edgesFrom(store, mem.id);
+      const relations = edges.map((e) => e.relation).sort();
+      // The relation union is the source of truth for what we expect.
+      expect(relations).toEqual([
+        'about_agent',
+        'about_command',
+        'about_directory',
+        'about_file',
+        'about_package',
+        'about_symbol',
+      ]);
+      // Sanity: each anchor type produced a distinct target node id.
+      expect(new Set(edges.map((e) => e.to)).size).toBe(6);
+    });
+
+    it('is idempotent — re-remembering the same anchors produces the same edges', async () => {
+      let nowMs = Date.parse('2026-01-01T00:00:00.000Z');
+      const store = trackStore(
+        new SqliteSuperMemoryStore({ projectRoot: tempDir, now: () => new Date(nowMs) }),
+      );
+      await store.initialize();
+      const first = await store.rememberSuper({
+        text: 'Idempotent anchor test',
+        kind: 'fact',
+        anchors: [
+          { type: 'file', path: 'src/idempotent.ts' },
+          { type: 'command', command: 'pnpm build' },
+        ],
+      });
+      const before = (await edgesFrom(store, first.id))
+        .map((e) => `${e.relation}\u0000${e.to}`)
+        .sort();
+      const db = (
+        store as unknown as {
+          db: {
+            prepare(sql: string): {
+              get(...args: unknown[]): { created_at: string } | undefined;
+            };
+          };
+        }
+      ).db;
+      const edgeCreatedAt = db
+        .prepare(
+          "SELECT created_at FROM edges WHERE from_node = ? AND to_node = ? AND relation = 'about_file'",
+        )
+        .get(`mem:${first.id}`, 'file:src/idempotent.ts')?.created_at;
+
+      // Same anchors on a fresh upsert via updateSuper — the merge path
+      // also runs syncAnchorEdges and must not duplicate edges or reset their creation time.
+      nowMs += 60_000;
+      await store.updateSuper(first.id, {
+        anchors: [
+          { type: 'file', path: 'src/idempotent.ts' },
+          { type: 'command', command: 'pnpm build' },
+        ],
+      });
+
+      const after = (await edgesFrom(store, first.id))
+        .map((e) => `${e.relation}\u0000${e.to}`)
+        .sort();
+
+      expect(after).toEqual(before);
+      const updatedEdgeCreatedAt = db
+        .prepare(
+          "SELECT created_at FROM edges WHERE from_node = ? AND to_node = ? AND relation = 'about_file'",
+        )
+        .get(`mem:${first.id}`, 'file:src/idempotent.ts')?.created_at;
+      expect(updatedEdgeCreatedAt).toBe(edgeCreatedAt);
+      // No duplicates: each relation appears at most once per (from, to).
+      const uniquePairs = new Set(after);
+      expect(uniquePairs.size).toBe(after.length);
+    });
+
+    it('replaces anchor edges when the anchor set changes, preserving supersedes', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({
+        text: 'Anchor replacement test',
+        kind: 'fact',
+        anchors: [{ type: 'file', path: 'src/old.ts' }],
+      });
+
+      // Add a `supersedes` edge that must survive anchor replacement —
+      // syncAnchorEdges only clears the `about_*` family.
+      await store.addGraphEdge(`mem:${mem.id}`, 'mem:other', 'supersedes', 1);
+
+      await store.updateSuper(mem.id, {
+        anchors: [{ type: 'file', path: 'src/new.ts' }],
+      });
+
+      const fromMem = `mem:${mem.id}`;
+      const all = await store.traverseGraph([fromMem], { maxDepth: 1 });
+      const outgoing = all.filter((e) => e.from === fromMem);
+
+      const aboutRelations = outgoing
+        .filter((e) => e.relation.startsWith('about_'))
+        .map((e) => `${e.relation}\u0000${e.to}`)
+        .sort();
+      expect(aboutRelations).toEqual(['about_file\u0000file:src/new.ts']);
+
+      // supersedes is preserved.
+      const supersedes = outgoing.find((e) => e.relation === 'supersedes');
+      expect(supersedes).toBeDefined();
+      expect(supersedes?.to).toBe('mem:other');
+    });
+
+    it('superseding clears about_* edges but leaves other relations in place', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({
+        text: 'Superseded anchor test',
+        kind: 'fact',
+        anchors: [
+          { type: 'file', path: 'src/doomed.ts' },
+          { type: 'symbol', path: 'src/doomed.ts', symbol: 'fn' },
+        ],
+      });
+      await store.addGraphEdge(`mem:${mem.id}`, 'mem:sibling', 'related_to', 1);
+
+      const fromMem = `mem:${mem.id}`;
+      const before = await store.traverseGraph([fromMem], { maxDepth: 1 });
+      expect(before.some((e) => e.relation.startsWith('about_'))).toBe(true);
+
+      await store.updateSuper(mem.id, { status: 'superseded' });
+
+      const after = await store.traverseGraph([fromMem], { maxDepth: 1 });
+      const about = after.filter(
+        (e) => e.from === fromMem && e.relation.startsWith('about_'),
+      );
+      expect(about).toEqual([]);
+      // Non-`about_*` relations survive the soft-delete.
+      const related = after.find(
+        (e) => e.from === fromMem && e.relation === 'related_to',
+      );
+      expect(related).toBeDefined();
+      expect(related?.to).toBe('mem:sibling');
     });
   });
 });

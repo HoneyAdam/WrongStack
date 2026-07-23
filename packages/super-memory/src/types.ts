@@ -1,10 +1,5 @@
 import type { EventBus } from '@wrongstack/core/kernel';
-import type {
-  MemoryEntry,
-  MemoryPriority,
-  MemoryScope,
-  MemoryType,
-} from '@wrongstack/core/types';
+import type { MemoryEntry, MemoryPriority, MemoryScope, MemoryType } from '@wrongstack/core/types';
 
 export const SUPER_MEMORY_SCHEMA_VERSION = 1;
 
@@ -59,10 +54,12 @@ export type SuperMemoryStatus =
   | 'deleted';
 
 export interface MemoryAnchor {
-  type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git';
+  type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git' | 'agent';
   path?: string | undefined;
   symbol?: string | undefined;
   command?: string | undefined;
+  /** Stable roster/catalog role id when type is `agent`. */
+  role?: string | undefined;
   contentHash?: string | undefined;
   gitBlobHash?: string | undefined;
   lineStart?: number | undefined;
@@ -152,6 +149,7 @@ export type MemoryGraphRelation =
   | 'about_symbol'
   | 'about_package'
   | 'about_command'
+  | 'about_agent'
   | 'derived_from'
   | 'validated_by'
   | 'invalidated_by'

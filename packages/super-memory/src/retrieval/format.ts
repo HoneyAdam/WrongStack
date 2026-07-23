@@ -65,17 +65,20 @@ export function formatMemoryHintsDetailed(
 }
 
 function formatPrimaryAnchor(memory: SuperMemory): string {
-  const anchor = memory.anchors.find((a) => a.path || a.symbol || a.command);
+  const anchor = memory.anchors.find((a) => a.path || a.symbol || a.command || a.role);
   if (!anchor) return '';
   if (anchor.symbol && anchor.path) return `${anchor.path}#${anchor.symbol}`;
   if (anchor.path) return anchor.path;
   if (anchor.symbol) return anchor.symbol;
   if (anchor.command) return anchor.command;
+  if (anchor.role) return `agent:${anchor.role}`;
   return '';
 }
 
 function formatPrimaryRelation(memory: SuperMemory): string {
-  const anchor = memory.anchors.find((item) => item.path || item.symbol || item.command);
+  const anchor = memory.anchors.find(
+    (item) => item.path || item.symbol || item.command || item.role,
+  );
   if (!anchor) return 'related_to';
   switch (anchor.type) {
     case 'file':
@@ -90,5 +93,7 @@ function formatPrimaryRelation(memory: SuperMemory): string {
       return 'about_package';
     case 'command':
       return 'about_command';
+    case 'agent':
+      return 'about_agent';
   }
 }

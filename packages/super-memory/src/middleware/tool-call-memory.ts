@@ -1,7 +1,6 @@
 import * as path from 'node:path';
 import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
-import type { EventBus } from '@wrongstack/core/kernel';
-import type { Middleware } from '@wrongstack/core/kernel';
+import type { EventBus, Middleware } from '@wrongstack/core/kernel';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance, memoryStructuralRelevance } from '../retrieval/relevance.js';
 import { normalizeTextKey } from '../store-helpers.js';
@@ -436,6 +435,7 @@ function formatTraceAnchor(anchor: SuperMemory['anchors'][number]): string {
   if (anchor.symbol) return `${anchor.type}:${anchor.symbol}`;
   if (anchor.path) return `${anchor.type}:${anchor.path}`;
   if (anchor.command) return `${anchor.type}:${boundedText(anchor.command, 100)}`;
+  if (anchor.role) return `${anchor.type}:${anchor.role}`;
   return anchor.type;
 }
 

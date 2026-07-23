@@ -3,33 +3,50 @@
  * These functions have no side effects and no dependency on the store instance.
  */
 
+import { normalizeProjectPath, normalizeSlashes } from './paths.js';
 import type {
   MemoryAnchor,
   MemoryAudienceSelector,
   RememberSuperMemoryInput,
   SuperMemory,
-  SuperMemoryScope,
   SuperMemoryKind,
+  SuperMemoryScope,
 } from './types.js';
-import { normalizeProjectPath, normalizeSlashes } from './paths.js';
 
 const MAX_MEMORY_TEXT_CHARS = 20_000;
 const MAX_MEMORY_METADATA_ITEMS = 128;
 
 const VALID_SCOPES = new Set<SuperMemoryScope>(['project', 'user', 'session', 'file', 'symbol']);
 const VALID_KINDS = new Set<SuperMemoryKind>([
-  'fact', 'decision', 'convention', 'preference',
-  'warning', 'anti_pattern', 'workflow', 'bug_root_cause', 'file_note',
-  'symbol_note', 'command_note', 'summary',
+  'fact',
+  'decision',
+  'convention',
+  'preference',
+  'warning',
+  'anti_pattern',
+  'workflow',
+  'bug_root_cause',
+  'file_note',
+  'symbol_note',
+  'command_note',
+  'summary',
   'memory_review',
 ]);
 const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
-  'file', 'directory', 'symbol', 'package', 'command', 'test', 'git',
+  'file',
+  'directory',
+  'symbol',
+  'package',
+  'command',
+  'test',
+  'git',
+  'agent',
 ]);
 
 const AUDIENCE_KEYS = ['roles', 'taskTypes', 'modes'] as const;
 
-export function normalizeText(text: string): string {  return text.replace(/\s+/g, ' ').trim();
+export function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -44,9 +61,15 @@ export function normalizeText(text: string): string {  return text.replace(/\s+/
  * - Output is deduplicated; scoring operates on sets.
  */
 export function tokenize(text: string): string[] {
-  return [...new Set(
-    text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3),
-  )];
+  return [
+    ...new Set(
+      text
+        .normalize('NFKC')
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}_.-]+/u)
+        .filter((term) => term.length >= 3),
+    ),
+  ];
 }
 
 /** Canonical text key for memory deduplication and comparison. */
@@ -55,19 +78,28 @@ export function normalizeTextKey(text: string): string {
 }
 
 export function normalizeTags(tags: string[] | undefined): string[] {
-  return [...new Set((tags ?? []).map((tag) => tag.replace(/^#/, '').trim().toLowerCase()).filter(Boolean))];
+  return [
+    ...new Set(
+      (tags ?? []).map((tag) => tag.replace(/^#/, '').trim().toLowerCase()).filter(Boolean),
+    ),
+  ];
 }
 
 export function normalizeAnchors(projectRoot: string, anchors: MemoryAnchor[]): MemoryAnchor[] {
-  return dedupeAnchors(anchors.map((anchor) => ({
-    ...anchor,
-    path: anchor.path ? normalizeProjectPath(projectRoot, anchor.path) : undefined,
-    symbol: anchor.symbol?.trim() || undefined,
-    command: anchor.command?.trim().replace(/\s+/g, ' ') || undefined,
-  })));
+  return dedupeAnchors(
+    anchors.map((anchor) => ({
+      ...anchor,
+      path: anchor.path ? normalizeProjectPath(projectRoot, anchor.path) : undefined,
+      symbol: anchor.symbol?.trim() || undefined,
+      command: anchor.command?.trim().replace(/\s+/g, ' ') || undefined,
+      role: anchor.role?.trim().toLowerCase() || undefined,
+    })),
+  );
 }
 
-export function normalizeAudience(value: MemoryAudienceSelector | undefined): MemoryAudienceSelector | undefined {
+export function normalizeAudience(
+  value: MemoryAudienceSelector | undefined,
+): MemoryAudienceSelector | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Super Memory audience must be an object.');
@@ -92,11 +124,13 @@ export function normalizeAudience(value: MemoryAudienceSelector | undefined): Me
 }
 
 export function normalizeSources(sources: SuperMemory['sources']): SuperMemory['sources'] {
-  return dedupeSources(sources.map((source) => ({
-    ...source,
-    path: source.path ? normalizeSlashes(source.path.trim()) : undefined,
-    command: source.command?.trim().replace(/\s+/g, ' ') || undefined,
-  })));
+  return dedupeSources(
+    sources.map((source) => ({
+      ...source,
+      path: source.path ? normalizeSlashes(source.path.trim()) : undefined,
+      command: source.command?.trim().replace(/\s+/g, ' ') || undefined,
+    })),
+  );
 }
 
 /** Rank explicit structural relationships shared with one or more seed memories. */
@@ -116,7 +150,11 @@ export function scoreMemoryRelationship(
       for (const right of seed.anchors) {
         const leftPath = left.path ? normalizeSlashes(left.path).toLowerCase() : '';
         const rightPath = right.path ? normalizeSlashes(right.path).toLowerCase() : '';
-        if (left.symbol && right.symbol && left.symbol.toLowerCase() === right.symbol.toLowerCase()) {
+        if (
+          left.symbol &&
+          right.symbol &&
+          left.symbol.toLowerCase() === right.symbol.toLowerCase()
+        ) {
           relation += leftPath && leftPath === rightPath ? 12 : 8;
         }
         if (left.command && right.command) {
@@ -124,6 +162,9 @@ export function scoreMemoryRelationship(
           const b = normalizeCommand(right.command);
           if (a === b) relation += 10;
           else if (commandFamily(a) === commandFamily(b)) relation += 5;
+        }
+        if (left.role && right.role && left.role.toLowerCase() === right.role.toLowerCase()) {
+          relation += 12;
         }
         if (leftPath && rightPath) {
           if (leftPath === rightPath) {
@@ -140,15 +181,27 @@ export function scoreMemoryRelationship(
   const persistence = candidate.persistence ?? 'long_lived';
   const persistenceBonus = persistence === 'permanent' ? 2 : persistence === 'long_lived' ? 1 : -1;
   const durableKindBonus = [
-    'fact', 'decision', 'convention', 'warning', 'anti_pattern', 'workflow',
-    'bug_root_cause', 'file_note', 'symbol_note', 'command_note',
-  ].includes(candidate.kind) ? 1 : 0;
-  return relation
-    + candidate.importance * 2
-    + candidate.confidence
-    + candidate.freshness
-    + persistenceBonus
-    + durableKindBonus;
+    'fact',
+    'decision',
+    'convention',
+    'warning',
+    'anti_pattern',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+  ].includes(candidate.kind)
+    ? 1
+    : 0;
+  return (
+    relation +
+    candidate.importance * 2 +
+    candidate.confidence +
+    candidate.freshness +
+    persistenceBonus +
+    durableKindBonus
+  );
 }
 
 function normalizeCommand(command: string): string {
@@ -182,9 +235,15 @@ export function validateRememberInput(input: RememberSuperMemoryInput): void {
   if (input.kind && !VALID_KINDS.has(input.kind)) throw new Error('Invalid Super Memory kind.');
   normalizeAudience(input.audience);
   for (const anchor of input.anchors ?? []) {
-    if (!anchor || !VALID_ANCHOR_TYPES.has(anchor.type)) throw new Error('Invalid Super Memory anchor type.');
+    if (!anchor || !VALID_ANCHOR_TYPES.has(anchor.type))
+      throw new Error('Invalid Super Memory anchor type.');
     if (anchor.type === 'command') {
       if (!anchor.command?.trim()) throw new Error('Command memory anchors require a command.');
+    } else if (anchor.type === 'agent') {
+      if (!anchor.role?.trim()) throw new Error('Agent memory anchors require a role.');
+      if (!/^[a-z0-9][a-z0-9._-]{0,95}$/i.test(anchor.role.trim())) {
+        throw new Error('Agent memory anchor role is invalid.');
+      }
     } else if (!anchor.path?.trim()) {
       throw new Error(`${anchor.type} memory anchors require a path.`);
     }
@@ -197,15 +256,19 @@ export function validateRememberInput(input: RememberSuperMemoryInput): void {
     if (
       (anchor.path?.length ?? 0) > 4_096 ||
       (anchor.symbol?.length ?? 0) > 1_024 ||
-      (anchor.command?.length ?? 0) > 8_192
+      (anchor.command?.length ?? 0) > 8_192 ||
+      (anchor.role?.length ?? 0) > 96
     ) {
       throw new Error(
-        'Super Memory anchor strings are too long (path ≤ 4096, symbol ≤ 1024, command ≤ 8192 characters).',
+        'Super Memory anchor strings are too long (path ≤ 4096, symbol ≤ 1024, command ≤ 8192, role ≤ 96 characters).',
       );
     }
   }
   for (const source of input.sources ?? []) {
-    if (!source || !['user', 'session', 'tool_result', 'file', 'git', 'command'].includes(source.type)) {
+    if (
+      !source ||
+      !['user', 'session', 'tool_result', 'file', 'git', 'command'].includes(source.type)
+    ) {
       throw new Error('Invalid Super Memory source type.');
     }
   }
@@ -214,18 +277,32 @@ export function validateRememberInput(input: RememberSuperMemoryInput): void {
 // ─── Private dedup helpers ──────────────────────────────────────────────
 
 function dedupeAnchors(anchors: MemoryAnchor[]): MemoryAnchor[] {
-  return dedupeByKey(anchors, (anchor) => JSON.stringify([
-    anchor.type, anchor.path ?? null, anchor.symbol ?? null,
-    anchor.command ?? null, anchor.contentHash ?? null,
-    anchor.gitBlobHash ?? null, anchor.lineStart ?? null, anchor.lineEnd ?? null,
-  ]));
+  return dedupeByKey(anchors, (anchor) =>
+    JSON.stringify([
+      anchor.type,
+      anchor.path ?? null,
+      anchor.symbol ?? null,
+      anchor.command ?? null,
+      anchor.role ?? null,
+      anchor.contentHash ?? null,
+      anchor.gitBlobHash ?? null,
+      anchor.lineStart ?? null,
+      anchor.lineEnd ?? null,
+    ]),
+  );
 }
 
 function dedupeSources(sources: SuperMemory['sources']): SuperMemory['sources'] {
-  return dedupeByKey(sources, (source) => JSON.stringify([
-    source.type, source.sessionId ?? null, source.toolUseId ?? null,
-    source.path ?? null, source.command ?? null, source.excerptHash ?? null,
-  ]));
+  return dedupeByKey(sources, (source) =>
+    JSON.stringify([
+      source.type,
+      source.sessionId ?? null,
+      source.toolUseId ?? null,
+      source.path ?? null,
+      source.command ?? null,
+      source.excerptHash ?? null,
+    ]),
+  );
 }
 
 function dedupeByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
@@ -268,7 +345,8 @@ export function collectStringValues(value: unknown, out: string[] = []): string[
   if (typeof value === 'string') out.push(value);
   else if (Array.isArray(value)) for (const item of value) collectStringValues(item, out);
   else if (value && typeof value === 'object') {
-    for (const item of Object.values(value as Record<string, unknown>)) collectStringValues(item, out);
+    for (const item of Object.values(value as Record<string, unknown>))
+      collectStringValues(item, out);
   }
   return out;
 }

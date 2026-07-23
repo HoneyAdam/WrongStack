@@ -43,6 +43,7 @@ const ANCHOR_TYPE_VALUES: MemoryAnchor['type'][] = [
   'command',
   'test',
   'git',
+  'agent',
 ];
 
 export function objectSchema(
@@ -99,6 +100,7 @@ export function anchorsSchema() {
         path: stringSchema('Project-relative path (required for file/directory/package/test/git).'),
         symbol: stringSchema('Symbol name (required for symbol anchors).'),
         command: stringSchema('Shell command (required for command anchors).'),
+        role: stringSchema('Roster/catalog role id (required for agent anchors).'),
       },
       required: ['type'],
       additionalProperties: false,

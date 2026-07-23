@@ -189,6 +189,7 @@ const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
   'command',
   'test',
   'git',
+  'agent',
 ]);
 const VALID_CANDIDATE_STATUSES = new Set<MemoryCandidate['status']>([
   'pending',
@@ -527,7 +528,7 @@ export class SuperMemoryStore implements MemoryStore {
 
   async graphFor(query: string, maxDepth = 2, limit = 100): Promise<MemoryGraphEdge[]> {
     const starts = new Set<string>();
-    if (/^(mem|file|dir|symbol|command|session|tool):/.test(query))
+    if (/^(mem|file|dir|symbol|command|session|tool|agent):/.test(query))
       starts.add(normalizeNode(query));
     else if (/^mem_[A-Za-z0-9]+$/.test(query.trim())) starts.add(`mem:${query.trim()}`);
     const normalizedPath = normalizeProjectPath(this.projectRoot, query);
@@ -2990,6 +2991,11 @@ function validateRememberInput(input: RememberSuperMemoryInput): void {
       throw new Error('Invalid Super Memory anchor type.');
     if (anchor.type === 'command') {
       if (!anchor.command?.trim()) throw new Error('Command memory anchors require a command.');
+    } else if (anchor.type === 'agent') {
+      if (!anchor.role?.trim()) throw new Error('Agent memory anchors require a role.');
+      if (!/^[a-z0-9][a-z0-9._-]{0,95}$/i.test(anchor.role.trim())) {
+        throw new Error('Agent memory anchor role is invalid.');
+      }
     } else if (!anchor.path?.trim()) {
       throw new Error(`${anchor.type} memory anchors require a path.`);
     }
@@ -2999,7 +3005,8 @@ function validateRememberInput(input: RememberSuperMemoryInput): void {
     if (
       (anchor.path?.length ?? 0) > 4_096 ||
       (anchor.symbol?.length ?? 0) > 1_024 ||
-      (anchor.command?.length ?? 0) > 8_192
+      (anchor.command?.length ?? 0) > 8_192 ||
+      (anchor.role?.length ?? 0) > 96
     ) {
       throw new Error('Super Memory anchor metadata is too long.');
     }
@@ -3289,6 +3296,7 @@ function normalizeAnchors(projectRoot: string, anchors: MemoryAnchor[]): MemoryA
       path: anchor.path ? normalizeProjectPath(projectRoot, anchor.path) : undefined,
       symbol: anchor.symbol?.trim() || undefined,
       command: anchor.command?.trim().replace(/\s+/g, ' ') || undefined,
+      role: anchor.role?.trim().toLowerCase() || undefined,
     })),
   );
 }
@@ -3349,7 +3357,7 @@ function scoreQueryMemory(memory: SuperMemory, query: string): number {
   if (terms.length === 0) return 0;
   const normalizedQuery = normalizeText(query).toLowerCase();
   const haystack =
-    `${memory.text} ${memory.tags.join(' ')} ${memory.anchors.map((a) => `${a.path ?? ''} ${a.symbol ?? ''} ${a.command ?? ''}`).join(' ')}`
+    `${memory.text} ${memory.tags.join(' ')} ${memory.anchors.map((a) => `${a.path ?? ''} ${a.symbol ?? ''} ${a.command ?? ''} ${a.role ?? ''}`).join(' ')}`
       .normalize('NFKC')
       .toLowerCase();
   let score = 0;
@@ -3360,6 +3368,7 @@ function scoreQueryMemory(memory: SuperMemory, query: string): number {
     if (memory.anchors.some((anchor) => anchor.path?.toLowerCase().includes(term))) score += 2;
     if (memory.anchors.some((anchor) => anchor.symbol?.toLowerCase().includes(term))) score += 3;
     if (memory.anchors.some((anchor) => anchor.command?.toLowerCase().includes(term))) score += 3;
+    if (memory.anchors.some((anchor) => anchor.role?.toLowerCase().includes(term))) score += 3;
   }
   // Quality ranks relevant matches; it must never manufacture relevance for
   // an unrelated high-importance memory.
@@ -3540,6 +3549,8 @@ function anchorNode(anchor: MemoryAnchor): string | undefined {
       return anchor.path ? `dir:${normalizeSlashes(anchor.path)}` : undefined;
     case 'command':
       return anchor.command ? `command:${anchor.command.trim().replace(/\s+/g, ' ')}` : undefined;
+    case 'agent':
+      return anchor.role ? `agent:${anchor.role.trim().toLowerCase()}` : undefined;
   }
 }
 
@@ -3557,6 +3568,8 @@ function anchorRelation(anchor: MemoryAnchor): MemoryGraphRelation | undefined {
       return 'about_package';
     case 'command':
       return 'about_command';
+    case 'agent':
+      return 'about_agent';
   }
 }
 
@@ -3642,6 +3655,8 @@ function memoryRelationshipEvidence(left: SuperMemory, right: SuperMemory): stri
       const bPath = b.path ? normalizeSlashes(b.path).toLowerCase() : undefined;
       if (a.symbol && b.symbol && a.symbol.toLowerCase() === b.symbol.toLowerCase()) {
         evidence.push(`symbol:${aPath ?? ''}#${a.symbol}`);
+      } else if (a.role && b.role && a.role.toLowerCase() === b.role.toLowerCase()) {
+        evidence.push(`agent:${a.role.toLowerCase()}`);
       } else if (
         a.command &&
         b.command &&
@@ -3672,6 +3687,7 @@ function dedupeAnchors(anchors: MemoryAnchor[]): MemoryAnchor[] {
       anchor.path ?? null,
       anchor.symbol ?? null,
       anchor.command ?? null,
+      anchor.role ?? null,
       anchor.contentHash ?? null,
       anchor.gitBlobHash ?? null,
       anchor.lineStart ?? null,

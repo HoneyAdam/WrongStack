@@ -18,9 +18,9 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core/types';
-import { ensureDir, ulid, withFileLock } from '@wrongstack/core/utils';
+import { ensureDir, superMemoryCachePragmas, ulid, withFileLock } from '@wrongstack/core/utils';
 import { readJsonl } from './jsonl.js';
-import { resolveSuperMemoryPaths } from './paths.js';
+import { normalizeSlashes, resolveSuperMemoryPaths } from './paths.js';
 import {
   collectStringValues,
   looksLikeSecret,
@@ -173,13 +173,29 @@ function loadDatabaseSync(): typeof DatabaseSync {
 
 // ─── Schema ─────────────────────────────────────────────────────────────
 
-const SQLITE_SCHEMA_VERSION = 2;
+const SQLITE_SCHEMA_VERSION = 3;
 const LEGACY_JSONL_MIGRATION_KEY = 'legacy_jsonl_migrated';
 
+/** Local command helpers (mirror store-helpers; kept private to this module). */
+function sqliteNormalizeCommand(command: string): string {
+  return command.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+function sqliteCommandFamily(command: string): string {
+  return command.split(/\s+/).slice(0, 2).join(' ');
+}
+
 function initSchema(db: DatabaseSync): void {
+  // WAL + NORMAL is the multi-process sweet spot used across WrongStack SQLite stores.
+  // cache_size/temp_store/mmap reduce page-cache thrash on hot read paths (search, list, inject).
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = NORMAL');
   db.exec('PRAGMA busy_timeout = 30000');
+  db.exec('PRAGMA temp_store = MEMORY');
+  // Cache/mmap follow WRONGSTACK_PERF_PROFILE (frugal = leaner RSS).
+  const cache = superMemoryCachePragmas();
+  db.exec(`PRAGMA cache_size = -${cache.cacheSizeKiB}`);
+  db.exec(`PRAGMA mmap_size = ${cache.mmapBytes}`);
+  db.exec('PRAGMA foreign_keys = ON');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_meta (
@@ -211,7 +227,17 @@ function initSchema(db: DatabaseSync): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_scope ON memories(scope)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_importance ON memories(importance DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_updated ON memories(updated_at DESC)');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)');
+  // Indexes that reference versioned columns are created after migrations.
+  // CREATE TABLE IF NOT EXISTS does not add columns to an existing database,
+  // so creating those indexes here would prevent the migration that adds the
+  // columns from ever running.
+  // Hot composite paths: ranked list and keyset pagination.
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_status_importance_updated ON memories(status, importance DESC, updated_at DESC)',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_status_updated_id ON memories(status, updated_at DESC, id DESC)',
+  );
 
   // FTS5 full-text search over memory text + tags
   try {
@@ -286,9 +312,17 @@ function initSchema(db: DatabaseSync): void {
       data TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      canonical_text TEXT NOT NULL DEFAULT ''
     );
   `);
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_candidates_status_created ON candidates(status, created_at DESC)',
+  );
+  // Shared-anchor lookups for findRelatedSuper / retrieveForPath.
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_edge_to_relation ON edges(to_node, relation)',
+  );
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────
@@ -297,6 +331,54 @@ function initSchema(db: DatabaseSync): void {
  * @deprecated Use `createSqliteMemoryPort` and depend on Core's `MemoryPort`.
  * This class remains public only for the compatibility window.
  */
+function sqliteAnchorNode(anchor: MemoryAnchor): string | undefined {
+  switch (anchor.type) {
+    case 'file':
+    case 'test':
+    case 'git': {
+      const normalizedPath = anchor.path ? normalizeSlashes(anchor.path) : undefined;
+      return normalizedPath ? `file:${normalizedPath}` : undefined;
+    }
+    case 'directory': {
+      const normalizedPath = anchor.path ? normalizeSlashes(anchor.path) : undefined;
+      return normalizedPath ? `dir:${normalizedPath}` : undefined;
+    }
+    case 'symbol': {
+      const normalizedPath = anchor.path ? normalizeSlashes(anchor.path) : undefined;
+      return normalizedPath && anchor.symbol
+        ? `symbol:${normalizedPath}#${anchor.symbol}`
+        : undefined;
+    }
+    case 'package': {
+      const normalizedPath = anchor.path ? normalizeSlashes(anchor.path) : undefined;
+      return normalizedPath ? `dir:${normalizedPath}` : undefined;
+    }
+    case 'command':
+      return anchor.command ? `command:${anchor.command.trim().replace(/\s+/g, ' ')}` : undefined;
+    case 'agent':
+      return anchor.role ? `agent:${anchor.role.trim().toLowerCase()}` : undefined;
+  }
+}
+
+function sqliteAnchorRelation(anchor: MemoryAnchor): MemoryGraphRelation | undefined {
+  switch (anchor.type) {
+    case 'file':
+    case 'test':
+    case 'git':
+      return 'about_file';
+    case 'directory':
+      return 'about_directory';
+    case 'symbol':
+      return 'about_symbol';
+    case 'package':
+      return 'about_package';
+    case 'command':
+      return 'about_command';
+    case 'agent':
+      return 'about_agent';
+  }
+}
+
 export class SqliteSuperMemoryStore implements MemoryStore {
   readonly paths;
   private readonly projectRoot: string;
@@ -307,6 +389,12 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   private initialized = false;
   private initializing: Promise<void> | undefined;
   private mutationChain: Promise<unknown> = Promise.resolve();
+  /**
+   * Prepared-statement cache. `DatabaseSync.prepare()` recompiles SQL every call;
+   * hot paths (remember, inject, search, list) re-use the same SQL thousands of
+   * times per session, so compile once and reuse per connection.
+   */
+  private readonly stmtCache = new Map<string, ReturnType<DatabaseSync['prepare']>>();
 
   constructor(opts: SuperMemoryStoreOptions) {
     this.projectRoot = path.resolve(opts.projectRoot);
@@ -319,6 +407,16 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   withTraceId(traceId: string): this {
     this.traceId = traceId;
     return this;
+  }
+
+  /** Prepare-once helper: compile `sql` on first use, reuse thereafter. */
+  private stmt(sql: string): ReturnType<DatabaseSync['prepare']> {
+    let prepared = this.stmtCache.get(sql);
+    if (prepared === undefined) {
+      prepared = this.db.prepare(sql);
+      this.stmtCache.set(sql, prepared);
+    }
+    return prepared;
   }
 
   async initialize(): Promise<void> {
@@ -340,15 +438,14 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     initSchema(this.db);
 
     // Check schema version and apply migrations
-    const row = this.db.prepare('SELECT value FROM schema_meta WHERE key = ?').get('version') as
+    const row = this.stmt('SELECT value FROM schema_meta WHERE key = ?').get('version') as
       | { value?: number }
       | undefined;
     // Fresh DB: the schema was just created by initSchema() with the latest
     // version (including canonical_text), so skip all migrations.
     const currentVersion = row?.value ?? SQLITE_SCHEMA_VERSION;
     if (!row) {
-      this.db
-        .prepare('INSERT INTO schema_meta (key, value) VALUES (?, ?)')
+      this.stmt('INSERT INTO schema_meta (key, value) VALUES (?, ?)')
         .run('version', SQLITE_SCHEMA_VERSION);
     }
 
@@ -361,35 +458,93 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       // column added with partial backfill and schema_meta still at v1.
       this.db.exec('BEGIN IMMEDIATE');
       try {
-        this.db.exec(
-          "ALTER TABLE memories ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''",
-        );
+        this.db.exec("ALTER TABLE memories ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''");
         // Backfill existing rows (safe to re-run — ALTER TABLE ADD COLUMN is
         // idempotent on the column itself, but backfill should only run once).
-        const backfillRows = this.db
-          .prepare("SELECT id, data FROM memories WHERE canonical_text = ''")
+        const backfillRows = this.stmt("SELECT id, data FROM memories WHERE canonical_text = ''")
           .all() as Array<{ id: string; data: string }>;
         if (backfillRows.length > 0) {
-          const stmt = this.db.prepare(
-            'UPDATE memories SET canonical_text = ? WHERE id = ?',
-          );
+          const stmt = this.stmt('UPDATE memories SET canonical_text = ? WHERE id = ?');
           for (const r of backfillRows) {
             const memory = JSON.parse(r.data) as SuperMemory;
             stmt.run(normalizeTextKey(memory.text), r.id);
           }
         }
-        this.db.exec(
-          'CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)',
-        );
-        this.db
-          .prepare('UPDATE schema_meta SET value = ? WHERE key = ?')
-          .run(2, 'version');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)');
+        this.stmt('UPDATE schema_meta SET value = ? WHERE key = ?').run(2, 'version');
         this.db.exec('COMMIT');
       } catch (migrationErr) {
         this.db.exec('ROLLBACK');
         throw migrationErr;
       }
     }
+
+    if (currentVersion < 3) {
+      // Migration v2 → v3:
+      // 1) candidates.canonical_text for O(1) pending dedup
+      // 2) backfill typed about_* edges from anchors (JSONL-import gaps)
+      // 3) supporting indexes for path/related lookups
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        try {
+          this.db.exec(
+            "ALTER TABLE candidates ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''",
+          );
+        } catch {
+          // Column already present (fresh CREATE TABLE path or partial upgrade).
+        }
+        const candidateRows = this.stmt(
+          "SELECT id, data FROM candidates WHERE canonical_text = ''",
+        ).all() as Array<{ id: string; data: string }>;
+        if (candidateRows.length > 0) {
+          const upd = this.stmt('UPDATE candidates SET canonical_text = ? WHERE id = ?');
+          for (const r of candidateRows) {
+            try {
+              const candidate = JSON.parse(r.data) as MemoryCandidate;
+              upd.run(normalizeTextKey(candidate.text ?? ''), r.id);
+            } catch {
+              upd.run('', r.id);
+            }
+          }
+        }
+        this.db.exec(
+          'CREATE INDEX IF NOT EXISTS idx_candidates_status_canonical ON candidates(status, canonical_text)',
+        );
+        this.db.exec(
+          'CREATE INDEX IF NOT EXISTS idx_edge_to_relation ON edges(to_node, relation)',
+        );
+
+        // Rebuild about_* edges from persisted anchors so path/related queries
+        // can use the edge index instead of full-table JSON LIKE scans.
+        const memRows = this.stmt(
+          "SELECT data FROM memories WHERE status != 'deleted'",
+        ).all() as Array<{ data: string }>;
+        for (const row of memRows) {
+          try {
+            this.syncAnchorEdges(this.rowToMemory(row));
+          } catch {
+            // Skip corrupt rows — they remain queryable via JSON fallbacks.
+          }
+        }
+
+        this.stmt('UPDATE schema_meta SET value = ? WHERE key = ?').run(3, 'version');
+        this.db.exec('COMMIT');
+      } catch (migrationErr) {
+        this.db.exec('ROLLBACK');
+        throw migrationErr;
+      }
+    }
+
+    // These indexes depend on columns introduced by schema migrations. Create
+    // them only after every required ALTER TABLE has completed. This is also
+    // needed for a fresh database, where no migration block runs.
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_canonical_text ON memories(canonical_text)');
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_status_scope_canonical ON memories(status, scope, canonical_text)',
+    );
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_candidates_status_canonical ON candidates(status, canonical_text)',
+    );
 
     // Write manifest if absent
     await withFileLock(this.paths.manifest, async () => {
@@ -423,8 +578,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     ];
     if (!legacyPaths.some((filePath) => fs.existsSync(filePath))) return;
 
-    const alreadyMigrated = this.db
-      .prepare('SELECT value FROM schema_meta WHERE key = ?')
+    const alreadyMigrated = this.stmt('SELECT value FROM schema_meta WHERE key = ?')
       .get(LEGACY_JSONL_MIGRATION_KEY);
     if (alreadyMigrated) return;
 
@@ -471,8 +625,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     try {
       // A second process may have completed migration while this process was
       // reading the source files. Re-check under SQLite's write transaction.
-      const migratedByPeer = this.db
-        .prepare('SELECT value FROM schema_meta WHERE key = ?')
+      const migratedByPeer = this.stmt('SELECT value FROM schema_meta WHERE key = ?')
         .get(LEGACY_JSONL_MIGRATION_KEY);
       if (migratedByPeer) {
         this.db.exec('COMMIT');
@@ -480,21 +633,23 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       }
 
       for (const incoming of latestMemories.values()) {
-        const existingRow = this.db
-          .prepare('SELECT data FROM memories WHERE id = ?')
+        const existingRow = this.stmt('SELECT data FROM memories WHERE id = ?')
           .get(incoming.id) as { data: string } | undefined;
         const existing = existingRow ? this.rowToMemory(existingRow) : undefined;
         if (existing && !shouldReplaceMigratedMemory(existing, incoming)) continue;
         this.upsertMemory(incoming);
+        // Ensure about_* edges exist so path/related queries use the edge index.
+        this.syncAnchorEdges(incoming);
         migratedMemories++;
       }
 
-      const upsertCandidate = this.db.prepare(
-        'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      const upsertCandidate = this.stmt(
+        `INSERT OR REPLACE INTO candidates
+          (id, data, status, created_at, updated_at, canonical_text)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       );
       for (const candidate of latestCandidates.values()) {
-        const existingRow = this.db
-          .prepare('SELECT data FROM candidates WHERE id = ?')
+        const existingRow = this.stmt('SELECT data FROM candidates WHERE id = ?')
           .get(candidate.id) as { data: string } | undefined;
         if (existingRow) {
           const existing = JSON.parse(existingRow.data) as MemoryCandidate;
@@ -506,18 +661,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
           candidate.status,
           candidate.createdAt,
           candidate.updatedAt,
+          normalizeTextKey(candidate.text ?? ''),
         );
         migratedCandidates++;
       }
 
-      const upsertEdge = this.db.prepare(
+      const upsertEdge = this.stmt(
         `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(from_node, to_node, relation) DO UPDATE SET
-           weight = excluded.weight,
-           created_at = excluded.created_at`,
+           weight = excluded.weight`,
       );
-      const deleteEdge = this.db.prepare(
+      const deleteEdge = this.stmt(
         'DELETE FROM edges WHERE from_node = ? AND to_node = ? AND relation = ?',
       );
       for (const edge of latestEdges.values()) {
@@ -529,7 +684,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         migratedEdges++;
       }
 
-      const insertAudit = this.db.prepare(
+      const insertAudit = this.stmt(
         'INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)',
       );
       for (const audit of audits) {
@@ -547,8 +702,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
           auditRecords: audits.length,
         }),
       );
-      this.db
-        .prepare('INSERT INTO schema_meta (key, value) VALUES (?, 1)')
+      this.stmt('INSERT INTO schema_meta (key, value) VALUES (?, 1)')
         .run(LEGACY_JSONL_MIGRATION_KEY);
       this.db.exec('COMMIT');
     } catch (err) {
@@ -575,23 +729,49 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     return `${SqliteSuperMemoryStore.NODE_ID_PREFIX}${memoryId}`;
   }
 
+  /** SQL GLOB matching every graph node id owned by a memory. */
+  private static readonly MEMORY_NODE_GLOB = `${SqliteSuperMemoryStore.NODE_ID_PREFIX}*`;
+
   /**
    * Cascade-delete all graph edges referencing a given node id.
    * Called from forget(), clear(), and deleteSuperMemory() so the edge
    * cleanup logic is maintained in one place.
    */
   private cascadeDeleteEdges(nodeId: string): void {
-    this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(nodeId, nodeId);
+    this.stmt('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(nodeId, nodeId);
   }
 
+  /**
+   * Serialize mutations with the file lock and a single SQLite write transaction.
+   * Multi-statement paths (remember merge, cascade delete, counter batch) commit
+   * once instead of once per prepared statement.
+   */
   private runMutation<T>(work: () => T): Promise<T> {
     const next = this.mutationChain
       .catch(() => undefined)
       .then(async () =>
-        withFileLock(path.join(this.paths.locksDir, 'store-mutation'), async () => work(), {
-          timeoutMs: 60_000,
-          staleMs: 30 * 60_000,
-        }),
+        withFileLock(
+          path.join(this.paths.locksDir, 'store-mutation'),
+          async () => {
+            this.db.exec('BEGIN IMMEDIATE');
+            try {
+              const result = work();
+              this.db.exec('COMMIT');
+              return result;
+            } catch (err) {
+              try {
+                this.db.exec('ROLLBACK');
+              } catch {
+                // No open transaction (e.g. BEGIN itself failed).
+              }
+              throw err;
+            }
+          },
+          {
+            timeoutMs: 60_000,
+            staleMs: 30 * 60_000,
+          },
+        ),
       );
     this.mutationChain = next;
     return next as Promise<T>;
@@ -646,8 +826,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       // normalizeTextKey(text) so dedup is a single indexed lookup instead
       // of an O(N) full-table scan.
       const canonical = normalizeTextKey(normalizedText);
-      const row = this.db
-        .prepare(
+      const row = this.stmt(
           `SELECT data FROM memories
            WHERE status IN ('active','stale') AND scope = ? AND canonical_text = ?
            LIMIT 1`,
@@ -676,9 +855,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
               [...existing.sources, ...sources].map((s) => [JSON.stringify(s), s]),
             ).values(),
           ],
-          supersedes: [
-            ...new Set([...(existing.supersedes ?? []), ...(input.supersedes ?? [])]),
-          ],
+          supersedes: [...new Set([...(existing.supersedes ?? []), ...(input.supersedes ?? [])])],
           contradicts: [
             ...new Set([...(existing.contradicts ?? []), ...(input.contradicts ?? [])]),
           ],
@@ -692,6 +869,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
           revision: existing.revision + 1,
         };
         this.upsertMemory(merged);
+        this.syncAnchorEdges(merged);
         this.events?.emit(
           'memory.merged',
           this.eventPayload({ memoryId: merged.id, mergedIds: [] }),
@@ -724,6 +902,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         updatedAt: nowIso,
       };
       this.upsertMemory(memory);
+      this.syncAnchorEdges(memory);
       this.events?.emit(
         'memory.accepted',
         this.eventPayload({
@@ -786,8 +965,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     await this.initialize();
     const superScope = legacyToSuperScope(scope);
     return this.runMutation(() => {
-      const rows = this.db
-        .prepare(
+      const rows = this.stmt(
           "SELECT data FROM memories WHERE status != 'deleted' AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)",
         )
         .all(superScope, scope) as Array<{ data: string }>;
@@ -833,8 +1011,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       // The JS fallback on the effective legacy scope still catches edge
       // cases where an explicit legacyScope differs from the column value.
       const superScope = legacyToSuperScope(scope);
-      const rows = this.db
-        .prepare(
+      const rows = this.stmt(
           "SELECT data FROM memories WHERE status IN ('active','stale') AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)",
         )
         .all(superScope, scope) as Array<{ data: string }>;
@@ -854,7 +1031,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
           (a, b) => b.importance - a.importance || b.confidence - a.confidence,
         );
         if (!keeper) continue;
-        this.upsertMemory({
+        const updatedKeeper: SuperMemory = {
           ...keeper,
           tags: [...new Set(group.flatMap((memory) => memory.tags))],
           supersedes: [
@@ -862,15 +1039,19 @@ export class SqliteSuperMemoryStore implements MemoryStore {
           ],
           revision: keeper.revision + 1,
           updatedAt: this.nowIso(),
-        });
+        };
+        this.upsertMemory(updatedKeeper);
+        this.syncAnchorEdges(updatedKeeper);
         for (const duplicate of duplicates) {
-          this.upsertMemory({
+          const supersededDuplicate: SuperMemory = {
             ...duplicate,
             status: 'superseded',
             supersededBy: keeper.id,
             revision: duplicate.revision + 1,
             updatedAt: this.nowIso(),
-          });
+          };
+          this.upsertMemory(supersededDuplicate);
+          this.syncAnchorEdges(supersededDuplicate);
           removed++;
         }
       }
@@ -887,8 +1068,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         ? " AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)"
         : '';
       const params: string[] = scope ? [superScope!, scope] : [];
-      const rows = this.db
-        .prepare(`SELECT data FROM memories WHERE status != 'deleted'${scopeClause}`)
+      const rows = this.stmt(`SELECT data FROM memories WHERE status != 'deleted'${scopeClause}`)
         .all(...params) as Array<{ data: string }>;
       const skippedPermanent: string[] = [];
       const clearedIds: string[] = [];
@@ -932,8 +1112,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   async list(scope: MemoryScope = 'project-memory', limit?: number): Promise<MemoryEntry[]> {
     await this.initialize();
     const superScope = legacyToSuperScope(scope);
-    const rows = this.db
-      .prepare(
+    const rows = this.stmt(
         "SELECT data FROM memories WHERE status = 'active' AND (scope = ? OR json_extract(data, '$.legacyScope') = ?) ORDER BY created_at DESC",
       )
       .all(superScope, scope) as Array<{ data: string }>;
@@ -945,41 +1124,102 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   }
 
   private upsertMemory(m: SuperMemory): void {
-    // Explicit DELETE + INSERT pattern needed for FTS index integrity.
-    // DELETE fires the AFTER DELETE trigger which cleans up the old FTS
-    // entry at the old rowid.  INSERT OR REPLACE does not fire AFTER
-    // DELETE (recursive triggers are off by default in SQLite), so it
-    // would leave an orphaned FTS entry at the old rowid because id is
-    // TEXT PRIMARY KEY (not an INTEGER rowid alias) — the AFTER INSERT
-    // trigger indexes the new rowid but the old rowid's FTS entry persists.
-    this.db.prepare('DELETE FROM memories WHERE id = ?').run(m.id);
-    this.db
-      .prepare(
-        `INSERT INTO memories
-          (id, data, status, kind, scope, importance, confidence, freshness, updated_at, created_at, audience, tags, canonical_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        m.id,
-        JSON.stringify(m),
-        m.status,
-        m.kind,
-        m.scope,
-        m.importance,
-        m.confidence,
-        m.freshness,
-        m.updatedAt,
-        m.createdAt,
-        m.audience ? JSON.stringify(m.audience) : null,
-        JSON.stringify(m.tags),
-        normalizeTextKey(m.text),
-      );
+    // Prefer INSERT … ON CONFLICT DO UPDATE over DELETE+INSERT:
+    // - Keeps the same INTEGER rowid so the external-content FTS shadow table
+    //   stays aligned without delete/reinsert churn.
+    // - AFTER UPDATE triggers correctly rebuild the FTS row (unlike INSERT OR
+    //   REPLACE, which skips AFTER DELETE when recursive triggers are off).
+    // - One statement instead of two on the hot remember/update path.
+    this.stmt(
+      `INSERT INTO memories
+        (id, data, status, kind, scope, importance, confidence, freshness, updated_at, created_at, audience, tags, canonical_text)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        data = excluded.data,
+        status = excluded.status,
+        kind = excluded.kind,
+        scope = excluded.scope,
+        importance = excluded.importance,
+        confidence = excluded.confidence,
+        freshness = excluded.freshness,
+        updated_at = excluded.updated_at,
+        created_at = excluded.created_at,
+        audience = excluded.audience,
+        tags = excluded.tags,
+        canonical_text = excluded.canonical_text`,
+    ).run(
+      m.id,
+      JSON.stringify(m),
+      m.status,
+      m.kind,
+      m.scope,
+      m.importance,
+      m.confidence,
+      m.freshness,
+      m.updatedAt,
+      m.createdAt,
+      m.audience ? JSON.stringify(m.audience) : null,
+      JSON.stringify(m.tags),
+      normalizeTextKey(m.text),
+    );
+  }
+
+  /**
+   * Maintain typed anchor graph edges for the SQLite-backed store.
+   *
+   * The canonical JSONL store only rebuilds anchor edges inside its
+   * `addAutomaticEdges` consolidation / relationship-proposal pass and
+   * skips the rebuild on plain text or tag-only updates. The SQLite port
+   * additionally keeps edge weights and soft-delete state in lock-step
+   * with memory rows; this is new SQLite-side behavior, not a 1:1 parity
+   * of the canonical pass.
+   *
+   * Responsibility split:
+   * - `syncAnchorEdges` (this method) only touches the `about_*` relation
+   *   family (file / directory / symbol / package / command / agent).
+   *   Callers invoke it after inserts and after updates that change anchors,
+   *   confidence, or eligibility for the active/stale anchor graph.
+   * - `cascadeDeleteEdges` (used by forget / clear / deleteSuperMemory)
+   *   drops *all* outgoing and incoming edges for the memory node, which
+   *   is required when a row is fully removed but is overkill for a
+   *   plain upsert. The overlap on `about_*` is intentional and safe:
+   *   the edge rewrite runs inside `runMutation` so it is serialized,
+   *   and `ON CONFLICT … DO UPDATE` makes the inserts idempotent.
+   */
+  private syncAnchorEdges(memory: SuperMemory): void {
+    const from = SqliteSuperMemoryStore.toNodeId(memory.id);
+    // The DELETE runs unconditionally so a status flip out of the
+    // injectable active/stale set clears the typed anchor subgraph; the
+    // early return below then skips re-insertion. Superseded, contradicted,
+    // archived, and deleted rows remain queryable for history/audit but must
+    // not participate in shared-anchor graph expansion.
+    const deleted = this.stmt(
+      "DELETE FROM edges WHERE from_node = ? AND relation GLOB 'about_*' RETURNING to_node, relation, created_at",
+    ).all(from) as Array<{ to_node: string; relation: string; created_at: string }>;
+    const createdAtByEdge = new Map(
+      deleted.map((edge) => [`${edge.to_node}\0${edge.relation}`, edge.created_at]),
+    );
+    if (memory.status !== 'active' && memory.status !== 'stale') return;
+    const insert = this.stmt(
+      `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(from_node, to_node, relation) DO UPDATE SET
+         weight = excluded.weight`,
+    );
+    for (const anchor of memory.anchors) {
+      const target = sqliteAnchorNode(anchor);
+      const relation = sqliteAnchorRelation(anchor);
+      if (target && relation) {
+        const createdAt = createdAtByEdge.get(`${target}\0${relation}`) ?? this.nowIso();
+        insert.run(from, target, relation, memory.confidence, createdAt);
+      }
+    }
   }
 
   async updateSuper(id: string, input: UpdateSuperMemoryInput): Promise<SuperMemory> {
     await this.initialize();
     return this.runMutation(() => {
-      const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+      const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(id) as
         | { data: string }
         | undefined;
       if (!row) throw new Error(`Super Memory ${id} not found.`);
@@ -1010,6 +1250,15 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         updatedAt: this.nowIso(),
       };
       this.upsertMemory(updated);
+      const statusAffectsAnchorEdges =
+        input.status !== undefined && existing.status !== updated.status;
+      if (
+        input.anchors !== undefined ||
+        input.confidence !== undefined ||
+        statusAffectsAnchorEdges
+      ) {
+        this.syncAnchorEdges(updated);
+      }
       this.events?.emit(
         'memory.updated',
         this.eventPayload({
@@ -1060,7 +1309,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       const now = this.nowIso();
       // Counter increments are indexed json_set updates — cheap enough to
       // apply immediately, unlike the JSONL store's batched flush.
-      const stmt = this.db.prepare(
+      const stmt = this.stmt(
         `UPDATE memories SET data = json_set(data,
            '$.injectionCount', COALESCE(json_extract(data, '$.injectionCount'), 0) + 1,
            '$.lastAccessedAt', ?)
@@ -1076,7 +1325,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     await this.initialize();
     await this.runMutation(() => {
       const now = this.nowIso();
-      const stmt = this.db.prepare(
+      const stmt = this.stmt(
         `UPDATE memories SET data = json_set(data,
            '$.useCount', COALESCE(json_extract(data, '$.useCount'), 0) + 1,
            '$.lastUsedAt', ?,
@@ -1107,8 +1356,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       const placeholders = statusFilter.map(() => '?').join(',');
-      const rows = this.db
-        .prepare(
+      const rows = this.stmt(
           `SELECT data FROM memories
            WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
            ORDER BY importance DESC, updated_at DESC
@@ -1126,8 +1374,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         .filter(Boolean)
         .map((t) => `"${t.replace(/"/g, '""')}"*`)
         .join(' ');
-      const rows = this.db
-        .prepare(
+      const rows = this.stmt(
           `SELECT m.data FROM memories m
            JOIN memories_fts f ON m.rowid = f.rowid
            WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}${neverInjectClause}
@@ -1144,8 +1391,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // LIKE fallback
     const likePattern = `%${query.replace(/[%_]/g, (c) => '\\' + c)}%`;
     const placeholders = statusFilter.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
+    const rows = this.stmt(
         `SELECT data FROM memories
          WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
          AND LOWER(json_extract(data, '$.text')) LIKE ? ESCAPE '\\'
@@ -1161,33 +1407,172 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const limit = opts?.limit ?? 20;
     const includeAncestors = opts?.includeAncestors ?? true;
 
-    // Build LIKE conditions for each path
+    if (paths.length === 0) return [];
+
+    // Primary path: use the typed anchor edge index (about_file / about_directory /
+    // about_symbol / …) instead of a full-table LIKE over the JSON blob.
+    const targets = new Set<string>();
+    const symbolGlobs: string[] = [];
+    for (const p of paths) {
+      const normalized = normalizeSlashes(p);
+      targets.add(`file:${normalized}`);
+      symbolGlobs.push(`symbol:${normalized}#*`);
+      if (includeAncestors) {
+        const parts = normalized.split('/').filter(Boolean);
+        for (let i = parts.length; i >= 1; i--) {
+          const ancestor = parts.slice(0, i).join('/');
+          targets.add(`file:${ancestor}`);
+          targets.add(`dir:${ancestor}`);
+        }
+      }
+    }
+    const targetList = [...targets];
+    if (targetList.length === 0) return [];
+
+    const targetPlaceholders = targetList.map(() => '?').join(',');
+    const globClause =
+      symbolGlobs.length > 0
+        ? `OR ${symbolGlobs.map(() => 'e.to_node GLOB ?').join(' OR ')}`
+        : '';
+    const edgeRows = this.stmt(
+      `SELECT DISTINCT m.data
+       FROM memories m
+       INNER JOIN edges e ON e.from_node = ('${SqliteSuperMemoryStore.NODE_ID_PREFIX}' || m.id)
+       WHERE m.status IN ('active', 'stale')
+         AND (
+           e.to_node IN (${targetPlaceholders})
+           ${globClause}
+         )
+       ORDER BY m.importance DESC, m.updated_at DESC
+       LIMIT ?`,
+    ).all(...targetList, ...symbolGlobs, limit) as Array<{ data: string }>;
+
+    if (edgeRows.length > 0) {
+      return edgeRows.map((r) => this.rowToMemory(r));
+    }
+
+    // Fallback: legacy rows / anchors not yet reflected as graph edges.
     const conditions: string[] = [];
     const params: (string | number)[] = ['active', 'stale'];
     for (const p of paths) {
-      const normalized = p.replace(/\\/g, '/').replace(/\/+/g, '/');
-      params.push(`%"path":"${normalized.replace(/[%_]/g, '\\$&')}"%`);
+      const normalized = normalizeSlashes(p);
+      params.push(`%"path":"${normalized.replace(/[%_\\]/g, '\\$&')}"%`);
       conditions.push("LOWER(data) LIKE ? ESCAPE '\\'");
       if (includeAncestors) {
         const parts = normalized.split('/').filter(Boolean);
         for (let i = parts.length; i >= 1; i--) {
           const ancestor = parts.slice(0, i).join('/');
-          params.push(`%"path":"${ancestor.replace(/[%_]/g, '\\$&')}"%`);
+          params.push(`%"path":"${ancestor.replace(/[%_\\]/g, '\\$&')}"%`);
           conditions.push("LOWER(data) LIKE ? ESCAPE '\\'");
         }
       }
     }
-    const rowParams: (string | number)[] = [...params, limit] as (string | number)[];
-    const rows = this.db
-      .prepare(
-        `SELECT data FROM memories
-         WHERE status IN (?, ?)
-         AND (${conditions.join(' OR ')})
-         ORDER BY importance DESC, updated_at DESC
-         LIMIT ?`,
-      )
-      .all(...(rowParams as (string | number)[])) as Array<{ data: string }>;
+    const rows = this.stmt(
+      `SELECT data FROM memories
+       WHERE status IN (?, ?)
+       AND (${conditions.join(' OR ')})
+       ORDER BY importance DESC, updated_at DESC
+       LIMIT ?`,
+    ).all(...params, limit) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
+  }
+
+  /**
+   * Build the minimal candidate id set that can score > 0 against `seeds`.
+   * Covers graph neighbors, shared anchor edge targets (incl. path ancestors),
+   * tag overlap, and command-family matches — avoids full-table JSON parse.
+   */
+  private collectRelatedCandidateIds(
+    seeds: readonly SuperMemory[],
+    graphRelatedIds: ReadonlySet<string>,
+    statuses: readonly SuperMemoryStatus[],
+  ): string[] {
+    const ids = new Set<string>(graphRelatedIds);
+    const statusPlaceholders = statuses.map(() => '?').join(',');
+
+    // ── Shared anchor targets (edges + in-memory anchor nodes) ─────────
+    const targets = new Set<string>();
+    const seedNodeIds = seeds.map((s) => SqliteSuperMemoryStore.toNodeId(s.id));
+    if (seedNodeIds.length > 0) {
+      const ph = seedNodeIds.map(() => '?').join(',');
+      const edgeTargets = this.stmt(
+        `SELECT DISTINCT to_node AS n FROM edges
+         WHERE from_node IN (${ph}) AND relation GLOB 'about_*'`,
+      ).all(...seedNodeIds) as Array<{ n: string }>;
+      for (const row of edgeTargets) targets.add(row.n);
+    }
+    for (const seed of seeds) {
+      for (const anchor of seed.anchors) {
+        const node = sqliteAnchorNode(anchor);
+        if (node) targets.add(node);
+        if (anchor.path) {
+          const normalized = normalizeSlashes(anchor.path);
+          const parts = normalized.split('/').filter(Boolean);
+          // Ancestors so parent-dir anchors score against nested file seeds.
+          for (let i = 1; i < parts.length; i++) {
+            const ancestor = parts.slice(0, i).join('/');
+            targets.add(`file:${ancestor}`);
+            targets.add(`dir:${ancestor}`);
+          }
+        }
+      }
+    }
+    if (targets.size > 0) {
+      const targetList = [...targets];
+      // Chunk IN lists to stay under SQLite variable limits on huge projects.
+      const CHUNK = 400;
+      for (let i = 0; i < targetList.length; i += CHUNK) {
+        const chunk = targetList.slice(i, i + CHUNK);
+        const ph = chunk.map(() => '?').join(',');
+        const froms = this.stmt(
+          `SELECT DISTINCT from_node AS n FROM edges
+           WHERE to_node IN (${ph})
+             AND from_node GLOB ?
+             AND relation GLOB 'about_*'`,
+        ).all(...chunk, SqliteSuperMemoryStore.MEMORY_NODE_GLOB) as Array<{ n: string }>;
+        for (const row of froms) {
+          ids.add(row.n.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
+        }
+      }
+    }
+
+    // ── Tag overlap via the denormalized tags column ───────────────────
+    const tags = new Set(seeds.flatMap((s) => s.tags));
+    for (const tag of tags) {
+      // tags is JSON.stringify([...]) — match the quoted token.
+      const pattern = `%"${escapeLikePattern(tag)}"%`;
+      const rows = this.stmt(
+        `SELECT id FROM memories
+         WHERE status IN (${statusPlaceholders})
+           AND tags LIKE ? ESCAPE '\\'`,
+      ).all(...statuses, pattern) as Array<{ id: string }>;
+      for (const row of rows) ids.add(row.id);
+    }
+
+    // ── Command-family matches (prefix of first two tokens) ────────────
+    const families = new Set<string>();
+    for (const seed of seeds) {
+      for (const anchor of seed.anchors) {
+        if (anchor.command) {
+          families.add(sqliteCommandFamily(sqliteNormalizeCommand(anchor.command)));
+        }
+      }
+    }
+    if (families.size > 0) {
+      const cmdEdges = this.stmt(
+        `SELECT DISTINCT from_node AS n, to_node AS t FROM edges
+         WHERE relation = 'about_command' AND from_node GLOB ?`,
+      ).all(SqliteSuperMemoryStore.MEMORY_NODE_GLOB) as Array<{ n: string; t: string }>;
+      for (const edge of cmdEdges) {
+        const cmd = edge.t.startsWith('command:') ? edge.t.slice('command:'.length) : '';
+        if (cmd && families.has(sqliteCommandFamily(sqliteNormalizeCommand(cmd)))) {
+          ids.add(edge.n.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
+        }
+      }
+    }
+
+    for (const seed of seeds) ids.delete(seed.id);
+    return [...ids];
   }
 
   /** SQLite equivalent of JSONL graph/metadata expansion. */
@@ -1201,17 +1586,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     } = {},
   ): Promise<SuperMemory[]> {
     await this.initialize();
+    if (memoryIds.length === 0) return [];
+
     const statuses = opts.includeStatuses ?? ['active'];
-    const placeholders = statuses.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT data FROM memories WHERE status IN (${placeholders})`)
-      .all(...statuses) as Array<{ data: string }>;
-    const all = rows
-      .map((row) => this.rowToMemory(row))
-      .filter((memory) => memory.contextPolicy !== 'never')
-      .filter((memory) => opts.includeAudienceScoped !== false || !memory.audience);
+    const seedPlaceholders = memoryIds.map(() => '?').join(',');
+    // Load only the seed rows first — avoid full-table parse when seeds miss.
+    const seedRows = this.stmt(
+      `SELECT data FROM memories WHERE id IN (${seedPlaceholders})`,
+    ).all(...memoryIds) as Array<{ data: string }>;
     const seedIds = new Set(memoryIds);
-    const seeds = all.filter((memory) => seedIds.has(memory.id));
+    const seeds = seedRows
+      .map((row) => this.rowToMemory(row))
+      .filter((memory) => seedIds.has(memory.id));
     if (seeds.length === 0) return [];
 
     const graphRelatedIds = new Set<string>();
@@ -1220,12 +1606,32 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       { maxDepth: opts.maxDepth ?? 3, limit: Math.max(100, (opts.limit ?? 20) * 20) },
     )) {
       for (const node of [edge.from, edge.to]) {
-        if (node.startsWith(SqliteSuperMemoryStore.NODE_ID_PREFIX)) graphRelatedIds.add(node.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
+        if (node.startsWith(SqliteSuperMemoryStore.NODE_ID_PREFIX))
+          graphRelatedIds.add(node.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
       }
     }
 
-    return all
+    // Targeted candidate pool — only ids that can score > 0 against seeds.
+    const candidateIds = this.collectRelatedCandidateIds(seeds, graphRelatedIds, statuses);
+    if (candidateIds.length === 0) return [];
+
+    const statusPlaceholders = statuses.map(() => '?').join(',');
+    const candidates: SuperMemory[] = [];
+    const CHUNK = 400;
+    for (let i = 0; i < candidateIds.length; i += CHUNK) {
+      const chunk = candidateIds.slice(i, i + CHUNK);
+      const idPh = chunk.map(() => '?').join(',');
+      const rows = this.stmt(
+        `SELECT data FROM memories
+         WHERE id IN (${idPh}) AND status IN (${statusPlaceholders})`,
+      ).all(...chunk, ...statuses) as Array<{ data: string }>;
+      for (const row of rows) candidates.push(this.rowToMemory(row));
+    }
+
+    return candidates
       .filter((memory) => !seedIds.has(memory.id))
+      .filter((memory) => memory.contextPolicy !== 'never')
+      .filter((memory) => opts.includeAudienceScoped !== false || !memory.audience)
       .map((memory) => ({ memory, score: scoreMemoryRelationship(memory, seeds, graphRelatedIds) }))
       .filter((item) => item.score > 0)
       .sort(
@@ -1253,8 +1659,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // a memory targeted only one audience dimension (e.g. only roles) because
     // the cyclical fallback logic couldn't express "this dimension is absent
     // so it's automatically satisfied."
-    const rows = this.db
-      .prepare(
+    const rows = this.stmt(
         `SELECT data FROM memories
          WHERE status IN ('active','stale')
          AND audience IS NOT NULL
@@ -1304,7 +1709,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
-    const rows = this.db.prepare(sql).all(...(params as (string | number)[])) as Array<{
+    const rows = this.stmt(sql).all(...(params as (string | number)[])) as Array<{
       data: string;
     }>;
     return rows.map((r) => this.rowToMemory(r));
@@ -1325,8 +1730,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
     // Whole-store status counts (ignores filters) for tab badges.
     const statusCounts: Record<string, number> = {};
-    const statusRows = this.db
-      .prepare('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
+    const statusRows = this.stmt('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
       .all() as Array<{ status: string; n: number }>;
     for (const r of statusRows) statusCounts[r.status] = r.n;
 
@@ -1357,8 +1761,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const whereClause = `WHERE ${where.join(' AND ')}`;
 
     // Total matching the filter (across all pages).
-    const totalRow = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM memories ${whereClause}`)
+    const totalRow = this.stmt(`SELECT COUNT(*) AS n FROM memories ${whereClause}`)
       .get(...(params as (string | number)[])) as { n: number };
     const total = totalRow.n;
 
@@ -1373,8 +1776,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     }
 
     // Fetch limit+1 to detect whether another page follows.
-    const rows = this.db
-      .prepare(
+    const rows = this.stmt(
         `SELECT data, updated_at, id FROM memories ${whereClause}${cursorClause}
          ORDER BY updated_at DESC, id DESC
          LIMIT ?`,
@@ -1397,20 +1799,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
   async getStats(): Promise<SuperMemoryStats> {
     await this.initialize();
-    const totalRow = this.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
+    const totalRow = this.stmt('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
     const byStatus: Record<string, number> = {};
-    const statusRows = this.db
-      .prepare('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
+    const statusRows = this.stmt('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
       .all() as Array<{ status: string; n: number }>;
     for (const r of statusRows) byStatus[r.status] = r.n;
 
     const byKind: Record<string, number> = {};
-    const kindRows = this.db
-      .prepare('SELECT kind, COUNT(*) AS n FROM memories GROUP BY kind')
+    const kindRows = this.stmt('SELECT kind, COUNT(*) AS n FROM memories GROUP BY kind')
       .all() as Array<{ kind: string; n: number }>;
     for (const r of kindRows) byKind[r.kind] = r.n;
 
-    const edgeRow = this.db.prepare('SELECT COUNT(*) AS n FROM edges').get() as { n: number };
+    const edgeRow = this.stmt('SELECT COUNT(*) AS n FROM edges').get() as { n: number };
 
     return {
       total: totalRow.n,
@@ -1430,8 +1830,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   ): Promise<void> {
     await this.initialize();
     const edgeId = `edge_${ulid()}`;
-    this.db
-      .prepare(
+    this.stmt(
         `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(from_node, to_node, relation) DO UPDATE SET weight = weight + excluded.weight`,
@@ -1454,40 +1853,66 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const visitedNodes = new Set(starts);
     const visitedEdges = new Set<string>();
     const result: MemoryGraphEdge[] = [];
-    const queue = starts.map((n) => ({ node: n, depth: 0 }));
+    // Level-order BFS: one SQL round-trip per depth instead of per node.
+    let frontier = [...new Set(starts)];
+    let depth = 0;
 
-    while (queue.length > 0 && result.length < limit) {
-      const current = queue.shift()!;
-      if (current.depth >= maxDepth) continue;
-      const rows = this.db
-        .prepare(
-          'SELECT from_node, to_node, relation, weight FROM edges WHERE from_node = ? OR to_node = ?',
-        )
-        .all(current.node, current.node) as Array<{
-        from_node: string;
-        to_node: string;
-        relation: MemoryGraphRelation;
-        weight: number;
-      }>;
-      for (const r of rows) {
-        const next = r.from_node === current.node ? r.to_node : r.from_node;
-        const edgeKey = `${r.from_node}\u0000${r.to_node}\u0000${r.relation}`;
-        if (visitedEdges.has(edgeKey)) continue;
-        visitedEdges.add(edgeKey);
-        result.push({
-          id: ulid(),
-          from: r.from_node,
-          to: r.to_node,
-          relation: r.relation,
-          weight: r.weight,
-          createdAt: this.nowIso(),
-          schemaVersion: 1,
-        });
-        if (!visitedNodes.has(next)) {
-          visitedNodes.add(next);
-          queue.push({ node: next, depth: current.depth + 1 });
+    while (frontier.length > 0 && result.length < limit && depth < maxDepth) {
+      const nextFrontier: string[] = [];
+      // Chunk large frontiers to stay under SQLite variable limits.
+      const CHUNK = 200;
+      for (let i = 0; i < frontier.length; i += CHUNK) {
+        const chunk = frontier.slice(i, i + CHUNK);
+        const ph = chunk.map(() => '?').join(',');
+        // from_node OR to_node IN (frontier) — bidirectional adjacency.
+        const rows = this.stmt(
+          `SELECT from_node, to_node, relation, weight FROM edges
+           WHERE from_node IN (${ph}) OR to_node IN (${ph})`,
+        ).all(...chunk, ...chunk) as Array<{
+          from_node: string;
+          to_node: string;
+          relation: MemoryGraphRelation;
+          weight: number;
+        }>;
+        const frontierSet = new Set(chunk);
+        for (const r of rows) {
+          if (result.length >= limit) break;
+          const edgeKey = `${r.from_node}\u0000${r.to_node}\u0000${r.relation}`;
+          if (visitedEdges.has(edgeKey)) continue;
+          visitedEdges.add(edgeKey);
+          result.push({
+            id: ulid(),
+            from: r.from_node,
+            to: r.to_node,
+            relation: r.relation,
+            weight: r.weight,
+            createdAt: this.nowIso(),
+            schemaVersion: 1,
+          });
+          const next =
+            frontierSet.has(r.from_node) && !frontierSet.has(r.to_node)
+              ? r.to_node
+              : frontierSet.has(r.to_node) && !frontierSet.has(r.from_node)
+                ? r.from_node
+                : // Both endpoints in frontier (or neither uniquely) — expand both.
+                  null;
+          if (next) {
+            if (!visitedNodes.has(next)) {
+              visitedNodes.add(next);
+              nextFrontier.push(next);
+            }
+          } else {
+            for (const n of [r.from_node, r.to_node]) {
+              if (!visitedNodes.has(n)) {
+                visitedNodes.add(n);
+                nextFrontier.push(n);
+              }
+            }
+          }
         }
       }
+      frontier = nextFrontier;
+      depth += 1;
     }
     return result;
   }
@@ -1495,8 +1920,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   // ─── Audit ──────────────────────────────────────────────────────────
 
   private audit(event: string, data?: Record<string, unknown>): void {
-    this.db
-      .prepare('INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)')
+    this.stmt('INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)')
       .run(event, this.nowIso(), this.traceId ?? null, data ? JSON.stringify(data) : null);
   }
 
@@ -1598,61 +2022,64 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       if (group) group.push(m);
       else groups.set(key, [m]);
     }
-    for (const group of groups.values()) {
-      if (group.length < 2) continue;
-      const sorted = [...group].sort(
-        (a, b) =>
-          b.importance - a.importance ||
-          b.confidence - a.confidence ||
-          a.createdAt.localeCompare(b.createdAt),
-      );
-      const keeper = sorted[0]!;
-      const duplicates = sorted.slice(1);
-      // Merge tags/anchors/sources into keeper
-      const updatedKeeper: SuperMemory = {
-        ...keeper,
-        tags: [...new Set(sorted.flatMap((m) => m.tags))],
-        anchors: [
-          ...new Map(
-            [...sorted.flatMap((m) => m.anchors)].map((a) => [JSON.stringify(a), a]),
-          ).values(),
-        ] as MemoryAnchor[],
-        sources: [...new Set(sorted.flatMap((m) => m.sources.map((s) => JSON.stringify(s))))].map(
-          (s) => JSON.parse(s),
-        ),
-        supersedes: [...new Set([...(keeper.supersedes ?? []), ...duplicates.map((m) => m.id)])],
-        updatedAt: this.nowIso(),
-      };
-      this.upsertMemory(updatedKeeper);
-      for (const dup of duplicates) {
-        const supersededDup: SuperMemory = {
-          ...dup,
-          status: 'superseded',
-          supersededBy: keeper.id,
+    // Batch all dedup writes into one serialized transaction — each group can touch many rows.
+    await this.runMutation(() => {
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        const sorted = [...group].sort(
+          (a, b) =>
+            b.importance - a.importance ||
+            b.confidence - a.confidence ||
+            a.createdAt.localeCompare(b.createdAt),
+        );
+        const keeper = sorted[0]!;
+        const duplicates = sorted.slice(1);
+        // Merge tags/anchors/sources into keeper
+        const updatedKeeper: SuperMemory = {
+          ...keeper,
+          tags: [...new Set(sorted.flatMap((m) => m.tags))],
+          anchors: [
+            ...new Map(
+              [...sorted.flatMap((m) => m.anchors)].map((a) => [JSON.stringify(a), a]),
+            ).values(),
+          ] as MemoryAnchor[],
+          sources: [...new Set(sorted.flatMap((m) => m.sources.map((s) => JSON.stringify(s))))].map(
+            (s) => JSON.parse(s),
+          ),
+          supersedes: [...new Set([...(keeper.supersedes ?? []), ...duplicates.map((m) => m.id)])],
           updatedAt: this.nowIso(),
         };
-        this.upsertMemory(supersededDup);
-        // Add graph edge (best-effort — the edges table may not exist in all configs)
-        try {
-          this.db
-            .prepare(
+        this.upsertMemory(updatedKeeper);
+        this.syncAnchorEdges(updatedKeeper);
+        for (const dup of duplicates) {
+          const supersededDup: SuperMemory = {
+            ...dup,
+            status: 'superseded',
+            supersededBy: keeper.id,
+            updatedAt: this.nowIso(),
+          };
+          this.upsertMemory(supersededDup);
+          this.syncAnchorEdges(supersededDup);
+          // Add graph edge (best-effort — the edges table may not exist in all configs)
+          try {
+            this.stmt(
               'INSERT INTO edges (from_node, to_node, relation, weight, created_at) VALUES (?, ?, ?, ?, ?)',
-            )
-            .run(
+            ).run(
               SqliteSuperMemoryStore.toNodeId(keeper.id),
               SqliteSuperMemoryStore.toNodeId(dup.id),
               'supersedes',
               1,
               this.nowIso(),
             );
-        } catch {
-          /* edges table may be absent */
+          } catch {
+            /* edges table may be absent */
+          }
+          deduplicated++;
+          superseded++;
         }
-        deduplicated++;
-        superseded++;
       }
-    }
-    this.audit('memory.hygiene_dedup', { details: { deduplicated, superseded } });
+      this.audit('memory.hygiene_dedup', { details: { deduplicated, superseded } });
+    });
 
     // ── Phase 3: Review candidates ──────────────────────────────────
     // Matches the JSONL store's four rules: expires_at_passed,
@@ -1784,17 +2211,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
   async addCandidate(candidate: MemoryCandidate): Promise<void> {
     await this.initialize();
-    this.db
-      .prepare(
-        'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(
-        candidate.id,
-        JSON.stringify(candidate),
-        candidate.status,
-        candidate.createdAt,
-        candidate.updatedAt,
-      );
+    this.stmt(
+      `INSERT OR REPLACE INTO candidates
+        (id, data, status, created_at, updated_at, canonical_text)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      candidate.id,
+      JSON.stringify(candidate),
+      candidate.status,
+      candidate.createdAt,
+      candidate.updatedAt,
+      normalizeTextKey(candidate.text ?? ''),
+    );
   }
 
   /**
@@ -1817,16 +2245,22 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // Check+insert under runMutation to prevent race conditions.
     // Dedup is scoped to `pending` candidates only so accepted/rejected
     // proposals don't permanently block re-submission.
-    // Uses synchronous SQL directly so runMutation's () => T contract is satisfied.
+    // Uses the indexed canonical_text column for O(1) lookup instead of
+    // loading every pending candidate row.
     return this.runMutation(() => {
-      const rows = this.db
-        .prepare("SELECT data FROM candidates WHERE status = 'pending' ORDER BY created_at DESC")
-        .all() as Array<{ data: string }>;
-      const existing = rows.map((r) => JSON.parse(r.data) as MemoryCandidate);
-      const duplicate = existing.find(
-        (candidate) => candidate.scope === scope && normalizeTextKey(candidate.text) === key,
-      );
-      if (duplicate) return duplicate;
+      const rows = this.stmt(
+        `SELECT data FROM candidates
+         WHERE status = 'pending' AND canonical_text = ?
+         ORDER BY created_at DESC`,
+      ).all(key) as Array<{ data: string }>;
+      for (const row of rows) {
+        try {
+          const existing = JSON.parse(row.data) as MemoryCandidate;
+          if (existing.scope === scope) return existing;
+        } catch {
+          // Skip corrupt rows.
+        }
+      }
       const now = this.nowIso();
       const audience = normalizeAudience(input.audience);
       const candidate: MemoryCandidate = {
@@ -1847,17 +2281,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         ...(input.targetMemoryId ? { targetMemoryId: input.targetMemoryId } : {}),
         ...(input.reviewReason ? { reviewReason: input.reviewReason } : {}),
       };
-      this.db
-        .prepare(
-          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(
-          candidate.id,
-          JSON.stringify(candidate),
-          candidate.status,
-          candidate.createdAt,
-          candidate.updatedAt,
-        );
+      this.stmt(
+        `INSERT OR REPLACE INTO candidates
+          (id, data, status, created_at, updated_at, canonical_text)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        candidate.id,
+        JSON.stringify(candidate),
+        candidate.status,
+        candidate.createdAt,
+        candidate.updatedAt,
+        key,
+      );
       this.audit('memory.candidate_created', { details: { candidateId: candidate.id } });
       return candidate;
     });
@@ -1871,7 +2306,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const sql = includeResolved
       ? 'SELECT data FROM candidates ORDER BY updated_at DESC'
       : "SELECT data FROM candidates WHERE status = 'pending' ORDER BY updated_at DESC";
-    const rows = this.db.prepare(sql).all() as Array<{ data: string }>;
+    const rows = this.stmt(sql).all() as Array<{ data: string }>;
     return rows.map((r) => JSON.parse(r.data) as MemoryCandidate);
   }
 
@@ -1892,8 +2327,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // already-accepted/rejected candidate cannot be re-resolved (one-way
     // lifecycle transition). Mirrors SuperMemoryStore's pending-only find.
     const snapshot = this.runMutation(() => {
-      const row = this.db
-        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
         .get(candidateId) as { data: string } | undefined;
       if (!row) return undefined;
       return JSON.parse(row.data) as MemoryCandidate;
@@ -1920,8 +2354,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // twice. The memory is still returned because it was legitimately
     // created; only the redundant candidate re-write is skipped.
     await this.runMutation(() => {
-      const row = this.db
-        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
         .get(candidateId) as { data: string } | undefined;
       if (!row) return;
       const current = JSON.parse(row.data) as MemoryCandidate;
@@ -1931,17 +2364,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         memoryId: memory.id,
         updatedAt: this.nowIso(),
       };
-      this.db
-        .prepare(
-          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(
-          updated.id,
-          JSON.stringify(updated),
-          updated.status,
-          updated.createdAt,
-          updated.updatedAt,
-        );
+      this.stmt(
+        `INSERT OR REPLACE INTO candidates
+          (id, data, status, created_at, updated_at, canonical_text)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        updated.id,
+        JSON.stringify(updated),
+        updated.status,
+        updated.createdAt,
+        updated.updatedAt,
+        normalizeTextKey(updated.text ?? ''),
+      );
       this.audit('memory.candidate_accepted', { memoryId: memory.id, details: { candidateId } });
     });
     return memory;
@@ -1957,8 +2391,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     return this.runMutation(() => {
       // Restrict to `pending` so a resolved candidate cannot be re-resolved
       // (one-way lifecycle). Mirrors SuperMemoryStore's pending-only find.
-      const row = this.db
-        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
         .get(candidateId) as { data: string } | undefined;
       if (!row) return false;
       const candidate = JSON.parse(row.data) as MemoryCandidate;
@@ -1968,17 +2401,18 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         reason: normalizeText(reason),
         updatedAt: this.nowIso(),
       };
-      this.db
-        .prepare(
-          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(
-          updated.id,
-          JSON.stringify(updated),
-          updated.status,
-          updated.createdAt,
-          updated.updatedAt,
-        );
+      this.stmt(
+        `INSERT OR REPLACE INTO candidates
+          (id, data, status, created_at, updated_at, canonical_text)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        updated.id,
+        JSON.stringify(updated),
+        updated.status,
+        updated.createdAt,
+        updated.updatedAt,
+        normalizeTextKey(updated.text ?? ''),
+      );
       this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
       return true;
     });
@@ -2002,15 +2436,14 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   ): Promise<MemoryCandidateResolution | undefined> {
     await this.initialize();
     const snapshot = await this.runMutation(() => {
-      const row = this.db
-        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
         .get(candidateId) as { data: string } | undefined;
       return row ? (JSON.parse(row.data) as MemoryCandidate) : undefined;
     });
     if (!snapshot) {
       // Unknown id → undefined; already-resolved → alreadyResolved marker.
       const any = await this.runMutation(() => {
-        const row = this.db.prepare('SELECT data FROM candidates WHERE id = ?').get(candidateId) as
+        const row = this.stmt('SELECT data FROM candidates WHERE id = ?').get(candidateId) as
           | { data: string }
           | undefined;
         return row ? (JSON.parse(row.data) as MemoryCandidate) : undefined;
@@ -2033,8 +2466,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         reason: normalizeText(resolutionNote),
         updatedAt: this.nowIso(),
       };
-      const result = this.db
-        .prepare(
+      const result = this.stmt(
           "UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
         )
         .run(JSON.stringify(updated), updated.status, updated.updatedAt, candidateId);
@@ -2046,7 +2478,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     let applied = false;
     if (decision !== 'keep' && targetId) {
       const target = await this.runMutation(() => {
-        const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(targetId) as
+        const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(targetId) as
           | { data: string }
           | undefined;
         return row ? (JSON.parse(row.data) as SuperMemory) : undefined;
@@ -2106,8 +2538,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     };
     // Build dedup set from existing active/stale project memories
     const existing = new Set<string>();
-    const memories = this.db
-      .prepare(
+    const memories = this.stmt(
         "SELECT data FROM memories WHERE json_extract(data, '$.status') IN ('active', 'stale') AND json_extract(data, '$.scope') = 'project'",
       )
       .all() as Array<{ data: string }>;
@@ -2172,22 +2603,20 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       const valid = statuses.filter((s) => SQLITE_VALID_STATUSES.has(s));
       if (valid.length === 0) return [];
       const placeholders = valid.map(() => '?').join(',');
-      const rows = this.db
-        .prepare(
+      const rows = this.stmt(
           `SELECT data FROM memories WHERE status IN (${placeholders}) ORDER BY updated_at DESC`,
         )
         .all(...valid) as Array<{ data: string }>;
       return rows.map((r) => this.rowToMemory(r));
     }
-    const rows = this.db
-      .prepare('SELECT data FROM memories ORDER BY updated_at DESC')
+    const rows = this.stmt('SELECT data FROM memories ORDER BY updated_at DESC')
       .all() as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
   }
 
   async getSuperMemory(id: string): Promise<SuperMemory | null> {
     await this.initialize();
-    const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+    const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(id) as
       | { data: string }
       | undefined;
     return row ? this.rowToMemory(row) : null;
@@ -2228,7 +2657,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // between the guard check and the mutation (multiple peer reviews flagged
     // this as the canonical store reads inside the mutation for the same reason).
     await this.runMutation(() => {
-      const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+      const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(id) as
         | { data: string }
         | undefined;
       if (!row) throw new Error(`Super Memory "${id}" not found.`);
@@ -2254,8 +2683,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       }
 
       const nodeId = SqliteSuperMemoryStore.toNodeId(id);
-      const edgeCount = this.db
-        .prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
+      const edgeCount = this.stmt('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
         .get(nodeId, nodeId) as { n: number };
 
       // Cascade: clean up references in other memories. Mirrors the reference
@@ -2267,9 +2695,24 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       // append-only audit log for individual mutations within a runMutation
       // block. The outer memory.deleted audit entry (below) is the authoritative
       // record.
-      const refs = this.db
-        .prepare(`SELECT id, data FROM memories WHERE id != ? AND status != 'deleted'`)
-        .all(id) as Array<{ id: string; data: string }>;
+      // Only load rows that actually reference `id` — avoids parsing every
+      // memory blob on delete for large stores.
+      const refs = this.stmt(
+        `SELECT id, data FROM memories
+         WHERE id != ?
+           AND status != 'deleted'
+           AND (
+             json_extract(data, '$.supersededBy') = ?
+             OR EXISTS (
+               SELECT 1 FROM json_each(COALESCE(json_extract(data, '$.supersedes'), '[]'))
+               WHERE value = ?
+             )
+             OR EXISTS (
+               SELECT 1 FROM json_each(COALESCE(json_extract(data, '$.contradicts'), '[]'))
+               WHERE value = ?
+             )
+           )`,
+      ).all(id, id, id, id) as Array<{ id: string; data: string }>;
       for (const ref of refs) {
         const other = this.rowToMemory(ref);
         const patch: Partial<SuperMemory> = {};
@@ -2338,8 +2781,13 @@ export class SqliteSuperMemoryStore implements MemoryStore {
   }
 
   close(): void {
+    this.stmtCache.clear();
     if (this.db) {
-      this.db.close();
+      try {
+        this.db.close();
+      } catch {
+        // Already closed — idempotent.
+      }
     }
   }
 }
