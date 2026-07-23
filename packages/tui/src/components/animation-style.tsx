@@ -82,6 +82,27 @@ export const CYCLE_INTERVAL_SECONDS = 12;
 export const CYCLE_TICK_INTERVAL_MS = 1000;
 
 /**
+ * Milliseconds between each color-animation tick for rainbow/wave/pulse.
+ * The 1-second spinner cadence (SPINNER_INTERVAL_MS) is too slow for a
+ * visible traveling gradient — 120ms gives ~8 updates/second, so the
+ * rainbow moves ~1 palette stop per 0.5s and completes a full 12-stop
+ * cycle in ~6s. Derive with `Math.floor(elapsedMs / COLOR_TICK_MS)`.
+ *
+ * Pure for testing.
+ */
+export const COLOR_TICK_MS = 120;
+
+/**
+ * Derive a fast color-animation frame from wall-clock elapsed milliseconds.
+ * Callers pass `animationTime` (from Ink's `useAnimation`) and get a
+ * monotonically increasing phase suitable for rainbow/wave/pulse, while
+ * keeping the spinner-phase for dots/breathe at the original 1s cadence.
+ */
+export function colorPhaseFromTime(elapsedMs: number): number {
+  return Math.floor(Math.max(0, elapsedMs) / COLOR_TICK_MS);
+}
+
+/**
  * Cycle through every other `AnimationStyle` in order, returning to the
  * start once the list is exhausted. `rainbow` is excluded from the cycle
  * (it's the default/canonical look); cycle goes through the four variant

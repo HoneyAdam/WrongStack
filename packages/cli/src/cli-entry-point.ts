@@ -18,6 +18,54 @@
  *      logs `err.stack` (not just the message) makes crash dumps from
  *      end-user bug reports actually debuggable.
  */
+
+// ── Permanent SQLite ExperimentalWarning suppressor ───────────────────────
+//
+// Node 22.5+'s built-in node:sqlite emits a one-line ExperimentalWarning the
+// first time the module is loaded, via process.emitWarning(message, type).
+// Three lazy loaders (sage, techstack, codebase-index) already suppress it
+// locally, but any code path that loads node:sqlite BEFORE those suppressors
+// are instantiated fires the warning to stderr.
+//
+// By replacing process.emitWarning at this module's evaluation time (before
+// any downstream dynamic import or lazy require), this catches the FIRST
+// node:sqlite access regardless of which module triggers it. Static imports
+// in transitive dependencies are NOT covered (ESM hoists them before this
+// runs), but every node:sqlite access in this project is through dynamic
+// lazy loaders, so this intercepts all production paths. Later suppressors
+// capture the already-filtered function as their "original", which is
+// harmless — double-filtering is a no-op.
+//
+// ⚠️ process.emitWarning(warning: string, type?: string, ...): when warning
+// is a plain string (two-arg form used by Node's internal emitExperimentalWarning),
+// the type is in rest[0] — NOT warning.name (which is undefined for strings).
+const SQLITE_WARNING_RE = /sqlite is an experimental feature/i;
+
+function installSqliteWarningFilter(): void {
+  const originalEmit = process.emitWarning.bind(process);
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]): void => {
+    const msg =
+      typeof warning === 'string'
+        ? warning
+        : (warning as Error)?.message ?? '';
+    // Node's emitWarning overloads:
+    //   (warning: string, type?: string, code?: string)
+    //   (warning: Error,   options?: { type?: string; code?: string })
+    // When warning is a string the type lives in rest[0]; when it's an Error
+    // the type is warning.name.
+    const type =
+      typeof warning === 'string'
+        ? String(rest[0] ?? '')
+        : (warning as Error).name ?? '';
+    if (type === 'ExperimentalWarning' && SQLITE_WARNING_RE.test(msg)) {
+      return; // suppressed — node:sqlite has been stable since Node 22.5
+    }
+    (originalEmit as (w: unknown, ...args: unknown[]) => void)(warning, ...rest);
+  }) as typeof process.emitWarning;
+}
+
+installSqliteWarningFilter();
+
 import { writeErr } from '@wrongstack/core/utils';
 
 const isMain =

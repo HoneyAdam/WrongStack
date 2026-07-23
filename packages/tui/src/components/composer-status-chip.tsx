@@ -21,6 +21,8 @@ import { resolveIconStyle } from '../ui-glyphs.js';
 import {
   type AnimationStyle,
   BREATHE_FRAMES,
+  COLOR_TICK_MS,
+  colorPhaseFromTime,
   DOTS_FRAMES,
   HUE_WHEEL,
   mixHex,
@@ -221,10 +223,13 @@ function renderWorking(
   style: AnimationStyle,
   spinner: string,
   phase: number,
+  colorPhase: number,
   maxWidth: number,
 ): { node: React.ReactNode; width: number } {
   if (style === 'dots') {
     // Spinner + word + a growing/shrinking dot run (no baseline ellipsis).
+    // Uses `phase` (slow 1s cadence) — not `colorPhase` — so the dots
+    // grow/shrink at a readable pace.
     const suffix = DOTS_FRAMES[phase % DOTS_FRAMES.length] ?? '';
     const text = truncateDisplay(`${spinner} ${word}${suffix}`, maxWidth);
     return {
@@ -254,7 +259,7 @@ function renderWorking(
   if (style === 'pulse') {
     return {
       node: (
-        <Text bold color={pulseColor(phase)}>
+        <Text bold color={pulseColor(colorPhase)}>
           {text}
         </Text>
       ),
@@ -263,8 +268,8 @@ function renderWorking(
   }
   const colorFor =
     style === 'wave'
-      ? (i: number) => waveColor(i, phase, chars.length)
-      : (i: number) => rainbowColor(i, phase);
+      ? (i: number) => waveColor(i, colorPhase, chars.length)
+      : (i: number) => rainbowColor(i, colorPhase);
   return {
     node: (
       <Text bold>
@@ -304,6 +309,14 @@ export function ComposerStatusChip({
   });
   const cycleTick = Math.floor(animationTime / 1000);
 
+  // Fast color animation tick — separate from the 1s spinner so the
+  // rainbow/wave/pulse gradient moves smoothly (~8 updates/s).
+  const { time: colorTime } = useAnimation({
+    interval: COLOR_TICK_MS,
+    isActive: animating,
+  });
+  const colorPhase = animating ? colorPhaseFromTime(colorTime) : 0;
+
   if (status.kind === 'working') {
     const live: AnimationStyle =
       animationStyle === 'cycle' ? styleForCycleTick(cycleTick) : animationStyle;
@@ -313,6 +326,7 @@ export function ComposerStatusChip({
       live,
       spinner,
       spinnerIdx,
+      colorPhase,
       reservedWidth,
     );
     return <Text>{withPad(node, width, reservedWidth)}</Text>;

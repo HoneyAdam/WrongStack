@@ -127,19 +127,19 @@
       "fingerprint": "31cfbc566a723022"
     },
     {
-      "file": "packages/sdd/tests/sdd-interview-driver.test.ts",
-      "kind": "skip",
-      "fingerprint": "46a5ff27fae8ada5"
-    },
-    {
       "file": "packages/sage/tests/agent-anchor.test.ts",
       "kind": "skipIf",
-      "fingerprint": "3cb013d0b5fda090"
+      "fingerprint": "9d62767f8ffa98c6"
     },
     {
       "file": "packages/sage/tests/feedback-counters.test.ts",
       "kind": "skipIf",
-      "fingerprint": "8e909ca24c740b5c"
+      "fingerprint": "838869ab26efd619"
+    },
+    {
+      "file": "packages/sdd/tests/sdd-interview-driver.test.ts",
+      "kind": "skip",
+      "fingerprint": "46a5ff27fae8ada5"
     },
     {
       "file": "packages/tools/tests/_win32-resolve.test.ts",

@@ -25,6 +25,7 @@ import { useF5Resilience } from './hooks/use-f5-resilience.js';
 import { useFileMention } from './hooks/use-file-mention.js';
 import { useImageAttachments } from './hooks/use-image-attachments.js';
 import { useModelCatalog } from './hooks/use-model-catalog.js';
+import { useServerOutage } from './hooks/use-server-outage.js';
 import { useSimpleSocket } from './hooks/use-simple-socket.js';
 import { useSimpleSessionState } from './hooks/use-simple-session-state.js';
 import { useStatusNotice } from './hooks/use-status-notice.js';
@@ -71,6 +72,7 @@ import type { SimpleSocket } from './lib/ws.js';
 import { MemoryDrawer } from './memory-drawer.js';
 import { ModelSwitcher } from './model-switcher.js';
 import { PromptLibrary } from './prompt-library.js';
+import { ServerOutageOverlay } from './server-outage-overlay.js';
 import { SessionHealthPanel } from './session-health-panel.js';
 import { SessionSwitcher } from './session-switcher.js';
 import { SettingsPanel } from './settings-panel.js';
@@ -467,6 +469,7 @@ export function SimpleUiSession() {
       setFileSearching(false);
     },
   });
+  const { outage, dismissed: outageDismissed, dismiss: dismissOutage } = useServerOutage(connection);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -919,6 +922,8 @@ export function SimpleUiSession() {
       {diffFiles && (
         <FileDiffPanel files={diffFiles} socketRef={socketRef} onClose={() => setDiffFiles(null)} />
       )}
+
+      {!outageDismissed && <ServerOutageOverlay outage={outage} onDismiss={dismissOutage} />}
     </div>
   );
 }

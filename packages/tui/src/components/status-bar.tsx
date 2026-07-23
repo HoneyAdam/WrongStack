@@ -12,7 +12,7 @@ import { displayWidth } from '../terminal-width.js';
 import { pastel, theme } from '../theme.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import { glyphs } from '../ui-glyphs.js';
-import type { AnimationStyle } from './animation-style.js';
+import { COLOR_TICK_MS, colorPhaseFromTime, type AnimationStyle } from './animation-style.js';
 import { PowerlineRail } from './powerline-rail.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { BrainChip, EternalStageChip, ThinkingChip } from './status-bar-chips.js';
@@ -657,6 +657,14 @@ export function StatusBar({
   });
   const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx % SPINNER_FRAMES.length]);
 
+  // Fast color animation tick — separate from the 1s spinner so the
+  // rainbow/wave/pulse gradient moves smoothly (~8 updates/s).
+  const { time: colorTime } = useAnimation({
+    interval: COLOR_TICK_MS,
+    isActive: animationActive,
+  });
+  const colorPhase = animationActive ? colorPhaseFromTime(colorTime) : 0;
+
   // ── Chip staleness guard ──────────────────────────────────────────────────
   // Detects when a chip fails to refresh (animation frozen, data source stale,
   // subscription dropped) and forces a re-render to recover.
@@ -802,6 +810,7 @@ export function StatusBar({
         style={animationStyle}
         phase={spinnerIdx}
         cycleTick={cycleTick}
+        colorPhase={colorPhase}
       />
     ) : showChip('state') ? (
       <Text color={isNoColor ? undefined : stateColor}>
@@ -1034,6 +1043,7 @@ export function StatusBar({
         style={animationStyle}
         phase={spinnerIdx}
         cycleTick={cycleTick}
+        colorPhase={colorPhase}
       />
     ) : showChip('state') ? (
       <Text color={chipColor(stateColor, isNoColor)}>

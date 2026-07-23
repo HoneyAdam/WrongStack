@@ -749,7 +749,15 @@ export function App(props: AppProps): React.ReactElement {
   const [termRows, setTermRows] = useState(stdout?.rows ?? 24);
   useEffect(() => {
     const onResize = () => setTermRows(process.stdout.rows ?? 24);
-    process.stdout.on('resize', onResize);
+    // prependListener, not on: Ink attaches its own 'resize' handler first (in
+    // the Ink constructor) and that handler synchronously re-lays-out and
+    // REWRITES the previous tree. If our height update hasn't landed by then,
+    // a height-shrink writes a frame taller than the new terminal, which
+    // scrolls the screen and leaks rows into scrollback. Running before Ink's
+    // handler gives React (legacy root: synchronous flush outside batched
+    // contexts) the chance to commit the new termRows first, so Ink re-renders
+    // the already-resized tree.
+    process.stdout.prependListener('resize', onResize);
     return () => {
       process.stdout.off('resize', onResize);
     };
@@ -866,7 +874,7 @@ export function App(props: AppProps): React.ReactElement {
     fleetCounts,
   } = statusbar;
 
-  useTerminalRenderLifecycle(state, stateRef, dispatch);
+  useTerminalRenderLifecycle(state);
 
   const acceptSlashPickerSelection = useSlashPicker({
     state,
@@ -1455,6 +1463,7 @@ export function App(props: AppProps): React.ReactElement {
         gitInfo,
         viewState,
         mouseMode,
+        termRows,
         bottomRegionRef,
         statusBarWrapRef,
         belowStatusBarRef,

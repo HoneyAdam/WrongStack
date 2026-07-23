@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   ANIMATION_STYLE_DESCS,
   ANIMATION_STYLES,
+  type AnimationStyle,
   BREATHE_FRAMES,
+  COLOR_TICK_MS,
   CYCLE_INTERVAL_SECONDS,
   CYCLE_ORDER,
   CYCLE_TICK_INTERVAL_MS,
+  colorPhaseFromTime,
   DEFAULT_ANIMATION_STYLE,
   DOTS_FRAMES,
   HUE_WHEEL,
-  type AnimationStyle,
   mixHex,
   pulseColor,
   rainbowColor,
@@ -61,9 +63,37 @@ describe('animation-style', () => {
       for (const f of DOTS_FRAMES) expect(typeof f).toBe('string');
     });
 
-    it('cycle timing constants are positive integers', () => {
+    it('cycle timing constants and color tick are positive integers', () => {
       expect(CYCLE_INTERVAL_SECONDS).toBeGreaterThan(0);
       expect(CYCLE_TICK_INTERVAL_MS).toBeGreaterThanOrEqual(1000);
+      expect(COLOR_TICK_MS).toBeGreaterThan(0);
+      expect(Number.isInteger(COLOR_TICK_MS)).toBe(true);
+    });
+  });
+
+  describe('colorPhaseFromTime', () => {
+    it('returns 0 at elapsed 0', () => {
+      expect(colorPhaseFromTime(0)).toBe(0);
+    });
+
+    it('returns 0 before the first tick boundary', () => {
+      expect(colorPhaseFromTime(COLOR_TICK_MS - 1)).toBe(0);
+    });
+
+    it('returns 1 at the first tick boundary', () => {
+      expect(colorPhaseFromTime(COLOR_TICK_MS)).toBe(1);
+    });
+
+    it('increments monotonically with elapsed time', () => {
+      for (let ms = 0; ms < COLOR_TICK_MS * 10; ms += 7) {
+        const phase = colorPhaseFromTime(ms);
+        expect(phase).toBeGreaterThanOrEqual(0);
+        expect(colorPhaseFromTime(ms + 1)).toBeGreaterThanOrEqual(phase);
+      }
+    });
+
+    it('clamps negative elapsed to 0', () => {
+      expect(colorPhaseFromTime(-500)).toBe(0);
     });
   });
 

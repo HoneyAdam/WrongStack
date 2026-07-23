@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SimpleSocket } from '../lib/ws.js';
 import type { ConnectionState, ServerMessage } from '../types.js';
 
@@ -60,12 +60,25 @@ export function useSimpleSocket(options: UseSimpleSocketOptions): UseSimpleSocke
   const { onMessage, sessionIdRef, socketRef, onConnectionChange, onDisconnect } = options;
   const [connection, setConnection] = useState<ConnectionState>('connecting');
 
+  // Latest-ref pattern: the state callbacks are read through refs so an
+  // inline arrow at the call site cannot enter the effect's dependency list.
+  // Otherwise every consumer render would tear the socket down and reconnect,
+  // and each reconnect's bootstrap responses would trigger the next render —
+  // a self-sustaining drop/reconnect loop. Only an `onMessage` identity
+  // change may recreate the socket (pinned by tests).
+  const onConnectionChangeRef = useRef(onConnectionChange);
+  onConnectionChangeRef.current = onConnectionChange;
+  const onDisconnectRef = useRef(onDisconnect);
+  onDisconnectRef.current = onDisconnect;
+
   useEffect(() => {
+    let closed = false;
     const socket = new SimpleSocket({
       onMessage,
       onState: (state) => {
+        if (closed) return;
         setConnection(state);
-        onConnectionChange?.(state);
+        onConnectionChangeRef.current?.(state);
         if (state === 'open') {
           socket.send('providers.saved');
           socket.send('providers.list');
@@ -78,17 +91,32 @@ export function useSimpleSocket(options: UseSimpleSocketOptions): UseSimpleSocke
             socket.send('sessions.list', { sessionId, limit: 12 });
           }
         } else {
-          onDisconnect?.();
+          onDisconnectRef.current?.();
         }
       },
     });
     socketRef.current = socket;
-    void socket.connect();
+    socket.connect().catch((err) => {
+      // The SimpleSocket contract is to call onState('closed') on every
+      // failure path, so this catch should never fire in practice. If it
+      // does (e.g. a synchronous throw before the WebSocket is constructed),
+      // surface the unexpected failure so consumers can debug it.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'use_simple_socket.connect_unhandled_rejection',
+          message: 'Socket connect rejected without onState transition',
+          error: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    });
     return () => {
+      closed = true;
       socketRef.current = null;
       socket.close();
     };
-  }, [onMessage, sessionIdRef, onConnectionChange, onDisconnect]);
+  }, [onMessage, sessionIdRef]);
 
   return { connection };
 }

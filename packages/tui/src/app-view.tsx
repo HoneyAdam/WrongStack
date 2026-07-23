@@ -98,8 +98,25 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
   } = viewState;
 
   return (
-    <Box flexDirection="column">
-      <Box flexDirection="column" flexGrow={1} flexShrink={0}>
+    /* Hard viewport cap. The managed layout aims for exactly termRows
+       (history vp + measured bottom region), but the bottom region grows a
+       commit BEFORE the history viewport shrinks to match (vp is measured in
+       a layout effect, and Ink writes the frame at resetAfterCommit — before
+       layout effects run). Without this cap that one-frame overflow scrolls
+       the terminal: top rows are stranded in native scrollback, Ink's erase
+       math desyncs, and the garbage accumulates over a session. With the cap,
+       yoga clips the overflow instead and no frame can ever scroll the
+       terminal. justifyContent flex-end makes the clip happen at the TOP of
+       the history box (Ink-7: flex-end clips top), so a freshly-opened picker
+       or grown input is fully visible immediately while history briefly loses
+       its top rows until the viewport re-measures. */
+    <Box
+      flexDirection="column"
+      height={runtime.termRows}
+      overflowY="hidden"
+      justifyContent="flex-end"
+    >
+      <Box flexDirection="column" flexShrink={0}>
         <ScrollableHistory
           entries={state.entries}
           toolStream={state.toolStream}

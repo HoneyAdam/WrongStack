@@ -179,7 +179,7 @@
       "relativeImports": 12
     },
     "packages/core/src/storage/config-loader.ts": {
-      "lines": 1580,
+      "lines": 1605,
       "relativeImports": 14
     },
     "packages/core/src/storage/file-session-writer.ts": {
@@ -207,7 +207,7 @@
       "relativeImports": 3
     },
     "packages/kanban/src/manager/_internal.ts": {
-      "lines": 1340,
+      "lines": 1344,
       "relativeImports": 8
     },
     "packages/kanban/src/types.ts": {
@@ -230,21 +230,21 @@
       "lines": 812,
       "relativeImports": 1
     },
-    "packages/sdd/src/sdd-parallel-run.ts": {
-      "lines": 1305,
-      "relativeImports": 1
-    },
-    "packages/simpleui/src/simple-ui-session.tsx": {
-      "lines": 925,
-      "relativeImports": 44
-    },
     "packages/sage/src/middleware/tool-call-memory.ts": {
       "lines": 892,
       "relativeImports": 7
     },
     "packages/sage/src/sqlite-store.ts": {
-      "lines": 3075,
+      "lines": 3398,
       "relativeImports": 8
+    },
+    "packages/sdd/src/sdd-parallel-run.ts": {
+      "lines": 1305,
+      "relativeImports": 1
+    },
+    "packages/simpleui/src/simple-ui-session.tsx": {
+      "lines": 930,
+      "relativeImports": 46
     },
     "packages/telegram/src/bot.ts": {
       "lines": 801,
@@ -259,16 +259,16 @@
       "relativeImports": 1
     },
     "packages/tools/src/session-kanban.ts": {
-      "lines": 922,
+      "lines": 931,
       "relativeImports": 0
     },
     "packages/tui/src/app-state.ts": {
-      "lines": 1517,
+      "lines": 1505,
       "relativeImports": 6
     },
     "packages/tui/src/app.tsx": {
-      "lines": 1486,
-      "relativeImports": 59
+      "lines": 1502,
+      "relativeImports": 60
     },
     "packages/tui/src/components/agents-monitor.tsx": {
       "lines": 1017,
@@ -299,7 +299,7 @@
       "relativeImports": 3
     },
     "packages/tui/src/components/status-bar.tsx": {
-      "lines": 1693,
+      "lines": 1703,
       "relativeImports": 15
     },
     "packages/tui/src/hooks/use-picker-keys.ts": {
@@ -307,7 +307,7 @@
       "relativeImports": 9
     },
     "packages/tui/src/input-validation.ts": {
-      "lines": 1731,
+      "lines": 1709,
       "relativeImports": 3
     },
     "packages/tui/src/kanban-slash.ts": {
@@ -427,7 +427,7 @@
       "relativeImports": 2
     },
     "packages/webui-server/src/server/http-server.ts": {
-      "lines": 831,
+      "lines": 854,
       "relativeImports": 8
     },
     "packages/webui-server/src/server/kanban-routes.ts": {

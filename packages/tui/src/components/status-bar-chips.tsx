@@ -154,11 +154,15 @@ export function ThinkingChip({
   style,
   phase,
   cycleTick,
+  colorPhase,
 }: {
   text: string;
   style: AnimationStyle | 'cycle';
   phase: number;
   cycleTick: number;
+  /** Fast (~120ms cadence) animation frame for color effects (rainbow/wave/pulse).
+   *  Derived from `animationTime` to decouple color speed from the 1s spinner. */
+  colorPhase: number;
 }): React.ReactElement {
   const live: AnimationStyle = style === 'cycle' ? styleForCycleTick(cycleTick) : style;
   if (live === 'rainbow') {
@@ -168,7 +172,7 @@ export function ThinkingChip({
     return (
       <Text bold>
         {chars.map((ch, i) => (
-          <Text key={i} color={rainbowColor(i, phase)}>
+          <Text key={i} color={rainbowColor(i, colorPhase)}>
             {ch}
           </Text>
         ))}
@@ -180,7 +184,7 @@ export function ThinkingChip({
     return (
       <Text bold>
         {Array.from(text).map((ch, i) => (
-          <Text key={i} color={waveColor(i, phase, len)}>
+          <Text key={i} color={waveColor(i, colorPhase, len)}>
             {ch}
           </Text>
         ))}
@@ -189,7 +193,7 @@ export function ThinkingChip({
   }
   if (live === 'pulse') {
     return (
-      <Text bold color={pulseColor(phase)}>
+      <Text bold color={pulseColor(colorPhase)}>
         {text}
       </Text>
     );

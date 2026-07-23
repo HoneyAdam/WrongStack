@@ -1,9 +1,20 @@
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteSageStore } from '../src/sqlite-store.js';
+
+// Lazy-loader for node:sqlite — matches the pattern in sage, techstack, and the
+// codebase-index rather than a top-level value import that would fire Node's
+// ExperimentalWarning at module evaluation time (the vitest setup suppresses it
+// anyway, but keeping all SQLite loads behind a lazy gate is the project convention).
+// DatabaseSync comes from a `type` import — stripped at compile time, no warning.
+const _require = createRequire(import.meta.url);
+function loadDatabaseSync(): typeof DatabaseSync {
+  return _require('node:sqlite').DatabaseSync as typeof DatabaseSync;
+}
 
 describe('SqliteSageStore v3 migration', () => {
   let tempDir: string;
@@ -24,6 +35,7 @@ describe('SqliteSageStore v3 migration', () => {
     const dbPath = path.join(memoryDir, 'sage.db');
     await fs.promises.mkdir(memoryDir, { recursive: true });
 
+    const DatabaseSync = loadDatabaseSync();
     const v2 = new DatabaseSync(dbPath);
     v2.exec(`
       CREATE TABLE schema_meta (

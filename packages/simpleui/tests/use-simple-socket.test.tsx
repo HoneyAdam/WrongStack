@@ -34,6 +34,8 @@ vi.mock('../src/lib/ws.js', () => ({
   SimpleSocket: MockSocket,
 }));
 
+import type { SimpleSocket } from '../src/lib/ws.js';
+import type { UseSimpleSocketOptions } from '../src/hooks/use-simple-socket.js';
 const { useSimpleSocket } = await import('../src/hooks/use-simple-socket.js');
 
 interface Captured {
@@ -51,13 +53,14 @@ interface ProbeOptions {
 function renderHookViaRoot(captured: Captured, options: ProbeOptions): Root {
   const socketRef = options.socketRef ?? { current: null };
   function Probe(): null {
-    captured.current = useSimpleSocket({
+    const result = useSimpleSocket({
       onMessage: options.onMessage ?? vi.fn(),
       sessionIdRef: options.sessionIdRef,
-      socketRef: socketRef as React.RefObject<unknown>,
+      socketRef: socketRef as unknown as React.RefObject<SimpleSocket | null>,
       onConnectionChange: options.onConnectionChange,
       onDisconnect: options.onDisconnect,
-    } as never) as never;
+    } satisfies UseSimpleSocketOptions);
+    captured.current = result;
     return null;
   }
   const container = document.createElement('div');
@@ -96,7 +99,7 @@ describe('useSimpleSocket — lifecycle', () => {
 
   it('exposes the socket to the consumer via the provided socketRef', () => {
     const socketRef = { current: null as MockSocket | null };
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: null },
       socketRef,
     });
@@ -107,7 +110,7 @@ describe('useSimpleSocket — lifecycle', () => {
 
 describe('useSimpleSocket — bootstrap frames on open', () => {
   it('sends the standard four bootstrap frames when the socket opens', () => {
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: null },
     });
     const socket = lastSocket();
@@ -119,7 +122,7 @@ describe('useSimpleSocket — bootstrap frames on open', () => {
   });
 
   it('also sends sessions.list when a session id is known at open time', () => {
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: 'sess-1' },
     });
     const socket = lastSocket();
@@ -138,7 +141,7 @@ describe('useSimpleSocket — bootstrap frames on open', () => {
   });
 
   it('does not send sessions.list when sessionIdRef.current is null', () => {
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: null },
     });
     act(() => lastSocket().options.onState('open'));
@@ -167,7 +170,7 @@ describe('useSimpleSocket — connection state + disconnect', () => {
 
   it('fires onDisconnect on every non-open state (connecting + closed)', () => {
     const onDisconnect = vi.fn();
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: null },
       onDisconnect,
     });
@@ -186,7 +189,7 @@ describe('useSimpleSocket — connection state + disconnect', () => {
 describe('useSimpleSocket — message routing', () => {
   it('forwards incoming messages to onMessage', () => {
     const onMessage = vi.fn();
-    renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       onMessage,
       sessionIdRef: { current: null },
     });
@@ -201,7 +204,7 @@ describe('useSimpleSocket — message routing', () => {
 describe('useSimpleSocket — cleanup', () => {
   it('clears socketRef.current to null and calls close() on unmount', () => {
     const socketRef = { current: null as MockSocket | null };
-    const root = renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    const root = renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       sessionIdRef: { current: null },
       socketRef,
     });
@@ -215,7 +218,7 @@ describe('useSimpleSocket — cleanup', () => {
   });
 
   it('recreates the socket when onMessage identity changes', () => {
-    const root = renderHookViaRoot({ current: { connection: 'connecting' } } as never, {
+    const root = renderHookViaRoot({ current: { connection: 'connecting' } } as Captured, {
       onMessage: vi.fn(),
       sessionIdRef: { current: null },
     });
@@ -227,13 +230,56 @@ describe('useSimpleSocket — cleanup', () => {
       useSimpleSocket({
         onMessage: vi.fn(),
         sessionIdRef: { current: null },
-        socketRef: { current: null } as never,
-      } as never);
+        socketRef: { current: null } as unknown as React.RefObject<SimpleSocket | null>,
+      } satisfies UseSimpleSocketOptions);
       return null;
     }
     act(() => root.render(<Probe2 />));
 
     expect(instances.length).toBeGreaterThanOrEqual(2);
     expect(first.close).toHaveBeenCalled();
+  });
+
+  it('does NOT recreate the socket when onDisconnect/onConnectionChange identity changes', () => {
+    // Call sites pass these as inline arrows (new identity every render).
+    // If they re-entered the effect deps, every consumer render would tear
+    // the socket down and reconnect — a self-sustaining drop/reconnect loop.
+    const onMessage = vi.fn();
+    const sessionIdRef = { current: null };
+    const socketRef = { current: null as MockSocket | null };
+    // Single component type re-rendered with fresh callback props — a
+    // different component type would remount and recreate regardless of deps.
+    function Probe(props: { onDisconnect: () => void; onConnectionChange: (s: string) => void }) {
+      useSimpleSocket({
+        onMessage,
+        sessionIdRef,
+        socketRef: socketRef as unknown as React.RefObject<SimpleSocket | null>,
+        onDisconnect: props.onDisconnect,
+        onConnectionChange: props.onConnectionChange,
+      } satisfies UseSimpleSocketOptions);
+      return null;
+    }
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    act(() => root.render(<Probe onDisconnect={() => {}} onConnectionChange={() => {}} />));
+    expect(instances).toHaveLength(1);
+    const first = lastSocket();
+
+    // Re-render with the SAME onMessage but fresh inline callbacks, and
+    // verify the latest callbacks are still the ones invoked.
+    const lateDisconnect = vi.fn();
+    const lateConnectionChange = vi.fn();
+    act(() =>
+      root.render(<Probe onDisconnect={lateDisconnect} onConnectionChange={lateConnectionChange} />),
+    );
+
+    expect(instances).toHaveLength(1);
+    expect(first.close).not.toHaveBeenCalled();
+
+    act(() => first.options.onState('closed'));
+    expect(lateDisconnect).toHaveBeenCalledTimes(1);
+    expect(lateConnectionChange).toHaveBeenCalledWith('closed');
   });
 });

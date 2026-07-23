@@ -1442,7 +1442,6 @@ export function validateAction(action: {
     case 'streamToolResult':
     case 'streamEnd':
     case 'setMode':
-    case 'clearInput':
     case 'clearHistory':
     case 'toolStreamClear':
     case 'debugStreamStatsClear':

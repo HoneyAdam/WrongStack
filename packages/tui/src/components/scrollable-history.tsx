@@ -507,20 +507,17 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     }
 
     if (changed) setMeasureTick((tick) => tick + 1);
-    // renderGroups/plan are derived from these; listing the drivers avoids
-    // re-running on every unrelated parent render while covering scroll,
-    // resize, content changes, and underfill correction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    cacheKey,
-    termWidth,
-    vp,
-    groupIdsKey,
-    toolTailHeight,
-    mountBump,
-    effectiveAnchor?.index,
-    effectiveAnchor?.clip,
-  ]);
+    // NO dependency array — deliberately. A group's rendered height can change
+    // while every identity this component could list stays the same: an entry
+    // mutated IN PLACE (tool spinner → result, stream tail collapsing into a
+    // compact card, a diff box rendering shorter than its placeholder) keeps
+    // its group id, so a keyed dep list skips the pass and the height cache
+    // goes stale — pinned mode under-mounts (hole above the content) and a
+    // scrolled anchor keeps a clip larger than its shrunken group. Measuring
+    // is a cheap read of the already-computed yoga layout, the component is
+    // memoized so commits are already scoped to real changes, and the
+    // `changed` guard stops the tick from looping.
+  });
 
   return (
     <Box flexDirection="row" width={viewportWidth}>

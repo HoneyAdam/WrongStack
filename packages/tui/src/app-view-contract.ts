@@ -25,6 +25,14 @@ export interface AppViewRuntime {
   viewState: ReturnType<typeof deriveAppViewState>;
   mouseMode: boolean;
   /**
+   * Live terminal row count. AppView caps its root box at exactly this height
+   * (overflowY hidden) so a frame can never be taller than the terminal: a
+   * taller frame scrolls the terminal, strands the top rows in native
+   * scrollback and desyncs Ink's erase math — the root cause of the
+   * accumulated-garbage / jumping-viewport artifacts.
+   */
+  termRows: number;
+  /**
    * Receives the imperative scroll controller assigned by ScrollableHistory.
    * The app key/mouse handlers and the submit path drive scrolling through it.
    */

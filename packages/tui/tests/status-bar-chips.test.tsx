@@ -331,6 +331,7 @@ describe('ThinkingChip', () => {
         style: 'rainbow',
         phase: 0,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -345,6 +346,7 @@ describe('ThinkingChip', () => {
         style: 'wave',
         phase: 1,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -359,6 +361,7 @@ describe('ThinkingChip', () => {
         style: 'pulse',
         phase: 2,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -373,6 +376,7 @@ describe('ThinkingChip', () => {
         style: 'dots',
         phase: 0,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -387,6 +391,7 @@ describe('ThinkingChip', () => {
         style: 'breathe',
         phase: 0,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -402,6 +407,7 @@ describe('ThinkingChip', () => {
         style: 'cycle',
         phase: 0,
         cycleTick: 0,
+        colorPhase: 0,
       }),
     );
     const frame = lastFrame() ?? '';
@@ -417,6 +423,7 @@ describe('ThinkingChip', () => {
           style: 'dots',
           phase,
           cycleTick: 0,
+          colorPhase: 0,
         }),
       );
       const frame = lastFrame() ?? '';
@@ -433,6 +440,7 @@ describe('ThinkingChip', () => {
           style: 'breathe',
           phase,
           cycleTick: 0,
+          colorPhase: 0,
         }),
       );
       const frame = lastFrame() ?? '';

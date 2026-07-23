@@ -18,6 +18,38 @@
  * Tests that pass an explicit `userHome`/`globalRoot` to resolveWstackPaths
  * are unaffected — explicit options take precedence over the env override.
  */
+
+// ── Permanent SQLite ExperimentalWarning suppressor ───────────────────────
+// Vitest workers (forks pool) are separate processes — they do NOT inherit the
+// suppressor installed in cli-entry-point.ts. Install it here so every worker
+// suppresses the warning regardless of which test file loads node:sqlite first.
+// This catches top-level value imports (e.g. `import { DatabaseSync } from 'node:sqlite'`)
+// that fire at module evaluation time, before any lazy-load suppressor is active.
+const SQLITE_WARNING_RE = /sqlite is an experimental feature/i;
+
+function installSqliteWarningFilter(): void {
+  const originalEmit = process.emitWarning.bind(process);
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]): void => {
+    const msg =
+      typeof warning === 'string'
+        ? warning
+        : (warning as Error)?.message ?? '';
+    const type =
+      typeof warning === 'string'
+        ? (rest[0] as string | undefined)
+        : (warning as Error)?.name;
+    if (
+      type === 'ExperimentalWarning' &&
+      SQLITE_WARNING_RE.test(msg)
+    ) {
+      return; // suppressed
+    }
+    (originalEmit as (w: unknown, ...args: unknown[]) => void)(warning, ...rest);
+  }) as typeof process.emitWarning;
+}
+
+installSqliteWarningFilter();
+
 import * as os from 'node:os';
 import * as path from 'node:path';
 
