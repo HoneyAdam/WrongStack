@@ -10,6 +10,7 @@ import {
   BrainCircuit,
   ChartNoAxesCombined,
   CircleDollarSign,
+  Columns3,
   Copy,
   GitBranch,
   Inbox,
@@ -117,6 +118,14 @@ export const HQ_VIEW_DEFINITIONS: readonly HqViewDefinition[] = [
     shortcut: 4,
   },
   {
+    id: 'kanban',
+    label: 'Kanban',
+    eyebrow: 'Project work',
+    description: 'Read-only project boards synchronized across clones and machines.',
+    group: 'Operations',
+    icon: Columns3,
+  },
+  {
     id: 'alerts',
     label: 'Alerts',
     eyebrow: 'Attention',
@@ -194,6 +203,9 @@ const VIEW_COMPONENTS: Record<ViewId, LazyExoticComponent<ComponentType>> = {
   ),
   mailbox: lazy(() =>
     import('./views/mailbox.js').then((module) => ({ default: module.MailboxView })),
+  ),
+  kanban: lazy(() =>
+    import('./views/kanban.js').then((module) => ({ default: module.KanbanView })),
   ),
   cost: lazy(() => import('./views/cost.js').then((module) => ({ default: module.CostView }))),
   brain: lazy(() => import('./views/brain.js').then((module) => ({ default: module.BrainView }))),

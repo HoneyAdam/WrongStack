@@ -8,7 +8,7 @@ coordination surface served at `wstack --hq` (port 3499).
 This is a **self-contained Vite + React app** with zero CDN dependencies —
 everything bundles into `dist/` so it works on offline/LAN/restricted-network
 machines. It connects to the HQ server's `/ws/browser` WebSocket channel and
-renders 10 views:
+renders 12 views:
 
 | View | Source | Purpose |
 |------|--------|---------|
@@ -16,12 +16,14 @@ renders 10 views:
 | Fleet | `hq.snapshot` | searchable graph/compact-list topology by full fleet, machine, or project, including mailbox-serve clients |
 | Console | transcript + `hq.command_status` | live chat plus leader/subagent messaging, interrupt controls, and inline command lifecycle |
 | Mailbox | `hq.snapshot.mailboxes` | unread/incomplete/high-priority counts |
+| Kanban | `/api/projects/:projectId/kanban` + `kanban.snapshot` | read-only project boards shared across clones and machines |
 | Cost | `hq.snapshot.projects` | per-project cost breakdown |
 | Brain | `brain.event` envelopes | decision/intervention timeline |
 | Worktrees | `worktree.event` envelopes | phase lifecycle swim-lanes |
 | Trends | `/api/trends/cost` | time-bucketed cost/activity |
 | Alerts | `hq.alert` + `/api/alerts` | live + history alert feed |
 | Control | `POST /api/command` | steer/abort/spawn/broadcast to clients |
+| Security | `/api/auth/status` + `/api/auth/password` | browser password and credential management |
 
 ## Build
 

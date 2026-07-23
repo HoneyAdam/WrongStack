@@ -59,8 +59,8 @@ afterEach(() => {
 
 describe('HQ operator shell', () => {
   it('defines unique ids and non-conflicting numeric shortcuts', () => {
-    expect(HQ_VIEW_DEFINITIONS).toHaveLength(11);
-    expect(new Set(HQ_VIEW_DEFINITIONS.map((view) => view.id)).size).toBe(11);
+    expect(HQ_VIEW_DEFINITIONS).toHaveLength(12);
+    expect(new Set(HQ_VIEW_DEFINITIONS.map((view) => view.id)).size).toBe(12);
     const shortcuts = HQ_VIEW_DEFINITIONS.flatMap((view) =>
       view.shortcut === undefined ? [] : [view.shortcut],
     );
@@ -97,7 +97,7 @@ describe('HQ operator shell', () => {
     expect(container.querySelector<HTMLImageElement>('.hq-secondary-brand img')?.src).toContain(
       '/wrongstack.svg',
     );
-    expect(container.querySelectorAll('.hq-nav-item')).toHaveLength(11);
+    expect(container.querySelectorAll('.hq-nav-item')).toHaveLength(12);
     expect(container.textContent).toContain('WrongStack HQ');
   });
 

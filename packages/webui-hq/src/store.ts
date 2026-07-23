@@ -21,6 +21,7 @@ export type ViewId =
   | 'fleet'
   | 'console'
   | 'mailbox'
+  | 'kanban'
   | 'cost'
   | 'brain'
   | 'worktree'
