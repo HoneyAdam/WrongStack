@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { feedPaste } from '../src/paste-accumulator.js';
+import { MAX_PASTE_CHARS } from '../src/input-validation.js';
+import { feedPaste, type PasteAccumState } from '../src/paste-accumulator.js';
 
 const BEGIN = '\x1b[200~';
 const END = '\x1b[201~';
@@ -16,7 +17,7 @@ describe('feedPaste', () => {
   });
 
   it('buffers a paste split across multiple events and finalizes on the end marker', () => {
-    let accum: string | null = null;
+    let accum: PasteAccumState = null;
     const r1 = feedPaste(accum, `${BEGIN}first chunk\n`);
     expect(r1).toEqual({ accum: 'first chunk\n', complete: null });
     accum = r1?.accum ?? null;
@@ -58,6 +59,35 @@ describe('feedPaste', () => {
     const r1 = feedPaste(null, `${BEGIN}x`);
     const r2 = feedPaste(r1?.accum ?? null, `y${END}`);
     expect(r2).toEqual({ accum: null, complete: 'xy' });
+  });
+
+  it('accepts a multi-fragment paste exactly at the hard cap', () => {
+    const half = Math.floor(MAX_PASTE_CHARS / 2);
+    const first = feedPaste(null, `${BEGIN}${'a'.repeat(half)}`);
+    const second = feedPaste(first?.accum ?? null, `${'b'.repeat(MAX_PASTE_CHARS - half)}${END}`);
+    expect(second?.complete).toHaveLength(MAX_PASTE_CHARS);
+    expect(second?.error).toBeUndefined();
+  });
+
+  it('rejects and releases a multi-fragment paste as soon as it exceeds the hard cap', () => {
+    const first = feedPaste(null, `${BEGIN}${'a'.repeat(MAX_PASTE_CHARS)}`);
+    const second = feedPaste(first?.accum ?? null, `b${END}`);
+    expect(second).toEqual({
+      accum: null,
+      complete: null,
+      error: expect.stringContaining('exceeds'),
+    });
+  });
+
+  it('discards all remaining fragments after overflow until the closing marker', () => {
+    const first = feedPaste(null, `${BEGIN}${'a'.repeat(MAX_PASTE_CHARS)}`);
+    const overflow = feedPaste(first?.accum ?? null, 'b');
+    expect(overflow?.error).toContain('exceeds');
+    const swallowed = feedPaste(overflow?.accum ?? null, 'ordinary-looking text');
+    expect(swallowed?.complete).toBeNull();
+    expect(swallowed?.accum).toEqual({ overflow: true });
+    expect(typeof swallowed?.accum).not.toBe('string');
+    expect(feedPaste(swallowed?.accum ?? null, END)).toEqual({ accum: null, complete: null });
   });
 
   // ── ANSI sequence stripping ─────────────────────────────────────────────

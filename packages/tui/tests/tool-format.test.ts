@@ -8,6 +8,8 @@ import {
   formatToolArgs,
   formatToolOutput,
   formatToolVisualOutput,
+  MULTI_DIFF_MAX_FILES,
+  MULTI_DIFF_MAX_ROWS,
   MULTI_DIFF_SUMMARY_THRESHOLD,
   summarizeMultiFileDiffs,
 } from '../src/components/history.js';
@@ -626,23 +628,17 @@ describe('extractDiffPreview', () => {
     expect(out!.rows.some((r) => r.text.includes('replacements='))).toBe(false);
   });
 
-  it('renders every row for a long preview (no truncation in default Update tool path)', () => {
-    // The default `DIFF_MAX_LINES` was raised to `Infinity` so the Update
-    // tool surfaces every diff row, no matter how large. A 30-line add
-    // is enough to prove "all rows present, hidden = 0, totals still
-    // accurate". The `hidden`/`hiddenAdded` fields stay populated for
-    // callers that explicitly opt into a cap by passing a smaller value
-    // to `parseUnifiedDiff` — this test only pins the default path.
-    const many = ['@@ -1,20 +1,20 @@', ...Array.from({ length: 30 }, (_, i) => `+line ${i}`)].join(
-      '\n',
-    );
+  it('caps a long default Update preview while retaining its totals', () => {
+    const many = [
+      '@@ -1,250 +1,250 @@',
+      ...Array.from({ length: 250 }, (_, i) => `+line ${i}`),
+    ].join('\n');
     const out = extractDiffPreview('edit', JSON.stringify({ diff: many }));
-    // 1 hunk header + 30 adds = 31 rows total.
-    expect(out!.rows.length).toBe(31);
-    expect(out!.hidden).toBe(0);
-    expect(out!.hiddenAdded).toBe(0);
+    expect(out!.rows).toHaveLength(200);
+    expect(out!.hidden).toBe(51);
+    expect(out!.hiddenAdded).toBe(51);
     expect(out!.hiddenRemoved).toBe(0);
-    expect(out!.added).toBe(30);
+    expect(out!.added).toBe(250);
   });
 
   it('skips no-op edit sentinel diff', () => {
@@ -757,7 +753,7 @@ describe('extractReplaceDiffs', () => {
     expect(out).toBeDefined();
     expect(out![0]!.preview.added).toBe(30);
     expect(out![0]!.preview.hiddenAdded).toBe(0);
-    // Default cap is unbounded: 1 hunk header + 30 adds = 31 rows total.
+    // This small file remains below the 200-row per-file cap.
     expect(out![0]!.preview.rows.length).toBe(31);
   });
 
@@ -966,27 +962,82 @@ describe('extractMultiFileDiffs', () => {
         'diff --git a/big.ts b/big.ts',
         '--- a/big.ts',
         '+++ b/big.ts',
-        '@@ -1,30 +1,30 @@',
-        ...Array.from({ length: 30 }, (_, i) => `+line ${i}`),
+        '@@ -1,250 +1,250 @@',
+        ...Array.from({ length: 250 }, (_, i) => `+line ${i}`),
       ].join('\n');
       const longB = [
         'diff --git a/bigger.ts b/bigger.ts',
         '--- a/bigger.ts',
         '+++ b/bigger.ts',
-        '@@ -1,40 +1,40 @@',
-        ...Array.from({ length: 40 }, (_, i) => `-drop ${i}`),
+        '@@ -1,240 +1,240 @@',
+        ...Array.from({ length: 240 }, (_, i) => `-drop ${i}`),
       ].join('\n');
       const out = extractMultiFileDiffs(
         'diff',
         JSON.stringify({ diff: `${longA}\n${longB}`, files: [] }),
       );
       expect(out).toBeDefined();
-      expect(out![0]!.preview.added).toBe(30);
-      expect(out![1]!.preview.removed).toBe(40);
-      // Default cap is unbounded: every file surfaces its full diff.
-      // File A: 1 hunk + 30 adds = 31 rows. File B: 1 hunk + 40 dels = 41 rows.
-      expect(out![0]!.preview.rows.length).toBe(31);
-      expect(out![1]!.preview.rows.length).toBe(41);
+      expect(out![0]!.preview.rows).toHaveLength(200);
+      expect(out![0]!.preview.added).toBe(250);
+      expect(out![0]!.preview.hiddenAdded).toBe(51);
+      expect(out![1]!.preview.rows).toHaveLength(200);
+      expect(out![1]!.preview.removed).toBe(240);
+      expect(out![1]!.preview.hiddenRemoved).toBe(41);
+    });
+
+    it('caps cumulative rendered rows across files and preserves omitted totals', () => {
+      const blocks = Array.from({ length: 3 }, (_, index) => {
+        const path = `src/large-${index}.ts`;
+        return [
+          `diff --git a/${path} b/${path}`,
+          `--- a/${path}`,
+          `+++ b/${path}`,
+          '@@ -1,250 +1,250 @@',
+          ...Array.from({ length: 250 }, (_, line) => `+line ${index}-${line}`),
+        ].join('\n');
+      }).join('\n');
+      const out = extractMultiFileDiffs('diff', JSON.stringify({ diff: blocks, files: [] }));
+      expect(out).toBeDefined();
+      expect(out!.reduce((rows, item) => rows + item.preview.rows.length, 0)).toBeLessThanOrEqual(
+        MULTI_DIFF_MAX_ROWS,
+      );
+      expect(out).toHaveLength(2);
+      expect(out?.omitted).toEqual({ fileCount: 1, added: 250, removed: 0 });
+      expect(summarizeMultiFileDiffs(out!)).toMatchObject({
+        fileCount: 3,
+        added: 750,
+        removed: 0,
+        hiddenAdded: 102,
+        hiddenRemoved: 0,
+        truncatedFiles: 2,
+        omittedFiles: 1,
+      });
+    });
+
+    it('caps rendered files and preserves omitted-file aggregate counts', () => {
+      const blocks = Array.from({ length: MULTI_DIFF_MAX_FILES + 3 }, (_, index) => {
+        const path = `src/file-${index}.ts`;
+        return [
+          `diff --git a/${path} b/${path}`,
+          `--- a/${path}`,
+          `+++ b/${path}`,
+          '@@ -1,1 +1,1 @@',
+          '-old',
+          '+new',
+        ].join('\n');
+      }).join('\n');
+      const out = extractMultiFileDiffs('diff', JSON.stringify({ diff: blocks, files: [] }));
+      expect(out).toHaveLength(MULTI_DIFF_MAX_FILES);
+      expect(out?.omitted).toEqual({ fileCount: 3, added: 3, removed: 3 });
+      expect(summarizeMultiFileDiffs(out!)).toMatchObject({
+        fileCount: MULTI_DIFF_MAX_FILES + 3,
+        added: MULTI_DIFF_MAX_FILES + 3,
+        removed: MULTI_DIFF_MAX_FILES + 3,
+        hiddenAdded: 0,
+        hiddenRemoved: 0,
+        truncatedFiles: 0,
+        omittedFiles: 3,
+      });
     });
   });
 

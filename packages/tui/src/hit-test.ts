@@ -39,6 +39,11 @@ export type HitRegion =
  */
 export const SCROLLBAR_HIT_WIDTH = 2;
 
+/** Rows available to managed history after reserving the measured bottom UI. */
+export function historyViewportRows(termRows: number, bottomHeight: number): number {
+  return Math.max(1, Math.floor(termRows) - Math.max(0, Math.floor(bottomHeight)));
+}
+
 /**
  * Map a 1-based terminal (x,y) onto a layout region, or null when the point is
  * outside the terminal. Pure — no side effects, no DOM access.
@@ -51,6 +56,12 @@ export function hitRegion(layout: MouseLayout, x: number, y: number): HitRegion 
     return { kind: 'history', row: y - 1 };
   }
   return { kind: 'bottom', row: y - viewportRows - 1 };
+}
+
+/** True when a wheel event belongs to the managed history viewport. */
+export function isHistoryScrollTarget(layout: MouseLayout, x: number, y: number): boolean {
+  const region = hitRegion(layout, x, y);
+  return region?.kind === 'history' || region?.kind === 'scrollbar';
 }
 
 /**

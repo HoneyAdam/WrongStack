@@ -7,7 +7,10 @@ import type { HistoryEntry } from './components/history/types.js';
  */
 export const TUI_HISTORY_MAX_ENTRIES = 400;
 export const TUI_HISTORY_MAX_BYTES = 1024 * 1024;
+/** No single display entry may monopolize the aggregate history budget. */
+export const TUI_HISTORY_MAX_ENTRY_BYTES = 64 * 1024;
 
+const ENTRY_TRUNCATION_MARKER = '… [truncated for TUI history; full session remains on disk]';
 const OMITTED_RE = /^… (\d+) earlier TUI entries omitted \(full session remains on disk\)\.$/;
 
 function omittedCount(entry: HistoryEntry): number | null {
@@ -27,16 +30,119 @@ function entryBytes(entry: HistoryEntry): number {
   }
 }
 
+function oversizedEntryMarker(entry: HistoryEntry): HistoryEntry {
+  return {
+    id: entry.id,
+    kind: 'info',
+    text: `… oversized ${entry.kind} entry omitted from TUI history (full session remains on disk).`,
+  };
+}
+
+function retainTextWithinEntryBudget(
+  value: string,
+  maxBytes: number,
+  createEntry: (text: string) => HistoryEntry,
+  original: HistoryEntry,
+): HistoryEntry {
+  if (entryBytes(createEntry(value)) <= maxBytes) return createEntry(value);
+  if (entryBytes(createEntry(ENTRY_TRUNCATION_MARKER)) > maxBytes) {
+    return oversizedEntryMarker(original);
+  }
+
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const candidate = `${value.slice(0, middle)}${ENTRY_TRUNCATION_MARKER}`;
+    if (entryBytes(createEntry(candidate)) <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+  let end = low;
+  const last = value.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return createEntry(`${value.slice(0, end)}${ENTRY_TRUNCATION_MARKER}`);
+}
+
+/**
+ * Enforce the per-entry display budget before aggregate history retention.
+ * Common text entries keep a readable prefix; unusual oversized structured
+ * entries degrade to a small marker rather than retaining an unbounded graph.
+ */
+export function retainTuiHistoryEntry(
+  entry: HistoryEntry,
+  maxBytes = TUI_HISTORY_MAX_ENTRY_BYTES,
+): HistoryEntry {
+  if (entryBytes(entry) <= maxBytes) return entry;
+
+  switch (entry.kind) {
+    case 'user':
+      return retainTextWithinEntryBudget(
+        entry.text,
+        maxBytes,
+        (text) => ({ ...entry, text, pasteContent: undefined }),
+        entry,
+      );
+    case 'assistant':
+    case 'thinking':
+    case 'info':
+    case 'warn':
+    case 'error':
+    case 'turn-summary':
+      return retainTextWithinEntryBudget(
+        entry.text,
+        maxBytes,
+        (text) => ({ ...entry, text }),
+        entry,
+      );
+    case 'subagent':
+      return retainTextWithinEntryBudget(
+        entry.text,
+        maxBytes,
+        (text) => ({ ...entry, text, detail: undefined }),
+        entry,
+      );
+    case 'tool': {
+      const name = entry.name.length > 1024 ? `${entry.name.slice(0, 1024)}…` : entry.name;
+      const output = entry.output ?? '';
+      return retainTextWithinEntryBudget(
+        output,
+        maxBytes,
+        (text) => ({ ...entry, name, input: undefined, output: text }),
+        entry,
+      );
+    }
+    case 'banner': {
+      const truncate = (value: string): string =>
+        value.length > 1024 ? `${value.slice(0, 1024)}…` : value;
+      const compact: HistoryEntry = {
+        id: entry.id,
+        kind: 'banner',
+        version: truncate(entry.version),
+        provider: truncate(entry.provider),
+        model: truncate(entry.model),
+        cwd: truncate(entry.cwd),
+      };
+      return entryBytes(compact) <= maxBytes ? compact : oversizedEntryMarker(entry);
+    }
+    default:
+      return oversizedEntryMarker(entry);
+  }
+}
+
 export interface TuiHistoryBudget {
   maxEntries?: number | undefined;
   maxBytes?: number | undefined;
+  maxEntryBytes?: number | undefined;
 }
 
 /**
  * Retain the newest display entries within both a count and serialized-byte
- * budget. The banner is preserved separately and an omission marker replaces
- * the discarded prefix. Returns the original array when no work is needed so
- * reducer callers can bail out without scheduling another render.
+ * budget. The first banner that still fits after per-entry compaction is
+ * preserved separately; later banners are discarded. If a banner cannot fit
+ * even in compact form, it degrades to the same bounded transcript marker as
+ * any other oversized structured entry. An omission marker replaces a
+ * discarded transcript prefix. Returns the original array when no work is
+ * needed so reducer callers can bail out without scheduling another render.
  */
 export function retainTuiHistory(
   entries: HistoryEntry[],
@@ -44,24 +150,32 @@ export function retainTuiHistory(
 ): HistoryEntry[] {
   const maxEntries = Math.max(1, Math.floor(budget.maxEntries ?? TUI_HISTORY_MAX_ENTRIES));
   const maxBytes = Math.max(1, Math.floor(budget.maxBytes ?? TUI_HISTORY_MAX_BYTES));
-  const banner = entries.find((entry) => entry.kind === 'banner');
+  const maxEntryBytes = Math.min(
+    maxBytes,
+    Math.max(1, Math.floor(budget.maxEntryBytes ?? TUI_HISTORY_MAX_ENTRY_BYTES)),
+  );
+  let banner: HistoryEntry | undefined;
   let previouslyOmitted = 0;
   let markerCount = 0;
   let bannerCount = 0;
+  let entryWasTruncated = false;
   const transcript: HistoryEntry[] = [];
 
   for (const entry of entries) {
-    if (entry.kind === 'banner') {
+    const retainedEntry = retainTuiHistoryEntry(entry, maxEntryBytes);
+    if (retainedEntry !== entry) entryWasTruncated = true;
+    if (retainedEntry.kind === 'banner') {
       bannerCount += 1;
+      banner ??= retainedEntry;
       continue;
     }
-    const count = omittedCount(entry);
+    const count = omittedCount(retainedEntry);
     if (count !== null) {
       previouslyOmitted += count;
       markerCount += 1;
       continue;
     }
-    transcript.push(entry);
+    transcript.push(retainedEntry);
   }
 
   let keepFrom = transcript.length;
@@ -79,6 +193,7 @@ export function retainTuiHistory(
 
   const newlyOmitted = keepFrom;
   if (
+    !entryWasTruncated &&
     newlyOmitted === 0 &&
     ((previouslyOmitted === 0 && markerCount === 0) ||
       (previouslyOmitted > 0 && markerCount === 1)) &&

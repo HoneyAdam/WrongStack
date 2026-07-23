@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as os from 'node:os';
 import type { Action, State } from '../app-reducer.js';
 import { type HeapSample, startHeapWatchdog, takeHeapSample } from '../heap-watchdog.js';
+import { useAnimation } from '../ink.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from '../thinking-word.js';
 
 export interface UseTuiActivityOptions {
@@ -46,6 +47,10 @@ export function useTuiActivity({
   const displayThinkingWord = isRandomTuiThinkingWord(thinkingWord)
     ? rolledThinkingWord
     : thinkingWord;
+  const fleetRunningCount = useMemo(
+    () => Object.values(fleet).filter((entry) => entry.status === 'running').length,
+    [fleet],
+  );
 
   // Global clock tick. Deliberately slow (10s). Detail panels own their
   // faster clocks; this tick feeds monitor overlays and todo snapshots.
@@ -75,28 +80,12 @@ export function useTuiActivity({
     prevStatusRef.current = status;
   }, [status]);
 
-  const [workingTimeMs, setWorkingTimeMs] = useState(0);
-  useEffect(() => {
-    const isWorking = status === 'running' || status === 'streaming';
-    if (!isWorking) return;
-    const tick = () => {
-      const elapsed =
-        workingStartRef.current === null
-          ? workingTimeBase
-          : workingTimeBase + (Date.now() - workingStartRef.current);
-      setWorkingTimeMs(elapsed);
-    };
-    tick();
-    const timer = setInterval(tick, 1_000);
-    return () => clearInterval(timer);
-  }, [status, workingTimeBase]);
-
   // Track the time during which at least one background fleet entry is active.
   const [fleetWorkingBase, setFleetWorkingBase] = useState(0);
   const fleetWorkingStartRef = useRef<number | null>(null);
   const prevFleetRunningRef = useRef(0);
   useEffect(() => {
-    const running = Object.values(fleet).filter((entry) => entry.status === 'running').length;
+    const running = fleetRunningCount;
     if (prevFleetRunningRef.current === running) return;
 
     const wasRunning = prevFleetRunningRef.current > 0;
@@ -109,23 +98,23 @@ export function useTuiActivity({
       fleetWorkingStartRef.current = Date.now();
     }
     prevFleetRunningRef.current = running;
-  }, [fleet]);
+  }, [fleetRunningCount]);
 
-  const [fleetWorkingTimeMs, setFleetWorkingTimeMs] = useState(0);
-  useEffect(() => {
-    const running = Object.values(fleet).some((entry) => entry.status === 'running');
-    if (!running) return;
-    const tick = () => {
-      const elapsed =
-        fleetWorkingStartRef.current === null
-          ? fleetWorkingBase
-          : fleetWorkingBase + (Date.now() - fleetWorkingStartRef.current);
-      setFleetWorkingTimeMs(elapsed);
-    };
-    tick();
-    const timer = setInterval(tick, 1_000);
-    return () => clearInterval(timer);
-  }, [fleet, fleetWorkingBase]);
+  // Foreground and fleet elapsed clocks used to own independent 1s intervals,
+  // causing two root renders per second whenever both were active. One shared
+  // Ink animation tick is sufficient to derive both values.
+  const timingActive = thinkingWorking || fleetRunningCount > 0;
+  const { frame: timingFrame } = useAnimation({ interval: 1_000, isActive: timingActive });
+  void timingFrame;
+  const timingNow = Date.now();
+  const workingTimeMs =
+    workingStartRef.current === null
+      ? workingTimeBase
+      : workingTimeBase + (timingNow - workingStartRef.current);
+  const fleetWorkingTimeMs =
+    fleetWorkingStartRef.current === null
+      ? fleetWorkingBase
+      : fleetWorkingBase + (timingNow - fleetWorkingStartRef.current);
 
   // Attribute long-session heap growth before V8 reaches its hard limit.
   // Reuse the existing 10s shell clock so diagnostics do not add another
@@ -150,21 +139,18 @@ export function useTuiActivity({
     return Math.min(100, Math.round((cpuDeltaUsec / 1000) / wallMs / cores * 100));
   }, [nowTick]);
   useEffect(() => {
-    const approxChars = (value: unknown): number => {
-      try {
-        return JSON.stringify(value)?.length ?? 0;
-      } catch {
-        return -1;
-      }
-    };
-    return startHeapWatchdog({
+    const stopHeapWatchdog = startHeapWatchdog({
       collectStats: () => ({
+        // Keep this slice to shallow cardinalities: serializing the full
+        // retained graphs created a second allocation spike precisely when
+        // the heap was already high.
         historyEntries: stateRef.current.entries.length,
-        historyChars: approxChars(stateRef.current.entries),
         messages: agentContext.state.messages.length,
-        messagesChars: approxChars(agentContext.state.messages),
         runningTools: stateRef.current.runningTools.size,
         stdoutQueued: process.stdout.writableLength ?? 0,
+        fleetSize: Object.keys(stateRef.current.fleet ?? {}).length,
+        queued: stateRef.current.queue?.length ?? 0,
+        inputHistory: stateRef.current.inputHistory?.length ?? 0,
       }),
       onWarn: (level, message) => {
         dispatch({
@@ -173,32 +159,45 @@ export function useTuiActivity({
         });
       },
     });
+    return () => {
+      void stopHeapWatchdog();
+    };
   }, [agentContext, dispatch, stateRef]);
 
+  const goalSummaryFingerprintRef = useRef<string | undefined>(undefined);
+  const goalSummaryGenerationRef = useRef(0);
   const refreshGoalSummary = useCallback(() => {
+    const generation = ++goalSummaryGenerationRef.current;
     if (!projectRoot) return;
     const goalPath = resolveWstackPaths({ projectRoot }).projectGoal;
     loadGoal(goalPath)
       .then((goal) => {
+        if (generation !== goalSummaryGenerationRef.current) return;
         if (!goal) {
+          if (goalSummaryFingerprintRef.current === 'null') return;
+          goalSummaryFingerprintRef.current = 'null';
           dispatch({ type: 'goalSummary', summary: null });
           return;
         }
         const lastEntry = goal.journal?.[goal.journal.length - 1];
+        const summary = {
+          goal: goal.goal,
+          refinedGoal: goal.refinedGoal,
+          goalState: goal.goalState ?? 'active',
+          iterations: goal.iterations,
+          progress: goal.progress,
+          progressNote: goal.progressNote,
+          progressTrend: goal.progressTrend,
+          deliverables: goal.deliverables,
+          lastTask: lastEntry?.task,
+          lastStatus: lastEntry?.status,
+        };
+        const fingerprint = JSON.stringify(summary);
+        if (goalSummaryFingerprintRef.current === fingerprint) return;
+        goalSummaryFingerprintRef.current = fingerprint;
         dispatch({
           type: 'goalSummary',
-          summary: {
-            goal: goal.goal,
-            refinedGoal: goal.refinedGoal,
-            goalState: goal.goalState ?? 'active',
-            iterations: goal.iterations,
-            progress: goal.progress,
-            progressNote: goal.progressNote,
-            progressTrend: goal.progressTrend,
-            deliverables: goal.deliverables,
-            lastTask: lastEntry?.task,
-            lastStatus: lastEntry?.status,
-          },
+          summary,
         });
       })
       .catch(() => {
@@ -210,12 +209,8 @@ export function useTuiActivity({
     refreshGoalSummary();
   }, [nowTick, refreshGoalSummary]);
 
-  const [enhanceDots, setEnhanceDots] = useState(0);
-  useEffect(() => {
-    if (!enhanceBusy) return;
-    const timer = setInterval(() => setEnhanceDots((value) => (value + 1) % 36), 400);
-    return () => clearInterval(timer);
-  }, [enhanceBusy]);
+  const { frame: enhanceFrame } = useAnimation({ interval: 1_000, isActive: enhanceBusy });
+  const enhanceDots = enhanceFrame % 36;
 
   return {
     displayThinkingWord,

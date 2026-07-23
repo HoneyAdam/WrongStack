@@ -27,6 +27,14 @@ import { WorktreePanel } from './components/worktree-panel.js';
 import { Box } from './ink.js';
 import { renderRunningTools } from './running-tools.js';
 
+export function resolveAgentSwarmPanelVisibility(
+  settingsOpen: boolean,
+  pickerValue: boolean,
+  persistedValue: boolean | undefined,
+): boolean {
+  return settingsOpen ? pickerValue : (persistedValue ?? true);
+}
+
 export function AppStatusRegion({ host, runtime }: AppViewProps): React.ReactElement {
   const {
     agent,
@@ -325,7 +333,11 @@ export function AppStatusRegion({ host, runtime }: AppViewProps): React.ReactEle
                 }
                 currentSessionId={agent.ctx.session?.id}
               />
-            ) : director || hasVisibleFleetPanel || state.collabSession ? (
+            ) : resolveAgentSwarmPanelVisibility(
+                state.settingsPicker.open,
+                state.settingsPicker.showAgentSwarmPanel,
+                liveSettings?.showAgentSwarmPanel,
+              ) && (director || hasVisibleFleetPanel || state.collabSession) ? (
               <FleetPanel
                 entries={entriesWithLeader}
                 totalCost={state.fleetCost}

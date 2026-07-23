@@ -24,7 +24,13 @@ export function useMailboxViewModel(events: AppProps['events']): {
   const [mailboxAgents, setMailboxAgents] = useState<MailboxAgentEntry[]>([]);
 
   useEffect(() => {
-    const seenAgents = new Set<string>();
+    // Track last-seen time per agent, not an append-only "ever seen" Set. The
+    // old Set grew one entry per unique agentId for the whole session (fed by
+    // recurring heartbeats) AND made `onlineAgents` monotonic — it never dropped
+    // an agent that went away. A TTL map bounds memory to currently-live agents
+    // and makes the count reflect who is actually online.
+    const AGENT_ONLINE_TTL_MS = 120_000;
+    const lastSeen = new Map<string, number>();
     const unsubUnread = events.onPattern('mailbox.unread_count', (_event, payload) => {
       const data = payload as { count: number } | undefined;
       setMailboxStatus((previous) => ({ ...previous, unread: data?.count ?? 0 }));
@@ -39,8 +45,14 @@ export function useMailboxViewModel(events: AppProps['events']): {
     });
     const updateAgentCount = (payload: unknown) => {
       const data = payload as { agentId?: string } | undefined;
-      if (data?.agentId) seenAgents.add(data.agentId);
-      setMailboxStatus((previous) => ({ ...previous, onlineAgents: seenAgents.size }));
+      const now = Date.now();
+      if (data?.agentId) lastSeen.set(data.agentId, now);
+      // Prune agents whose last heartbeat aged out — bounds the map and lets the
+      // count decay as agents stop reporting.
+      for (const [id, ts] of lastSeen) {
+        if (now - ts > AGENT_ONLINE_TTL_MS) lastSeen.delete(id);
+      }
+      setMailboxStatus((previous) => ({ ...previous, onlineAgents: lastSeen.size }));
     };
     const unsubRegistered = events.onPattern('mailbox.agent_registered', (_event, payload) => {
       updateAgentCount(payload);

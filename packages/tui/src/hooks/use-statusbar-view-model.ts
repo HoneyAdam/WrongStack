@@ -29,6 +29,26 @@ interface TaskCounts {
   failed: number;
 }
 
+function samePlanCounts(a: PlanCounts | null, b: PlanCounts | null): boolean {
+  return a === b ||
+    (a !== null &&
+      b !== null &&
+      a.open === b.open &&
+      a.inProgress === b.inProgress &&
+      a.done === b.done);
+}
+
+function sameTaskCounts(a: TaskCounts | null, b: TaskCounts | null): boolean {
+  return a === b ||
+    (a !== null &&
+      b !== null &&
+      a.pending === b.pending &&
+      a.inProgress === b.inProgress &&
+      a.completed === b.completed &&
+      a.blocked === b.blocked &&
+      a.failed === b.failed);
+}
+
 /** Builds status-bar projections without coupling them to the root App render. */
 export function useStatusbarViewModel({
   agent,
@@ -139,18 +159,26 @@ export function useStatusbarViewModel({
     tokenCounter,
   ]);
 
+  const planPath = (agent.ctx.meta as Record<string, unknown>)['plan.path'];
   const [planCounts, setPlanCounts] = useState<PlanCounts | null>(null);
   useEffect(() => {
-    const planPath = (agent.ctx.meta as Record<string, unknown>)['plan.path'];
-    if (typeof planPath !== 'string' || !planPath) return;
+    if (typeof planPath !== 'string' || !planPath) {
+      setPlanCounts(null);
+      return;
+    }
     let cancelled = false;
+    let lastFingerprint = '';
     const poll = async () => {
       try {
+        const stat = await fs.stat(planPath);
+        const fingerprint = `${stat.mtimeMs}:${stat.size}`;
+        if (fingerprint === lastFingerprint) return;
         const data = await fs.readFile(planPath, 'utf8');
         const parsed = JSON.parse(data) as { items?: Array<{ status?: string | undefined }> };
         if (cancelled) return;
+        lastFingerprint = fingerprint;
         if (!Array.isArray(parsed.items)) {
-          setPlanCounts(null);
+          setPlanCounts((previous) => (previous === null ? previous : null));
           return;
         }
         let open = 0;
@@ -161,9 +189,13 @@ export function useStatusbarViewModel({
           else if (item?.status === 'in_progress') inProgress++;
           else open++;
         }
-        setPlanCounts(open + inProgress + done > 0 ? { open, inProgress, done } : null);
+        const next = open + inProgress + done > 0 ? { open, inProgress, done } : null;
+        setPlanCounts((previous) => (samePlanCounts(previous, next) ? previous : next));
       } catch {
-        if (!cancelled) setPlanCounts(null);
+        if (!cancelled) {
+          lastFingerprint = '';
+          setPlanCounts((previous) => (previous === null ? previous : null));
+        }
       }
     };
     void poll();
@@ -172,20 +204,28 @@ export function useStatusbarViewModel({
       cancelled = true;
       clearInterval(id);
     };
-  }, [agent.ctx.meta]);
+  }, [planPath]);
 
+  const taskPath = (agent.ctx.meta as Record<string, unknown>)['task.path'];
   const [taskCounts, setTaskCounts] = useState<TaskCounts | null>(null);
   useEffect(() => {
-    const taskPath = (agent.ctx.meta as Record<string, unknown>)['task.path'];
-    if (typeof taskPath !== 'string' || !taskPath) return;
+    if (typeof taskPath !== 'string' || !taskPath) {
+      setTaskCounts(null);
+      return;
+    }
     let cancelled = false;
+    let lastFingerprint = '';
     const poll = async () => {
       try {
+        const stat = await fs.stat(taskPath);
+        const fingerprint = `${stat.mtimeMs}:${stat.size}`;
+        if (fingerprint === lastFingerprint) return;
         const data = await fs.readFile(taskPath, 'utf8');
         const parsed = JSON.parse(data) as { tasks?: Array<{ status?: string | undefined }> };
         if (cancelled) return;
+        lastFingerprint = fingerprint;
         if (!Array.isArray(parsed.tasks)) {
-          setTaskCounts(null);
+          setTaskCounts((previous) => (previous === null ? previous : null));
           return;
         }
         const counts: TaskCounts = {
@@ -203,9 +243,13 @@ export function useStatusbarViewModel({
           else counts.pending++;
         }
         const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-        setTaskCounts(total > 0 ? counts : null);
+        const next = total > 0 ? counts : null;
+        setTaskCounts((previous) => (sameTaskCounts(previous, next) ? previous : next));
       } catch {
-        if (!cancelled) setTaskCounts(null);
+        if (!cancelled) {
+          lastFingerprint = '';
+          setTaskCounts((previous) => (previous === null ? previous : null));
+        }
       }
     };
     void poll();
@@ -214,7 +258,7 @@ export function useStatusbarViewModel({
       cancelled = true;
       clearInterval(id);
     };
-  }, [agent.ctx.meta]);
+  }, [taskPath]);
 
   return {
     contextBreakdown,

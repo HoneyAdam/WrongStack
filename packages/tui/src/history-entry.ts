@@ -103,12 +103,14 @@ export type HistoryEntry =
   | {
       id: number;
       kind: 'brain';
-      status: 'thinking' | 'answered' | 'ask_human' | 'denied' | 'intervention';
+      status: 'thinking' | 'answered' | 'ask_human' | 'denied';
       source: string;
       risk: 'low' | 'medium' | 'high' | 'critical';
       question: string;
       decision?: string | undefined;
       rationale?: string | undefined;
+      outcome?: string | undefined;
+      interventionKind?: string | undefined;
     }
   | {
       id: number;
@@ -154,5 +156,4 @@ export type HistoryEntry =
       text: string;
       detail?: string | undefined;
     };
-
 

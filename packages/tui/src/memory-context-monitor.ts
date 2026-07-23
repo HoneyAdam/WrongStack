@@ -49,6 +49,49 @@ export function emptyMemoryContextMonitor(): MemoryContextMonitorState {
   return { memories: {}, transitions: [] };
 }
 
+/**
+ * Cap on retained `exited` memories. Active/injected memories are always kept
+ * (they reflect live provider context); exited ones are historical and are
+ * pruned oldest-first past this bound. Without this, every distinct memory id
+ * ever injected accumulates forever — each holding full `text` + anchor/tag/
+ * reason arrays — over a long autonomous session. Mirrors the `transitions`
+ * .slice(0, 100) cap and the token-preview store's LRU.
+ */
+const MAX_EXITED_MEMORIES = 200;
+
+/**
+ * UI-only text budget for memory detail cards. Full text lives in Super Memory
+ * SQLite; the TUI only needs a short preview for the context panel.
+ */
+export const MAX_MEMORY_DETAIL_TEXT_CHARS = 300;
+
+function capMemoryDetailText(text: string): string {
+  if (text.length <= MAX_MEMORY_DETAIL_TEXT_CHARS) return text;
+  return `${text.slice(0, MAX_MEMORY_DETAIL_TEXT_CHARS - 1)}…`;
+}
+
+/**
+ * Evict the oldest `exited` memories once their count exceeds the cap. Returns
+ * the same record when nothing needs pruning (no allocation on the hot path).
+ */
+function pruneExitedMemories(
+  memories: Record<string, MemoryContextDetail>,
+): Record<string, MemoryContextDetail> {
+  const exited: MemoryContextDetail[] = [];
+  for (const memory of Object.values(memories)) {
+    if (memory.state === 'exited') exited.push(memory);
+  }
+  if (exited.length <= MAX_EXITED_MEMORIES) return memories;
+  // Keep the most recently exited; drop the rest. `exitedAt` falls back to
+  // lastSeenAt for records exited via the pre-provider sweep.
+  exited.sort((a, b) => (b.exitedAt ?? b.lastSeenAt).localeCompare(a.exitedAt ?? a.lastSeenAt));
+  const pruned = { ...memories };
+  for (const memory of exited.slice(MAX_EXITED_MEMORIES)) {
+    delete pruned[memory.id];
+  }
+  return pruned;
+}
+
 /** Count only memories confirmed present in the latest provider-bound request. */
 export function activeMemoryContextCount(state: MemoryContextMonitorState): number {
   return Object.values(state.memories).filter((memory) => memory.state === 'active').length;
@@ -88,7 +131,7 @@ export function applyMemoryInjectorRun(
     memories[id] = {
       id,
       kind: stringValue(item.kind) ?? 'unknown',
-      text: stringValue(item.text) ?? '',
+      text: capMemoryDetailText(stringValue(item.text) ?? ''),
       score: numberValue(item.score),
       confidence: numberValue(item.confidence),
       freshness: numberValue(item.freshness),
@@ -127,7 +170,7 @@ export function applyMemoryInjectorRun(
       outcome: (outcome ?? undefined) as 'injected' | 'empty' | 'error' | undefined,
       ...(outcome === 'error' && errorStr ? { error: errorStr } : {}),
     },
-    memories,
+    memories: pruneExitedMemories(memories),
     transitions: transitions.slice(0, 100),
   };
 }
@@ -187,7 +230,7 @@ export function applyMemoryContextSnapshot(
       }
     }
   }
-  return { ...state, memories, transitions: transitions.slice(0, 100) };
+  return { ...state, memories: pruneExitedMemories(memories), transitions: transitions.slice(0, 100) };
 }
 
 function placeholder(

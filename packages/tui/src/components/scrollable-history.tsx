@@ -1,7 +1,15 @@
-import { Box, type DOMElement, Text, measureElement, useStdout } from '../ink.js';
 import type React from 'react';
-import { useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { computeWindow, EntryHeightCache } from '../height-cache.js';
+import { SCROLLBAR_HIT_WIDTH } from '../hit-test.js';
+import { Box, Text, useStdout } from '../ink.js';
 import { theme } from '../theme.js';
+import {
+  estimateRenderGroupRows,
+  groupEntries,
+  renderGroupId,
+  ToolGroup,
+} from './history/tool-group.js';
 import {
   ASSISTANT_TAIL_HEIGHT,
   AssistantTail,
@@ -11,28 +19,22 @@ import {
   MAX_STREAM_DISPLAY_CHARS,
   ToolStreamBox,
   tailForDisplay,
+  toolStreamBoxHeight,
 } from './history.js';
-import { computeWindow, EntryHeightCache } from '../height-cache.js';
 
 export interface ScrollableHistoryProps extends HistoryProps {
   /** Lines scrolled up from the bottom. 0 = pinned to the newest output. */
   scrollOffset: number;
   /** Height of the viewport in rows, computed by App from the bottom region. */
   viewportRows: number;
-  /** Last measured total content height (rows). Drives the scrollbar thumb. */
-  totalLines: number;
-  /** Reports the measured total content height (rows) after every layout so
-   *  App can clamp the scroll offset and drive the "N new lines" affordance. */
-  onMeasure: (totalLines: number) => void;
+  /** Reports a bounded estimated scroll extent in rows. The estimate is seeded
+   *  before first paint so long transcripts never require a full DOM mount just
+   *  to measure themselves. Optional for isolated renderers. */
+  onMeasure?: ((totalLines: number) => void) | undefined;
   /** Optional cap on the width used for entry wrapping (right panel mode). */
   maxWidth?: number | undefined;
 }
 
-/**
- * Right-edge scrollbar for the managed viewport. A 1-column track with a thumb
- * sized + positioned from (scrollOffset, totalLines, viewportRows). Always
- * reserves its column so toggling scrollability doesn't reflow the content.
- */
 /** Pure thumb geometry for the scrollbar: where the thumb starts and how many
  *  cells it spans, given the track height, scroll offset, and total content
  *  height. Exported for testing. */
@@ -64,11 +66,20 @@ export function scrollOffsetForTrackRow(rows: number, total: number, cell: numbe
   return Math.max(0, Math.min(maxOffset, maxOffset - windowTop));
 }
 
+/**
+ * Right-edge scrollbar for the managed viewport. A 1-column track with a thumb
+ * sized and positioned from the scroll offset, total height, and viewport rows.
+ * Always reserves its column so toggling scrollability does not reflow content.
+ */
 function Scrollbar({
   rows,
   offset,
   total,
-}: { rows: number; offset: number; total: number }): React.ReactElement {
+}: {
+  rows: number;
+  offset: number;
+  total: number;
+}): React.ReactElement {
   const { top: thumbTop, size: thumbSize, scrollable } = scrollbarThumb(rows, offset, total);
   const cells: string[] = [];
   for (let i = 0; i < rows; i++) {
@@ -96,17 +107,15 @@ function Scrollbar({
  * itself. PageUp/PageDown always scroll it; mouse mode additionally captures
  * wheel and scrollbar interactions.
  *
- * Mechanism (Ink-5 verified): the parent Box is height-bounded with
- * `justifyContent:'flex-end'`, so when content overflows, its BOTTOM aligns to
- * the viewport bottom — newest output visible, oldest clipped off the top. That
- * is the pinned (offset 0) state for free, with no height math. Scrolling up is
- * a single `marginBottom={scrollOffset}` on the content box: it pushes the
- * content up, dropping `scrollOffset` rows off the bottom of the clip and
- * revealing that many older rows at the top. Ink's output clipper slices the
- * over/underflowing child at both edges while preserving ANSI styling.
+ * Mechanism (Ink-5 verified): the parent Box is height-bounded. At offset 0,
+ * `justifyContent:'flex-end'` pins short content to the viewport bottom. Once
+ * scrolled, `justifyContent:'flex-start'` anchors the computed virtual slice at
+ * the top; `computeWindow()` selects the visible render groups, while its
+ * partial-entry spacer and omitted-suffix spacer preserve row alignment.
  *
- * Streaming tails (assistant + tool) are the last children of the content box,
- * so they participate in the scrolled content and auto-follow when pinned.
+ * Streaming tails (assistant + tool) are a fixed-height suffix in the same
+ * scroll space, so they auto-follow while pinned and move below the clip as the
+ * offset crosses into committed history.
  *
  * Wrapped in `React.memo` so keystrokes in the input buffer don't
  * trigger a full managed-viewport re-layout. All props are primitives
@@ -118,145 +127,168 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   toolStream,
   scrollOffset,
   viewportRows,
-  totalLines,
   onMeasure,
   maxWidth,
   setSuggestions,
   autonomyMode,
+  multiDiffSummaryThreshold,
   todos,
   showModelReasoning,
 }: ScrollableHistoryProps): React.ReactElement {
   const { stdout } = useStdout();
-  const [termWidth, setTermWidth] = useState(
-    maxWidth ? Math.min(stdout?.columns ?? 80, maxWidth) : stdout?.columns ?? 80,
+  const resolveViewportWidth = useCallback(() => {
+    const raw = stdout?.columns ?? 80;
+    return maxWidth ? Math.min(raw, maxWidth) : raw;
+  }, [stdout, maxWidth]);
+  const [viewportWidth, setViewportWidth] = useState(resolveViewportWidth);
+  // The history column shares its row with a one-column scrollbar and its
+  // one-column gap. Pass only the remaining width into entry/tail renderers so
+  // long assistant/tool-result lines wrap before reaching the track.
+  const termWidth = useMemo(
+    () => Math.max(1, viewportWidth - SCROLLBAR_HIT_WIDTH),
+    [viewportWidth],
   );
   useEffect(() => {
     const handleResize = () => {
-      const raw = stdout?.columns ?? 80;
-      setTermWidth(maxWidth ? Math.min(raw, maxWidth) : raw);
+      setViewportWidth(resolveViewportWidth());
     };
-    process.stdout.on('resize', handleResize);
+    stdout?.on('resize', handleResize);
     return () => {
-      process.stdout.off('resize', handleResize);
+      stdout?.off('resize', handleResize);
     };
-  }, [stdout, maxWidth]);
+  }, [stdout, resolveViewportWidth]);
 
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
+  const assistantTailHeight = tail ? ASSISTANT_TAIL_HEIGHT : 0;
   const toolTail = toolStream?.text
     ? tailForDisplay(toolStream.text, MAX_STREAM_DISPLAY_CHARS)
     : '';
+  const toolTailHeight = toolTail && toolStream ? toolStreamBoxHeight(toolStream.name) : 0;
+  const liveTailHeight = assistantTailHeight + toolTailHeight;
+  const groupedEntries = useMemo(() => groupEntries(entries), [entries]);
+  const groupIds = useMemo(() => groupedEntries.map(renderGroupId), [groupedEntries]);
+  const groupIdsKey = groupIds.join(',');
 
-  // Height cache for virtual-scroll windowing. Collects measured content
-  // heights on every layout and drives per-entry window computation.
-  const heightCacheRef = useRef<EntryHeightCache>(new EntryHeightCache());
+  // Seed conservative heights before first paint so even a long resumed
+  // transcript is virtualized immediately. Synchronization is keyed by stable
+  // group ids because reducer commits often replace `entries` without changing
+  // its content and should not repeat the O(n) cache preparation.
+  const heightCacheRef = useRef<EntryHeightCache | null>(null);
+  if (heightCacheRef.current === null) heightCacheRef.current = new EntryHeightCache();
+  const heightCache = heightCacheRef.current;
+  const preparedGroupIdsRef = useRef<string | null>(null);
+  const preparedEstimateWidthRef = useRef<number | null>(null);
+  if (
+    preparedGroupIdsRef.current !== groupIdsKey ||
+    preparedEstimateWidthRef.current !== termWidth
+  ) {
+    const estimateById = new Map(
+      groupedEntries.map((group) => [renderGroupId(group), estimateRenderGroupRows(group, termWidth)]),
+    );
+    heightCache.sync(groupIds);
+    heightCache.recordMany(groupIds.map((id) => [id, estimateById.get(id) ?? 3] as const));
+    preparedGroupIdsRef.current = groupIdsKey;
+    preparedEstimateWidthRef.current = termWidth;
+  }
 
-  // Measure the content box height after each commit. Reports the cache's
-  // total height (accurate for all entries, including off-screen ones) to
-  // the parent for scroll-offset clamping. Also records each visible entry's
-  // estimated height so computeWindow() can resolve scroll positions.
-  const contentRef = useRef<DOMElement | null>(null);
   const lastReported = useRef(-1);
+  const cacheTotal = useMemo(() => heightCache.totalHeight(), [groupIdsKey, heightCache]);
   useLayoutEffect(() => {
-    const node = contentRef.current;
-    if (!node) return;
-    const { height } = measureElement(node);
-    const cache = heightCacheRef.current;
-    cache.retain(entries.map((entry) => entry.id));
+    const reportedHeight = cacheTotal + liveTailHeight;
+    if (reportedHeight === lastReported.current) return;
+    lastReported.current = reportedHeight;
+    onMeasure?.(reportedHeight);
+  }, [cacheTotal, liveTailHeight, onMeasure]);
 
-    // Record per-entry height estimates — only for entries NOT YET tracked
-    // in the cache. Once an entry has an estimate, it keeps it, so the
-    // cache total only grows when new entries arrive and never fluctuates
-    // from re-estimation of existing entries. Fluctuating totals caused the
-    // parent's setMeasuredLines to miscompute the "grew" delta and push the
-    // scroll offset unpredictably (#277).
-    if (entries.length > 0 && height > 0) {
-      const visibleCount = Math.min(entries.length, Math.max(1, Math.round(height / 3)));
-      const estimatedPerEntry = Math.max(1, Math.round(height / visibleCount));
-      for (const entry of entries) {
-        if (cache.getHeight(entry.id) === undefined) {
-          cache.record(entry.id, estimatedPerEntry);
-        }
-      }
-    }
-    // Read after recording. Reporting the pre-update total schedules a second
-    // layout dispatch with the cache's previous value and can make the parent
-    // and virtual window chase one another across commits.
-    const cacheTotal = cache.totalHeight();
-    const reportedHeight = cacheTotal > 0 ? cacheTotal : height;
-    if (reportedHeight !== lastReported.current) {
-      lastReported.current = reportedHeight;
-      onMeasure(reportedHeight);
-    }
-    // onMeasure is stable (dispatch from useReducer) and node is a ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onMeasure, entries.length, viewportRows, termWidth]);
-
-  // Use cache-based total when available, fall back to the parent's totalLines.
-  const cacheTotal = heightCacheRef.current.totalHeight();
-  const scrollbarTotal = cacheTotal > 0 ? cacheTotal : totalLines;
+  // The cache owns committed-entry rows; live assistant/tool tails form a
+  // separate, fixed-height suffix in the same scroll space. Keeping those
+  // dimensions separate prevents callers from ambiguously including or
+  // excluding live-tail rows in a fallback total.
+  const entryTotal = cacheTotal;
+  const scrollbarTotal = entryTotal + liveTailHeight;
 
   const vp = Math.max(1, viewportRows);
+  // Clamp the shared entry+tail range here. When committed entries are
+  // windowed below, computeWindow() independently clamps its viewportTop.
+  const effectiveOffset = Math.min(
+    Math.max(0, scrollOffset),
+    Math.max(0, scrollbarTotal - vp),
+  );
 
   // ── Virtual window computation ──────────────────────────────────────
   // When the cache has data and content exceeds the viewport, compute
   // which entries to render and how tall the spacers should be.
-  const windowed = cacheTotal > 0 && entries.length > 0 && cacheTotal > vp;
+  const visibleTailRows = Math.max(0, liveTailHeight - effectiveOffset);
+  const entryViewportRows = Math.max(1, vp - visibleTailRows);
+  const entryScrollOffset = Math.max(0, effectiveOffset - liveTailHeight);
+  const windowed =
+    entryTotal > 0 && groupedEntries.length > 0 && entryTotal > entryViewportRows;
   const win = windowed
-    ? computeWindow(cacheTotal, vp, scrollOffset, entries.length, heightCacheRef.current)
+    ? computeWindow(
+        entryTotal,
+        entryViewportRows,
+        entryScrollOffset,
+        groupedEntries.length,
+        heightCache,
+      )
     : null;
 
-  // Slice for rendering — either the virtual window or all entries when
-  // the cache hasn't been populated yet (first render).
-  const shownEntries = win?.windowed
-    ? entries.slice(win.startIdx, win.endIdx)
-    : entries;
-
-  // Previously-hidden count — only relevant when windowing is active and
-  // some entries were omitted from the rendered slice.
-  const hiddenCount = win?.windowed
-    ? Math.max(0, entries.length - (win.endIdx - win.startIdx))
-    : 0;
+  // Window the same render groups whose heights populate the cache, so virtual
+  // indexes and rendered rows stay aligned when consecutive tools compact.
+  const renderGroups = win?.windowed
+    ? groupedEntries.slice(win.startIdx, win.endIdx)
+    : groupedEntries;
 
   return (
-    <Box flexDirection="row">
+    <Box flexDirection="row" width={viewportWidth}>
       <Box
         flexDirection="column"
         flexGrow={1}
         height={vp}
         overflowY="hidden"
-        justifyContent="flex-end"
+        justifyContent={effectiveOffset > 0 ? 'flex-start' : 'flex-end'}
       >
-        <Box
-          ref={contentRef}
-          flexDirection="column"
-          flexShrink={0}
-        >
-          {/* Spacer above visible entries — represents entries scrolled off
-              the top of the viewport. Present only during virtual windowing. */}
+        <Box flexDirection="column" flexShrink={0}>
+          {/* `spacerAbove` is only the clipped part of the first visible entry;
+              omitted entries are represented by the selected slice itself. */}
           {win?.windowed && win.spacerAbove > 0 ? (
             <Box height={win.spacerAbove} flexShrink={0} />
           ) : null}
 
-          {/* Fallback hidden-count summary — shown when windowing omits
-              off-screen entries from the rendered slice. */}
-          {hiddenCount > 0 ? (
-            <Box flexShrink={0}>
-              <Text dimColor italic>
-                {`  ↑ ${hiddenCount} earlier ${hiddenCount === 1 ? 'entry' : 'entries'} (scroll up to view)`}
-              </Text>
-            </Box>
-          ) : null}
+          {/* Visible entries, with consecutive same-tool calls compacted under
+              one header inside the already-selected virtual slice. */}
+          {renderGroups.map((group) => {
+            if (group.type === 'tool-group') {
+              const groupId = renderGroupId(group);
+              return (
+                <Box key={`tool-group-${groupId}`} flexShrink={0}>
+                  <ToolGroup data={group.data} termWidth={termWidth} />
+                </Box>
+              );
+            }
+            const { entry } = group;
+            return (
+              <Box
+                key={entry.id}
+                marginBottom={entry.kind === 'turn-summary' ? 1 : 0}
+                flexShrink={0}
+              >
+                <Entry
+                  entry={entry}
+                  termWidth={termWidth}
+                  termHeight={vp}
+                  setSuggestions={setSuggestions}
+                  autonomyMode={autonomyMode}
+                  multiDiffSummaryThreshold={multiDiffSummaryThreshold}
+                  todos={todos}
+                  showModelReasoning={showModelReasoning}
+                />
+              </Box>
+            );
+          })}
 
-          {/* Visible entries */}
-          {shownEntries.map((entry) => (
-            <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0} flexShrink={0}>
-              <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} todos={todos} showModelReasoning={showModelReasoning} />
-            </Box>
-          ))}
-
-          {/* Spacer below visible entries — represents entries below the
-              viewport (streaming tails sit below this spacer so they are
-              always pinned to the bottom of the viewport). */}
+          {/* Keep the live tail after the omitted suffix. At scrolled positions
+              this spacer naturally pushes the tail below the clipped viewport. */}
           {win?.windowed && win.spacerBelow > 0 ? (
             <Box height={win.spacerBelow} flexShrink={0} />
           ) : null}
@@ -279,7 +311,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
           ) : null}
         </Box>
       </Box>
-      <Scrollbar rows={vp} offset={Math.max(0, scrollOffset)} total={scrollbarTotal} />
+      <Scrollbar rows={vp} offset={effectiveOffset} total={scrollbarTotal} />
     </Box>
   );
 });

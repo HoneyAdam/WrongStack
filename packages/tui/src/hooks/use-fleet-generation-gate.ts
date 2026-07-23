@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 /**
  * Session-generation gate for fleet event bridges.
@@ -32,20 +32,40 @@ export interface FleetGenerationGate {
   isLive: (subagentId: string) => boolean;
   /** Clean up tracking for a removed subagent. */
   forget: (subagentId: string) => void;
+  /** Drop tracking entries older than the previous generation (bounds the map). */
+  sweep: () => void;
 }
 
 export function useFleetGenerationGate(
   sessionGenerationRef?: { current: number } | undefined,
 ): FleetGenerationGate {
   const spawnGenRef = useRef<Map<string, number>>(new Map());
+  const sweptGenRef = useRef<number | undefined>(undefined);
+
+  // Bound the spawn-generation map. Without this it grows one entry per subagent
+  // for the whole session: `forget()` only fires on `subagent.removed`, so any
+  // agent alive across a /clear (or whose removal event is gated out) leaks its
+  // entry forever. We keep the current AND immediately-previous generation so
+  // `isLive()` can still gate out just-cleared agents by their stale gen; entries
+  // two-or-more generations old belong to long-dead agents and are dropped.
+  const sweep = useCallback((): void => {
+    if (!sessionGenerationRef) return;
+    const cur = sessionGenerationRef.current;
+    if (sweptGenRef.current === cur) return; // already swept for this generation
+    sweptGenRef.current = cur;
+    for (const [id, gen] of spawnGenRef.current) {
+      if (gen < cur - 1) spawnGenRef.current.delete(id);
+    }
+  }, [sessionGenerationRef]);
 
   const track = useCallback(
     (subagentId: string): void => {
       if (sessionGenerationRef) {
+        sweep();
         spawnGenRef.current.set(subagentId, sessionGenerationRef.current);
       }
     },
-    [sessionGenerationRef],
+    [sessionGenerationRef, sweep],
   );
 
   const isLive = useCallback(
@@ -62,5 +82,11 @@ export function useFleetGenerationGate(
     spawnGenRef.current.delete(subagentId);
   }, []);
 
-  return { track, isLive, forget };
+  // Consumers use this object in effect dependency lists. Keep the container
+  // stable as well as its callbacks; a fresh object here would tear down and
+  // recreate the fleet bridge after every unrelated TUI render.
+  return useMemo(
+    () => ({ track, isLive, forget, sweep }),
+    [track, isLive, forget, sweep],
+  );
 }

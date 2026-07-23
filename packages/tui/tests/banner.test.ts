@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { bannerGradientColor, brandMarkPinkRow, WORDMARK_LINES } from '../src/components/history/banner.js';
 import { Banner, shortenPath } from '../src/components/history.js';
+import { displayWidth } from '../src/terminal-width.js';
 
 // ── ANSI / OSC 8 stripping ──
 // Ink writes raw escape sequences to stdout — OSC 8 hyperlink framing and
@@ -174,6 +175,138 @@ describe('<Banner />', () => {
     // Route line is back — just at the available width
     expect(frame).toContain('a-provider-with-a-very-');
     expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
+  });
+
+  it('pins the full-layout height breakpoint for a banner without optional rows', () => {
+    const entry = {
+      id: 0,
+      kind: 'banner' as const,
+      version: '1.2.3',
+      provider: 'openai',
+      model: 'gpt-test',
+      cwd: '/workspace/wrongstack',
+    };
+    const below = render(React.createElement(Banner, { termWidth: 80, termHeight: 20, entry }));
+    const at = render(React.createElement(Banner, { termWidth: 80, termHeight: 21, entry }));
+
+    expect(below.lastFrame()).not.toContain(WORDMARK_LINES[0]);
+    expect(at.lastFrame()).toContain(WORDMARK_LINES[0]);
+    below.unmount();
+    at.unmount();
+  });
+
+  it('renders nothing when the managed history has no measured rows', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 80,
+        termHeight: 0,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'openai',
+          model: 'gpt-test',
+          cwd: '/workspace/wrongstack',
+        },
+      }),
+    );
+
+    expect(lastFrame() ?? '').toBe('');
+    unmount();
+  });
+
+  it('uses a one-line identity strip when the managed history is only one row tall', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 80,
+        termHeight: 1,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'openai',
+          model: 'gpt-test',
+          cwd: '/workspace/wrongstack',
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame.split('\n')).toHaveLength(1);
+    expect(frame).toContain('WrongStack v1.2.3');
+    expect(frame).toContain('openai/gpt-test');
+  });
+
+  it('uses the full terminal width for the unbordered identity strip', () => {
+    const termWidth = 40;
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth,
+        termHeight: 1,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'provider-with-a-long-name',
+          model: 'model-with-a-long-name',
+          cwd: '/workspace/wrongstack',
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(displayWidth(frame)).toBe(termWidth);
+  });
+
+  it('uses the condensed identity strip when height is insufficient for the full wordmark', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 80,
+        termHeight: 18,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'openai',
+          model: 'gpt-test',
+          cwd: '/workspace/wrongstack',
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame).toContain('WrongStack v1.2.3');
+    expect(frame).not.toContain(WORDMARK_LINES[0]);
+    expect(frame.split('\n')).toHaveLength(3);
+  });
+
+  it('keeps wide Unicode input inside a narrow condensed panel', () => {
+    const termWidth = 22;
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth,
+        termHeight: 3,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: '模型',
+          model: '提供商',
+          cwd: '/工作区/项目',
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame.split('\n').every((line) => displayWidth(line) <= termWidth)).toBe(true);
   });
 
   it('does not wrap its own content at ultra-compact widths', () => {

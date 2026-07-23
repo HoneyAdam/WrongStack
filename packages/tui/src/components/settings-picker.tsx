@@ -216,6 +216,12 @@ export interface SettingsPickerProps {
   // ── Display ──
   /** Show the "Model Reasoning" blocks in chat history. Default: true. */
   showModelReasoning: boolean;
+  /**
+   * Show the persistent FleetPanel below the status bar, including AGENT SWARM
+   * activity and its todo mission queue. Full-screen agent/queue/goal overlays
+   * remain independently available through their panel shortcuts. Default: true.
+   */
+  showAgentSwarmPanel: boolean;
   // ── Debug ──
   /** Raw SSE stream debugging toggle — hex-dump every byte received from providers. */
   debugStream: boolean;
@@ -241,7 +247,7 @@ export interface SettingsPickerProps {
 }
 
 /** Total number of settings rows (used for wrap-around navigation). */
-export const SETTINGS_FIELD_COUNT = 40;
+export const SETTINGS_FIELD_COUNT = 41;
 
 /**
  * Field index of the "Thinking word" row. The reducer's per-field switch and
@@ -338,6 +344,7 @@ export const SETTINGS_PICKER_JUMP_CHORDS: ReadonlyArray<SettingsPickerJumpChord>
   // Animation sits in the UX section alongside the rest of the visible-only
   // toggle rows and is newly added after the Debug section at field 36.
   { mod: 'alt', letter: 'n', field: 36, label: 'Animation' },
+  { mod: 'alt', letter: 'p', field: 40, label: 'Show agent swarm panel' },
 ]);
 
 /**
@@ -523,6 +530,7 @@ export type SettingsPickerPatch = Partial<{
   breakerEnabled: boolean;
   breakerAutoKillResetMs: number;
   showModelReasoning: boolean;
+  showAgentSwarmPanel: boolean;
 }>;
 
 /**
@@ -571,6 +579,7 @@ export const SETTINGS_FIELD_LABELS: readonly string[] = [
   'Circuit breaker', // 37
   'Breaker timeout', // 38
   'Show model reasoning', // 39
+  'Show agent swarm panel', // 40
 ];
 
 /**
@@ -604,7 +613,7 @@ export function resolveSettingsFieldValue(
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
     [18, 'enhanceEnabled'], [20, 'indexOnStart'], [25, 'reasoningPreserve'],
     [27, 'contextAutoCompact'], [33, 'debugStream'], [37, 'breakerEnabled'],
-    [39, 'showModelReasoning'],
+    [39, 'showModelReasoning'], [40, 'showAgentSwarmPanel'],
   ]);
   const boolKey = BOOL_FIELDS.get(field);
   if (boolKey) {
@@ -750,7 +759,7 @@ export function getSettingsFieldValue(
     [12, 'featureModelsRegistry'], [14, 'allowOutsideProjectRoot'],
     [18, 'enhanceEnabled'], [20, 'indexOnStart'], [25, 'reasoningPreserve'],
     [27, 'contextAutoCompact'], [33, 'debugStream'], [37, 'breakerEnabled'],
-    [39, 'showModelReasoning'],
+    [39, 'showModelReasoning'], [40, 'showAgentSwarmPanel'],
   ];
   for (const [f, key] of BOOL_KEYS) {
     if (field !== f) continue;
@@ -842,7 +851,7 @@ const SETTINGS_SECTIONS: ReadonlyArray<{ name: string; fields: readonly number[]
   },
   {
     name: 'Display',
-    fields: [39],
+    fields: [39, 40],
   },
 ];
 
@@ -926,6 +935,7 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsPickerValues> = Object.freeze({
   breakerEnabled: false,
   breakerAutoKillResetMs: 60_000,
   showModelReasoning: true,
+  showAgentSwarmPanel: true,
 } as const);
 
 /**
@@ -964,6 +974,7 @@ function buildResetPatch(field: number): SettingsPickerPatch | null {
     [30, 'maxConcurrent'], [31, 'logLevel'], [32, 'auditLevel'], [33, 'debugStream'],
     [34, 'statuslineMode'], [35, 'configScope'], [36, 'animationStyle'],
     [37, 'breakerEnabled'], [38, 'breakerAutoKillResetMs'], [39, 'showModelReasoning'],
+    [40, 'showAgentSwarmPanel'],
   ];
   for (const [f, key] of KEY_MAP) {
     if (f === field) {
@@ -1019,6 +1030,7 @@ export function SettingsPicker({
   breakerEnabled,
   breakerAutoKillResetMs,
   showModelReasoning,
+  showAgentSwarmPanel,
   hint,
 }: SettingsPickerProps): React.ReactElement {
   const boolVal = (v: boolean) => (v ? 'on' : 'off');
@@ -1251,6 +1263,11 @@ export function SettingsPicker({
       label: 'Show model reasoning',
       value: boolVal(showModelReasoning),
       detail: 'Show LLM reasoning blocks in chat history',
+    },
+    {
+      label: 'Show agent swarm panel',
+      value: boolVal(showAgentSwarmPanel),
+      detail: 'Show persistent agent activity and mission queue',
     },
   ];
 

@@ -86,6 +86,8 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     reject: (err: Error) => void;
   } | null>(null);
 
+  const mountedRef = useRef(true);
+
   /** Abort a live flow + reject its pending prompt (idempotent). */
   const abortLiveFlow = useCallback(() => {
     flowAbortRef.current?.abort();
@@ -96,6 +98,17 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     pending?.reject(abortError());
   }, []);
 
+  // A closed panel and an unmounted TUI have the same cancellation contract:
+  // abort signal-aware host work, reject modal prompts, and prevent every
+  // non-cancellable host promise from dispatching into the dead component.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortLiveFlow();
+    };
+  }, [abortLiveFlow]);
+
   // Safety net: the panel can be closed from outside this controller
   // (sibling panel opens run `closePanels`, Ctrl+C, F-keys). Without this,
   // a running flow would keep prompting into a closed panel.
@@ -104,11 +117,12 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
   }, [open, abortLiveFlow]);
 
   const reloadProviders = useCallback(async () => {
-    if (!authHost) return;
+    if (!authHost || !mountedRef.current) return;
     try {
       const providers = await authHost.listProviders();
-      dispatch({ type: 'authProviders', providers });
+      if (mountedRef.current) dispatch({ type: 'authProviders', providers });
     } catch (err) {
+      if (!mountedRef.current) return;
       dispatch({ type: 'authHint', text: `✗ Failed to reload providers: ${toMessage(err)}` });
       dispatch({ type: 'authBusy', busy: false });
     }
@@ -136,7 +150,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
       // Every dispatch below is gated on the flow still being live — once
       // cancelled (Esc, panel closed, /auth re-opened) a straggling flow
       // must not write logs or a done-marker into the reset panel state.
-      const live = () => !ac.signal.aborted;
+      const live = () => mountedRef.current && !ac.signal.aborted;
       const io: AuthFlowIo = {
         onLog: (line) => {
           if (live()) dispatch({ type: 'authFlowLog', line });
@@ -168,7 +182,9 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
           if (flowAbortRef.current === ac) flowAbortRef.current = null;
           // The flow may have added/edited providers — refresh the list the
           // user returns to. Ignore-fire: errors surface via the hint.
-          if (live() || stateRef.current.authPanel.open) void reloadProviders();
+          if (live() || (mountedRef.current && stateRef.current.authPanel.open)) {
+            void reloadProviders();
+          }
         }
       })();
     },
@@ -182,8 +198,9 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     void (async () => {
       try {
         const catalog = await authHost.listCatalog();
-        dispatch({ type: 'authCatalog', catalog });
+        if (mountedRef.current) dispatch({ type: 'authCatalog', catalog });
       } catch (err) {
+        if (!mountedRef.current) return;
         dispatch({ type: 'authBusy', busy: false });
         dispatch({ type: 'authHint', text: `✗ Catalog unavailable: ${toMessage(err)}` });
       }
@@ -219,6 +236,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         const label = row.keyRow.label;
         void (async () => {
           const err = await authHost.setActiveKey(providerId, label);
+          if (!mountedRef.current) return;
           dispatch({ type: 'authHint', text: err ? `✗ ${err}` : `✓ Active key → ${label}` });
           await reloadProviders();
         })();
@@ -353,6 +371,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         if (confirm.action.kind === 'delete-key') {
           const { providerId, label } = confirm.action;
           const err = await authHost.deleteKey(providerId, label);
+          if (!mountedRef.current) return;
           dispatch({
             type: 'authHint',
             text: err ? `✗ ${err}` : `✓ Deleted ${providerId}/${label}.`,
@@ -360,6 +379,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         } else {
           const { providerId } = confirm.action;
           const err = await authHost.removeProvider(providerId);
+          if (!mountedRef.current) return;
           dispatch({ type: 'authHint', text: err ? `✗ ${err}` : `✓ Removed ${providerId}.` });
           if (!err) dispatch({ type: 'authView', view: 'list' });
         }

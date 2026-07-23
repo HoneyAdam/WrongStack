@@ -7,12 +7,12 @@ import type { GitInfo } from '../git-info.js';
 import type { HeapSample } from '../heap-watchdog.js';
 import { useChipStalenessGuard, computeTokenFingerprint } from '../hooks/use-chip-staleness-guard.js';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
-import { Box, Text, useStdout } from '../ink.js';
+import { Box, Text, useAnimation, useStdout } from '../ink.js';
 import { displayWidth } from '../terminal-width.js';
 import { pastel, theme } from '../theme.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import { glyphs } from '../ui-glyphs.js';
-import { type AnimationStyle, CYCLE_TICK_INTERVAL_MS } from './animation-style.js';
+import type { AnimationStyle } from './animation-style.js';
 import { PowerlineRail } from './powerline-rail.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { BrainChip, EternalStageChip, ThinkingChip } from './status-bar-chips.js';
@@ -204,7 +204,7 @@ const LINE_BG_COLORS = [theme.surface, theme.surface, theme.surface, theme.surfa
 
 // Animated braille spinner shown when the agent is thinking/streaming.
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 250;
+const SPINNER_INTERVAL_MS = 1_000;
 
 export interface TokenDisplayTotals {
   input: number;
@@ -650,16 +650,12 @@ export function StatusBar({
 
   // Animated braille spinner — cycles while the agent is thinking/streaming.
   // Stops when idle so the interval doesn't drive unnecessary re-renders.
-  const [spinnerIdx, setSpinnerIdx] = useState(0);
-  useEffect(() => {
-    if (state === 'idle' || state === 'aborting') return;
-    const t = setInterval(
-      () => setSpinnerIdx((n) => (n + 1) % SPINNER_FRAMES.length),
-      SPINNER_INTERVAL_MS,
-    );
-    return () => clearInterval(t);
-  }, [state]);
-  const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
+  const animationActive = state !== 'idle' && state !== 'aborting';
+  const { frame: spinnerIdx, time: animationTime } = useAnimation({
+    interval: SPINNER_INTERVAL_MS,
+    isActive: animationActive,
+  });
+  const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx % SPINNER_FRAMES.length]);
 
   // ── Chip staleness guard ──────────────────────────────────────────────────
   // Detects when a chip fails to refresh (animation frozen, data source stale,
@@ -727,17 +723,9 @@ export function StatusBar({
   // Animation style for the working/thinking chip. Defaults to `rainbow`
   // when omitted (legacy callers) so the chip still works. Special value
   // `'cycle'` rotates through wave → pulse → dots → breathe every
-  // `CYCLE_INTERVAL_SECONDS`; that interval is ticked locally on a 1Hz
-  // timer and only re-renders when the user picked cycle mode AND the
-  // agent is actively working.
+  // `CYCLE_INTERVAL_SECONDS`, derived from the shared spinner clock.
   const animationStyle: AnimationStyle | 'cycle' = thinkingAnimationStyle ?? 'rainbow';
-  const [cycleTick, setCycleTick] = useState(0);
-  useEffect(() => {
-    if (animationStyle !== 'cycle') return;
-    if (state === 'idle' || state === 'aborting') return;
-    const t = setInterval(() => setCycleTick((n) => n + 1), CYCLE_TICK_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, [animationStyle, state]);
+  const cycleTick = Math.floor(animationTime / 1000);
 
   const { label: stateLabel, color: stateColor } = stateChip(
     state,

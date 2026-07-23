@@ -400,6 +400,8 @@ export type State = {
      * (API-level provisioning). Default: true.
      */
     showModelReasoning: boolean;
+    /** Show the persistent AGENT SWARM and todo mission queue panel. Default: true. */
+    showAgentSwarmPanel: boolean;
     /** Prompt cache TTL. */
     cacheTtl: CacheTtl;
     /** Where to persist settings: 'global' or 'project'. */
@@ -947,6 +949,8 @@ export type Settings = {
    * Default: true.
    */
   showModelReasoning: boolean;
+  /** Show the persistent AGENT SWARM and todo mission queue panel. Default: true. */
+  showAgentSwarmPanel: boolean;
   /** Prompt cache TTL. */
   cacheTtl: CacheTtl;
   /** Where to persist settings: 'global' or 'project'. */
@@ -1102,6 +1106,7 @@ export type Action =
       breakerEnabled: boolean;
       breakerAutoKillResetMs: number;
       showModelReasoning: boolean;
+      showAgentSwarmPanel: boolean;
     }
   | { type: 'settingsClose' }
   | { type: 'settingsFieldMove'; delta: number }

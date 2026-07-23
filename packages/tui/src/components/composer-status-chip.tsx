@@ -7,23 +7,23 @@
 // (or `agents >N` when background subagents are running).
 //
 // TWO invariants make it safe to live inside a fixed-width border:
-//   1. Isolation — the chip owns its OWN spinner/cycle timers so per-frame
-//      re-renders stay local. It must never be inlined into <Input>, whose memo
-//      and keyboard listeners would otherwise churn at ~4Hz.
+//   1. Isolation — animation state stays local to the chip and uses Ink's
+//      shared scheduler, so keyboard listeners do not churn at ~4Hz.
 //   2. No jitter — every render is padded to exactly `reservedWidth` columns,
 //      so the growing `dots` ellipsis and rolling word can't push the right
 //      corner around. `composerStatusReservedWidth` computes that stable width
 //      from the descriptor (not the live animation frame).
 
-import { Text } from '../ink.js';
+import { Text, useAnimation } from '../ink.js';
 import type React from 'react';
-import { useEffect, useState } from 'react';
 import { displayWidth, truncateDisplay } from '../terminal-width.js';
+import { resolveIconStyle } from '../ui-glyphs.js';
 import {
   type AnimationStyle,
   BREATHE_FRAMES,
-  CYCLE_TICK_INTERVAL_MS,
   DOTS_FRAMES,
+  HUE_WHEEL,
+  mixHex,
   pulseColor,
   rainbowColor,
   styleForCycleTick,
@@ -32,7 +32,98 @@ import {
 
 // Spinner cadence — matches the statusline's braille spinner so the two
 // surfaces breathe in sync. Frames reuse BREATHE_FRAMES (identical set).
-const SPINNER_INTERVAL_MS = 250;
+const SPINNER_INTERVAL_MS = 1_000;
+
+// ─── Activity icon (left of the composer title) ───────────────────────────
+//
+// The glyph that sits just before the "ASK WRONGSTACK" title breathes while the
+// agent is busy and rests on the flat brand glyph when idle. It is a *separate*
+// self-animating component so its ~8Hz frame ticks re-render only this one
+// glyph — never the surrounding <Input> (same isolation the status chip uses).
+
+// Frame cadence for the pulsing orb. Faster than the right-side chip so the two
+// surfaces read as "heartbeat" (left) vs "slow breath" (right) rather than
+// ticking in lockstep.
+const ACTIVITY_INTERVAL_MS = 130;
+
+// A symmetric grow→peak→shrink pulse. The unicode set is a true "energy orb";
+// the ascii set deliberately echoes the classic `.` → `o` → `0` animation for
+// terminals running the plain icon profile.
+const ACTIVITY_FRAMES_UNICODE = ['·', '◦', '•', '●', '◉', '●', '•', '◦'] as const;
+const ACTIVITY_FRAMES_ASCII = ['.', 'o', 'O', '0', 'O', 'o'] as const;
+
+// Catppuccin surface0 — the dim end of every brightness pulse.
+const PULSE_DIM = '#313244';
+
+function activityFrames(): readonly string[] {
+  return resolveIconStyle() === 'ascii' ? ACTIVITY_FRAMES_ASCII : ACTIVITY_FRAMES_UNICODE;
+}
+
+/**
+ * Colour for the activity icon at pulse index `frame`. `working` walks the full
+ * Catppuccin hue wheel (one stop per frame) for a lively "thinking" shimmer; the
+ * transient states pulse a single hue between dim and bright in step with the
+ * orb's size so the glyph visibly breathes.
+ */
+function activityColor(kind: ComposerStatus['kind'], frame: number, energy: number): string {
+  switch (kind) {
+    case 'working':
+      return HUE_WHEEL[frame % HUE_WHEEL.length] ?? '#cba6f7';
+    case 'aborting':
+    case 'confirm':
+      return mixHex(PULSE_DIM, '#f38ba8', energy); // pulsing red
+    case 'queued':
+      return mixHex(PULSE_DIM, '#89dceb', energy); // pulsing sky
+    default:
+      return mixHex(PULSE_DIM, '#94e2d5', energy); // pulsing teal (fallback)
+  }
+}
+
+export interface ComposerActivityIconProps {
+  status: ComposerStatus;
+  /** Glyph shown when the agent is idle (the flat brand mark). */
+  idleGlyph: string;
+  /** Recolours the resting/pulsing glyph to the error tone while aborting. */
+  disabled: boolean;
+}
+
+/**
+ * Isolated, self-animating activity glyph for the composer top rail. Idle →
+ * flat brand glyph (inherits the rail's brand colour); busy → a size-and-colour
+ * pulse. Always exactly one column wide so the rail geometry never shifts.
+ */
+export function ComposerActivityIcon({
+  status,
+  idleGlyph,
+  disabled,
+}: ComposerActivityIconProps): React.ReactElement {
+  const active = status.kind !== 'idle';
+  const { frame } = useAnimation({
+    interval: ACTIVITY_INTERVAL_MS,
+    isActive: active && !disabled,
+  });
+
+  if (!active) {
+    // Inherit the rail's brand/error colour by not setting one (unless aborting
+    // via `disabled`, which paints the whole rail red anyway).
+    return <Text bold>{idleGlyph}</Text>;
+  }
+
+  const frames = activityFrames();
+  const idx = frame % frames.length;
+  const glyph = frames[idx] ?? idleGlyph;
+  // Triangle 0→1→0 across the frame set → brightness tracks the orb's size.
+  const energy = 0.4 + 0.6 * Math.sin((idx / frames.length) * Math.PI);
+  const color = disabled
+    ? mixHex(PULSE_DIM, '#f38ba8', energy)
+    : activityColor(status.kind, frame, energy);
+
+  return (
+    <Text bold color={color}>
+      {glyph}
+    </Text>
+  );
+}
 
 /**
  * Composer status descriptor. Distinct from the raw runtime status so the
@@ -197,9 +288,9 @@ export interface ComposerStatusChipProps {
 }
 
 /**
- * Isolated, self-animating composer status chip. Owns its spinner/cycle timers
- * so animation re-renders never propagate into <Input>. Renders flat text for
- * idle/confirm/aborting/queued and the animated thinking word for `working`.
+ * Isolated, self-animating composer status chip. Uses Ink's shared animation
+ * scheduler so animation re-renders never propagate into <Input>. Renders
+ * flat text for idle/confirm/aborting/queued and an animated working word.
  */
 export function ComposerStatusChip({
   status,
@@ -207,23 +298,11 @@ export function ComposerStatusChip({
   reservedWidth,
 }: ComposerStatusChipProps): React.ReactElement {
   const animating = status.kind === 'working';
-
-  const [spinnerIdx, setSpinnerIdx] = useState(0);
-  useEffect(() => {
-    if (!animating) return;
-    // Keep `spinnerIdx` unbounded — it drives the traveling rainbow phase
-    // and other gradient styles. Modulo is
-    // applied only when selecting the spinner glyph below.
-    const t = setInterval(() => setSpinnerIdx((n) => n + 1), SPINNER_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, [animating]);
-
-  const [cycleTick, setCycleTick] = useState(0);
-  useEffect(() => {
-    if (!animating || animationStyle !== 'cycle') return;
-    const t = setInterval(() => setCycleTick((n) => n + 1), CYCLE_TICK_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, [animating, animationStyle]);
+  const { frame: spinnerIdx, time: animationTime } = useAnimation({
+    interval: SPINNER_INTERVAL_MS,
+    isActive: animating,
+  });
+  const cycleTick = Math.floor(animationTime / 1000);
 
   if (status.kind === 'working') {
     const live: AnimationStyle =

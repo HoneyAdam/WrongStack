@@ -9,6 +9,16 @@ interface GitSessionStatusOptions {
   setSessionCount: (count: number) => void;
 }
 
+function sameGitInfo(a: GitInfo | null, b: GitInfo | null): boolean {
+  return a === b ||
+    (a !== null &&
+      b !== null &&
+      a.branch === b.branch &&
+      a.added === b.added &&
+      a.deleted === b.deleted &&
+      a.untracked === b.untracked);
+}
+
 /** Polls repository identity and the live-session count for status surfaces. */
 export function useGitSessionStatus({
   agent,
@@ -24,7 +34,7 @@ export function useGitSessionStatus({
       readGitInfo(agent.ctx.cwd)
         .then((info) => {
           if (cancelled) return;
-          setGitInfo(info);
+          setGitInfo((previous) => (sameGitInfo(previous, info) ? previous : info));
           if (!info?.branch) return;
           const previous = previousBranchRef.current;
           if (previous !== null && previous !== info.branch) {
@@ -49,7 +59,9 @@ export function useGitSessionStatus({
         });
     };
     refresh();
-    const timer = setInterval(refresh, 5000);
+    // Git status spawns short-lived child processes. Ten seconds keeps branch
+    // changes responsive without paying that process cost twelve times/minute.
+    const timer = setInterval(refresh, 10_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

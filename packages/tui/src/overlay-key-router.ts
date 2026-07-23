@@ -14,37 +14,55 @@ import type { MutableCell } from './shared-types.js';
  */
 const ESC_DISMISS_COOLDOWN_MS = 300;
 
+interface PointerOverlayRoute {
+  isOpen(state: State): boolean;
+  cancel(state: State): Action;
+}
+
+/**
+ * Pointer routing follows the same first-match order as `usePickerKeys`.
+ * `helpPanel` is the slash-command browser, not the separate `helpOpen`
+ * keyboard overlay. Keeping selection and cancellation in one table prevents
+ * new pickers from gaining left-click support without right-click cleanup.
+ */
+const POINTER_OVERLAY_ROUTES: readonly PointerOverlayRoute[] = [
+  { isOpen: (s) => s.authPanel.open, cancel: () => ({ type: 'authClose' }) },
+  {
+    isOpen: (s) => s.modelPicker.open,
+    cancel: (s) =>
+      s.modelPicker.step === 'model' ? { type: 'modelPickerBack' } : { type: 'modelPickerClose' },
+  },
+  { isOpen: (s) => s.modePicker.open, cancel: () => ({ type: 'modePickerClose' }) },
+  { isOpen: (s) => s.autonomyPicker.open, cancel: () => ({ type: 'autonomyPickerClose' }) },
+  { isOpen: (s) => s.designPicker.open, cancel: () => ({ type: 'designPickerClose' }) },
+  { isOpen: (s) => s.promptPicker.open, cancel: () => ({ type: 'promptPickerClose' }) },
+  { isOpen: (s) => s.resumePicker.open, cancel: () => ({ type: 'resumePickerClose' }) },
+  { isOpen: (s) => s.settingsPicker.open, cancel: () => ({ type: 'settingsClose' }) },
+  { isOpen: (s) => s.pluginPicker.open, cancel: () => ({ type: 'pluginPickerClose' }) },
+  { isOpen: (s) => s.mcpPicker.open, cancel: () => ({ type: 'mcpPickerClose' }) },
+  { isOpen: (s) => s.toolsPicker.open, cancel: () => ({ type: 'toolsPickerClose' }) },
+  { isOpen: (s) => s.helpPanel.open, cancel: () => ({ type: 'helpClose' }) },
+  { isOpen: (s) => s.brainPanel.open, cancel: () => ({ type: 'brainClose' }) },
+  { isOpen: (s) => s.shadowPanel.open, cancel: () => ({ type: 'shadowClose' }) },
+  { isOpen: (s) => s.statuslinePicker.open, cancel: () => ({ type: 'statuslineClose' }) },
+  { isOpen: (s) => s.projectPicker.open, cancel: () => ({ type: 'projectPickerClose' }) },
+  { isOpen: (s) => s.slashPicker.open, cancel: () => ({ type: 'slashPickerClose' }) },
+  { isOpen: (s) => s.fKeyPicker.open, cancel: () => ({ type: 'fKeyPickerClose' }) },
+  { isOpen: (s) => s.picker.open, cancel: () => ({ type: 'pickerClose' }) },
+];
+
 export function overlayPointerKey(
   state: State,
   input: string,
   key: KeyEvent,
 ): { isEnter: boolean; cancelAction: Action | null } {
-  const selectable =
-    state.modelPicker.open ||
-    state.autonomyPicker.open ||
-    state.designPicker.open ||
-    state.resumePicker.open ||
-    state.settingsPicker.open ||
-    state.projectPicker.open ||
-    state.slashPicker.open ||
-    state.picker.open;
-  const confirm = selectable && key.mouse?.kind === 'press' && key.mouse.button === 'left';
-  const cancel = selectable && key.mouse?.kind === 'press' && key.mouse.button === 'right';
-  let cancelAction: Action | null = null;
-  if (cancel) {
-    if (state.modelPicker.open) {
-      cancelAction =
-        state.modelPicker.step === 'model'
-          ? { type: 'modelPickerBack' }
-          : { type: 'modelPickerClose' };
-    } else if (state.autonomyPicker.open) cancelAction = { type: 'autonomyPickerClose' };
-    else if (state.designPicker.open) cancelAction = { type: 'designPickerClose' };
-    else if (state.resumePicker.open) cancelAction = { type: 'resumePickerClose' };
-    else if (state.settingsPicker.open) cancelAction = { type: 'settingsClose' };
-    else if (state.slashPicker.open) cancelAction = { type: 'slashPickerClose' };
-    else if (state.picker.open) cancelAction = { type: 'pickerClose' };
-  }
-  return { isEnter: key.return || input === '\r' || input === '\n' || confirm, cancelAction };
+  const route = POINTER_OVERLAY_ROUTES.find((candidate) => candidate.isOpen(state));
+  const leftPress = key.mouse?.kind === 'press' && key.mouse.button === 'left';
+  const rightPress = key.mouse?.kind === 'press' && key.mouse.button === 'right';
+  return {
+    isEnter: key.return || input === '\r' || input === '\n' || (!!route && leftPress),
+    cancelAction: route && rightPress ? route.cancel(state) : null,
+  };
 }
 
 export interface BusyInterruptKeyHost {
@@ -279,6 +297,7 @@ export function routeSettingsOverlayKey(
     breakerEnabled: config.breakerEnabled ?? false,
     breakerAutoKillResetMs: config.breakerAutoKillResetMs ?? 60_000,
     showModelReasoning: config.showModelReasoning ?? true,
+    showAgentSwarmPanel: config.showAgentSwarmPanel ?? true,
   });
   return true;
 }

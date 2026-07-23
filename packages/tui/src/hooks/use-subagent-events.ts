@@ -3,6 +3,7 @@ import type { FleetChatVerbosity } from '@wrongstack/core/types';
 import { expectDefined } from '@wrongstack/core/utils';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Action } from '../app-reducer.js';
+import { formatSubagentCompletionText } from './subagent-history-format.js';
 import { useFleetGenerationGate } from './use-fleet-generation-gate.js';
 
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -76,6 +77,12 @@ export function useSubagentEvents(
   sessionGenerationRef?: { current: number } | undefined,
 ): void {
   const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
+  const ctxDispatchRef = useRef<Map<string, { at: number; load: number; tokens?: number; max?: number }>>(
+    new Map(),
+  );
+  const leaderCtxDispatchRef = useRef<
+    { at: number; load: number; tokens?: number; max?: number } | undefined
+  >(undefined);
   const gate = useFleetGenerationGate(sessionGenerationRef);
   const lbl = useCallback(
     (id: string, name?: string) => labelFor(labelsRef, id, name),
@@ -156,20 +163,14 @@ export function useSubagentEvents(
       const icon =
         e.status === 'success'
           ? '✓'
-          : e.status === 'timeout'
+          : e.status === 'timeout' || errKind === 'budget_timeout'
             ? '⏱'
-            : e.status === 'stopped'
+            : e.status === 'stopped' || errKind === 'aborted_by_parent'
               ? '⊘'
               : '✗';
       // In 'off' mode only non-success completions surface — failures must
       // never be silent even when fleet chat is fully muted.
       if (mode() !== 'off' || e.status !== 'success') {
-        const errMsg = e.error?.message;
-        const errMsgTail = errMsg
-          ? ` — ${errMsg.replace(/\s+/g, ' ').slice(0, 100)}${errMsg.length > 100 ? '…' : ''}`
-          : '';
-        const errChip = errKind ? ` [${errKind}]` : '';
-        const secs = (e.durationMs / 1000).toFixed(e.durationMs < 10_000 ? 1 : 0);
         dispatch({
           type: 'addEntry',
           entry: {
@@ -177,7 +178,13 @@ export function useSubagentEvents(
             agentLabel: l.label,
             agentColor: l.color,
             icon,
-            text: `${e.status} (${e.iterations} iter · ${e.toolCalls} tools · ${secs}s)${errChip}${errMsgTail}`,
+            text: formatSubagentCompletionText({
+              status: e.status,
+              iterations: e.iterations,
+              toolCalls: e.toolCalls,
+              durationMs: e.durationMs,
+              error: e.error,
+            }),
           },
         });
       }
@@ -204,8 +211,11 @@ export function useSubagentEvents(
       const m = mode();
       const show = m === 'full';
       if (show) {
-        const timeoutSuffix =
-          e.kind === 'timeout' ? ' (subagent continues running)' : ' — extending';
+        // full mode only — keep short; the fleet panel already tracks the warning.
+        const verb =
+          e.kind === 'timeout' || e.kind === 'idle_timeout'
+            ? 'near timeout'
+            : `near ${e.kind.replace(/_/g, ' ')} limit`;
         dispatch({
           type: 'addEntry',
           entry: {
@@ -213,7 +223,7 @@ export function useSubagentEvents(
             agentLabel: l.label,
             agentColor: l.color,
             icon: '⚡',
-            text: `hitting ${e.kind} limit (${e.used}/${e.limit})${timeoutSuffix}`,
+            text: verb,
           },
         });
       }
@@ -229,6 +239,7 @@ export function useSubagentEvents(
         totalExtensions: e.totalExtensions,
       });
       if (mode() === 'full') {
+        const kindLabel = String(e.kind).replace(/_/g, ' ');
         dispatch({
           type: 'addEntry',
           entry: {
@@ -236,7 +247,7 @@ export function useSubagentEvents(
             agentLabel: l.label,
             agentColor: l.color,
             icon: '⚡',
-            text: `extended ${e.kind} → ${e.newLimit} (×${e.totalExtensions})`,
+            text: `extended ${kindLabel} (×${e.totalExtensions})`,
           },
         });
       }
@@ -267,6 +278,15 @@ export function useSubagentEvents(
     const offCtxPct = events.on('subagent.ctx_pct', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
       if (!gate.isLive(e.subagentId)) return;
+      const now = Date.now();
+      const previous = ctxDispatchRef.current.get(e.subagentId);
+      if (previous && now - previous.at < 250) return;
+      ctxDispatchRef.current.set(e.subagentId, {
+        at: now,
+        load: e.load,
+        tokens: e.tokens,
+        max: e.maxContext,
+      });
       dispatch({
         type: 'fleetCtxPct',
         id: e.subagentId,
@@ -297,6 +317,15 @@ export function useSubagentEvents(
 
     const offLeaderCtxPct = events.on('ctx.pct', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
+      const now = Date.now();
+      const previous = leaderCtxDispatchRef.current;
+      if (previous && now - previous.at < 250) return;
+      leaderCtxDispatchRef.current = {
+        at: now,
+        load: e.load,
+        tokens: e.tokens,
+        max: e.maxContext,
+      };
       setActiveMaxContext(e.maxContext);
       dispatch({ type: 'leaderCtxPct', load: e.load, tokens: e.tokens, maxContext: e.maxContext });
     });

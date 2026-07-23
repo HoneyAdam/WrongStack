@@ -24,11 +24,43 @@ export interface InlineToken {
  * Memoization cache for parseInline. Lines of assistant prose are frequently
  * identical across re-renders (the same heading, bullet prefix, or repeated
  * prose), and the char-by-char + indexOf parsing is O(n²) per line. Caching
- * turns repeated lines into O(1) lookups. LRU-evicted at 5000 entries to cap
- * memory — a typical session rarely exceeds a few thousand unique lines.
+ * turns repeated lines into O(1) lookups.
+ *
+ * Count-only eviction is not enough here: the cache is process-global and its
+ * keys plus token strings can outlive transcript eviction, so a few unusually
+ * large one-off lines could retain far more memory than thousands of normal
+ * prose lines. Keep both entry and approximate character budgets, and skip
+ * entries larger than the whole cache budget because they are poor reuse
+ * candidates anyway. The character budget deliberately approximates retained
+ * memory by counting both source and token text, so emphasis content is
+ * conservatively counted twice and may be evicted slightly earlier.
  */
-const _parseCache = new Map<string, InlineToken[]>();
-const _PARSE_CACHE_MAX = 5000;
+const _parseCache = new Map<string, { tokens: InlineToken[]; chars: number }>();
+const _PARSE_CACHE_MAX_ENTRIES = 5000;
+const _PARSE_CACHE_MAX_CHARS = 512 * 1024;
+let _parseCacheChars = 0;
+
+/**
+ * Conservative cache weight: source-key characters plus token-text characters.
+ * Token text intentionally overlaps the key for matched spans; over-counting is
+ * safer than under-counting retained string storage and metadata.
+ */
+function parsedEntryChars(text: string, tokens: InlineToken[]): number {
+  return text.length + tokens.reduce((sum, token) => sum + token.text.length, 0);
+}
+
+function evictParseCache(incomingChars: number): void {
+  while (
+    _parseCache.size >= _PARSE_CACHE_MAX_ENTRIES ||
+    _parseCacheChars + incomingChars > _PARSE_CACHE_MAX_CHARS
+  ) {
+    const oldest = _parseCache.keys().next().value;
+    if (oldest === undefined) break;
+    const entry = _parseCache.get(oldest);
+    _parseCache.delete(oldest);
+    if (entry) _parseCacheChars -= entry.chars;
+  }
+}
 
 /**
  * Parse one line of prose into inline-emphasis tokens. Markers are stripped
@@ -41,7 +73,12 @@ const _PARSE_CACHE_MAX = 5000;
  */
 export function parseInline(text: string): InlineToken[] {
   const cached = _parseCache.get(text);
-  if (cached) return cached;
+  if (cached) {
+    // Refresh insertion order so eviction is genuinely least-recently-used.
+    _parseCache.delete(text);
+    _parseCache.set(text, cached);
+    return cached.tokens;
+  }
 
   const tokens: InlineToken[] = [];
   let plain = '';
@@ -101,16 +138,12 @@ export function parseInline(text: string): InlineToken[] {
   }
   flush();
 
-  // LRU eviction: when near capacity, drop the oldest quarter.
-  if (_parseCache.size >= _PARSE_CACHE_MAX) {
-    let dropped = 0;
-    const target = Math.floor(_PARSE_CACHE_MAX / 4);
-    for (const key of _parseCache.keys()) {
-      _parseCache.delete(key);
-      if (++dropped >= target) break;
-    }
+  const chars = parsedEntryChars(text, tokens);
+  if (chars <= _PARSE_CACHE_MAX_CHARS) {
+    evictParseCache(chars);
+    _parseCache.set(text, { tokens, chars });
+    _parseCacheChars += chars;
   }
-  _parseCache.set(text, tokens);
   return tokens;
 }
 

@@ -7,20 +7,13 @@ import type { EventBus } from '@wrongstack/core/kernel';
  * command that sets the window/tab title without touching the screen, so it
  * never corrupts Ink's render. The title animates: a braille spinner plus a
  * live status derived from the agent's EventBus (thinking / running a tool),
- * and a gentle scrolling marquee when idle. Reset to a static title on stop.
+ * and a static idle title. Reset to a static title on stop.
  *
  * Disable with WRONGSTACK_NO_TITLE=1.
  */
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const setTitle = (s: string): string => `\x1b]0;${s}\x07`;
-
-/** A marquee window over `text`, advancing by `offset`. */
-function marquee(text: string, offset: number, width: number): string {
-  const padded = `${text}   `;
-  const start = offset % padded.length;
-  return (padded + padded).slice(start, start + width);
-}
 
 export interface TerminalTitleOptions {
   stdout: NodeJS.WriteStream;
@@ -41,12 +34,13 @@ export function startTerminalTitle(opts: TerminalTitleOptions): () => void {
   const app = opts.appName ?? 'WrongStack';
   const idleAfter = opts.idleAfterMs ?? 3500;
   const suffix = ` · ${app}`;
+  const idleTitle = opts.model ? `✦ ${app} · ${opts.model}` : `✦ ${app}`;
 
   let frame = 0;
-  let scroll = 0;
   let phase: 'idle' | 'thinking' | 'tool' = 'idle';
   let toolName = '';
   let lastActivity = 0; // 0 → never active yet, start idle
+  let lastWrittenTitle = '';
 
   const touch = (next: 'thinking' | 'tool', tool?: string) => {
     phase = next;
@@ -72,7 +66,6 @@ export function startTerminalTitle(opts: TerminalTitleOptions): () => void {
 
   const timer = setInterval(() => {
     frame = (frame + 1) % SPINNER.length;
-    scroll += 1;
     if (lastActivity && Date.now() - lastActivity > idleAfter) phase = 'idle';
 
     const sp = SPINNER[frame];
@@ -82,11 +75,15 @@ export function startTerminalTitle(opts: TerminalTitleOptions): () => void {
     } else if (phase === 'thinking') {
       title = `${sp} thinking…${suffix}`;
     } else {
-      // Idle: scroll the app name + model so the tab still feels alive.
-      title = marquee(`✦ ${app}${suffix}`, scroll >> 1, 22);
+      title = idleTitle;
     }
-    write(setTitle(title));
-  }, opts.intervalMs ?? 130);
+    // Avoid emitting the exact same OSC sequence twice (terminal writes are
+    // surprisingly costly on Windows hosts).
+    if (title !== lastWrittenTitle) {
+      lastWrittenTitle = title;
+      write(setTitle(title));
+    }
+  }, opts.intervalMs ?? 1_000);
   // Don't keep the event loop alive just for the title animation.
   timer.unref?.();
 

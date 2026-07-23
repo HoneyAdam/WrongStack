@@ -30,6 +30,24 @@ export const MOUSE_HOVER_ON = `${ESC}[?1000h${ESC}[?1003h${ESC}[?1006h`;
  */
 export const MOUSE_OFF = `${ESC}[?1003l${ESC}[?1002l${ESC}[?1000l${ESC}[?1006l`;
 
+export interface MouseTrackingPolicy {
+  /** Full-session pointer mode (`--mouse`, saved setting, or `/mouse on`). */
+  fullMode: boolean;
+  /** A picker that benefits from temporary click/wheel ownership is visible. */
+  overlayOpen: boolean;
+  /** Startup terminal capability probe. Undefined keeps legacy callers enabled. */
+  protocol?: 'none' | 'x10' | 'urxvt' | 'sgr' | undefined;
+}
+
+/** Decide whether the TUI should currently own terminal mouse reports. */
+export function shouldEnableMouseTracking(policy: MouseTrackingPolicy): boolean {
+  // This module decodes SGR reports only. Enabling mode 1000 on an X10/URXVT
+  // terminal would produce a different byte format and leak it into the composer,
+  // so legacy protocols degrade to keyboard/native-scrollback behavior.
+  const supportsSgr = policy.protocol === undefined || policy.protocol === 'sgr';
+  return supportsSgr && (policy.fullMode || policy.overlayOpen);
+}
+
 /**
  * Enter the alternate screen buffer (DECSET 1049). The normal screen is
  * saved and restored on exit.

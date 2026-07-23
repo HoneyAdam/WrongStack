@@ -177,7 +177,6 @@ describe('<Entry /> — comprehensive coverage', () => {
       { status: 'answered' as const, icon: '⚖', color: 'cyan' },
       { status: 'ask_human' as const, icon: '?', color: 'yellow' },
       { status: 'denied' as const, icon: '×', color: 'red' },
-      { status: 'intervention' as const, icon: '⚡', color: 'yellow' },
     ];
 
     for (const { status, icon } of statuses) {

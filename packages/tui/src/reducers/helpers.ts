@@ -83,6 +83,28 @@ export const MAX_TOOL_STREAM_RETAINED_CHARS = 100_000;
 /** Upper bound on the assistant/thinking live tail retained in React state. */
 export const MAX_ASSISTANT_STREAM_RETAINED_CHARS = 16_384;
 
+function sliceTailWithoutSplittingSurrogatePair(value: string, maxChars: number): string {
+  const start = Math.max(0, value.length - maxChars);
+  const first = value.charCodeAt(start);
+  const safeStart = first >= 0xdc00 && first <= 0xdfff ? start + 1 : start;
+  return value.slice(safeStart);
+}
+
+/**
+ * Bound a growing display-only string while preserving the newest text.
+ * Reducer stream state is only the live rendering tail, not the canonical
+ * provider response; completed output remains available from the committed
+ * history entry and session log.
+ */
+export function retainStreamTail(current: string, delta: string, maxChars: number): string {
+  if (maxChars <= 0) return '';
+  if (delta.length >= maxChars) return sliceTailWithoutSplittingSurrogatePair(delta, maxChars);
+  const keepCurrent = maxChars - delta.length;
+  return current.length > keepCurrent
+    ? sliceTailWithoutSplittingSurrogatePair(current, keepCurrent) + delta
+    : current + delta;
+}
+
 /** Caps applied to tool `input` payloads before retention in history entries. */
 export const MAX_RETAINED_INPUT_CHARS = 2_048;
 export const MAX_RETAINED_INPUT_DEPTH = 4;

@@ -6,8 +6,14 @@ import { Text } from '../src/ink.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const heapWatchdogMocks = vi.hoisted(() => ({
+  start: vi.fn((_options: unknown) => async () => {}),
+}));
+const storageMocks = vi.hoisted(() => ({ loadGoal: vi.fn() }));
+
+vi.mock('@wrongstack/core/storage', () => ({ loadGoal: storageMocks.loadGoal }));
 vi.mock('../src/heap-watchdog.js', () => ({
-  startHeapWatchdog: () => () => {},
+  startHeapWatchdog: heapWatchdogMocks.start,
   takeHeapSample: () => ({
     ts: '2026-07-15T00:00:00.000Z',
     rss: 0,
@@ -23,19 +29,30 @@ const stateRef = {
   current: { entries: [], runningTools: new Set() },
 } as never;
 const agentContext = { state: { messages: [] } } as never;
-const dispatch = vi.fn() as never;
+const dispatchMock = vi.fn();
+const dispatch = dispatchMock as never;
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
 
 function ActivityHarness({
   status,
+  projectRoot = '',
 }: {
   status: 'idle' | 'running' | 'streaming' | 'aborting';
+  projectRoot?: string | undefined;
 }): React.ReactElement {
   const { workingTimeMs } = useTuiActivity({
     status,
     fleet: {},
     enhanceBusy: false,
     thinkingWord: 'thinking',
-    projectRoot: '',
+    projectRoot,
     stateRef,
     agentContext,
     dispatch,
@@ -50,7 +67,18 @@ function harness(status: 'idle' | 'running' | 'streaming' | 'aborting'): React.R
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  storageMocks.loadGoal.mockReset();
 });
+
+interface WatchdogOptions {
+  collectStats?: (() => Record<string, number>) | undefined;
+}
+
+function latestWatchdogOptions(): WatchdogOptions {
+  const call = heapWatchdogMocks.start.mock.calls.at(-1);
+  if (!call) throw new Error('startHeapWatchdog was not called');
+  return call[0] as WatchdogOptions;
+}
 
 describe('useTuiActivity foreground working time', () => {
   /** Ink 7.1.1 writes content and trailing whitespace as separate frames;
@@ -65,6 +93,59 @@ describe('useTuiActivity foreground working time', () => {
     }
     return f;
   }
+
+  it('collects only shallow watchdog cardinalities', () => {
+    const hostileEntry = {
+      get text(): never {
+        throw new Error('history element was traversed');
+      },
+    };
+    const localStateRef = {
+      current: {
+        entries: [hostileEntry],
+        runningTools: new Map([['tool-1', {}]]),
+        fleet: { agent: { status: 'running' } },
+        queue: [{ id: 1 }],
+        inputHistory: ['one', 'two'],
+      },
+    } as never;
+    const hostileMessage = {
+      get content(): never {
+        throw new Error('message element was traversed');
+      },
+    };
+    const localAgentContext = { state: { messages: [hostileMessage] } } as never;
+
+    function StatsHarness(): React.ReactElement {
+      useTuiActivity({
+        status: 'idle',
+        fleet: {},
+        enhanceBusy: false,
+        thinkingWord: 'thinking',
+        projectRoot: '',
+        stateRef: localStateRef,
+        agentContext: localAgentContext,
+        dispatch,
+      });
+      return React.createElement(Text, null, 'stats');
+    }
+
+    let view!: ReturnType<typeof render>;
+    act(() => {
+      view = render(React.createElement(StatsHarness));
+    });
+    const stats = latestWatchdogOptions().collectStats?.();
+    expect(stats).toEqual({
+      historyEntries: 1,
+      messages: 1,
+      runningTools: 1,
+      stdoutQueued: expect.any(Number),
+      fleetSize: 1,
+      queued: 1,
+      inputHistory: 2,
+    });
+    act(() => view.unmount());
+  });
 
   it('counts committed working spells without resets or idle gaps', () => {
     vi.useFakeTimers();
@@ -93,6 +174,64 @@ describe('useTuiActivity foreground working time', () => {
     act(() => vi.advanceTimersByTime(2_000));
     expect(lastVisibleFrame(view)).toBe('5000');
 
+    act(() => view.unmount());
+  });
+
+  it('does not dispatch an unchanged null goal summary', async () => {
+    vi.useFakeTimers();
+    storageMocks.loadGoal.mockResolvedValue(null);
+
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(React.createElement(ActivityHarness, { status: 'idle', projectRoot: 'project' }));
+      await Promise.resolve();
+    });
+    expect(storageMocks.loadGoal).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    const nullGoalActions = dispatchMock.mock.calls
+      .map(([action]) => action as { type?: string; summary?: unknown })
+      .filter((action) => action.type === 'goalSummary' && action.summary === null);
+    expect(storageMocks.loadGoal).toHaveBeenCalledTimes(2);
+    expect(nullGoalActions).toHaveLength(1);
+    act(() => view.unmount());
+  });
+
+  it('ignores a stale goal load that resolves after a newer refresh', async () => {
+    vi.useFakeTimers();
+    const stale = deferred<unknown>();
+    const fresh = deferred<unknown>();
+    storageMocks.loadGoal
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise);
+
+    let view!: ReturnType<typeof render>;
+    act(() => {
+      view = render(React.createElement(ActivityHarness, { status: 'idle', projectRoot: 'project' }));
+    });
+    expect(storageMocks.loadGoal).toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(storageMocks.loadGoal).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      fresh.resolve({ goal: 'fresh', iterations: 2, progress: 50, deliverables: [] });
+      await fresh.promise;
+    });
+    await act(async () => {
+      stale.resolve({ goal: 'stale', iterations: 1, progress: 10, deliverables: [] });
+      await stale.promise;
+    });
+
+    const goalActions = dispatchMock.mock.calls
+      .map(([action]) => action as { type?: string; summary?: { goal?: string } })
+      .filter((action) => action.type === 'goalSummary');
+    expect(goalActions).toHaveLength(1);
+    expect(goalActions[0]?.summary?.goal).toBe('fresh');
     act(() => view.unmount());
   });
 });

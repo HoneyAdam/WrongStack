@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOUSE_CLICK_ON,
+  MOUSE_DRAG_ON,
   MOUSE_HOVER_ON,
   MOUSE_OFF,
   isLeakedMouseInput,
   parseMouseEvent,
   parseMouseEvents,
+  shouldEnableMouseTracking,
 } from '../src/mouse.js';
 
 const ESC = String.fromCharCode(27);
@@ -15,7 +17,7 @@ const sgr = (cb: number, x: number, y: number, final: 'M' | 'm' = 'M') =>
 
 describe('mouse enable/disable sequences', () => {
   it('enables SGR coordinates (1006) and never touches the alt buffer (1049)', () => {
-    for (const seq of [MOUSE_CLICK_ON, MOUSE_HOVER_ON]) {
+    for (const seq of [MOUSE_CLICK_ON, MOUSE_DRAG_ON, MOUSE_HOVER_ON]) {
       expect(seq).toContain('?1006h');
       expect(seq).toContain('?1000h');
       expect(seq).not.toContain('1049'); // stays in the normal screen buffer
@@ -28,6 +30,34 @@ describe('mouse enable/disable sequences', () => {
     for (const mode of ['1000', '1002', '1003', '1006']) {
       expect(MOUSE_OFF).toContain(`?${mode}l`);
     }
+  });
+});
+
+describe('shouldEnableMouseTracking', () => {
+  it('keeps full mouse mode active without an overlay', () => {
+    expect(
+      shouldEnableMouseTracking({ fullMode: true, overlayOpen: false, protocol: 'sgr' }),
+    ).toBe(true);
+  });
+
+  it('borrows tracking for overlays while full mode is off', () => {
+    expect(
+      shouldEnableMouseTracking({ fullMode: false, overlayOpen: true, protocol: 'sgr' }),
+    ).toBe(true);
+    expect(
+      shouldEnableMouseTracking({ fullMode: false, overlayOpen: false, protocol: 'sgr' }),
+    ).toBe(false);
+  });
+
+  it.each(['none', 'x10', 'urxvt'] as const)(
+    'never enables SGR tracking for the unsupported %s protocol',
+    (protocol) => {
+      expect(shouldEnableMouseTracking({ fullMode: true, overlayOpen: true, protocol })).toBe(false);
+    },
+  );
+
+  it('keeps compatibility when no capability profile was provided', () => {
+    expect(shouldEnableMouseTracking({ fullMode: true, overlayOpen: false })).toBe(true);
   });
 });
 

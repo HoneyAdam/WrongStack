@@ -1,5 +1,5 @@
-import { Box, Text } from '../../ink.js';
-import React, { useEffect, useState } from 'react';
+import { Box, Text, useAnimation } from '../../ink.js';
+import React from 'react';
 import { getToolVisual } from '../../tool-glyph.js';
 
 // ============================================
@@ -2198,6 +2198,14 @@ function numberFromParsedField(fields: Record<string, string>, key: string): num
 export const MAX_STREAM_DISPLAY_CHARS = 480;
 const MAX_STREAM_LINES = 8;
 const WRITE_CREATE_STREAM_LINES = 3;
+const TOOL_STREAM_MARGIN_ROWS = 2;
+const TOOL_STREAM_HEADER_ROWS = 1;
+
+/** Fixed layout height of the live tool-stream tail for scroll-range math. */
+export function toolStreamBoxHeight(name: string): number {
+  const contentRows = name === 'write' ? WRITE_CREATE_STREAM_LINES : MAX_STREAM_LINES;
+  return TOOL_STREAM_MARGIN_ROWS + TOOL_STREAM_HEADER_ROWS + contentRows;
+}
 
 /**
  * Build the CONSTANT-height content block for the live tool-stream box: always
@@ -2239,12 +2247,9 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
   termWidth: number;
 }): React.ReactElement {
   const { glyph, color } = getToolVisual(name);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, []);
-  void tick;
+  // This box only exists for an active tool; share its elapsed-time clock with
+  // every other Ink animation instead of owning another interval.
+  useAnimation({ interval: 1_000 });
 
   const elapsedMs = Date.now() - startedAt;
   const streamLines = name === 'write' ? WRITE_CREATE_STREAM_LINES : MAX_STREAM_LINES;

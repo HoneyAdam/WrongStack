@@ -42,6 +42,18 @@ export function useAutonomyDrivers({
   runEternalLoopRef: MutableRefObject<() => Promise<void>>;
   runParallelLoopRef: MutableRefObject<() => Promise<void>>;
 } {
+  // Unmount guard. The driver loops below only exit on autonomy-mode flip or
+  // engine-stopped — NOT on unmount. On a session-switch that leaves autonomy
+  // at 'eternal', a loop would keep calling engine.runOneIteration() and
+  // dispatching into a torn-down tree, retaining the engine closure forever.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   /**
    * Eternal-mode driver. Loops `engine.runOneIteration()` until autonomy
    * flips away from 'eternal' or the engine reports stopped state. Each
@@ -61,6 +73,9 @@ export function useAutonomyDrivers({
     eternalLoopRunningRef.current = true;
     try {
       while (true) {
+        // Stop immediately if the component unmounted mid-session (session
+        // switch/exit) — otherwise the loop outlives the tree.
+        if (!mountedRef.current) break;
         // Re-check the live state every iteration — /autonomy stop, SIGINT,
         // or /goal clear could have flipped it during the prior iteration.
         const liveMode = getAutonomy?.() ?? 'off';
@@ -81,6 +96,9 @@ export function useAutonomyDrivers({
             },
           });
         }
+        // The await above may have resolved after unmount — don't dispatch
+        // into a torn-down tree or start another iteration.
+        if (!mountedRef.current) break;
         dispatch({ type: 'status', status: 'idle' });
         // Yield so a slash command submitted between iterations (e.g.
         // /autonomy stop) actually lands before we kick the next one.
@@ -88,26 +106,30 @@ export function useAutonomyDrivers({
       }
     } finally {
       eternalLoopRunningRef.current = false;
-      // Refresh goal summary — the engine may have cleared or completed
-      // the goal autonomously (via [GOAL_COMPLETE] or [goal clear] marker
-      // in the LLM output). Without this the status bar goal chip stays
-      // visible with stale data.
-      refreshGoalSummary();
-      // If the engine stopped because the goal was cleared or completed
-      // (not because the user typed /autonomy stop), the autonomy mode
-      // stays at 'eternal' — switch to a sensible resting state so the
-      // status bar doesn't show "ETERNAL" with no goal running.
-      if (engine.currentState === 'stopped') {
-        switchAutonomy?.('off');
-      }
-      // Sync the displayed autonomy state with reality. The loop only exits
-      // when getAutonomy() !== 'eternal' or engine.currentState === 'stopped',
-      // both of which mean the mode is effectively off/idle. Refreshing here
-      // stops the status bar from oscillating between "● thinking…" and
-      // "● idle" forever after the goal is done.
-      if (getAutonomy) {
-        const finalMode = getAutonomy();
-        if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+      // Skip the UI-syncing tail if we exited because of unmount — those
+      // dispatches/setState calls would target a torn-down tree.
+      if (mountedRef.current) {
+        // Refresh goal summary — the engine may have cleared or completed
+        // the goal autonomously (via [GOAL_COMPLETE] or [goal clear] marker
+        // in the LLM output). Without this the status bar goal chip stays
+        // visible with stale data.
+        refreshGoalSummary();
+        // If the engine stopped because the goal was cleared or completed
+        // (not because the user typed /autonomy stop), the autonomy mode
+        // stays at 'eternal' — switch to a sensible resting state so the
+        // status bar doesn't show "ETERNAL" with no goal running.
+        if (engine.currentState === 'stopped') {
+          switchAutonomy?.('off');
+        }
+        // Sync the displayed autonomy state with reality. The loop only exits
+        // when getAutonomy() !== 'eternal' or engine.currentState === 'stopped',
+        // both of which mean the mode is effectively off/idle. Refreshing here
+        // stops the status bar from oscillating between "● thinking…" and
+        // "● idle" forever after the goal is done.
+        if (getAutonomy) {
+          const finalMode = getAutonomy();
+          if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+        }
       }
     }
   };
@@ -122,6 +144,7 @@ export function useAutonomyDrivers({
     parallelLoopRunningRef.current = true;
     try {
       while (true) {
+        if (!mountedRef.current) break;
         const liveMode = getAutonomy?.() ?? 'off';
         if (liveMode !== 'eternal-parallel') break;
         if (engine.currentState === 'stopped') break;
@@ -137,18 +160,21 @@ export function useAutonomyDrivers({
             },
           });
         }
+        if (!mountedRef.current) break;
         dispatch({ type: 'status', status: 'idle' });
         await new Promise((r) => setTimeout(r, 200));
       }
     } finally {
       parallelLoopRunningRef.current = false;
-      refreshGoalSummary();
-      if (engine.currentState === 'stopped') {
-        switchAutonomy?.('off');
-      }
-      if (getAutonomy) {
-        const finalMode = getAutonomy();
-        if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+      if (mountedRef.current) {
+        refreshGoalSummary();
+        if (engine.currentState === 'stopped') {
+          switchAutonomy?.('off');
+        }
+        if (getAutonomy) {
+          const finalMode = getAutonomy();
+          if (finalMode !== autonomyLive) setAutonomyLive(finalMode);
+        }
       }
     }
   };

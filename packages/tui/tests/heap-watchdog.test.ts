@@ -26,6 +26,7 @@ describe('startHeapWatchdog', () => {
 
   afterEach(async () => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     // The watchdog's append chain may still have an in-flight write —
     // let it settle, then rm with retries (Windows ENOTEMPTY race).
     await new Promise((r) => setTimeout(r, 50));
@@ -38,8 +39,7 @@ describe('startHeapWatchdog', () => {
       sampleEveryMs: 60_000,
       collectStats: () => ({ historyEntries: 7 }),
     });
-    stop();
-    // The append chain is async — poll briefly for the file.
+    await stop();
     let raw = '';
     for (let i = 0; i < 50; i++) {
       try {
@@ -99,5 +99,63 @@ describe('startHeapWatchdog', () => {
     });
     expect(() => vi.advanceTimersByTime(3_000)).not.toThrow();
     stop();
+  });
+
+  it('coalesces overdue samples while a diagnostic write is blocked', async () => {
+    vi.useFakeTimers();
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const writtenLines: string[] = [];
+    const writeDiagnosticLine = vi.fn(async (_targetPath: string, line: string) => {
+      writtenLines.push(line);
+      if (writtenLines.length === 1) await firstWrite;
+    });
+    let sample = 0;
+
+    const stop = startHeapWatchdog({
+      logPath,
+      sampleEveryMs: 1_000,
+      logEveryMs: 0,
+      collectStats: () => ({ sample: ++sample }),
+      writeDiagnosticLine,
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(sample).toBe(11);
+    expect(writeDiagnosticLine).toHaveBeenCalledTimes(1);
+
+    releaseFirstWrite?.();
+    await vi.waitFor(() => expect(writeDiagnosticLine).toHaveBeenCalledTimes(2));
+    await stop();
+
+    expect(JSON.parse(writtenLines[1] ?? '{}') as Record<string, unknown>).toMatchObject({ sample: 11 });
+  });
+
+  it('flushes a coalesced pending sample when stopped during a blocked write', async () => {
+    vi.useFakeTimers();
+    let releaseFirstWrite: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const writeDiagnosticLine = vi.fn(async () => {
+      await blocked;
+    });
+
+    const stop = startHeapWatchdog({
+      logPath,
+      sampleEveryMs: 1_000,
+      logEveryMs: 0,
+      writeDiagnosticLine,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(writeDiagnosticLine).toHaveBeenCalledTimes(1);
+
+    const stopped = stop();
+    releaseFirstWrite?.();
+    await stopped;
+
+    expect(writeDiagnosticLine).toHaveBeenCalledTimes(2);
   });
 });

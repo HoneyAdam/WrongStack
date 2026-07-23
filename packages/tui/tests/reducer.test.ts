@@ -724,6 +724,7 @@ describe('TUI reducer', () => {
       statuslineMode: 'detailed' as const,
       configScope: 'global',
       restrictFsToRoot: false,
+      showAgentSwarmPanel: true,
     } as never);
   }
 
@@ -740,6 +741,14 @@ describe('TUI reducer', () => {
     s = reducer(s, { type: 'settingsFieldMove', delta: 3 }); // → field 3 = YOLO (live)
     s = reducer(s, { type: 'settingsValueChange', delta: 1 } as never);
     expect(s.settingsPicker.yolo).toBe(true); // toggled
+    expect(s.settingsPicker.hint).toBeUndefined();
+  });
+
+  it('settingsValueChange toggles the persistent agent swarm panel live', () => {
+    let s = openSettings(initial());
+    s = reducer(s, { type: 'settingsFieldMove', delta: 40 });
+    s = reducer(s, { type: 'settingsValueChange', delta: 1 } as never);
+    expect(s.settingsPicker.showAgentSwarmPanel).toBe(false);
     expect(s.settingsPicker.hint).toBeUndefined();
   });
 
@@ -1202,6 +1211,7 @@ describe('settings picker reducer', () => {
     thinkingWord: 'thinking',
     cacheTtl: 'default' as const,
     configScope: 'global' as const,
+    showAgentSwarmPanel: true,
     ...over,
   }) as Parameters<typeof reducer>[1];
 

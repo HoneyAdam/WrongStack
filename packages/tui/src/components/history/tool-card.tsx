@@ -19,8 +19,8 @@ export interface ToolCardProps {
 /**
  * Shared terminal-native anatomy for committed tool results. The open left
  * rail keeps dense output readable without turning every tiny call into a
- * heavy full-width modal, while the ruled header makes tool/state/timing easy
- * to scan in long transcripts.
+ * heavy full-width modal, while the compact header makes tool/state/timing
+ * easy to scan in long transcripts.
  */
 export function ToolCard({
   glyph,
@@ -41,9 +41,7 @@ export function ToolCard({
   const visibleMeta = metaBudget >= 2 && meta ? truncateDisplay(meta, metaBudget) : undefined;
   const detailBudget = Math.max(0, tailBudget - (visibleMeta ? displayWidth(visibleMeta) + 5 : 0));
   const visibleDetail = detailBudget >= 2 && detail ? truncateDisplay(detail, detailBudget) : undefined;
-  const visibleHeader = [fixedHeader, visibleDetail, visibleMeta].filter(Boolean).join('  ');
-  const ruleWidth = Math.max(2, termWidth - displayWidth(visibleHeader) - 8);
-  const railColor = ok ? theme.borderDefault : theme.error;
+  const railColor = ok ? theme.borderSubtle : theme.error;
 
   return (
     <Box flexDirection="column" marginY={0}>
@@ -56,7 +54,6 @@ export function ToolCard({
         <Text bold color={theme.textPrimary}>{title}</Text>
         {visibleDetail ? <Text color={theme.textSecondary}>{`  ${visibleDetail}`}</Text> : null}
         {visibleMeta ? <Text color={theme.textMuted}>{`  ·  ${visibleMeta}`}</Text> : null}
-        <Text color={railColor}>{` ${'─'.repeat(ruleWidth)}`}</Text>
       </Text>
       {hasBody ? (
         <>

@@ -1,6 +1,6 @@
 import type React from 'react';
-import { useEffect, useState } from 'react';
 import { Box, Text } from '../../ink.js';
+import { truncateDisplay } from '../../terminal-width.js';
 import { mixHex } from '../animation-style.js';
 import type { AutonomyAgentStatus, HistoryEntry } from './types.js';
 import { shortenPath } from './utils.js';
@@ -29,7 +29,6 @@ const PINK_HOME = 1; // resting column for the pink block (0-indexed)
 // occasionally lift that tile by one text row, then let it settle. The long
 // resting section makes this feel like a small logo gesture instead of a
 // loading spinner.
-const BOUNCE_INTERVAL_MS = 160;
 const PINK_BOUNCE_FRAMES: readonly (0 | 1)[] = Object.freeze([
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1,
 ]);
@@ -64,21 +63,6 @@ function BrandMark({ pinkRow = 1 }: { pinkRow?: 0 | 1 }): React.ReactElement {
       ))}
     </Box>
   );
-}
-
-/** Hook that drives the mark's restrained vertical bounce. */
-function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % PINK_BOUNCE_FRAMES.length);
-    }, BOUNCE_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [enabled]);
-
-  return brandMarkPinkRow(frame);
 }
 
 // ── Packed 5×7 wordmark ───────────────────────────────────────────────────
@@ -288,9 +272,6 @@ function Footer({ contentWidth, compact }: { contentWidth: number; compact: bool
 
 // ── Animated autonomy agent status ────────────────────────────────────────
 
-/** Frames for the alive-spinner next to each online agent. */
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 100;
 /** Agent display order (canonical left-to-right). */
 const AGENT_ORDER: ReadonlyArray<string> = [
   'Brain',
@@ -309,21 +290,10 @@ function AutonomyAgentsSection({
   contentWidth: number;
   compact: boolean;
 }): React.ReactElement {
-  // Animated spinner frame — cycles through the braille spinners.
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-    }, SPINNER_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, []);
-
   // Build a lookup so we preserve the canonical order.
   const lookup = new Map(agents.map((a) => [a.name, a]));
 
   // Decide per-agent indicator
-  const spinner = SPINNER_FRAMES[frame];
   const maxLabelWidth = Math.max(1, contentWidth - 4);
 
   return (
@@ -336,7 +306,7 @@ function AutonomyAgentsSection({
           if (!agent) return null;
 
           const online = agent.online;
-          const indicator = online ? spinner : '·';
+          const indicator = online ? '●' : '·';
           const color = online ? STACK_ORANGE : MUTED;
           const detail = agent.detail;
 
@@ -357,24 +327,65 @@ function AutonomyAgentsSection({
 
 const DEFAULT_TERM_WIDTH = 80;
 const FULL_LAYOUT_MIN_WIDTH = WORDMARK_WIDTH + 6;
+// Rendered row budget without optional facts:
+// compact = border 2 + version 2 + mark 3 + identity 3 + facts 3 + footer 3 = 16.
+// Full adds the mark's top margin (1) and replaces the 3-row compact identity
+// with the 7-row pixel wordmark/tagline block (+4), for five additional rows.
+const COMPACT_BASE_ROWS = 16;
+const FULL_LAYOUT_EXTRA_ROWS = 5;
+
+function bannerOptionalRows(entry: Extract<HistoryEntry, { kind: 'banner' }>): number {
+  return Number(Boolean(entry.family))
+    + Number(Boolean(entry.keyTail))
+    + Number(Boolean(entry.sessionId))
+    + Number(Boolean(entry.profileConfigPath || entry.profile))
+    + (entry.autonomyAgents?.length ? 3 : 0);
+}
 
 export function Banner({
   entry,
   termWidth = DEFAULT_TERM_WIDTH,
+  termHeight,
 }: {
   entry: Extract<HistoryEntry, { kind: 'banner' }>;
   termWidth?: number;
+  termHeight?: number;
 }): React.ReactElement {
   const panelWidth = Math.max(20, Math.floor(termWidth));
-  const compact = panelWidth < FULL_LAYOUT_MIN_WIDTH;
+  const optionalRows = bannerOptionalRows(entry);
+  const compactRows = COMPACT_BASE_ROWS + optionalRows;
+  const condensed =
+    termHeight !== undefined && termHeight < compactRows + FULL_LAYOUT_EXTRA_ROWS;
+  const compact = panelWidth < FULL_LAYOUT_MIN_WIDTH || condensed;
   const paddingX = compact ? 1 : 2;
   const contentWidth = Math.max(1, panelWidth - paddingX * 2 - 2);
   const cwd = shortenPath(entry.cwd, Math.max(1, contentWidth - (compact ? 9 : 12)));
   const version = trunc(entry.version, Math.max(1, contentWidth - 1));
   const route = `${entry.provider} › ${entry.model}`;
 
-  // Keep motion to the small brand mark and only in the full layout.
-  const pinkRow = useBrandMarkAnimation(!compact);
+  // This banner persists in history. Keep it static so an idle TUI never
+  // redraws the whole Ink tree solely for a decorative logo gesture.
+  const pinkRow = 1;
+
+  // A not-yet-measured pane has no rows available. Rendering even the bare
+  // identity line would leak outside its viewport.
+  if (termHeight !== undefined && termHeight <= 0) return <></>;
+
+  if (condensed) {
+    const unbordered = (termHeight ?? 0) < 3;
+    const summary = truncateDisplay(
+      `WrongStack v${version} | ${entry.provider}/${entry.model} | ${cwd}`,
+      Math.max(1, panelWidth - (unbordered ? 0 : 4)),
+    );
+    if (unbordered) {
+      return <Text color={STACK_ORANGE} bold>{summary}</Text>;
+    }
+    return (
+      <Box width={panelWidth} borderStyle="round" borderColor={BORDER} paddingX={1}>
+        <Text color={STACK_ORANGE} bold>{summary}</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box

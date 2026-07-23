@@ -16,7 +16,7 @@ import {
 } from './components/status-bar.js';
 import { STATUSLINE_ITEMS, type StatuslineItem } from './components/statusline-picker.js';
 import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
-import { hitRegion, statusBarLineRow } from './hit-test.js';
+import { hitRegion, isHistoryScrollTarget, statusBarLineRow } from './hit-test.js';
 import { measureElement, type DOMElement } from './ink.js';
 import { routeInputKey } from './input-key-router.js';
 import {
@@ -27,7 +27,7 @@ import {
   routePanelEscapeKey,
   routeSettingsOverlayKey,
 } from './overlay-key-router.js';
-import { feedPaste } from './paste-accumulator.js';
+import { feedPaste, type PasteAccumState } from './paste-accumulator.js';
 import { scrollOffsetForTrackRow } from './components/scrollable-history.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
 import type { AutonomyStage } from './hooks/use-statusline-state.js';
@@ -44,7 +44,7 @@ interface AppKeyHandlerOptions {
   enhanceAbortRef: MutableRefObject<AbortController | null>;
   inputGateRef: MutableRefObject<boolean>;
   lastEscAtRef: MutableRefObject<number>;
-  pasteAccumRef: MutableRefObject<string | null>;
+  pasteAccumRef: MutableRefObject<PasteAccumState>;
   pasteFlushTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   commitPaste: (full: string) => Promise<void>;
   tryPickerKey: (input: string, key: KeyEvent, isEnter: boolean) => boolean;
@@ -228,6 +228,18 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
       if (paste) {
         pasteAccumRef.current = paste.accum;
         if (pasteFlushTimerRef.current) clearTimeout(pasteFlushTimerRef.current);
+        if (paste.error) {
+          if (paste.accum !== null) {
+            pasteFlushTimerRef.current = setTimeout(() => {
+              pasteFlushTimerRef.current = null;
+              pasteAccumRef.current = null;
+            }, 500);
+          } else {
+            pasteFlushTimerRef.current = null;
+          }
+          dispatch({ type: 'addEntry', entry: { kind: 'error', text: paste.error } });
+          return;
+        }
         if (paste.complete !== null) {
           pasteFlushTimerRef.current = null;
           await commitPaste(paste.complete);
@@ -237,7 +249,7 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
           pasteFlushTimerRef.current = null;
           const full = pasteAccumRef.current;
           pasteAccumRef.current = null;
-          if (full) void commitPaste(full);
+          if (typeof full === 'string' && full) void commitPaste(full);
         }, 500);
         return;
       }
@@ -482,10 +494,18 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
     // Mouse wheel/click handling remains opt-in; PgUp/PgDn works in every mode.
     if (!overlayOpen) {
       if (mouseMode && key.mouse?.kind === 'wheel') {
-        if (key.mouse.shift)
-          dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
-        else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
-        return;
+        if (
+          isHistoryScrollTarget(
+            { termRows, termCols: stdout?.columns ?? 80, viewportRows: state.viewportRows },
+            key.mouse.x,
+            key.mouse.y,
+          )
+        ) {
+          if (key.mouse.shift)
+            dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
+          else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
+          return;
+        }
       }
       // Scrollbar click / drag. A left press (or left-button drag) on the
       // right-edge track jumps the viewport to that position; each drag-move

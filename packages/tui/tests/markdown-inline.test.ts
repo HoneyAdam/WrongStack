@@ -57,6 +57,23 @@ describe('parseInline', () => {
     expect(t.filter((x) => x.code)).toHaveLength(1);
   });
 
+  it('returns the cached token array for ordinary repeated prose', () => {
+    const text = 'cache me **once**';
+    expect(parseInline(text)).toBe(parseInline(text));
+  });
+
+  it('does not retain a line larger than the cache character budget', () => {
+    const text = `**${'x'.repeat(300_000)}**`;
+    expect(parseInline(text)).not.toBe(parseInline(text));
+  });
+
+  it('evicts older entries when unique prose exceeds the character budget', () => {
+    const oldest = `oldest-**${'a'.repeat(130_000)}**`;
+    const cached = parseInline(oldest);
+    for (let i = 0; i < 4; i++) parseInline(`new-${i}-**${'b'.repeat(130_000)}**`);
+    expect(parseInline(oldest)).not.toBe(cached);
+  });
+
   it('returns empty for empty input', () => {
     expect(parseInline('')).toEqual([]);
   });

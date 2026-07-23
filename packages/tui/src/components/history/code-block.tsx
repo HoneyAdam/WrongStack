@@ -36,27 +36,33 @@ export interface DiffFilePreview {
   preview: DiffPreview;
 }
 
+interface OmittedDiffSummary {
+  fileCount: number;
+  added: number;
+  removed: number;
+}
+
+/** Renderable file previews plus aggregate data for files omitted by the cap. */
+export type DiffFilePreviews = DiffFilePreview[] & {
+  omitted?: OmittedDiffSummary | undefined;
+};
+
 // ── Constants ──
 
 /** Max code-block lines rendered before a "+N more" footer. */
 export const MAX_CODE_LINES = 80;
 /**
- * Default cap on rows surfaced by {@link parseUnifiedDiff} for the main
- * Update tool diff view. Previously hardcoded to `12`, which silently
- * truncated larger diffs and pushed the rest into a `… +N -M hidden`
- * footer. The Update tool runs in a scrollable history surface, so a
- * long diff is a legitimate read — let it render in full. Callers that
- * still need a hard cap (e.g. the approval dialog's tighter box) pass
- * their own number explicitly to `parseUnifiedDiff`; this default is
- * for the unbounded read-everything path.
- *
- * Set to `Number.POSITIVE_INFINITY` so `parseUnifiedDiff`'s `if (all.length
- * <= maxLines)` branch always matches and the slice/footer machinery
- * becomes a no-op. The `DIFF_LINE_SAFETY_CAP` below still bounds
- * individual row text length, which protects against pathological
- * one-liners (minified bundles, huge JSON blobs).
+ * Hard ceiling for one file's rendered diff preview. Diff rows are React/Ink
+ * elements and therefore retained by the active virtual-history window; an
+ * unbounded preview lets a single generated-file edit defeat virtualization.
+ * Totals for the whole diff remain available through `added`/`removed`, while
+ * the footer reports the hidden portion.
  */
-export const DIFF_MAX_LINES = Number.POSITIVE_INFINITY;
+export const DIFF_MAX_LINES = 200;
+/** Maximum number of per-file diff blocks retained for one tool entry. */
+export const MULTI_DIFF_MAX_FILES = 20;
+/** Maximum rendered diff rows retained across every file in one tool entry. */
+export const MULTI_DIFF_MAX_ROWS = 400;
 /**
  * Wrap budget when the caller doesn't supply `contentWidth` (e.g. the
  * approval dialog). Matches the historical per-row cap so the layout risk
@@ -208,8 +214,12 @@ export interface MultiDiffSummary {
   removed: number;
   hiddenAdded: number;
   hiddenRemoved: number;
-  /** Number of files whose preview was truncated by the per-file cap. */
+  /** Number of rendered files whose preview was truncated (has hidden rows).
+   *  Does not include files omitted entirely by the multi-file render ceiling;
+   *  those are tracked separately via {@link omittedFiles}. */
   truncatedFiles: number;
+  /** Files omitted entirely by the multi-file render ceiling. Guaranteed non-negative. */
+  omittedFiles: number;
 }
 
 /**
@@ -218,7 +228,7 @@ export interface MultiDiffSummary {
  * excluded from the rollup so the summary reflects what the user will
  * actually see rendered below.
  */
-export function summarizeMultiFileDiffs(items: DiffFilePreview[]): MultiDiffSummary {
+export function summarizeMultiFileDiffs(items: DiffFilePreviews): MultiDiffSummary {
   let added = 0;
   let removed = 0;
   let hiddenAdded = 0;
@@ -231,13 +241,19 @@ export function summarizeMultiFileDiffs(items: DiffFilePreview[]): MultiDiffSumm
     hiddenRemoved += item.preview.hiddenRemoved;
     if (item.preview.hidden > 0) truncatedFiles += 1;
   }
+  const omitted = items.omitted;
+  if (omitted) {
+    added += omitted.added;
+    removed += omitted.removed;
+  }
   return {
-    fileCount: items.length,
+    fileCount: items.length + (omitted?.fileCount ?? 0),
     added,
     removed,
     hiddenAdded,
     hiddenRemoved,
     truncatedFiles,
+    omittedFiles: omitted?.fileCount ?? 0,
   };
 }
 
@@ -272,6 +288,10 @@ export function formatMultiDiffSummary(
     parts.push(
       `… ${hiddenParts.join(' ')} hidden across ${summary.truncatedFiles} file${summary.truncatedFiles === 1 ? '' : 's'}`,
     );
+  }
+  const omittedFiles = summary.omittedFiles ?? 0;
+  if (omittedFiles > 0) {
+    parts.push(`${omittedFiles} more file${omittedFiles === 1 ? '' : 's'} not rendered`);
   }
   return parts.join(' · ');
 }
@@ -741,7 +761,7 @@ export function extractReplaceDiffs(
   toolName: string,
   output: string | undefined,
   input?: unknown | undefined,
-): DiffFilePreview[] | undefined {
+): DiffFilePreviews | undefined {
   if (toolName !== 'replace') return undefined;
   return extractMultiFileDiffs(toolName, output, input);
 }
@@ -792,19 +812,68 @@ export function extractMultiFileDiffs(
   toolName: string,
   output: string | undefined,
   input?: unknown | undefined,
-): DiffFilePreview[] | undefined {
+): DiffFilePreviews | undefined {
   if (!output) return undefined;
   const items = collectMultiFileDiffItems(toolName, output, input);
   if (items === undefined) return undefined;
   if (items.length === 0) return undefined;
 
-  const previews: DiffFilePreview[] = [];
-  for (const item of items) {
-    const preview = parseUnifiedDiff(item.diff, DIFF_MAX_LINES);
+  const previews: DiffFilePreviews = [];
+  const candidateItems = items.slice(0, MULTI_DIFF_MAX_FILES);
+  let remainingRows = MULTI_DIFF_MAX_ROWS;
+  let visited = 0;
+  for (const item of candidateItems) {
+    if (remainingRows <= 0) break;
+    visited++;
+    const preview = parseUnifiedDiff(item.diff, Math.min(DIFF_MAX_LINES, remainingRows));
     if (preview.rows.length === 0) continue;
     previews.push({ path: item.path ?? 'unknown file', preview });
+    remainingRows -= preview.rows.length;
+  }
+  const omittedItems = items.slice(visited);
+  if (omittedItems.length > 0) {
+    let added = 0;
+    let removed = 0;
+    for (const item of omittedItems) {
+      const summary = countUnifiedDiffChanges(item.diff);
+      added += summary.added;
+      removed += summary.removed;
+    }
+    previews.omitted = { fileCount: omittedItems.length, added, removed };
   }
   return previews.length > 0 ? previews : undefined;
+}
+
+function countUnifiedDiffChanges(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  let lineStart = 0;
+  const startsWithAny = (prefixes: string[], end: number): string | undefined =>
+    prefixes.find((p) => end - lineStart >= p.length && diff.startsWith(p, lineStart));
+
+  const processLine = (end: number): void => {
+    const found = startsWithAny(['diff --git ', '@@'], end);
+    if (found === 'diff --git ') {
+      /* outside hunk — reset is implicit via the next @@ */
+    } else if (found === '@@') {
+      /* entering hunk */
+    } else {
+      const first = diff.charCodeAt(lineStart);
+      const fileHeader =
+        startsWithAny(['+++ ', '--- '], end) !== undefined;
+      if (!fileHeader && first === 43) added++;
+      else if (!fileHeader && first === 45) removed++;
+    }
+  };
+
+  for (let index = 0; index < diff.length; index++) {
+    if (diff.charCodeAt(index) !== 10) continue;
+    processLine(index);
+    lineStart = index + 1;
+  }
+  // Process the unterminated final line (no trailing newline).
+  if (lineStart < diff.length) processLine(diff.length);
+  return { added, removed };
 }
 
 function collectMultiFileDiffItems(

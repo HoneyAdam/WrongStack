@@ -11,6 +11,7 @@ import {
   closePanels,
   firstSelectable,
   pruneToolInput,
+  retainStreamTail,
   skipDivider,
 } from '../src/reducers/helpers.js';
 import { createTestState } from './helpers/create-test-state.js';
@@ -109,6 +110,26 @@ describe('closePanels', () => {
     const state = stubState();
     const result = closePanels(state);
     expect(result.coordinator.monitorOpen).toBe(false);
+  });
+});
+
+describe('retainStreamTail', () => {
+  it('keeps small streams unchanged', () => {
+    expect(retainStreamTail('abc', 'def', 10)).toBe('abcdef');
+  });
+
+  it('keeps only the newest bounded tail without building a larger retained value', () => {
+    expect(retainStreamTail('0123456789', 'abcdefghij', 8)).toBe('cdefghij');
+    expect(retainStreamTail('0123456789', 'ABCD', 8)).toBe('6789ABCD');
+  });
+
+  it('does not retain an orphaned UTF-16 surrogate when trimming the head', () => {
+    expect(retainStreamTail('A😀B', 'C', 3)).toBe('BC');
+    expect(retainStreamTail('', 'A😀B', 3)).toBe('😀B');
+  });
+
+  it('returns an empty tail when the configured bound is non-positive', () => {
+    expect(retainStreamTail('abc', 'def', 0)).toBe('');
   });
 });
 

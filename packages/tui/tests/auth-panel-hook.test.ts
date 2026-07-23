@@ -2,7 +2,11 @@ import { render } from 'ink-testing-library';
 import React, { act, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type Action, reducer, type State } from '../src/app-reducer.js';
-import { AUTH_PANEL_INITIAL } from '../src/components/auth-panel-model.js';
+import {
+  AUTH_PANEL_INITIAL,
+  type AuthFlowIo,
+  type AuthPanelHost,
+} from '../src/components/auth-panel-model.js';
 import { type AuthPanelController, useAuthPanel } from '../src/hooks/use-auth-panel.js';
 import { Text } from '../src/ink.js';
 
@@ -42,7 +46,7 @@ interface Harness {
   unmount(): void;
 }
 
-function createHarness(): Harness {
+function createHarness(authHost?: AuthPanelHost): Harness {
   const stateRef = { current: initialState() };
   const actions: Action[] = [];
   let controller: AuthPanelController | undefined;
@@ -53,7 +57,7 @@ function createHarness(): Harness {
 
   function HookHarness(): React.ReactElement {
     const next = useAuthPanel({
-      authHost: undefined,
+      authHost,
       stateRef,
       dispatch,
       open: stateRef.current.authPanel.open,
@@ -154,5 +158,70 @@ describe('useAuthPanel standalone secret prompts', () => {
     act(() => harness.controller.onAuthPromptCancel());
     await expect(second).rejects.toMatchObject({ name: 'AbortError' });
     act(() => harness.unmount());
+  });
+
+  it('rejects a pending standalone prompt when the TUI unmounts', async () => {
+    let harness!: Harness;
+    act(() => {
+      harness = createHarness();
+    });
+    let secret!: Promise<string>;
+    act(() => {
+      secret = harness.controller.readSecret('Unmounted secret');
+      harness.unmount();
+    });
+
+    await expect(secret).rejects.toMatchObject({ name: 'AbortError', message: 'Cancelled' });
+  });
+
+  it('aborts a live auth flow on unmount and ignores its late completion', async () => {
+    let capturedIo: AuthFlowIo | undefined;
+    let finishFlow!: (result: { ok: boolean; message?: string }) => void;
+    const host = {
+      listProviders: vi.fn(async () => []),
+      listCatalog: vi.fn(async () => []),
+      localPresets: vi.fn(() => []),
+      setActiveKey: vi.fn(async () => null),
+      deleteKey: vi.fn(async () => null),
+      removeProvider: vi.fn(async () => null),
+      addKey: vi.fn(async () => ({ ok: true })),
+      updateKey: vi.fn(async () => ({ ok: true })),
+      editField: vi.fn(async () => ({ ok: true })),
+      addCatalogProvider: vi.fn(async () => ({ ok: true })),
+      addCustomProvider: vi.fn(
+        (io: AuthFlowIo) =>
+          new Promise<{ ok: boolean; message?: string }>((resolve) => {
+            capturedIo = io;
+            finishFlow = resolve;
+          }),
+      ),
+      addLocal: vi.fn(async () => ({ ok: true })),
+      oauthLogin: vi.fn(async () => ({ ok: true })),
+    } satisfies AuthPanelHost;
+    let harness!: Harness;
+    act(() => {
+      harness = createHarness(host);
+    });
+    act(() => {
+      harness.controller.openAuthPanel();
+      harness.rerender();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      harness.dispatch({ type: 'authMove', delta: 2 });
+      harness.controller.onAuthEnter();
+    });
+    expect(capturedIo?.signal.aborted).toBe(false);
+    const actionCountAtUnmount = harness.actions.length;
+
+    act(() => harness.unmount());
+    expect(capturedIo?.signal.aborted).toBe(true);
+    finishFlow({ ok: true, message: 'late result' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(harness.actions).toHaveLength(actionCountAtUnmount);
   });
 });

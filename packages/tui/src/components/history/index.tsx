@@ -1,6 +1,6 @@
 import { Box, Static, useStdout } from '../../ink.js';
 import type React from 'react';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { AssistantTail, ASSISTANT_TAIL_HEIGHT } from './assistant.js';
 import { Entry } from './entry.js';
 import { MAX_STREAM_DISPLAY_CHARS, tailForDisplay } from './utils.js';
@@ -20,6 +20,8 @@ export {
   type DiffLineRow,
   type DiffPreview,
   type MultiDiffSummary,
+  MULTI_DIFF_MAX_FILES,
+  MULTI_DIFF_MAX_ROWS,
   MULTI_DIFF_SUMMARY_THRESHOLD,
   extractDiffPreview,
   extractMultiFileDiffs,
@@ -54,6 +56,7 @@ export {
   ToolOutputLines,
   ToolStreamBox,
   streamBoxRows,
+  toolStreamBoxHeight,
   MAX_STREAM_DISPLAY_CHARS,
   tailForDisplay,
 } from './utils.js';
@@ -88,41 +91,80 @@ export const History = memo(function History({ entries, generation, streamingTex
   const termWidth = termSize.columns;
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
 
-  const staticKey = `${generation ?? 0}-w${termWidth}-mr${showModelReasoning}`;
-  const bannerGeneration = generation ?? 0;
-  const { bannerEntry, transcriptEntries } = useMemo(() => {
-    const firstBanner = entries.find((entry) => entry.kind === 'banner');
-    return {
-      bannerEntry: firstBanner,
-      // A malformed/restored transcript must never be able to stamp multiple
-      // banners into terminal scrollback.
-      transcriptEntries: entries.filter((entry) => entry.kind !== 'banner'),
+  const presentationKey = `w${termWidth}-mr${showModelReasoning}`;
+  const emissionRef = useRef<{
+    generation: number;
+    presentationKey: string;
+    revision: number;
+    ids: Set<number>;
+    bannerSeen: boolean;
+    omissionSeen: boolean;
+  }>({
+    generation: generation ?? 0,
+    presentationKey,
+    revision: 0,
+    ids: new Set(),
+    bannerSeen: false,
+    omissionSeen: false,
+  });
+  if (emissionRef.current.generation !== (generation ?? 0)) {
+    emissionRef.current = {
+      generation: generation ?? 0,
+      presentationKey,
+      revision: 0,
+      ids: new Set(),
+      bannerSeen: false,
+      omissionSeen: false,
     };
-  }, [entries]);
-
-  // Width is intentionally part of Static's key: committed transcript entries
-  // must be replayed at the new wrapping width after a resize. The banner is the
-  // exception. Once emitted for a history generation it already lives in native
-  // scrollback, so replaying it on every key change produces a stack of banners.
-  // Freeze the include/exclude decision for the lifetime of each Static key so
-  // its item indexes remain append-only between remounts.
-  const emittedBannerGenerationRef = useRef<number | null>(null);
-  const staticPlanRef = useRef({ key: '', includeBanner: false });
-  if (staticPlanRef.current.key !== staticKey) {
-    staticPlanRef.current = {
-      key: staticKey,
-      includeBanner: emittedBannerGenerationRef.current !== bannerGeneration,
-    };
+  } else if (emissionRef.current.presentationKey !== presentationKey) {
+    // Committed transcript entries must be replayed at the new wrapping width or
+    // reasoning visibility. Reset the per-emission dedup flags so the retained
+    // transcript reflows once — including the FIRST banner (a resumed session's
+    // banner reflows with the rest); the `bannerSeen` guard still collapses any
+    // later duplicate banners to a single one within the replay.
+    emissionRef.current.presentationKey = presentationKey;
+    emissionRef.current.ids = new Set();
+    emissionRef.current.bannerSeen = false;
+    emissionRef.current.omissionSeen = false;
   }
-  const includeBanner = staticPlanRef.current.includeBanner;
-  const staticEntries =
-    includeBanner && bannerEntry ? [bannerEntry, ...transcriptEntries] : transcriptEntries;
-
-  useLayoutEffect(() => {
-    if (includeBanner && bannerEntry) {
-      emittedBannerGenerationRef.current = bannerGeneration;
+  const pendingEntries: typeof entries = [];
+  for (const entry of entries) {
+    // Resumed transcripts can contain a historical banner as well as the
+    // current session banner. Native scrollback should announce the session
+    // once, so retain the first banner in each generation.
+    if (entry.kind === 'banner' && emissionRef.current.bannerSeen) continue;
+    // Retention replaces this exact negative-id info marker as the bounded
+    // prefix moves. Native scrollback already contains the first marker.
+    const isOmissionMarker =
+      entry.id < 0 &&
+      entry.kind === 'info' &&
+      /^… \d+ earlier TUI entries omitted \(full session remains on disk\)\.$/.test(entry.text);
+    if (isOmissionMarker && emissionRef.current.omissionSeen) continue;
+    if (emissionRef.current.ids.has(entry.id)) continue;
+    emissionRef.current.ids.add(entry.id);
+    if (entry.kind === 'banner') emissionRef.current.bannerSeen = true;
+    if (isOmissionMarker) emissionRef.current.omissionSeen = true;
+    pendingEntries.push(entry);
+  }
+  if (pendingEntries.length > 0) emissionRef.current.revision++;
+  // Bound the dedup set. `ids` remembers every entry ever emitted so it is not
+  // re-written to native scrollback, but retention caps `entries` to ~400 — an
+  // id no longer in `entries` has scrolled past retention and can never render
+  // again, so it need not be remembered. Without this prune the set grows by one
+  // number per message for the whole session (unbounded on 10h+ sessions). Only
+  // runs when the set has outgrown the live window, and only deletes (never adds).
+  if (emissionRef.current.ids.size > entries.length) {
+    const liveIds = new Set<number>();
+    for (const entry of entries) liveIds.add(entry.id);
+    for (const id of emissionRef.current.ids) {
+      if (!liveIds.has(id)) emissionRef.current.ids.delete(id);
     }
-  }, [bannerEntry, bannerGeneration, includeBanner]);
+  }
+  // Each revision remounts Static with only the new delta. Presentation changes
+  // reset the emitted-id set above so the retained transcript is replayed once.
+  const staticRevision = emissionRef.current.revision;
+  const staticKey = `${generation ?? 0}-${staticRevision}-${presentationKey}`;
+  const staticEntries = pendingEntries;
 
   // NOTE: the live tool-stream box (◆ <tool> ⏱ … + last N output lines) is
   // deliberately NOT rendered in inline mode. In a full terminal the live
@@ -141,7 +183,7 @@ export const History = memo(function History({ entries, generation, streamingTex
       <Static key={staticKey} items={staticEntries}>
         {(entry) => (
           <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0}>
-            <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} multiDiffSummaryThreshold={multiDiffSummaryThreshold} todos={todos} showModelReasoning={showModelReasoning} />
+            <Entry entry={entry} termWidth={termWidth} termHeight={termSize.rows} setSuggestions={setSuggestions} autonomyMode={autonomyMode} multiDiffSummaryThreshold={multiDiffSummaryThreshold} todos={todos} showModelReasoning={showModelReasoning} />
           </Box>
         )}
       </Static>

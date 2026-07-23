@@ -1,5 +1,5 @@
 import type { Director } from '@wrongstack/core/coordination';
-import type { ContentBlock } from '@wrongstack/core/types';
+import type { AttachmentStore, ContentBlock } from '@wrongstack/core/types';
 import {
   detectContinueIntent,
   type InputBuilder,
@@ -17,7 +17,7 @@ import { buildSteeringPreamble } from './steering-preamble.js';
 import { shouldPushSubmittedHistory } from './submit-history.js';
 import type { SubmitCapabilities } from './tui-host-capabilities.js';
 import type { MutableCell } from './shared-types.js';
-import type { TokenPreviewStore } from './token-previews.js';
+import { resolveAttachmentTokens, type TokenPreviewStore } from './token-previews.js';
 
 export interface SubmitControllerHost {
   readonly capabilities: SubmitCapabilities;
@@ -46,6 +46,7 @@ export interface SubmitControllerHost {
     readonly autoSubmitCapWarned: MutableCell<boolean>;
     readonly autoSubmitLoopGuard: MutableCell<{ reset(): void }>;
     readonly tokenPreviews: MutableCell<TokenPreviewStore>;
+    readonly attachments: AttachmentStore;
     readonly builder: MutableCell<InputBuilder | null>;
     readonly sessionGeneration: MutableCell<number>;
     readonly eternalLoop: MutableCell<() => Promise<void>>;
@@ -128,6 +129,7 @@ export function createSubmitController(host: SubmitControllerHost) {
       autoSubmitCapWarned: autoSubmitCapWarnedRef,
       autoSubmitLoopGuard: autoSubmitLoopGuardRef,
       tokenPreviews: tokenPreviewsRef,
+      attachments,
       builder: builderRef,
       sessionGeneration: sessionGenerationRef,
       eternalLoop: runEternalLoopRef,
@@ -239,22 +241,15 @@ export function createSubmitController(host: SubmitControllerHost) {
     // Slash commands always dispatch immediately, even mid-iteration —
     // they don't conflict with a running agent.
     if (trimmed.startsWith('/')) {
-      // Resolve inline chip tokens (pasted content, files, images) to their
-      // actual stored content so slash commands like /fix can see the full
-      // error text / build output instead of just placeholder tokens.
-      let resolvedForDispatch = trimmed;
+      // Resolve full content from the canonical attachment store; the preview
+      // cache intentionally retains only bounded display snippets.
+      const resolvedForDispatch = await resolveAttachmentTokens(trimmed, attachments);
       const pasteParts: string[] = [];
       for (const m of trimmed.matchAll(new RegExp(INLINE_TOKEN_SRC, 'g'))) {
         const token = m[0];
-        const content = tokenPreviewsRef.current.get(token);
-        if (content) {
-          resolvedForDispatch = resolvedForDispatch.replace(
-            token,
-            `\n<pasted>\n${content}\n</pasted>`,
-          );
-        }
+        const preview = tokenPreviewsRef.current.get(token);
         pasteParts.push(token);
-        if (content) pasteParts.push(`  ${content.split('\n').slice(0, 6).join('\n  ')}`);
+        if (preview) pasteParts.push(`  ${preview.split('\n').join('\n  ')}`);
       }
       const pasteContent = pasteParts.length > 0 ? pasteParts.join('\n') : undefined;
 
@@ -286,9 +281,9 @@ export function createSubmitController(host: SubmitControllerHost) {
           const m = res.metadata.goalRunInit as { title: string };
           dispatch({ type: 'goalRunInit', title: m.title });
         }
-        // /mouse toggles pointer support inside overlays. Chat always leaves
-        // SGR tracking off so the terminal owns native wheel scrollback.
-        // The command is stateless (it doesn't
+        // /mouse toggles full-session pointer support. Off mode still borrows
+        // SGR tracking for selectable overlays while leaving normal chat wheel
+        // input to terminal scrollback. The command is stateless (it doesn't
         // know the live value), so it emits an intent and the App resolves it
         // against its own `mouseMode` state, persists, and prints the result.
         const mouseToggle = res?.metadata?.mouseToggle as
@@ -318,8 +313,8 @@ export function createSubmitController(host: SubmitControllerHost) {
             entry: {
               kind: 'info',
               text: nextVal
-                ? 'Mouse mode: ON — pointer input enabled in pickers; chat wheel remains native terminal scrollback.'
-                : 'Mouse mode: OFF — picker pointer input disabled; chat wheel remains native terminal scrollback.',
+                ? 'Mouse mode: ON — chat wheel, scrollbar drag, and clickable UI are managed in-app.'
+                : 'Mouse mode: OFF — chat wheel uses native terminal scrollback; pickers borrow pointer input while open.',
             },
           });
         }
@@ -606,14 +601,7 @@ export function createSubmitController(host: SubmitControllerHost) {
       }
 
       if (mode === 'btw') {
-        // Resolve inline chip tokens (paste/file/image) to their stored content
-        // so the note is meaningful to the model — same as the slash-command path.
-        let noteText = effectiveText;
-        for (const m of effectiveText.matchAll(new RegExp(INLINE_TOKEN_SRC, 'g'))) {
-          const token = m[0];
-          const content = tokenPreviewsRef.current.get(token);
-          if (content) noteText = noteText.replace(token, `\n<pasted>\n${content}\n</pasted>`);
-        }
+        const noteText = await resolveAttachmentTokens(effectiveText, attachments);
         const pending = setBtwNote(agent.ctx, noteText);
         dispatch({
           type: 'addEntry',

@@ -236,6 +236,7 @@ export function useTerminalRenderLifecycle(
             breakerEnabled: sp.breakerEnabled,
             breakerAutoKillResetMs: sp.breakerAutoKillResetMs,
             showModelReasoning: sp.showModelReasoning,
+            showAgentSwarmPanel: sp.showAgentSwarmPanel,
           });
         }
         if (prev.projectPicker) {

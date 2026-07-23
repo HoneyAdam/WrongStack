@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { buildRestoredEntries, createInitialState } from '../src/app-initial-state.js';
 import { reducer } from '../src/app-reducer.js';
 import type { HistoryEntry } from '../src/components/history/types.js';
-import { retainTuiHistory, TUI_HISTORY_MAX_ENTRIES } from '../src/history-retention.js';
+import {
+  retainTuiHistory,
+  TUI_HISTORY_MAX_ENTRIES,
+  TUI_HISTORY_MAX_ENTRY_BYTES,
+} from '../src/history-retention.js';
 
 function infoEntries(count: number, startId = 1): HistoryEntry[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -40,6 +44,49 @@ describe('bounded TUI display history', () => {
     });
     expect(retained[2]).toMatchObject({ text: 'entry-51' });
     expect(retained.at(-1)).toMatchObject({ text: `entry-${TUI_HISTORY_MAX_ENTRIES + 50}` });
+  });
+
+  it('keeps only the first banner when history contains duplicates', () => {
+    const first: HistoryEntry = {
+      id: 0,
+      kind: 'banner',
+      version: '1.0.0',
+      provider: 'first',
+      model: 'first-model',
+      cwd: '/first',
+    };
+    const second: HistoryEntry = {
+      id: 9,
+      kind: 'banner',
+      version: '2.0.0',
+      provider: 'second',
+      model: 'second-model',
+      cwd: '/second',
+    };
+
+    expect(retainTuiHistory([first, ...infoEntries(2), second])).toEqual([
+      first,
+      ...infoEntries(2),
+    ]);
+  });
+
+  it('degrades a banner that cannot fit its custom per-entry budget to a transcript marker', () => {
+    const banner: HistoryEntry = {
+      id: 0,
+      kind: 'banner',
+      version: '1.0.0',
+      provider: 'test',
+      model: 'test',
+      cwd: '/project',
+    };
+
+    expect(retainTuiHistory([banner], { maxBytes: 100, maxEntryBytes: 1 })).toEqual([
+      {
+        id: 0,
+        kind: 'info',
+        text: '… oversized banner entry omitted from TUI history (full session remains on disk).',
+      },
+    ]);
   });
 
   it('accumulates omission counts as a live managed history keeps growing', () => {
@@ -86,11 +133,68 @@ describe('bounded TUI display history', () => {
       { id: 3, kind: 'assistant', text: 'c'.repeat(80) },
     ];
 
-    const retained = retainTuiHistory(entries, { maxEntries: 10, maxBytes: 100 });
+    const retained = retainTuiHistory(entries, {
+      maxEntries: 10,
+      maxBytes: 100,
+      maxEntryBytes: 100,
+    });
 
     expect(retained[0]).toMatchObject({ kind: 'info' });
-    expect(retained.at(-1)).toBe(entries[2]);
+    expect(retained.at(-1)).toMatchObject({ id: 3, kind: 'assistant' });
     expect(retained).toHaveLength(2);
+  });
+
+  it('hard-caps a single oversized newest entry instead of exempting it from the budget', () => {
+    const retained = retainTuiHistory([
+      { id: 1, kind: 'assistant', text: '😀'.repeat(TUI_HISTORY_MAX_ENTRY_BYTES) },
+    ]);
+
+    const entry = retained[0];
+    expect(entry).toMatchObject({ id: 1, kind: 'assistant' });
+    expect(entry?.kind === 'assistant' ? entry.text : '').toContain('truncated for TUI history');
+    expect(Buffer.byteLength(JSON.stringify(entry), 'utf8')).toBeLessThanOrEqual(
+      TUI_HISTORY_MAX_ENTRY_BYTES,
+    );
+  });
+
+  it('drops oversized structured payloads to a bounded marker', () => {
+    const retained = retainTuiHistory([
+      {
+        id: 7,
+        kind: 'memory-activation',
+        trigger: 'test',
+        outcome: 'injected',
+        candidates: 1,
+        contextPressure: 0,
+        injectedChars: 0,
+        activated: [
+          {
+            id: 'memory-1',
+            kind: 'fact',
+            text: 'x'.repeat(TUI_HISTORY_MAX_ENTRY_BYTES * 2),
+            score: 1,
+            relationStrength: 1,
+            anchors: [],
+            tags: [],
+            activationReasons: [],
+            importance: 1,
+            confidence: 1,
+            freshness: 1,
+            persistence: 'session',
+          },
+        ],
+        injectedIds: [],
+        rejected: { duplicate: 0, belowScore: 0, alreadyVisible: 0, cooldown: 0, budget: 0 },
+      },
+    ]);
+
+    expect(retained).toEqual([
+      {
+        id: 7,
+        kind: 'info',
+        text: '… oversized memory-activation entry omitted from TUI history (full session remains on disk).',
+      },
+    ]);
   });
 
   it('hydrates only the recent tail of a long resumed session', () => {

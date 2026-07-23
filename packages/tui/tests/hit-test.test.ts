@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  historyViewportRows,
   hitRegion,
+  isHistoryScrollTarget,
   type MouseLayout,
   SCROLLBAR_HIT_WIDTH,
   statusBarLineRow,
@@ -8,6 +10,16 @@ import {
 
 // A 80x24 terminal with a 20-row history viewport (4-row bottom region).
 const layout: MouseLayout = { termRows: 24, termCols: 80, viewportRows: 20 };
+
+describe('historyViewportRows', () => {
+  it('reserves the measured bottom region for the composer and status bar', () => {
+    expect(historyViewportRows(24, 7)).toBe(17);
+  });
+
+  it('keeps at least one history row on short terminals', () => {
+    expect(historyViewportRows(6, 9)).toBe(1);
+  });
+});
 
 describe('hitRegion', () => {
   it('returns null for points outside the terminal', () => {
@@ -50,6 +62,20 @@ describe('hitRegion', () => {
     const full: MouseLayout = { termRows: 10, termCols: 40, viewportRows: 10 };
     expect(hitRegion(full, 5, 10)).toEqual({ kind: 'history', row: 9 });
     expect(hitRegion(full, 40, 10)).toEqual({ kind: 'scrollbar', cell: 9 });
+  });
+});
+
+describe('isHistoryScrollTarget', () => {
+  it('accepts history and scrollbar wheel coordinates only', () => {
+    expect(isHistoryScrollTarget(layout, 40, 10)).toBe(true);
+    expect(isHistoryScrollTarget(layout, 80, 10)).toBe(true);
+    expect(isHistoryScrollTarget(layout, 40, 21)).toBe(false);
+    expect(isHistoryScrollTarget(layout, 80, 24)).toBe(false);
+  });
+
+  it('rejects coordinates outside the terminal', () => {
+    expect(isHistoryScrollTarget(layout, 0, 10)).toBe(false);
+    expect(isHistoryScrollTarget(layout, 40, 25)).toBe(false);
   });
 });
 

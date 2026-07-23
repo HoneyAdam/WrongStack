@@ -11,6 +11,8 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -62,10 +64,11 @@ import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
 import { useTuiSlashCommands } from './hooks/use-tui-slash-commands.js';
 import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { useExitCommand } from './hooks/use-exit-command.js';
-import { type DOMElement, useApp, useStdout } from './ink.js';
+import { type DOMElement, measureElement, useApp, useStdout } from './ink.js';
 import { deriveAppViewState } from './app-view-state.js';
 import { AppView } from './app-view.js';
-import { MOUSE_DRAG_ON, MOUSE_OFF } from './mouse.js';
+import { historyViewportRows } from './hit-test.js';
+import { MOUSE_DRAG_ON, MOUSE_OFF, shouldEnableMouseTracking } from './mouse.js';
 import { createRunBlocksController } from './run-blocks-controller.js';
 import { createSubmitController } from './submit-controller.js';
 import { TokenPreviewStore } from './token-previews.js';
@@ -127,6 +130,7 @@ export function App(props: AppProps): React.ReactElement {
   confirmExit = true,
   titleController,
   mouse = false,
+  capability,
   enhanceEnabled = true,
   enhanceController,
   midRunSendPicker = true,
@@ -200,6 +204,7 @@ export function App(props: AppProps): React.ReactElement {
   getModes,
   registerDebugStreamCallback,
   restoreDebugStreamCallback,
+  restoredMessages,
   restoredToolCalls,
   restoredEvents,
   getProjectPickerItems,
@@ -265,18 +270,22 @@ export function App(props: AppProps): React.ReactElement {
   const liveTodos = useLiveTodos(agent.ctx);
   const promptUsageRef = useRef<PromptUsageStore | null>(null);
 
-  // Rehydrate TUI chat history from restored messages (session resume).
-  // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
-  // when wstack resume <id> is used. These messages only exist in the LLM context
-  // by default; we convert them to visible history entries here.
-  const restoredEntries = buildRestoredEntries(
-    agent.ctx.messages,
-    restoredToolCalls,
-    restoredEvents,
+  // Rehydrate prior-session data once for each stable resume payload. App
+  // re-renders continuously while timers, provider deltas, and tool events are
+  // active; replaying the complete JSONL-backed transcript on every such render
+  // creates session-sized temporary maps/arrays that useReducer never consumes
+  // after its initial mount.
+  const restoredMessageSource = restoredMessages ?? agent.ctx.messages;
+  const restoredEntries = useMemo(
+    () => buildRestoredEntries(restoredMessageSource, restoredToolCalls, restoredEvents),
+    [restoredMessageSource, restoredToolCalls, restoredEvents],
   );
   // Checkpoints likewise only reach state via the live checkpoint.written
   // bridge, so a resumed session would have none and /rewind would refuse.
-  const restoredCheckpoints = buildRestoredCheckpoints(restoredEvents);
+  const restoredCheckpoints = useMemo(
+    () => buildRestoredCheckpoints(restoredEvents),
+    [restoredEvents],
+  );
 
   const [state, rawDispatch] = useReducer(
     reducer,
@@ -305,6 +314,14 @@ export function App(props: AppProps): React.ReactElement {
   // valid UI actions silently (status changes, slash panels, queueing, picker
   // navigation) and made the entire composer appear frozen.
   const dispatch = rawDispatch;
+  // Stable measurement callback threaded into ScrollableHistory via the
+  // AppView runtime contract. `dispatch` (rawDispatch) is stable, so the
+  // memoized handler is too — ScrollableHistory relies on that stability to
+  // keep its measure effect from re-firing every render.
+  const onMeasure = useCallback(
+    (totalLines: number) => dispatch({ type: 'setMeasuredLines', totalLines }),
+    [dispatch],
+  );
   // Board id captured by `/kanban use <boardId>` or the Goal → Kanban
   // bridge. The KanbanPanel reads it as `initialBoardId` so the panel
   // opens on the requested board rather than the session-tag fallback.
@@ -433,6 +450,13 @@ export function App(props: AppProps): React.ReactElement {
   }
 
   const activeCtrlRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      activeCtrlRef.current?.abort('TUI unmounted');
+      activeCtrlRef.current = null;
+    },
+    [],
+  );
   const eternalLoopRunningRef = useRef(false);
   const parallelLoopRunningRef = useRef(false);
   // `/clear` waits for the complete runBlocks lifecycle before resetting Context.
@@ -623,22 +647,24 @@ export function App(props: AppProps): React.ReactElement {
     [statuslineHiddenForPicker],
   );
 
-  // Live mirror of the pointer opt-in. Chat history itself uses terminal-native
-  // scrollback; this setting only controls mouse input inside overlays.
+  // Live mirror of the full-session pointer opt-in. When false, the terminal
+  // keeps ownership of normal chat scrollback and tracking is only borrowed by
+  // selectable overlays. When true, the managed history owns wheel/click input.
   const [mouseMode, setMouseMode] = useState(mouse);
 
-  // Mouse tracking ownership. We enable SGR mouse reporting while a selectable
-  // overlay is open (so the wheel scrolls the picker selection — see the wheel
-  // handlers in handleKey) and pointer input is enabled. Outside those cases
-  // tracking stays OFF so the wheel scrolls the terminal's native
-  // scrollback in the chat. A ref tracks the last write so we only emit a
-  // sequence on an actual transition. Cleanup disables tracking on unmount;
+  // Mouse tracking ownership. Full mode keeps SGR reporting active for the
+  // session; otherwise selectable overlays borrow it temporarily so wheel and
+  // click navigation still work without sacrificing normal terminal scrollback.
+  // A ref tracks the last write so transitions emit exactly one sequence.
+  // Cleanup disables tracking on unmount;
   // run-tui also sends MOUSE_OFF as a belt-and-suspenders on process exit.
   const pickerOverlayOpen =
     state.modelPicker.open ||
     state.autonomyPicker.open ||
     state.modePicker.open ||
     state.designPicker.open ||
+    state.resumePicker.open ||
+    state.promptPicker.open ||
     state.settingsPicker.open ||
     state.projectPicker.open ||
     state.slashPicker.open ||
@@ -651,9 +677,14 @@ export function App(props: AppProps): React.ReactElement {
     state.shadowPanel.open ||
     state.fKeyPicker.open ||
     state.authPanel.open ||
+    state.sessionsPanelOpen ||
     state.picker.open;
-  const mouseTrackingOn = mouseMode && pickerOverlayOpen;
-  const mouseWrittenRef = useRef(false);
+  const mouseTrackingOn = shouldEnableMouseTracking({
+    fullMode: mouseMode,
+    overlayOpen: pickerOverlayOpen,
+    protocol: capability?.mouseProtocol,
+  });
+  const mouseWrittenRef = useRef<boolean | null>(null);
   useEffect(() => {
     if (mouseWrittenRef.current === mouseTrackingOn) return;
     mouseWrittenRef.current = mouseTrackingOn;
@@ -665,6 +696,11 @@ export function App(props: AppProps): React.ReactElement {
   }, [mouseTrackingOn]);
   useEffect(
     () => () => {
+      const wasTracking = mouseWrittenRef.current === true;
+      // React StrictMode replays effects without recreating refs. Reset the
+      // write sentinel so the replay restores whichever mode is still active.
+      mouseWrittenRef.current = null;
+      if (!wasTracking) return;
       try {
         process.stdout.write(MOUSE_OFF);
       } catch {
@@ -674,8 +710,10 @@ export function App(props: AppProps): React.ReactElement {
     [],
   );
 
-  // Bottom-region refs support status-bar hit testing. History is committed to
-  // native scrollback, so it no longer participates in a measured viewport.
+  // Managed history owns the rows above the input/status/panel region. Keep
+  // that viewport synchronized with the measured bottom region; otherwise the
+  // initial zero-row state collapses ScrollableHistory to its one-row guard and
+  // clips the startup banner to a single line.
   const bottomRegionRef = useRef<DOMElement | null>(null);
   // Measured on click to locate clickable status-bar chips: the status bar is
   // bottom-anchored above `belowStatusBarRef`'s panels, so its absolute rows are
@@ -690,6 +728,14 @@ export function App(props: AppProps): React.ReactElement {
       process.stdout.off('resize', onResize);
     };
   }, []);
+  useLayoutEffect(() => {
+    const node = bottomRegionRef.current;
+    if (!node) return;
+    const rows = historyViewportRows(termRows, measureElement(node).height);
+    if (rows !== stateRef.current.viewportRows) {
+      dispatch({ type: 'setViewportRows', rows });
+    }
+  });
   // Latest handleKey, so the keyboard event pipeline can be accessed from
   // effects and callbacks defined above handleKey in the component body.
   const handleKeyRef = useRef<((input: string, key: KeyEvent) => Promise<void>) | null>(null);
@@ -1308,6 +1354,7 @@ export function App(props: AppProps): React.ReactElement {
       autoSubmitCapWarned: autoSubmitCapWarnedRef,
       autoSubmitLoopGuard: autoSubmitLoopGuardRef,
       tokenPreviews: tokenPreviewsRef,
+      attachments,
       builder: builderRef,
       sessionGeneration: sessionGenerationRef,
       eternalLoop: runEternalLoopRef,
@@ -1371,6 +1418,7 @@ export function App(props: AppProps): React.ReactElement {
       runtime={{
         state,
         dispatch,
+        onMeasure,
         activity,
         environment,
         statusbar,

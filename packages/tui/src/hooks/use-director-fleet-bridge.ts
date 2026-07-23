@@ -5,8 +5,18 @@ import type { Action, State } from '../app-reducer.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
 import { formatToolSummary, type ToolAgg } from './fleet-chat-coalescer.js';
 import { useFleetGenerationGate } from './use-fleet-generation-gate.js';
+import {
+  MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+  retainStreamTail,
+} from '../reducers/helpers.js';
 
-const FLUSH_MS = 150;
+// Fleet streams can produce deltas from many workers at once. A 150 ms flush
+// made a 10-agent run schedule several full App/Ink renders per second. Keep
+// the live preview responsive while allowing one render to absorb a burst.
+const FLUSH_MS = 500;
+/** A completed subagent bubble remains useful, but must not retain an
+ * arbitrarily large model response in the bridge before its turn boundary. */
+export const MAX_FLEET_HISTORY_BUFFER_CHARS = 64 * 1024;
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
 
 function labelFor(
@@ -85,6 +95,16 @@ export function useDirectorFleetBridge({
         return;
       }
       if (!batchTimer) batchTimer = setTimeout(flushBatch, FLUSH_MS);
+    };
+    const fleetCostAction = (): Action => {
+      const snapshot = d.snapshot();
+      return {
+        type: 'fleetCost',
+        cost: snapshot.total.cost,
+        input: snapshot.total.input,
+        output: snapshot.total.output,
+        perAgent: snapshot.perSubagent,
+      };
     };
 
     // Live-panel buffer. Periodically flushed deltas feed the FleetPanel's
@@ -170,13 +190,7 @@ export function useDirectorFleetBridge({
       });
       labelFor(labelsRef, subagent.id, meta?.name ?? subagent.name);
     }
-    dispatch({
-      type: 'fleetCost',
-      cost: d.snapshot().total.cost,
-      input: d.snapshot().total.input,
-      output: d.snapshot().total.output,
-      perAgent: d.snapshot().perSubagent,
-    });
+    dispatch(fleetCostAction());
 
     const seen = new Set(status.subagents.map((subagent) => subagent.id));
     const pending = new Map<string, string>();
@@ -220,15 +234,22 @@ export function useDirectorFleetBridge({
         }
       }
 
+      // A removal always cleans up local tracking, even for subagents spawned
+      // before the last /clear whose other events we gate out below — otherwise
+      // their seen / labelsRef / spawn-generation entries leak permanently.
+      if (event.type === 'subagent.removed') {
+        const live = gate.isLive(event.subagentId);
+        seen.delete(event.subagentId);
+        labelsRef.current.delete(event.subagentId);
+        gate.forget(event.subagentId);
+        if (live) enqueue({ type: 'fleetRemove', id: event.subagentId });
+        return;
+      }
+
       // Discard events from subagents spawned before the last /clear.
       if (!gate.isLive(event.subagentId)) return;
 
       switch (event.type) {
-        case 'subagent.removed':
-          seen.delete(event.subagentId);
-          labelsRef.current.delete(event.subagentId);
-          enqueue({ type: 'fleetRemove', id: event.subagentId });
-          break;
         case 'iteration.started':
         case 'session.started':
           enqueue({ type: 'fleetStart', id: event.subagentId });
@@ -236,17 +257,32 @@ export function useDirectorFleetBridge({
         case 'provider.text_delta': {
           const payload = event.payload as { text?: string | undefined };
           if (payload?.text) {
-            pending.set(event.subagentId, (pending.get(event.subagentId) ?? '') + payload.text);
+            pending.set(
+              event.subagentId,
+              retainStreamTail(
+                pending.get(event.subagentId) ?? '',
+                payload.text,
+                MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+              ),
+            );
             if (!flushTimer) flushTimer = setTimeout(doFlush, FLUSH_MS);
             streamBuf.set(
               event.subagentId,
-              (streamBuf.get(event.subagentId) ?? '') + payload.text,
+              retainStreamTail(
+                streamBuf.get(event.subagentId) ?? '',
+                payload.text,
+                MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+              ),
             );
-            // Accumulate the full assistant message for the chat-history bubble.
-            // Committed as one entry at the next turn boundary (see finalizeHistory).
+            // Keep a generous tail for the chat-history bubble. The canonical
+            // full response remains in provider/session logs.
             historyBuf.set(
               event.subagentId,
-              (historyBuf.get(event.subagentId) ?? '') + payload.text,
+              retainStreamTail(
+                historyBuf.get(event.subagentId) ?? '',
+                payload.text,
+                MAX_FLEET_HISTORY_BUFFER_CHARS,
+              ),
             );
             if (streamFlushTimer) clearTimeout(streamFlushTimer);
             streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
@@ -258,7 +294,11 @@ export function useDirectorFleetBridge({
           if (payload?.text) {
             streamBuf.set(
               event.subagentId,
-              (streamBuf.get(event.subagentId) ?? '') + payload.text,
+              retainStreamTail(
+                streamBuf.get(event.subagentId) ?? '',
+                payload.text,
+                MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+              ),
             );
             if (streamFlushTimer) clearTimeout(streamFlushTimer);
             streamFlushTimer = setTimeout(flushStreamBufs, FLUSH_MS * 4);
@@ -328,13 +368,7 @@ export function useDirectorFleetBridge({
           break;
         }
         case 'provider.response':
-          enqueue({
-            type: 'fleetCost',
-            cost: d.snapshot().total.cost,
-            input: d.snapshot().total.input,
-            output: d.snapshot().total.output,
-            perAgent: d.snapshot().perSubagent,
-          });
+          enqueue(fleetCostAction());
           break;
         case 'session.ended':
           // Commit the subagent's final assistant message (and, in compact
@@ -434,13 +468,7 @@ export function useDirectorFleetBridge({
         iterations: payload.result.iterations,
         toolCalls: payload.result.toolCalls,
       });
-      dispatch({
-        type: 'fleetCost',
-        cost: d.snapshot().total.cost,
-        input: d.snapshot().total.input,
-        output: d.snapshot().total.output,
-        perAgent: d.snapshot().perSubagent,
-      });
+      dispatch(fleetCostAction());
       // Commit any unflushed assistant text / tool summary for this subagent
       // before it's done. task.completed fires for failed and timed-out tasks
       // too, so a crashed agent's pending burst still flushes here.

@@ -1382,7 +1382,13 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onCoordinatorStatus: opts.onCoordinatorStatus,
           memoryStore: opts.memoryStore,
         }),
-        { exitOnCtrlC: false, stdin: inkStdin },
+        {
+          exitOnCtrlC: false,
+          stdin: inkStdin,
+          // Bound reconciliation/tokenization work for large live histories
+          // while preserving responsive streamed output.
+          maxFps: 10,
+        },
       );
       // Wire the hoisted reference so signal handlers can unmount Ink.
       inkInstance = instance;

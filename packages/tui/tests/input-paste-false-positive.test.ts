@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { Input, type KeyEvent } from '../src/components/input.js';
-import { feedPaste } from '../src/paste-accumulator.js';
+import { feedPaste, type PasteAccumState } from '../src/paste-accumulator.js';
 
 describe('Input + paste accumulator integration', () => {
   it('does not turn normal typing into fake pasted blocks after a stripped ANSI fragment', async () => {
     const seen: Array<{ input: string; key: KeyEvent }> = [];
-    let pasteAccum: string | null = null;
+    let pasteAccum: PasteAccumState = null;
     let committed = '';
 
     const onKey = (input: string, key: KeyEvent) => {

@@ -47,8 +47,6 @@ function brainStatusStyle(status: Extract<HistoryEntry, { kind: 'brain' }>['stat
       return { icon: '?', color: 'yellow' };
     case 'denied':
       return { icon: '×', color: 'red' };
-    case 'intervention':
-      return { icon: '⚡', color: 'yellow' };
   }
 }
 
@@ -130,6 +128,7 @@ function NoticeCard({
 export const Entry = React.memo(function Entry({
   entry,
   termWidth,
+  termHeight,
   setSuggestions,
   autonomyMode,
   multiDiffSummaryThreshold,
@@ -138,6 +137,8 @@ export const Entry = React.memo(function Entry({
 }: {
   entry: HistoryEntry;
   termWidth: number;
+  /** Available managed-history rows; used by height-aware entries such as the banner. */
+  termHeight?: number | undefined;
   /** Store parsed next steps in the shared suggestion store so /next 1 works. */
   setSuggestions?: ((steps: string[]) => void) | undefined;
   /** Current autonomy mode — when 'auto', first step shows an auto marker. */
@@ -383,12 +384,12 @@ export const Entry = React.memo(function Entry({
               /^[^\n]*\bcreated=true\b/.test(entry.output ?? ''));
           const verb = created ? 'Write' : 'Update';
           const path = stringOf(inputObj?.['path']) ?? stringOf(outObj?.['path']);
-          const target = multiDiffs
-            ? multiDiffs.length === 1
-              ? multiDiffs[0]!.path
-              : `${multiDiffs.length} files`
-            : (path ?? 'file');
           const agg = multiDiffs ? summarizeMultiFileDiffs(multiDiffs) : undefined;
+          const target = multiDiffs
+            ? agg?.fileCount === 1
+              ? multiDiffs[0]!.path
+              : `${agg?.fileCount ?? multiDiffs.length} files`
+            : (path ?? 'file');
           return {
             verb,
             target,
@@ -761,6 +762,16 @@ export const Entry = React.memo(function Entry({
               <Text dimColor>{entry.rationale}</Text>
             </Box>
           ) : null}
+          {entry.outcome ? (
+            <Box paddingLeft={indentWidth} marginTop={1}>
+              <Text>
+                <Text bold color={statusStyle.color}>
+                  {'✓ Outcome: '}
+                </Text>
+                <Text color={theme.textPrimary}>{entry.outcome}</Text>
+              </Text>
+            </Box>
+          ) : null}
         </Box>
       );
     }
@@ -781,42 +792,40 @@ export const Entry = React.memo(function Entry({
         </Box>
       );
     case 'banner':
-      return <Banner entry={entry} termWidth={termWidth} />;
+      return (
+        <Banner
+          entry={entry}
+          termWidth={termWidth}
+          {...(termHeight === undefined ? {} : { termHeight })}
+        />
+      );
     case 'subagent': {
+      // Quiet single-line fleet/delegate chrome: no heavy colored rail and no
+      // vertical margin that punches holes between history items. Role color
+      // stays on the icon + label only.
       const lines = entry.text.split('\n');
       return (
-        <Box
-          flexDirection="column"
-          marginX={0}
-          marginY={1}
-          borderStyle="single"
-          borderTop={false}
-          borderRight={false}
-          borderBottom={false}
-          borderColor={entry.agentColor}
-          paddingLeft={1}
-        >
+        <Box flexDirection="column" marginX={0} marginY={0} paddingLeft={0}>
           <Text>
-            <Text color={entry.agentColor} bold>
-              {entry.icon}
-            </Text>
+            <Text color={theme.borderSubtle}>│ </Text>
+            <Text color={entry.agentColor}>{entry.icon}</Text>
             <Text> </Text>
             <Text bold color={entry.agentColor}>
               {entry.agentLabel}
             </Text>
             <Text> </Text>
-            <Text>{lines[0] ?? ''}</Text>
+            <Text color={theme.textSecondary}>{lines[0] ?? ''}</Text>
             {entry.detail ? (
               <>
-                <Text dimColor>{'  ·  '}</Text>
-                <Text dimColor>{entry.detail}</Text>
+                <Text color={theme.textMuted}>{'  ·  '}</Text>
+                <Text color={theme.textMuted}>{entry.detail}</Text>
               </>
             ) : null}
           </Text>
           {lines.slice(1).map((line, i) => (
             <Text key={i}>
-              <Text dimColor>{'  '}</Text>
-              <Text>{line}</Text>
+              <Text color={theme.borderSubtle}>│ </Text>
+              <Text color={theme.textMuted}>{line}</Text>
             </Text>
           ))}
         </Box>

@@ -384,7 +384,6 @@ export function FleetPanel({
 
   const list = Object.values(entries);
   const leader = list.find(isLeaderEntry);
-  const subagents = list.filter((entry) => !isLeaderEntry(entry));
   const now = nowTick ?? Date.now();
   const hasCollab = !!collabSession;
   const contentWidth = Math.max(30, terminal.columns - 4);
@@ -406,8 +405,8 @@ export function FleetPanel({
   // LIVE counts every running agent, leader included — a lone leader working
   // should read as `● 1 LIVE`, not a gray `0`.
   const runningCount = list.filter((entry) => entry.status === 'running').length;
-  const totalIterations = subagents.reduce((sum, entry) => sum + entry.iterations, 0);
-  const totalTools = subagents.reduce((sum, entry) => sum + entry.toolCalls, 0);
+  const totalIterations = list.reduce((sum, entry) => sum + entry.iterations, 0);
+  const totalTools = list.reduce((sum, entry) => sum + entry.toolCalls, 0);
   const todoCounts = (todos ?? []).reduce(
     (counts, todo) => {
       if (todo.status === 'in_progress') counts.active += 1;

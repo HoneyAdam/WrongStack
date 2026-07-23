@@ -87,6 +87,7 @@ export function reduceSettingsPanel(state: State, action: SettingsPanelAction): 
           breakerEnabled: action.breakerEnabled,
           breakerAutoKillResetMs: action.breakerAutoKillResetMs,
           showModelReasoning: action.showModelReasoning,
+          showAgentSwarmPanel: action.showAgentSwarmPanel,
           hint: undefined,
         },
       };

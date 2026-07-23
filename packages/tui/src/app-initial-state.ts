@@ -1,5 +1,5 @@
-import type { AutonomyAgentStatus } from './components/history/types.js';
 import type { FleetChatVerbosity, Message, SessionEvent, TokenSavingTier } from '@wrongstack/core/types';
+import type { AutonomyAgentStatus } from './components/history/types.js';
 import { AUTH_PANEL_INITIAL } from './auth-panel-model.js';
 import { replaySessionMessages } from './components/history/replay.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
@@ -250,6 +250,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
       breakerEnabled: false,
       breakerAutoKillResetMs: 60_000,
       showModelReasoning: true,
+      showAgentSwarmPanel: true,
     },
     statuslinePicker: {
       open: false,

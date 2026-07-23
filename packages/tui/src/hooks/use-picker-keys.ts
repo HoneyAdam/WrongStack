@@ -840,7 +840,7 @@ export function usePickerKeys(
           dispatch({ type: 'statuslineFieldMove', delta: 1 });
           return true;
         }
-        if (key.leftArrow || key.rightArrow) {
+        if (key.leftArrow || key.rightArrow || isEnter) {
           const focused = STATUSLINE_ITEMS[state.statuslinePicker.field];
           if (focused) {
             dispatch({ type: 'statuslineToggle', item: focused });
@@ -972,6 +972,10 @@ export function usePickerKeys(
       if (state.fKeyPicker.open) {
         if (key.escape) {
           dispatch({ type: 'fKeyPickerClose' });
+          return true;
+        }
+        if (key.mouse?.kind === 'wheel') {
+          dispatch({ type: 'fKeyPickerMove', delta: key.mouse.wheel > 0 ? -1 : 1 });
           return true;
         }
         if (key.upArrow) {

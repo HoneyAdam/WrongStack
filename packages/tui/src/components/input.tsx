@@ -1,14 +1,15 @@
-import { Box, Text, useInput, useStdin, useStdout } from '../ink.js';
 import type React from 'react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
+import { Box, Text, useInput, useStdin, useStdout } from '../ink.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
-import { type MouseEventInfo, isLeakedMouseInput, parseMouseEvents } from '../mouse.js';
+import { isLeakedMouseInput, type MouseEventInfo, parseMouseEvents } from '../mouse.js';
 import { displayWidth, truncateDisplay } from '../terminal-width.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 import type { AnimationStyle } from './animation-style.js';
 import {
+  ComposerActivityIcon,
   type ComposerStatus,
   ComposerStatusChip,
   composerStatusReservedWidth,
@@ -16,9 +17,6 @@ import {
 import { fmtElapsed } from './status-bar.js';
 
 export const DEFAULT_INPUT_PROMPT = `${glyphs.prompt} `;
-
-const COMPOSER_ACTIVITY_FRAMES = ['.', 'o', 'O', 'o'] as const;
-const COMPOSER_ACTIVITY_INTERVAL_MS = 250;
 
 /** Exact-width composer top rail with an isolated activity-icon timer.
  *
@@ -41,19 +39,11 @@ function ComposerTopRail({
   disabled: boolean;
   workingTime?: number | undefined;
 }): React.ReactElement {
-  const active = status.kind === 'working';
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(
-      () => setFrame((value) => (value + 1) % COMPOSER_ACTIVITY_FRAMES.length),
-      COMPOSER_ACTIVITY_INTERVAL_MS,
-    );
-    return () => clearInterval(timer);
-  }, [active]);
-
   const available = Math.max(0, width - 2);
-  const icon = active ? (COMPOSER_ACTIVITY_FRAMES[frame] ?? '.') : glyphs.brand;
+  // Width-stable placeholder for the activity icon: every animation frame and
+  // the resting brand glyph measure exactly one column, so the rail geometry is
+  // computed once here and never shifts as the icon animates below.
+  const icon = glyphs.brand;
 
   // — 1. Status section (right side) —
   const requestedStatusWidth = composerStatusReservedWidth(status);
@@ -66,7 +56,8 @@ function ComposerTopRail({
   // Reserve space for the title prefix: "─ icon TITLE "
   const titlePrefixRaw = title ? `─ ${icon} ${title}` : '';
   // Working time chip: [MM:SS] or [H:MM:SS], shown only when > 0
-  const workingTimeChip = workingTime != null && workingTime > 0 ? ` [${fmtElapsed(workingTime)}]` : '';
+  const workingTimeChip =
+    workingTime != null && workingTime > 0 ? ` [${fmtElapsed(workingTime)}]` : '';
   // If no title, just show a leading dash so the rail doesn't start bare
   const titlePrefix = title ? `${titlePrefixRaw}${workingTimeChip} ` : '';
   const titleW = displayWidth(titlePrefix);
@@ -79,11 +70,11 @@ function ComposerTopRail({
       {'╭'}
       {title ? (
         <>
-          <Text>{`─ ${icon} ${title}`}</Text>
-          {workingTimeChip ? (
-            <Text dimColor>{workingTimeChip}</Text>
-          ) : null}
-          <Text>{' '}</Text>
+          <Text>{'─ '}</Text>
+          <ComposerActivityIcon status={status} idleGlyph={glyphs.brand} disabled={disabled} />
+          <Text>{` ${title}`}</Text>
+          {workingTimeChip ? <Text dimColor>{workingTimeChip}</Text> : null}
+          <Text> </Text>
         </>
       ) : null}
       {remaining > 0 ? '─'.repeat(remaining) : null}
@@ -545,8 +536,18 @@ export const Input = memo(function Input({
   const shownHintW = displayWidth(shownHint);
   const fillW = Math.max(0, availW - leftBW - shownHintW - 2); // 2 for " ╯"
 
+  // Pin the visible input to an explicit height so Ink positions the whole
+  // region via absolute cursor moves on every frame. Without an explicit
+  // height Ink falls back to relative cursor-down sequences anchored at the
+  // end of the previous row; a stray stdout write between frames (e.g. a
+  // REPL flash from a silenced code path) shifts the terminal cursor by
+  // one row, and the diff rewrites the top border row using the drifted
+  // cursor — landing the first content row on top of the top border.
+  // `rows.length + 2` matches the natural content height exactly (top rail
+  // + N content rows + bottom frame), so the Box is never over- or
+  // under-sized, only anchored.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={rows.length + 2}>
       <ComposerTopRail
         width={cols}
         title={title}

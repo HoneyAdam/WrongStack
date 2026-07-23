@@ -54,4 +54,5 @@ export type SettingsPickerPatch = Partial<{
   breakerEnabled: boolean;
   breakerAutoKillResetMs: number;
   showModelReasoning: boolean;
+  showAgentSwarmPanel: boolean;
 }>;

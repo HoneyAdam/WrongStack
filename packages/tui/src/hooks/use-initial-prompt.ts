@@ -33,33 +33,50 @@ export function useInitialPrompt({
   const bootInjectedRef = useRef(false);
   useEffect(() => {
     if (bootInjectedRef.current) return;
-    bootInjectedRef.current = true;
     const goal = initialGoal?.trim();
     const ask = initialAsk?.trim();
     if (!goal && !ask) return;
-    void (async () => {
-      // Give the banner a frame to render first so the user sees the
-      // greeting before the first turn streams over the top of it.
-      await new Promise((r) => setTimeout(r, 50));
-      const b = builderRef.current;
-      if (!b) return;
-      if (goal) {
-        const shortGoal = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
-        dispatch({
-          type: 'addEntry',
-          entry: {
-            kind: 'info',
-            text: `🎯 Goal locked: ${shortGoal}\n   Agent will work until verifiably complete. Esc / /steer to redirect, Ctrl+C to stop.`,
-          },
-        });
-        b.appendText(buildGoalPreamble(goal));
-      } else if (ask) {
-        dispatch({ type: 'addEntry', entry: { kind: 'user', text: ask } });
-        b.appendText(ask);
-      }
-      const blocks = await b.submit();
-      await runBlocksRef.current(blocks);
-    })();
-  }, [initialAsk, initialGoal]);
+    bootInjectedRef.current = true;
 
+    let cancelled = false;
+    let started = false;
+    // Give the banner a frame to render first so the user sees the greeting
+    // before the first turn streams over the top of it. Keep the timer owned
+    // by this effect so an early unmount cannot retain the whole App closure.
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      started = true;
+      void (async () => {
+        const b = builderRef.current;
+        if (!b) return;
+        if (goal) {
+          const shortGoal = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
+          dispatch({
+            type: 'addEntry',
+            entry: {
+              kind: 'info',
+              text: `🎯 Goal locked: ${shortGoal}\n   Agent will work until verifiably complete. Esc / /steer to redirect, Ctrl+C to stop.`,
+            },
+          });
+          b.appendText(buildGoalPreamble(goal));
+        } else if (ask) {
+          dispatch({ type: 'addEntry', entry: { kind: 'user', text: ask } });
+          b.appendText(ask);
+        }
+        const blocks = await b.submit();
+        if (cancelled) return;
+        await runBlocksRef.current(blocks);
+      })();
+    }, 50);
+    timer.unref?.();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      // StrictMode replays mount effects before the delayed injection starts.
+      // Release the one-shot guard in that case so the replay still schedules
+      // the real boot prompt; once work starts it remains permanently one-shot.
+      if (!started) bootInjectedRef.current = false;
+    };
+  }, [initialAsk, initialGoal, builderRef, runBlocksRef, dispatch]);
 }

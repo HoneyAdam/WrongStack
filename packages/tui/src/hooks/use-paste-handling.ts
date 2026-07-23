@@ -3,6 +3,8 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import type { InputBuilder } from '@wrongstack/core/agent';
 import type { Action } from '../app-reducer.js';
 import { readClipboardImage, readClipboardText } from '../clipboard.js';
+import { validatePasteContent } from '../input-validation.js';
+import type { PasteAccumState } from '../paste-accumulator.js';
 import type { TokenPreviewStore } from '../token-previews.js';
 
 export interface UsePasteHandlingOptions {
@@ -14,7 +16,7 @@ export interface UsePasteHandlingOptions {
 }
 
 export interface PasteHandlingResult {
-  pasteAccumRef: React.MutableRefObject<string | null>;
+  pasteAccumRef: React.MutableRefObject<PasteAccumState>;
   pasteFlushTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
   commitPaste: (full: string) => Promise<void>;
   pasteClipboardImage: () => Promise<void>;
@@ -38,7 +40,7 @@ export function usePasteHandling({
   tokenPreviewsRef,
 }: UsePasteHandlingOptions): PasteHandlingResult {
   // `null` means "not currently inside a paste".
-  const pasteAccumRef = useRef<string | null>(null);
+  const pasteAccumRef = useRef<PasteAccumState>(null);
   // Safety net: if the closing \x1b[201~ marker never arrives (a terminal
   // dropped it, or Ink split the escape across chunks), flush the buffered
   // payload after a short idle period so accumulation can't swallow input
@@ -60,6 +62,14 @@ export function usePasteHandling({
   const commitPaste = async (full: string): Promise<void> => {
     const builder = builderRef.current;
     if (!builder || !full) return;
+    const validation = validatePasteContent(full);
+    if (!validation.valid) {
+      dispatch({
+        type: 'addEntry',
+        entry: { kind: 'error', text: `Paste rejected: ${validation.error}` },
+      });
+      return;
+    }
     const { buffer, cursor } = draftRef.current;
     const isSlashCmd = buffer.trimStart().startsWith('/');
     const mustCollapse = builder.wouldCollapse(full);
@@ -79,8 +89,8 @@ export function usePasteHandling({
       // goes into the buffer (single source of truth); nothing is appended to
       // the builder's own display, so there's no double-expansion at submit.
       const token = await builder.registerPaste(full);
-      // Store the full paste so slash commands like /fix can see the entire
-      // content. Display truncation (6-line preview) happens at render time.
+      // Retain only a bounded display preview. Slash commands and BTW resolve
+      // the full payload on demand from the canonical AttachmentStore.
       tokenPreviewsRef.current.set(token, full);
       const next = buffer.slice(0, cursor) + token + buffer.slice(cursor);
       setDraft(next, cursor + token.length);

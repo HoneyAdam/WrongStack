@@ -5,6 +5,7 @@ import type { Mock } from 'vitest';
 import type { InputBuilder } from '@wrongstack/core/agent';
 import { Text } from '../src/ink.js';
 import { usePasteHandling, type UsePasteHandlingOptions } from '../src/hooks/use-paste-handling.js';
+import { MAX_PASTE_CHARS } from '../src/input-validation.js';
 import { TokenPreviewStore } from '../src/token-previews.js';
 import * as clipboardModule from '../src/clipboard.js';
 
@@ -87,7 +88,7 @@ describe('commitPaste', () => {
 
   it('collapses multi-line content via builder.registerPaste', async () => {
     const builder = makeBuilder();
-    builder.registerPaste = vi.fn(async (full: string) => '[pasted:N]');
+    builder.registerPaste = vi.fn(async () => '[pasted:N]');
     const refs = buildHarness();
     refs.builderRef.current = builder;
     refs.draftRef.current = { buffer: 'abc', cursor: 1 };
@@ -100,7 +101,7 @@ describe('commitPaste', () => {
 
   it('collapses content when wouldCollapse returns true', async () => {
     const builder = makeBuilder({ wouldCollapse: vi.fn(() => true) });
-    builder.registerPaste = vi.fn(async (full: string) => '[big]');
+    builder.registerPaste = vi.fn(async () => '[big]');
     const refs = buildHarness();
     refs.builderRef.current = builder;
     refs.draftRef.current = { buffer: 'x', cursor: 1 };
@@ -131,6 +132,34 @@ describe('commitPaste', () => {
     // Collapse-worthy even for slash command → gets tokenized
     expect(builder.registerPaste).toHaveBeenCalled();
     expect(refs.setDraft).toHaveBeenCalledWith('/fix[pasted]', 4 + '[pasted]'.length);
+  });
+
+  it('accepts paste content exactly at the existing character cap', async () => {
+    const builder = makeBuilder({ wouldCollapse: vi.fn(() => true) });
+    const refs = buildHarness();
+    refs.builderRef.current = builder;
+    render(React.createElement(Harness, { refs }));
+
+    await refs.result.current!.commitPaste('x'.repeat(MAX_PASTE_CHARS));
+
+    expect(builder.registerPaste).toHaveBeenCalled();
+    expect(refs.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects paste content over the existing character cap without registration', async () => {
+    const builder = makeBuilder({ wouldCollapse: vi.fn(() => true) });
+    const refs = buildHarness();
+    refs.builderRef.current = builder;
+    render(React.createElement(Harness, { refs }));
+
+    await refs.result.current!.commitPaste('x'.repeat(MAX_PASTE_CHARS + 1));
+
+    expect(builder.registerPaste).not.toHaveBeenCalled();
+    expect(refs.setDraft).not.toHaveBeenCalled();
+    expect(refs.dispatch).toHaveBeenCalledWith({
+      type: 'addEntry',
+      entry: { kind: 'error', text: expect.stringContaining('Paste rejected') },
+    });
   });
 
   it('inserts short single-line content inline', async () => {

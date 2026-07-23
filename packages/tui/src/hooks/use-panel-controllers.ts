@@ -195,6 +195,7 @@ export function usePanelControllers({
       breakerEnabled: s.breakerEnabled ?? false,
       breakerAutoKillResetMs: s.breakerAutoKillResetMs ?? 60_000,
       showModelReasoning: s.showModelReasoning ?? true,
+      showAgentSwarmPanel: s.showAgentSwarmPanel ?? true,
     });
   }, [getSettings]);
 

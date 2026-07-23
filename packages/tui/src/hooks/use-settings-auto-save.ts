@@ -75,6 +75,7 @@ export function useSettingsAutoSave(
         breakerEnabled: sp.breakerEnabled,
         breakerAutoKillResetMs: sp.breakerAutoKillResetMs,
         showModelReasoning: sp.showModelReasoning,
+        showAgentSwarmPanel: sp.showAgentSwarmPanel,
       }),
     ).then((err: string | null) => {
       if (err) dispatch({ type: 'settingsHint', text: err });
@@ -121,6 +122,7 @@ export function useSettingsAutoSave(
     state.settingsPicker.breakerEnabled,
     state.settingsPicker.breakerAutoKillResetMs,
     state.settingsPicker.showModelReasoning,
+    state.settingsPicker.showAgentSwarmPanel,
     saveSettings,
   ]);
 

@@ -9,8 +9,18 @@
 //   - buffer fragments across calls until the closing marker arrives,
 //   - hand back the fully-assembled payload exactly once.
 
+import { MAX_PASTE_CHARS } from './input-validation.js';
+
 const BEGIN = '[200~';
 const END = '[201~';
+
+export interface PasteOverflowState {
+  readonly overflow: true;
+}
+
+export type PasteAccumState = string | PasteOverflowState | null;
+
+const OVERFLOW_STATE: PasteOverflowState = Object.freeze({ overflow: true });
 const BEGIN_RE = /\x1b?\[200~/g;
 const END_RE = /\x1b?\[201~/g;
 // Partial ANSI CSI without the ESC prefix — Ink strips ESC from sequences
@@ -36,24 +46,30 @@ const ANSI_RE = new RegExp(
 );
 
 export interface PasteFeedResult {
-  /** New accumulator state: a string while mid-paste, `null` when idle. */
-  accum: string | null;
+  /** New accumulator state: text while buffering, overflow marker, or `null` when idle. */
+  accum: PasteAccumState;
   /**
    * The fully-assembled paste payload when an end marker closed it, else
    * `null` (still buffering).
    */
   complete: string | null;
+  /** Set when accumulation exceeded the hard paste cap and was discarded. */
+  error?: string | undefined;
 }
 
 /**
  * Feed one keypress fragment into the paste accumulator.
  *
- * @param accum current accumulator (`null` when not inside a paste)
+ * @param accum current accumulator (`null` when idle, object after overflow)
  * @param input the raw keypress string for this event
  * @returns `null` when `input` is not part of a paste (the caller should
  *   handle it as normal input); otherwise the updated accumulation state.
  */
-export function feedPaste(accum: string | null, input: string): PasteFeedResult | null {
+export function feedPaste(accum: PasteAccumState, input: string): PasteFeedResult | null {
+  if (accum !== null && typeof accum !== 'string') {
+    if (input.includes(END)) return { accum: null, complete: null };
+    return { accum: OVERFLOW_STATE, complete: null };
+  }
   if (accum === null && !input.includes(BEGIN)) {
     // If input starts with '[' but is not a paste marker, it may be a partial
     // ANSI CSI sequence whose ESC was stripped by Ink. Guard against it
@@ -75,7 +91,15 @@ export function feedPaste(accum: string | null, input: string): PasteFeedResult 
   }
   // Strip paste markers AND all ANSI sequences before accumulating.
   const piece = input.replace(BEGIN_RE, '').replace(END_RE, '').replace(ANSI_RE, '');
-  const next = (accum ?? '') + piece;
+  const current = accum ?? '';
+  if (current.length + piece.length > MAX_PASTE_CHARS) {
+    return {
+      accum: input.includes(END) ? null : OVERFLOW_STATE,
+      complete: null,
+      error: `Paste rejected: exceeds ${MAX_PASTE_CHARS.toLocaleString()} characters.`,
+    };
+  }
+  const next = current + piece;
   if (input.includes(END)) return { accum: null, complete: next };
   return { accum: next, complete: null };
 }

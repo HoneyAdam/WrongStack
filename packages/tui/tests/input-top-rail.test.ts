@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Input } from '../src/components/input.js';
 import type { ComposerStatus } from '../src/components/composer-status-chip.js';
-import { displayWidth } from '../src/terminal-width.js';
+import { displayWidth, stripAnsi } from '../src/terminal-width.js';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -56,7 +56,9 @@ describe('<Input> composer top rail', () => {
     expect(rail).toContain('agents >123456789');
   });
 
-  it('animates the icon before ASK WRONGSTACK while working', () => {
+  it('animates the activity icon before ASK WRONGSTACK while working', () => {
+    // The left icon pulses through an "energy orb" while the agent works, so it
+    // must visibly change over time (never freeze on a single glyph).
     vi.useFakeTimers();
     const view = render(
       React.createElement(Input, {
@@ -66,11 +68,38 @@ describe('<Input> composer top rail', () => {
         onKey: () => {},
       }),
     );
-    expect((view.lastFrame() ?? '').split('\n')[0]).toContain('. ASK WRONGSTACK');
-    act(() => vi.advanceTimersByTime(250));
-    expect((view.lastFrame() ?? '').split('\n')[0]).toContain('o ASK WRONGSTACK');
-    act(() => vi.advanceTimersByTime(250));
-    expect((view.lastFrame() ?? '').split('\n')[0]).toContain('O ASK WRONGSTACK');
+    const leadGlyph = (): string => {
+      const line = stripAnsi((view.lastFrame() ?? '').split('\n')[0] ?? '');
+      return line.match(/─ (\S+) ASK WRONGSTACK/)?.[1] ?? '';
+    };
+    const seen = new Set<string>();
+    seen.add(leadGlyph());
+    for (let i = 0; i < 10; i++) {
+      act(() => vi.advanceTimersByTime(130));
+      seen.add(leadGlyph());
+    }
+    // Pulses through several distinct orb frames — not a frozen icon.
+    expect(seen.size).toBeGreaterThan(1);
+    const ORB = new Set(['·', '◦', '•', '●', '◉']);
+    for (const g of seen) expect(ORB.has(g)).toBe(true);
+    view.unmount();
+  });
+
+  it('rests on a steady brand glyph before ASK WRONGSTACK when idle', () => {
+    vi.useFakeTimers();
+    const view = render(
+      React.createElement(Input, {
+        value: '',
+        cursor: 0,
+        status: { kind: 'idle', fleetRunning: 0 },
+        onKey: () => {},
+      }),
+    );
+    const line = (): string => stripAnsi((view.lastFrame() ?? '').split('\n')[0] ?? '');
+    expect(line()).toContain('◆ ASK WRONGSTACK');
+    act(() => vi.advanceTimersByTime(500));
+    // Idle never animates — the glyph must not drift.
+    expect(line()).toContain('◆ ASK WRONGSTACK');
     view.unmount();
   });
 });

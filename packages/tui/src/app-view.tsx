@@ -104,7 +104,6 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
           toolStream={state.toolStream}
           scrollOffset={state.scrollOffset}
           viewportRows={state.viewportRows}
-          totalLines={state.totalLines}
           onMeasure={onMeasure}
           setSuggestions={setSuggestions}
           autonomyMode={autonomyLive}
@@ -271,6 +270,7 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
               breakerEnabled={state.settingsPicker.breakerEnabled}
               breakerAutoKillResetMs={state.settingsPicker.breakerAutoKillResetMs}
               showModelReasoning={state.settingsPicker.showModelReasoning}
+              showAgentSwarmPanel={state.settingsPicker.showAgentSwarmPanel}
               filter={state.settingsPicker.filter}
               hint={state.settingsPicker.hint}
             />

@@ -39,7 +39,15 @@ type BoxOwnProps = Omit<ComponentProps<typeof InkBox>, 'ref' | 'borderColor' | '
   backgroundColor?: string | undefined;
 };
 
-export { Static, measureElement, useApp, useInput, useStdin, useStdout } from 'ink';
+export {
+  Static,
+  measureElement,
+  useAnimation,
+  useApp,
+  useInput,
+  useStdin,
+  useStdout,
+} from 'ink';
 export type { BoxProps, DOMElement, TextProps, Key } from 'ink';
 
 // `exactOptionalPropertyTypes` forbids passing `color={undefined}`, so we only

@@ -1,10 +1,11 @@
-import { formatTodosList } from '@wrongstack/core/utils';
+import { formatTodosList, tuiStreamFlushMs } from '@wrongstack/core/utils';
 import {
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
   useEffect,
 } from 'react';
+import type { ContentBlock } from '@wrongstack/core/types';
 import type { AppProps } from '../app-props.js';
 import type { Action } from '../app-state.js';
 import {
@@ -16,6 +17,30 @@ import {
 } from '../memory-context-monitor.js';
 import { memoryLifecycleEntry } from '../memory-lifecycle-entry.js';
 import { contentBlocksText } from '../rehydrate-history.js';
+import {
+  MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+  retainStreamTail,
+} from '../reducers/helpers.js';
+import {
+  formatDelegateStartedText,
+  formatDelegateSuccessText,
+} from './subagent-history-format.js';
+
+function canonicalStreamSegments(content: readonly ContentBlock[]): Array<{
+  kind: 'assistant' | 'thinking';
+  text: string;
+}> {
+  const segments: Array<{ kind: 'assistant' | 'thinking'; text: string }> = [];
+  for (const block of content) {
+    const kind = block.type === 'text' ? 'assistant' : block.type === 'thinking' ? 'thinking' : null;
+    const text = block.type === 'text' ? block.text : block.type === 'thinking' ? block.thinking : '';
+    if (!kind || !text.trim()) continue;
+    const previous = segments.at(-1);
+    if (previous?.kind === kind) previous.text += text;
+    else segments.push({ kind, text });
+  }
+  return segments;
+}
 
 interface ProviderEventBridgeOptions {
   events: AppProps['events'];
@@ -47,18 +72,25 @@ export function useProviderEventBridge({
 }: ProviderEventBridgeOptions): void {
   // Subscribe to provider streaming events.
   useEffect(() => {
-    // Throttle stream delta DISPATCHES to reduce flicker — we batch into
-    // React state at ~10fps. The full text is also written into
-    // streamingTextRef synchronously on every delta, so `runBlocks` can
-    // read the complete stream when `agent.run` returns without racing
-    // the throttle's last unflushed batch.
-    const FLUSH_MS = 100;
+    // Throttle stream delta DISPATCHES — refs accumulate every token; React
+    // state flushes on FLUSH_MS (balanced ~10fps, frugal ~6–7fps via profile).
+    // Canonical output stays in provider.response / session log.
+    const FLUSH_MS = tuiStreamFlushMs();
+    let pendingToolStream:
+      | { toolUseId: string; name: string; text: string; startedAt: number }
+      | null = null;
     const appendStreamSegment = (kind: 'assistant' | 'thinking', text: string) => {
       const last = streamSegmentsRef.current.at(-1);
       if (last?.kind === kind) {
-        last.text += text;
+        last.text = retainStreamTail(last.text, text, MAX_ASSISTANT_STREAM_RETAINED_CHARS);
       } else {
-        streamSegmentsRef.current.push({ kind, text });
+        streamSegmentsRef.current.push({
+          kind,
+          text: retainStreamTail('', text, MAX_ASSISTANT_STREAM_RETAINED_CHARS),
+        });
+      }
+      if (streamSegmentsRef.current.length > 8) {
+        streamSegmentsRef.current.splice(0, streamSegmentsRef.current.length - 8);
       }
     };
     const flush = () => {
@@ -66,7 +98,14 @@ export function useProviderEventBridge({
         dispatch({ type: 'streamDelta', delta: pendingDeltaRef.current });
         pendingDeltaRef.current = '';
       }
+      if (pendingToolStream) {
+        dispatch({ type: 'toolStreamAppend', ...pendingToolStream });
+        pendingToolStream = null;
+      }
       flushTimerRef.current = null;
+    };
+    const scheduleFlush = () => {
+      if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
     };
     const offDelta = events.on('provider.text_delta', (e) => {
       if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
@@ -76,10 +115,18 @@ export function useProviderEventBridge({
       // matched optionally — a stripped/split ESC would otherwise leave a
       // bare `[200~` in the rendered text (same failure as the input path).
       const text = e.text.replace(/\x1b?\[200~|\x1b?\[201~/g, '');
-      streamingTextRef.current += text;
-      pendingDeltaRef.current += text;
+      streamingTextRef.current = retainStreamTail(
+        streamingTextRef.current,
+        text,
+        MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+      );
+      pendingDeltaRef.current = retainStreamTail(
+        pendingDeltaRef.current,
+        text,
+        MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+      );
       appendStreamSegment('assistant', text);
-      if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
+      scheduleFlush();
     });
     const offThinking = events.on('provider.thinking_delta', (e) => {
       if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
@@ -90,8 +137,12 @@ export function useProviderEventBridge({
       // the live tail mirrors whatever segment type is currently streaming.
       const text = e.text.replace(/\x1b?\[200~|\x1b?\[201~/g, '');
       appendStreamSegment('thinking', text);
-      pendingDeltaRef.current += text;
-      if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
+      pendingDeltaRef.current = retainStreamTail(
+        pendingDeltaRef.current,
+        text,
+        MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+      );
+      scheduleFlush();
     });
     const offToolStart = events.on('tool.started', (e) => {
       dispatch({ type: 'toolStarted', id: e.id, name: e.name });
@@ -110,15 +161,33 @@ export function useProviderEventBridge({
       // estate from the assistant text. They still flow through EventBus
       // for observability/metrics consumers.
       if (e.event.type !== 'partial_output' || !e.event.text) return;
-      dispatch({
-        type: 'toolStreamAppend',
-        toolUseId: e.id,
-        name: e.name,
-        text: e.event.text,
-        startedAt: Date.now(),
-      });
+      // Coalesce tool stream paints with the same flush window as assistant
+      // text — every partial_output used to force a full history re-render.
+      const prev = pendingToolStream;
+      if (prev && prev.toolUseId === e.id) {
+        pendingToolStream = {
+          ...prev,
+          text: prev.text + e.event.text,
+          startedAt: prev.startedAt,
+        };
+      } else {
+        // Different tool mid-flush: push previous immediately so order is preserved.
+        if (prev) dispatch({ type: 'toolStreamAppend', ...prev });
+        pendingToolStream = {
+          toolUseId: e.id,
+          name: e.name,
+          text: e.event.text,
+          startedAt: Date.now(),
+        };
+      }
+      scheduleFlush();
     });
     const offTool = events.on('tool.executed', (e) => {
+      // Flush any coalesced tool stream before the completed entry lands.
+      if (pendingToolStream) {
+        dispatch({ type: 'toolStreamAppend', ...pendingToolStream });
+        pendingToolStream = null;
+      }
       // `delegate` renders its own readable start/finish lines via the
       // delegate.started / delegate.completed events below — skip the
       // generic tool entry so history doesn't also show the big JSON blob.
@@ -205,15 +274,14 @@ export function useProviderEventBridge({
     // text → tool → text → tool interleaving that matches the actual stream.
     //
     // We hook `provider.response` (fires once per LLM call, both for
-    // intermediate `tool_use` stops and the final `end_turn`) and commit
-    // whatever has accumulated in `streamingTextRef` as an assistant history
-    // entry. The next iteration's deltas start a fresh buffer. `runBlocks`
-    // becomes purely the loop driver — it no longer adds the assistant entry,
-    // since the per-iteration flushes have already done so.
+    // intermediate `tool_use` stops and the final `end_turn`), rebuild canonical
+    // segments from `e.content`, and commit them in stream order. The refs are
+    // display-only and may be truncated. `runBlocks` becomes purely the loop
+    // driver — it no longer adds the assistant entry, since the per-iteration
+    // flushes have already done so.
     const offProvResp = events.on('provider.response', (e) => {
       if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
-      const text = streamingTextRef.current;
-      const segments = streamSegmentsRef.current;
+      const segments = canonicalStreamSegments(e.content ?? []);
       const fallbackText = contentBlocksText(e.content);
       streamingTextRef.current = '';
       streamSegmentsRef.current = [];
@@ -237,12 +305,9 @@ export function useProviderEventBridge({
           if (seg.kind === 'assistant') assistantCommittedThisRunRef.current = true;
         }
       }
-      // Fallback: if segments were empty but streamingTextRef had content
-      // (legacy path / segments not populated), still commit as assistant.
-      if (segments.length === 0 && text.trim()) {
-        dispatch({ type: 'addEntry', entry: { kind: 'assistant', text } });
-        assistantCommittedThisRunRef.current = true;
-      } else if (segments.length === 0 && fallbackText.trim()) {
+      // If streaming segments were unavailable, commit only canonical provider
+      // content. Never promote the bounded display tail to retained history.
+      if (segments.length === 0 && fallbackText.trim()) {
         dispatch({ type: 'addEntry', entry: { kind: 'assistant', text: fallbackText } });
         assistantCommittedThisRunRef.current = true;
       }
@@ -275,33 +340,38 @@ export function useProviderEventBridge({
         },
       });
     });
-    // `delegate` lifecycle — render a "started" line up front (so the
-    // minutes-long subagent wait doesn't look idle) and a humanized result
-    // line on completion. These replace the suppressed generic tool entry.
+    // `delegate` lifecycle — a short "started" line so the wait doesn't look
+    // idle, and a single success line on completion. Failures already land via
+    // `subagent.task_completed` (use-subagent-events) with a compact human
+    // status; printing e.summary here would double the death notice.
     const offDelegateStart = events.on('delegate.started', (e) => {
-      const task = e.task.length > 100 ? `${e.task.slice(0, 99)}…` : e.task;
       dispatch({
         type: 'addEntry',
         entry: {
           kind: 'subagent',
           agentLabel: e.target,
           agentColor: 'magenta',
-          icon: '🤝',
-          text: 'delegating',
-          detail: task,
+          icon: '▶',
+          text: formatDelegateStartedText(e.task),
         },
       });
     });
     const offDelegateDone = events.on('delegate.completed', (e) => {
+      if (!e.ok) return;
       const cost = e.costUsd && e.costUsd > 0 ? `$${e.costUsd.toFixed(4)}` : undefined;
       dispatch({
         type: 'addEntry',
         entry: {
           kind: 'subagent',
           agentLabel: e.target,
-          agentColor: e.ok ? 'green' : 'red',
-          icon: e.ok ? '✓' : '✗',
-          text: e.summary,
+          agentColor: 'green',
+          icon: '✓',
+          text: formatDelegateSuccessText({
+            summary: e.summary,
+            iterations: e.iterations,
+            toolCalls: e.toolCalls,
+            durationMs: e.durationMs,
+          }),
           detail: cost,
         },
       });
@@ -387,6 +457,12 @@ export function useProviderEventBridge({
       dispatch({ type: 'addEntry', entry: { kind: 'memory-lifecycle', ...lifecycle } });
     });
     return () => {
+      // Drain coalesced paint so the last tokens aren't lost on unmount/remount.
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      flush();
       offDelta();
       offThinking();
       offToolStart();

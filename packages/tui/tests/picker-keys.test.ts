@@ -1320,7 +1320,7 @@ describe('usePickerKeys — shadow panel', () => {
 });
 
 describe('usePickerKeys — statusline picker', () => {
-  it('navigates statusline picker with arrows and toggles on left/right', () => {
+  it('navigates statusline picker with arrows and toggles on arrows/Enter', () => {
     const host = makeHost(
       baseState({
         statuslinePicker: { open: true, field: 0, hiddenItems: [], visibleChips: [] },
@@ -1334,6 +1334,10 @@ describe('usePickerKeys — statusline picker', () => {
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineFieldMove', delta: 1 });
 
     runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineToggle', item: 'autonomy' });
+
+    host.lastEnterAtRef.current = 0;
+    runPickerKey(host, '', key(), true);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineToggle', item: 'autonomy' });
 
     runPickerKey(host, '', key({ escape: true }), false);
@@ -1503,6 +1507,9 @@ describe('usePickerKeys — F-key picker', () => {
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerMove', delta: -1 });
 
     runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerMove', delta: 1 });
+
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: -1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerMove', delta: 1 });
 
     runPickerKey(host, '', key({ escape: true }), false);

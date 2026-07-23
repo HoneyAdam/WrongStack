@@ -1,5 +1,5 @@
 import type { ContentBlock } from '@wrongstack/core/types';
-import { resolveContinuation } from '@wrongstack/core/agent';
+import { resolveContinuation, type TodoItem } from '@wrongstack/core/agent';
 import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
 import {
   type Dispatch,
@@ -27,6 +27,47 @@ interface NextStepsAutoSubmitOptions {
   dispatch: Dispatch<Action>;
   clearDraft: () => void;
   runBlocksRef: MutableRefObject<(blocks: ContentBlock[]) => Promise<void>>;
+}
+
+export interface AutoProceedCandidateInput {
+  todos?: readonly TodoItem[] | undefined;
+  suggestions?: readonly string[] | undefined;
+  autoSuggestions?: readonly string[] | undefined;
+  yolo?: boolean | undefined;
+  autonomyNextPrompt?: string | undefined;
+}
+
+export interface AutoProceedCandidate {
+  source: 'todo' | 'suggestion' | 'auto-suggestion';
+  prompt: string;
+  label: string;
+}
+
+/** Resolve one grounded automatic turn without mutating either suggestion store. */
+export function selectAutoProceedCandidate({
+  todos,
+  suggestions = [],
+  autoSuggestions = [],
+  yolo = false,
+  autonomyNextPrompt,
+}: AutoProceedCandidateInput): AutoProceedCandidate | null {
+  const todo = resolveContinuation({ todos, suggestions: [] });
+  if (todo.source === 'todo') {
+    return { source: 'todo', prompt: todo.text, label: todo.label };
+  }
+
+  const automatic = yolo ? autoSuggestions.find((item) => item.trim().length > 0)?.trim() : undefined;
+  if (automatic) {
+    const prompt = autonomyNextPrompt
+      ? autonomyNextPrompt.replace('{{suggestion}}', automatic)
+      : automatic;
+    return { source: 'auto-suggestion', prompt, label: automatic };
+  }
+
+  const suggestion = suggestions.find((item) => item.trim().length > 0)?.trim();
+  return suggestion
+    ? { source: 'suggestion', prompt: suggestion, label: suggestion }
+    : null;
 }
 
 /** Owns grounded next-step countdowns and automatic-turn loop guards. */
@@ -127,34 +168,24 @@ export function useNextStepsAutoSubmit({
     }
 
     const suggestions = getSuggestions?.() ?? [];
-    if (suggestions.length === 0) {
-      // No parsed <nextsteps> — check for open todos to continue with.
-      // The resolveContinuation function picks the next open todo as the
-      // strongest anchor (todos → suggestions → open continuation).
-      // This prevents the session from sitting idle after a turn completes
-      // with unfinished todos and no suggestions (suggestions are suppressed
-      // while todos are pending — see parseSuggestionsFromOutput).
-      const todos = agent?.ctx?.todos ?? [];
-      if (todos.some((t) => t.status === 'pending' || t.status === 'in_progress')) {
-        const resolved = resolveContinuation({ todos, suggestions: [] });
-        if (resolved.source === 'todo') {
-          // Feed the resolved todo instruction as a synthetic suggestion so
-          // the existing countdown + auto-submit flow picks it up below.
-          setSuggestions?.([resolved.text]);
-          // Bump the recheck counter to re-run this effect immediately — the
-          // module-level suggestion store has updated, and the effect needs
-          // to re-evaluate with the new synthetic suggestion available.
-          setNextStepsRecheck((t) => t + 1);
-          return () => undefined;
-        }
-      }
-
-      // Suggestions can arrive while we sit idle (e.g. /suggest, a fleet
-      // turn finishing) without any dep of this effect changing. Re-check
-      // on a slow poll instead of waiting for the next status transition.
+    const isYolo = getYolo?.() ?? false;
+    const candidate = selectAutoProceedCandidate({
+      todos: agent?.ctx?.todos ?? [],
+      suggestions,
+      autoSuggestions: isYolo ? (getAutoSuggestions?.() ?? []) : [],
+      yolo: isYolo,
+      autonomyNextPrompt,
+    });
+    if (!candidate) {
+      // Continuations can arrive while idle without changing an effect
+      // dependency. Poll slowly until there is grounded work to submit.
       const recheck = setTimeout(() => setNextStepsRecheck((t) => t + 1), 1_500);
       return () => clearTimeout(recheck);
     }
+
+    // An open todo is the durable source of truth. Drop stale parsed
+    // suggestions instead of persisting the synthesized todo prompt there.
+    if (candidate.source === 'todo' && suggestions.length > 0) setSuggestions?.([]);
 
     const cfg = getSettings?.();
 
@@ -178,23 +209,10 @@ export function useNextStepsAutoSubmit({
     // Use the same delay as auto-proceed countdown
     const delay = cfg?.delayMs ?? 45_000;
 
-    // YOLO+auto mode: prefer auto suggestions (items with auto="true" attribute)
-    const isYolo = getYolo?.() ?? false;
-    const autoSuggestions = isYolo ? (getAutoSuggestions?.() ?? []) : [];
-    const useAutoSuggestions = isYolo && autoSuggestions.length > 0;
-    const top = useAutoSuggestions ? autoSuggestions[0] : suggestions[0];
-    if (!top) return;
-
-    // For YOLO+auto, apply the autonomy_next prompt template
-    let promptToSubmit = top;
-    if (useAutoSuggestions && autonomyNextPrompt) {
-      promptToSubmit = autonomyNextPrompt.replace('{{suggestion}}', top);
-    }
-
-    nextStepsAutoSubmitSuggestionRef.current = promptToSubmit;
+    nextStepsAutoSubmitSuggestionRef.current = candidate.prompt;
     const start = Date.now();
     setNextStepsAutoSubmitCountdown(Math.ceil(delay / 1000));
-    setNextStepsAutoSubmitLabel(promptToSubmit);
+    setNextStepsAutoSubmitLabel(candidate.label);
 
     nextStepsAutoSubmitTimerRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((delay - (Date.now() - start)) / 1000));

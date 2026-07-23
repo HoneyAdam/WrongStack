@@ -140,6 +140,12 @@ export interface Theme {
   supportsBackground: boolean;
   /** Default (quiet) border color for panels. */
   borderDefault: string;
+  /**
+   * Near-invisible chrome for dense transcript frames (tool result rails).
+   * Present enough to structure the block, never loud enough to compete
+   * with content or status marks.
+   */
+  borderSubtle: string;
   /** Active/attention border (confirm prompts, focused frames). */
   borderActive: string;
   /** Banner / brand accent. */
@@ -182,6 +188,9 @@ export const theme: Theme = Object.freeze({
   dim: true,
   // Subtle slate border — present but never harsh.
   borderDefault: pastel.blackBright,
+  // Tool-result outer rail — one step quieter than borderDefault so long
+  // transcripts don't read as a stack of heavy boxes.
+  borderSubtle: pastel.surface0,
   borderActive: pastel.yellow,
   brand: pastel.magenta,
   monitor: {

@@ -2,7 +2,11 @@ import { type PersistedQueueItem, retainPersistedQueueItems } from '@wrongstack/
 import type { Action, QueueItem, State } from '../app-state.js';
 import { filterPromptPicker } from '../components/prompt-picker.js';
 import { retainTuiHistory } from '../history-retention.js';
-import { closePanels, MAX_TOOL_STREAM_RETAINED_CHARS } from './helpers.js';
+import {
+  closePanels,
+  MAX_TOOL_STREAM_RETAINED_CHARS,
+  retainStreamTail,
+} from './helpers.js';
 
 const composerActionTypes = [
   'brainPromptSet',
@@ -136,14 +140,12 @@ export function reduceComposer(state: State, action: ComposerAction): State {
         // but the accumulated string is retained in React state for the whole
         // life of the tool call — a chatty long-running command (vitest, a
         // build) would otherwise grow it into the tens of MB.
-        const combined = cur.text + action.text;
-        const text =
-          combined.length > MAX_TOOL_STREAM_RETAINED_CHARS
-            ? combined.slice(-MAX_TOOL_STREAM_RETAINED_CHARS)
-            : combined;
         return {
           ...state,
-          toolStream: { ...cur, text },
+          toolStream: {
+            ...cur,
+            text: retainStreamTail(cur.text, action.text, MAX_TOOL_STREAM_RETAINED_CHARS),
+          },
         };
       }
       return {
@@ -151,7 +153,9 @@ export function reduceComposer(state: State, action: ComposerAction): State {
         toolStream: {
           toolUseId: action.toolUseId,
           name: action.name,
-          text: action.text,
+          // The first partial-output event can itself be an oversized chunk,
+          // so apply the same cap used for later appends at initialization.
+          text: retainStreamTail('', action.text, MAX_TOOL_STREAM_RETAINED_CHARS),
           startedAt: action.startedAt,
         },
       };

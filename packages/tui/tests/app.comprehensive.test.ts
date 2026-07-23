@@ -254,6 +254,21 @@ describe('reducer', () => {
     });
   });
 
+  describe('toolStreamAppend', () => {
+    it('caps an oversized first chunk before retaining it in state', () => {
+      const next = reducer(emptyState(), {
+        type: 'toolStreamAppend',
+        toolUseId: 'tool-1',
+        name: 'bash',
+        text: 'x'.repeat(250_000),
+        startedAt: 1,
+      });
+
+      expect(next.toolStream?.text).toHaveLength(100_000);
+      expect(next.toolStream?.text).toBe('x'.repeat(100_000));
+    });
+  });
+
   describe('toolStreamClear', () => {
     it('clears toolStream when toolUseId matches', () => {
       const state = {

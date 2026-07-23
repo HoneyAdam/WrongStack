@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import {
   DiffBlock,
+  type DiffFilePreviews,
   applyWashTokens,
   extractDiffPreview,
   extractMultiFileDiffs,
@@ -41,6 +42,21 @@ describe('summarizeMultiFileDiffs', () => {
     const summary = summarizeMultiFileDiffs(items);
     expect(summary).toMatchObject({
       fileCount: 2, added: 5, removed: 5, hiddenAdded: 1, hiddenRemoved: 2, truncatedFiles: 1,
+    });
+  });
+
+  it('counts omitted changes in totals without labeling them as hidden preview rows', () => {
+    const items: DiffFilePreviews = [];
+    items.omitted = { fileCount: 2, added: 7, removed: 3 };
+
+    expect(summarizeMultiFileDiffs(items)).toMatchObject({
+      fileCount: 2,
+      added: 7,
+      removed: 3,
+      hiddenAdded: 0,
+      hiddenRemoved: 0,
+      truncatedFiles: 0,
+      omittedFiles: 2,
     });
   });
 });

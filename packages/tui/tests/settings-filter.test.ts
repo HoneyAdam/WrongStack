@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { SettingsPicker } from '../src/components/settings-picker.js';
+import {
+  SettingsPicker,
+  settingsPickerJumpByName,
+} from '../src/components/settings-picker.js';
 
 // ── Minimal props factory ──────────────────────────────────────────────
 // SettingsPicker has 30+ props. This factory covers every required field
@@ -46,6 +49,10 @@ function baseProps(over: Record<string, unknown> = {}) {
     statuslineMode: 'detailed' as const,
     configScope: 'global' as const,
     animationStyle: 'rainbow',
+    breakerEnabled: false,
+    breakerAutoKillResetMs: 60_000,
+    showModelReasoning: true,
+    showAgentSwarmPanel: true,
     filter: '',
     ...over,
   } as never as React.ComponentProps<typeof SettingsPicker>;
@@ -101,6 +108,17 @@ describe('SettingsPicker filter mode', () => {
       const frame = lastFrame() ?? '';
       expect(frame).toContain('Autonomy');
       expect(frame).toContain('UX');
+    });
+
+    it('keeps the Display header visible when the last row is selected', () => {
+      const field = settingsPickerJumpByName('Show agent swarm panel');
+      expect(field).toBeDefined();
+      const { lastFrame } = render(
+        React.createElement(SettingsPicker, baseProps({ field })),
+      );
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('Display');
+      expect(frame).toContain('Show agent swarm panel');
     });
 
     it('does not show a filter indicator', () => {

@@ -96,7 +96,7 @@ export function reduceFleetState(state: State, action: Action): State | null {
 
     case 'fleetToolEnd': {
       const cur = state.fleet[action.id];
-      if (!cur) return state;
+      if (!cur || cur.currentTool === undefined) return state;
       return {
         ...state,
         fleet: {
@@ -109,6 +109,9 @@ export function reduceFleetState(state: State, action: Action): State | null {
     case 'fleetStart': {
       const cur = state.fleet[action.id];
       if (!cur) return state;
+      if (cur.status === 'running' && cur.streamingText === '' && cur.budgetWarning === undefined) {
+        return state;
+      }
       return {
         ...state,
         fleet: {
@@ -128,6 +131,7 @@ export function reduceFleetState(state: State, action: Action): State | null {
       const cur = state.fleet[action.id];
       if (!cur) return state;
       const appended = (cur.streamingText + action.text).slice(-500);
+      if (appended === cur.streamingText) return state;
       return {
         ...state,
         fleet: {
@@ -187,6 +191,10 @@ export function reduceFleetState(state: State, action: Action): State | null {
     case 'fleetUsage': {
       const cur = state.fleet[action.id];
       if (!cur) return state;
+      // Usage heartbeats are diagnostic only. Updating the timestamp more
+      // than once per second creates a new fleet/App tree without changing
+      // anything visible.
+      if (Date.now() - cur.lastEventAt < 1_000) return state;
       return {
         ...state,
         fleet: { ...state.fleet, [action.id]: { ...cur, lastEventAt: Date.now() } },
@@ -263,6 +271,14 @@ export function reduceFleetState(state: State, action: Action): State | null {
       const cur = state.fleet[action.id];
       if (!cur) return state;
       const ctxPct = clampContextLoad(action.load);
+      if (
+        Object.is(cur.ctxPct, ctxPct) &&
+        Object.is(cur.ctxTokens, action.tokens) &&
+        Object.is(cur.ctxMaxTokens, action.maxContext) &&
+        Object.is(cur.ctxCost, action.ctxCost)
+      ) {
+        return state;
+      }
       return {
         ...state,
         fleet: {
@@ -288,31 +304,43 @@ export function reduceFleetState(state: State, action: Action): State | null {
         perAgent?: Record<string, { cost: number }>;
       };
       const curId = fcAction.id;
-      const cur = curId ? state.fleet[curId] : undefined;
       const perAgent = fcAction.perAgent;
       let fleet = state.fleet;
-      if (cur !== undefined && curId) {
-        fleet = { ...fleet, [curId]: { ...cur, cost: fcAction.cost, lastEventAt: Date.now() } };
-      }
+      let fleetChanged = false;
+      const updateAgentCost = (agentId: string, cost: number): void => {
+        const entry = fleet[agentId];
+        if (!entry || Object.is(entry.cost, cost)) return;
+        if (!fleetChanged) {
+          fleet = { ...fleet };
+          fleetChanged = true;
+        }
+        fleet[agentId] = { ...entry, cost, lastEventAt: Date.now() };
+      };
+      if (curId) updateAgentCost(curId, fcAction.cost);
       if (perAgent) {
         for (const [agentId, agentCost] of Object.entries(perAgent)) {
-          const entry = fleet[agentId];
-          if (entry) {
-            fleet = { ...fleet, [agentId]: { ...entry, cost: agentCost.cost, lastEventAt: Date.now() } };
-          }
+          updateAgentCost(agentId, agentCost.cost);
         }
+      }
+      const nextInput = fcAction.input ?? state.fleetTokens.input;
+      const nextOutput = fcAction.output ?? state.fleetTokens.output;
+      const tokensChanged =
+        !Object.is(nextInput, state.fleetTokens.input) ||
+        !Object.is(nextOutput, state.fleetTokens.output);
+      if (
+        !fleetChanged &&
+        !tokensChanged &&
+        Object.is(fcAction.cost, state.fleetCost)
+      ) {
+        return state;
       }
       return {
         ...state,
         fleet,
         fleetCost: fcAction.cost,
-        fleetTokens:
-          fcAction.input !== undefined || fcAction.output !== undefined
-            ? {
-                input: fcAction.input ?? state.fleetTokens.input,
-                output: fcAction.output ?? state.fleetTokens.output,
-              }
-            : state.fleetTokens,
+        fleetTokens: tokensChanged
+          ? { input: nextInput, output: nextOutput }
+          : state.fleetTokens,
       };
     }
 

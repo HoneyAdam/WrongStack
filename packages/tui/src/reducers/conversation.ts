@@ -1,7 +1,11 @@
 import type { Action, State } from '../app-state.js';
 import type { HistoryEntry } from '../history-entry.js';
 import { retainTuiHistory } from '../history-retention.js';
-import { MAX_ASSISTANT_STREAM_RETAINED_CHARS, pruneToolInput } from './helpers.js';
+import {
+  MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+  pruneToolInput,
+  retainStreamTail,
+} from './helpers.js';
 
 const conversationActionTypes = [
   'addEntry',
@@ -132,14 +136,15 @@ export function reduceConversation(state: State, action: ConversationAction): St
         },
       };
     }
-    case 'streamDelta': {
-      const combined = state.streamingText + action.delta;
-      const streamingText =
-        combined.length > MAX_ASSISTANT_STREAM_RETAINED_CHARS
-          ? combined.slice(-MAX_ASSISTANT_STREAM_RETAINED_CHARS)
-          : combined;
-      return { ...state, streamingText };
-    }
+    case 'streamDelta':
+      return {
+        ...state,
+        streamingText: retainStreamTail(
+          state.streamingText,
+          action.delta,
+          MAX_ASSISTANT_STREAM_RETAINED_CHARS,
+        ),
+      };
     case 'streamReset':
       return { ...state, streamingText: '' };
     case 'status':

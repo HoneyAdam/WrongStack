@@ -471,6 +471,12 @@ export function reduceSettingsValues(state: State, action: SettingsValueAction):
           ...state,
           settingsPicker: { ...sp, showModelReasoning: !sp.showModelReasoning, hint: undefined },
         };
+      // Field 40: show persistent agent swarm panel (boolean toggle)
+      if (f === 40)
+        return {
+          ...state,
+          settingsPicker: { ...sp, showAgentSwarmPanel: !sp.showAgentSwarmPanel, hint: undefined },
+        };
       return state;
     }
     case 'settingsValueSet': {

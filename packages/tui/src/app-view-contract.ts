@@ -1,11 +1,10 @@
-import type { Director } from '@wrongstack/core/coordination';
+import type { AgentTimelineEntry, Director } from '@wrongstack/core/coordination';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { AgentTimelineEntry } from '@wrongstack/core/coordination';
 import type { AppProps } from './app-props.js';
 import type { Action, State } from './app-state.js';
 import type { deriveAppViewState } from './app-view-state.js';
-import type { CronListResult } from './cron-slash.js';
 import type { KeyEvent } from './components/input.js';
+import type { CronListResult } from './cron-slash.js';
 import type { useGitSessionStatus } from './hooks/use-git-session-status.js';
 import type { useLiveTodos } from './hooks/use-live-todos.js';
 import type { useMailboxViewModel } from './hooks/use-mailbox-view-model.js';
@@ -25,7 +24,15 @@ export interface AppViewRuntime {
   gitInfo: ReturnType<typeof useGitSessionStatus>;
   viewState: ReturnType<typeof deriveAppViewState>;
   mouseMode: boolean;
-  onMeasure: (totalLines: number) => void;
+  /**
+   * Reports the measured history content height (rows) after every layout so
+   * the host can clamp the scroll offset and drive the "N new lines"
+   * affordance. Optional: when omitted, the ScrollableHistory's measurement
+   * is a no-op and `state.totalLines` stays at its default. The callback is
+   * passed through to ScrollableHistory and invoked after each layout pass
+   * with the freshly measured row count.
+   */
+  onMeasure?: ((totalLines: number) => void) | undefined;
   bottomRegionRef: MutableRefObject<DOMElement | null>;
   statusBarWrapRef: MutableRefObject<DOMElement | null>;
   belowStatusBarRef: MutableRefObject<DOMElement | null>;

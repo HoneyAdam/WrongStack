@@ -139,6 +139,7 @@ export function createTestState(overrides: DeepPartial<State> & Record<string, u
       breakerEnabled: false,
       breakerAutoKillResetMs: 60_000,
       showModelReasoning: true,
+      showAgentSwarmPanel: true,
     },
     statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
     pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },

@@ -11,6 +11,7 @@ import * as fileSearchModule from '../src/file-search.js';
 // Mock node:fs/promises for file reading tests
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
+  stat: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -184,7 +185,8 @@ describe('useFileSearch - @-token detection effect', () => {
   });
 
   it('onPickerEnter registers file and inserts token', async () => {
-    const { readFile } = await import('node:fs/promises');
+    const { readFile, stat } = await import('node:fs/promises');
+    vi.mocked(stat).mockResolvedValue({ size: 12 } as Awaited<ReturnType<typeof stat>>);
     vi.mocked(readFile).mockResolvedValue('file content');
     const builder = {
       registerFile: vi.fn(async () => '[file:test]'),
@@ -200,8 +202,76 @@ describe('useFileSearch - @-token detection effect', () => {
     expect(refs.dispatch).toHaveBeenCalledWith({ type: 'pickerClose' });
   });
 
+  it('rejects a text file over the 1 MiB byte cap before reading or registering it', async () => {
+    const { readFile, stat } = await import('node:fs/promises');
+    vi.mocked(stat).mockResolvedValue({ size: 1024 * 1024 + 1 } as Awaited<ReturnType<typeof stat>>);
+    const builder = {
+      registerFile: vi.fn(),
+    } as unknown as InputBuilder;
+    const refs = buildHarness();
+    refs.builderRef.current = builder;
+    refs.draftRef.current = { buffer: '@test', cursor: 5 };
+    refs.state.picker = { open: true, query: 'test', matches: ['src/test.ts'], selected: 0 };
+    render(React.createElement(Harness, { refs }));
+
+    await refs.result.current!.onPickerEnter();
+
+    expect(readFile).not.toHaveBeenCalled();
+    expect(builder.registerFile).not.toHaveBeenCalled();
+    expect(refs.dispatch).toHaveBeenCalledWith({
+      type: 'addEntry',
+      entry: { kind: 'error', text: expect.stringContaining('exceeds 1 MiB attachment limit') },
+    });
+  });
+
+  it('accepts a text file exactly at the 1 MiB UTF-8 byte cap', async () => {
+    const { readFile, stat } = await import('node:fs/promises');
+    const data = 'x'.repeat(1024 * 1024);
+    vi.mocked(stat).mockResolvedValue({ size: data.length } as Awaited<ReturnType<typeof stat>>);
+    vi.mocked(readFile).mockResolvedValue(data);
+    const builder = {
+      registerFile: vi.fn(async () => '[file:test]'),
+    } as unknown as InputBuilder;
+    const refs = buildHarness();
+    refs.builderRef.current = builder;
+    refs.draftRef.current = { buffer: '@test', cursor: 5 };
+    refs.state.picker = { open: true, query: 'test', matches: ['src/test.ts'], selected: 0 };
+    render(React.createElement(Harness, { refs }));
+
+    await refs.result.current!.onPickerEnter();
+
+    expect(builder.registerFile).toHaveBeenCalledWith({
+      kind: 'file',
+      data,
+      meta: { filename: 'src/test.ts', label: 'src/test.ts' },
+    });
+  });
+
+  it('rejects content whose UTF-8 bytes exceed the cap despite a smaller stat size', async () => {
+    const { readFile, stat } = await import('node:fs/promises');
+    vi.mocked(stat).mockResolvedValue({ size: 600_000 } as Awaited<ReturnType<typeof stat>>);
+    vi.mocked(readFile).mockResolvedValue('é'.repeat(600_000));
+    const builder = {
+      registerFile: vi.fn(),
+    } as unknown as InputBuilder;
+    const refs = buildHarness();
+    refs.builderRef.current = builder;
+    refs.draftRef.current = { buffer: '@test', cursor: 5 };
+    refs.state.picker = { open: true, query: 'test', matches: ['src/test.ts'], selected: 0 };
+    render(React.createElement(Harness, { refs }));
+
+    await refs.result.current!.onPickerEnter();
+
+    expect(builder.registerFile).not.toHaveBeenCalled();
+    expect(refs.dispatch).toHaveBeenCalledWith({
+      type: 'addEntry',
+      entry: { kind: 'error', text: expect.stringContaining('UTF-8 bytes') },
+    });
+  });
+
   it('onPickerEnter dispatches error when file read fails', async () => {
-    const { readFile } = await import('node:fs/promises');
+    const { readFile, stat } = await import('node:fs/promises');
+    vi.mocked(stat).mockResolvedValue({ size: 12 } as Awaited<ReturnType<typeof stat>>);
     vi.mocked(readFile).mockRejectedValue(new Error('not found'));
     const builder = {
       registerFile: vi.fn(),

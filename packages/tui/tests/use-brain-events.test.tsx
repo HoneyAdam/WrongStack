@@ -1,0 +1,181 @@
+// @vitest-environment jsdom
+
+import { act, renderHook } from '@testing-library/react';
+import { EventBus } from '@wrongstack/core/kernel';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useBrainEvents } from '../src/hooks/use-brain-events.js';
+
+describe('useBrainEvents', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders a monitor decision and its outcome as one history card', () => {
+    const events = new EventBus();
+    const dispatch = vi.fn();
+    const request = {
+      id: 'brainmon-file-churn',
+      source: 'system' as const,
+      question: 'Should the agent be steered?',
+      risk: 'medium' as const,
+      fallback: 'ask_human' as const,
+    };
+    const decision = {
+      type: 'answer' as const,
+      optionId: 'continue',
+      text: 'Let the agent continue unaided',
+      rationale: 'Council (majority)',
+    };
+
+    const { unmount } = renderHook(() => useBrainEvents(events, dispatch));
+    act(() => {
+      events.emit('brain.decision_answered', { request, decision, at: Date.now() });
+      events.emit('brain.intervention', {
+        kind: 'file_churn',
+        request,
+        decision,
+        intervened: false,
+        at: Date.now(),
+      });
+    });
+
+    const historyActions = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action.type === 'addEntry');
+    expect(historyActions).toHaveLength(1);
+    expect(historyActions[0].entry).toMatchObject({
+      kind: 'brain',
+      status: 'answered',
+      source: 'monitor',
+      decision: 'continue',
+      outcome: 'observed — no action needed',
+      interventionKind: 'file_churn',
+      rationale: 'Council (majority)',
+    });
+    unmount();
+  });
+
+  it('renders a monitor answer after the intervention grace period expires', () => {
+    vi.useFakeTimers();
+    const events = new EventBus();
+    const dispatch = vi.fn();
+    const request = {
+      id: 'brainmon-stalled-delivery',
+      source: 'system' as const,
+      question: 'Should the stalled agent be steered?',
+      risk: 'medium' as const,
+      fallback: 'ask_human' as const,
+    };
+    const decision = {
+      type: 'answer' as const,
+      optionId: 'steer',
+      text: 'Steer the agent',
+    };
+
+    const { unmount } = renderHook(() => useBrainEvents(events, dispatch));
+    act(() => {
+      events.emit('brain.decision_answered', { request, decision, at: Date.now() });
+    });
+    expect(dispatch.mock.calls.some(([action]) => action.type === 'addEntry')).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    const historyActions = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action.type === 'addEntry');
+    expect(historyActions).toHaveLength(1);
+    expect(historyActions[0].entry).toMatchObject({
+      kind: 'brain',
+      status: 'answered',
+      source: 'system',
+      decision: 'steer',
+    });
+
+    act(() => {
+      events.emit('brain.intervention', {
+        kind: 'agent_stall',
+        request,
+        decision,
+        intervened: true,
+        at: Date.now(),
+      });
+    });
+    expect(dispatch.mock.calls.filter(([action]) => action.type === 'addEntry')).toHaveLength(1);
+    unmount();
+  });
+
+  it('renders a non-monitor answered decision without an intervention event', () => {
+    const events = new EventBus();
+    const dispatch = vi.fn();
+    const request = {
+      id: 'permission-read',
+      source: 'tool' as const,
+      question: 'Allow this read?',
+      risk: 'low' as const,
+      fallback: 'deny' as const,
+    };
+    const decision = {
+      type: 'answer' as const,
+      optionId: 'allow',
+      text: 'Allow the read',
+    };
+
+    const { unmount } = renderHook(() => useBrainEvents(events, dispatch));
+    act(() => {
+      events.emit('brain.decision_answered', { request, decision, at: Date.now() });
+    });
+
+    const historyActions = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action.type === 'addEntry');
+    expect(historyActions).toHaveLength(1);
+    expect(historyActions[0].entry).toMatchObject({
+      kind: 'brain',
+      status: 'answered',
+      decision: 'allow',
+    });
+    unmount();
+  });
+
+  it('renders a standalone denied intervention with its human-readable reason', () => {
+    const events = new EventBus();
+    const dispatch = vi.fn();
+    const request = {
+      id: 'brainmon-error-storm',
+      source: 'system' as const,
+      question: 'Should the agent be steered?',
+      risk: 'medium' as const,
+      fallback: 'ask_human' as const,
+    };
+    const decision = {
+      type: 'deny' as const,
+      reason: 'The signal is too ambiguous to intervene safely',
+    };
+
+    const { unmount } = renderHook(() => useBrainEvents(events, dispatch));
+    act(() => {
+      events.emit('brain.intervention', {
+        kind: 'error_storm',
+        request,
+        decision,
+        intervened: false,
+        at: Date.now(),
+      });
+    });
+
+    const historyActions = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action.type === 'addEntry');
+    expect(historyActions).toHaveLength(1);
+    expect(historyActions[0].entry).toMatchObject({
+      kind: 'brain',
+      status: 'answered',
+      source: 'monitor',
+      decision: 'The signal is too ambiguous to intervene safely',
+      outcome: 'observed — no action needed',
+      interventionKind: 'error_storm',
+    });
+    unmount();
+  });
+});

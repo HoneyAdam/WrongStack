@@ -214,8 +214,8 @@ describe('resolveSettingsFieldValue', () => {
       if (!r.ok) expect(r.error).toContain('99');
     });
 
-    it('SETTINGS_FIELD_LABELS has 40 entries', () => {
-      expect(SETTINGS_FIELD_LABELS.length).toBe(40);
+    it('SETTINGS_FIELD_LABELS has 41 entries', () => {
+      expect(SETTINGS_FIELD_LABELS.length).toBe(41);
     });
 
     it('trims whitespace from input', () => {
@@ -224,7 +224,7 @@ describe('resolveSettingsFieldValue', () => {
     });
 
     it('all boolean field indices are covered', () => {
-      const boolFields = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 18, 20, 25, 27, 33, 37, 39];
+      const boolFields = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 18, 20, 25, 27, 33, 37, 39, 40];
       for (const f of boolFields) {
         const r = resolveSettingsFieldValue(f, 'on');
         expect(r.ok).toBe(true);
@@ -292,6 +292,11 @@ describe('getSettingsFieldValue', () => {
     thinkingWord: 'brewing',
     cacheTtl: '5m',
     configScope: 'project',
+    animationStyle: 'rainbow',
+    breakerEnabled: false,
+    breakerAutoKillResetMs: 60_000,
+    showModelReasoning: true,
+    showAgentSwarmPanel: false,
   };
 
   describe('boolean fields', () => {
@@ -308,6 +313,15 @@ describe('getSettingsFieldValue', () => {
       const r = getSettingsFieldValue(baseValues, 5); // chime = true
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.displayValue).toBe('on');
+    });
+
+    it('returns the agent swarm panel toggle', () => {
+      const r = getSettingsFieldValue(baseValues, 40);
+      expect(r).toEqual({
+        ok: true,
+        label: 'Show agent swarm panel',
+        displayValue: 'off',
+      });
     });
   });
 
@@ -438,6 +452,7 @@ describe('formatAllSettingsSummary', () => {
     breakerEnabled: false,
     breakerAutoKillResetMs: 60_000,
     showModelReasoning: true,
+    showAgentSwarmPanel: true,
   };
 
   it('contains all 11 section headings', () => {
@@ -448,10 +463,10 @@ describe('formatAllSettingsSummary', () => {
     }
   });
 
-  it('renders exactly 40 value lines (one per field)', () => {
+  it('renders exactly 41 value lines (one per field)', () => {
     const out = formatAllSettingsSummary(testValues);
     const fieldLines = out.split('\n').filter((l) => l.startsWith('  ') && l.trim().length > 0);
-    expect(fieldLines).toHaveLength(40);
+    expect(fieldLines).toHaveLength(41);
   });
 
   it('includes the thinking word value', () => {
@@ -487,6 +502,16 @@ describe('resetSettingsFieldValue', () => {
     }
   });
 
+  it('resets the agent swarm panel field to visible', () => {
+    const r = resetSettingsFieldValue(40);
+    expect(r).toEqual({
+      ok: true,
+      patch: { showAgentSwarmPanel: true },
+      label: 'Show agent swarm panel',
+      displayValue: 'on',
+    });
+  });
+
   it('returns the default value for an enum field', () => {
     const r = resetSettingsFieldValue(31); // logLevel default = 'info'
     expect(r.ok).toBe(true);
@@ -520,12 +545,12 @@ describe('resetSettingsFieldValue', () => {
     if (!r.ok) expect(r.error).toContain('99');
   });
 
-  it('SETTINGS_DEFAULTS has all 40 keys', () => {
-    expect(Object.keys(SETTINGS_DEFAULTS)).toHaveLength(40);
+  it('SETTINGS_DEFAULTS has all 41 keys', () => {
+    expect(Object.keys(SETTINGS_DEFAULTS)).toHaveLength(41);
   });
 
-  it('every field 0-38 can be reset', () => {
-    for (let f = 0; f < 39; f++) {
+  it('every field 0-40 can be reset', () => {
+    for (let f = 0; f < 41; f++) {
       const r = resetSettingsFieldValue(f);
       expect(r.ok).toBe(true);
     }

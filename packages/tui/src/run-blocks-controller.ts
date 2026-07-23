@@ -80,8 +80,6 @@ export function createRunBlocksController(
       const result = await agent.run(routed.blocks, { signal: controller.signal });
       if (runGeneration !== refs.sessionGeneration.current) return;
 
-      const lingering = refs.streamingText.current;
-      const lingeringSegments = refs.streamSegments.current;
       refs.streamingText.current = '';
       refs.streamSegments.current = [];
       refs.pendingDelta.current = '';
@@ -90,15 +88,11 @@ export function createRunBlocksController(
         refs.flushTimer.current = null;
       }
       dispatch({ type: 'streamReset' });
-      if (lingeringSegments.length > 0) {
-        for (const segment of lingeringSegments) {
-          if (segment.text.trim()) {
-            dispatch({ type: 'addEntry', entry: { kind: segment.kind, text: segment.text } });
-          }
-        }
-      } else if (lingering.trim()) {
-        dispatch({ type: 'addEntry', entry: { kind: 'assistant', text: lingering } });
-      } else if (
+      // Provider-response events normally commit stream segments per iteration.
+      // These refs retain display-sized tails only, so never promote them to
+      // canonical history when a flush is missed; recover from the complete
+      // run result instead.
+      if (
         result.status === 'done' &&
         result.finalText?.trim() &&
         !refs.assistantCommitted.current

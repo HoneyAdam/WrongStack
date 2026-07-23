@@ -67,6 +67,10 @@ describe('settingsPickerJumpByName', () => {
     expect(settingsPickerJumpByName('   ')).toBeUndefined();
   });
 
+  it('resolves the agent swarm panel row by its full name', () => {
+    expect(settingsPickerJumpByName('show-agent-swarm-panel')).toBe(40);
+  });
+
   it('is case-insensitive', () => {
     expect(settingsPickerJumpByName('MULTI-DIFF')).toBe(21);
     expect(settingsPickerJumpByName('Yolo')).toBe(3);
@@ -81,7 +85,7 @@ describe('settingsPickerJumpNames', () => {
     expect(names).toHaveLength(SETTINGS_PICKER_JUMP_CHORDS.length);
     // First and last entries match the order in SETTINGS_PICKER_JUMP_CHORDS.
     expect(names[0]).toBe('index-on-session-start');
-    expect(names.at(-1)).toBe('animation');
+    expect(names.at(-1)).toBe('show-agent-swarm-panel');
   });
 
   it('every name resolves back to a field via the by-name lookup', () => {

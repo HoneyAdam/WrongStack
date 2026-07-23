@@ -14,7 +14,10 @@ import type { InputBuilder } from '@wrongstack/core/agent';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type { Action, State } from '../app-reducer.js';
 import { searchFiles } from '../file-search.js';
-import type { TokenPreviewStore } from '../token-previews.js';
+import {
+  TEXT_FILE_ATTACHMENT_MAX_BYTES,
+  type TokenPreviewStore,
+} from '../token-previews.js';
 
 // ── Exported helpers (pure, no hook dependency) ─────────────────────
 
@@ -114,14 +117,26 @@ export function useFileSearch(options: UseFileSearchOptions): FileSearchResult {
     // file content at submit via the store's path lookup.
     const absPath = path.isAbsolute(picked) ? picked : path.join(projectRoot, picked);
     try {
+      const stat = await fs.stat(absPath);
+      if (stat.size > TEXT_FILE_ATTACHMENT_MAX_BYTES) {
+        throw new Error(
+          `file exceeds ${(TEXT_FILE_ATTACHMENT_MAX_BYTES / (1024 * 1024)).toFixed(0)} MiB attachment limit (${stat.size.toLocaleString()} bytes)`,
+        );
+      }
       const data = await fs.readFile(absPath, 'utf8');
+      const bytes = Buffer.byteLength(data, 'utf8');
+      if (bytes > TEXT_FILE_ATTACHMENT_MAX_BYTES) {
+        throw new Error(
+          `file exceeds ${(TEXT_FILE_ATTACHMENT_MAX_BYTES / (1024 * 1024)).toFixed(0)} MiB attachment limit (${bytes.toLocaleString()} UTF-8 bytes)`,
+        );
+      }
       const token = await builder.registerFile({
         kind: 'file',
         data,
         meta: { filename: picked, label: picked },
       });
-      // Store the full file content so slash commands like /fix can resolve
-      // @-mention tokens to their actual text instead of just the placeholder.
+      // Retain only a bounded display preview. Slash commands and BTW resolve
+      // full file text on demand from the canonical AttachmentStore.
       tokenPreviewsRef.current.set(token, data);
       const before = draft.buffer.slice(0, tok.start);
       const after = draft.buffer.slice(tok.end);

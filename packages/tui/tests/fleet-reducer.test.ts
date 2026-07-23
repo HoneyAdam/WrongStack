@@ -217,6 +217,27 @@ describe('reduceFleetState', () => {
     expect((result!).fleet['a2']!.cost).toBe(60);
   });
 
+  it('fleetCost: preserves state identity when all reported values are unchanged', () => {
+    const state = stubState({
+      fleet: {
+        a1: makeEntry('a1', { cost: 40, lastEventAt: 123 }) as never,
+        a2: makeEntry('a2', { cost: 60, lastEventAt: 456 }) as never,
+      },
+      fleetCost: 100,
+      fleetTokens: { input: 10, output: 20 },
+    });
+    const result = reduceFleetState(state, {
+      type: 'fleetCost',
+      cost: 100,
+      input: 10,
+      output: 20,
+      perAgent: { a1: { cost: 40 }, a2: { cost: 60 } },
+    });
+    expect(result).toBe(state);
+    expect(result?.fleet['a1']?.lastEventAt).toBe(123);
+    expect(result?.fleet['a2']?.lastEventAt).toBe(456);
+  });
+
   // ── fleetConcurrency ─────────────────────────────────────
   it('fleetConcurrency: sets concurrency', () => {
     const state = stubState();
