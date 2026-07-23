@@ -153,6 +153,7 @@ Consequences:
 | `/api/events` | GET | `application/json` `{events, total}` | Persisted event envelopes from `<dataDir>/events.jsonl`, newest first. `?limit=` (≤5000), `?type=` filter. The panel backfills Brain / Worktrees / Mailbox from here |
 | `/api/trends/cost` | GET | `application/json` `{samples}` | 5-min-bucketed cost/token/tool-call time series (`HqTimeseriesSample[]`), `?since=` epoch-ms filter |
 | `/api/alerts` | GET | `application/json` `{active, history}` | Alert engine state (`?limit=`, default 100) |
+| `/api/projects/:projectId/kanban` | GET | `application/json` (`HqKanbanSnapshotPayload`) | Latest persisted boards and tombstones for the repository-stable project identity. Used by the read-only Kanban dashboard view |
 | `/api/sessions` | GET | `application/json` | Live sessions from the cross-process `SessionRegistry` (local machine) |
 | `/api/sessions/:id/events` | GET | `application/json` `{sessionId, source, total, entries}` | Full chat history for a terminal. Local sessions replay the JSONL from disk (`source:"disk"`, merged tool args+results); remote sessions serve the in-memory stream ring (`source:"stream"`). `?limit=` (≤5000, default 200), `?full=1` returns everything |
 | `/api/agents/:id/messages` | GET | `application/json` | Per-subagent message ring (`?full=1`) |
@@ -161,7 +162,7 @@ Consequences:
 | `/api/command` | POST | `application/json` (`202` on accept) | **Control plane.** Enqueue a command to a **connected** client. Requires a browser token with `control.enqueue` (open mode allows any). Target client must advertise `control.receive`. See [Control plane](#control-plane) |
 | `/api/commands` | GET | `application/json` | Recent command audit entries (`?limit=`, default 200) |
 | `/api/mailbox-send` | POST | `application/json` (`202` on delivery) | **Direct mailbox write** — deliver a prompt even when **no client is connected**. Same auth as `/api/command`. See [Direct mailbox delivery](#direct-mailbox-delivery-apimailbox-send) |
-| `/api/projects/:projectId/mailbox/<route>` | POST/GET | `application/json` | **Project-scoped GlobalMailbox HTTP gateway** — same wire protocol as the standalone `wstack mailbox serve` bridge (see [Shared mailbox router](#shared-mailbox-router)). `projectId` is resolved server-side via `SessionRegistry`; raw filesystem paths are **not** accepted. Requires a browser token with `control.enqueue`. `:projectId` may be the `projectSlug` or the `sha256(projectRoot)[:12]` stamp. See [Project-scoped mailbox gateway](#project-scoped-mailbox-gateway-apiprojectsprojectidmailboxroute) |
+| `/api/projects/:projectId/mailbox/<route>` | POST/GET | `application/json` | **Project-scoped GlobalMailbox HTTP gateway** — same wire protocol as the standalone `wstack mailbox serve` bridge (see [Shared mailbox router](#shared-mailbox-router)). `projectId` is resolved server-side via `SessionRegistry`; raw filesystem paths are **not** accepted. Requires a browser token with `control.enqueue`. `:projectId` may be the committed `proj_<ULID>`, the legacy `projectSlug`, or the `sha256(projectRoot)[:12]` stamp. See [Project-scoped mailbox gateway](#project-scoped-mailbox-gateway-apiprojectsprojectidmailboxroute) |
 
 ### Control plane
 
@@ -503,6 +504,7 @@ Payload type per event type:
 | `fleet.event` | `HqFleetEventPayload` — `runId`, optional `subagentId`/`summary`, `event`, `data` |
 | `mailbox.snapshot` | `HqMailboxSnapshotPayload` — `mailboxId`, `scope` (`project`/`global`), `messages[]`, `agents[]`, `totals` |
 | `mailbox.event` | `HqMailboxEventPayload` — `mailboxId`, `action` (`message.sent`/`message.read`/`message.completed`/`message.updated`/`agent.registered`/`agent.heartbeat`/`agent.offline`), optional `message`/`agent`/`summary` |
+| `kanban.snapshot` | `HqKanbanSnapshotPayload` — `projectId`, `generatedAt`, authoritative `boards[]`, and `tombstones[]` |
 | `worklist.snapshot` | `HqWorklistSnapshotPayload` — optional `todos`/`tasks`/`plans` `HqWorklistCounts`, optional `activeItem` |
 | `git.snapshot` | `HqGitSnapshotPayload` — optional `branch`/`dirtyFiles`/`stagedFiles`/`ahead`/`behind` |
 
@@ -710,7 +712,7 @@ Notes:
 The primary dashboard is the **`packages/webui-hq` React app** (offline
 Vite bundle, no CDN), served from its built `dist/` with a graceful
 fallback to a self-contained inline HTML page when the dist is unbuilt.
-The panel connects to `/ws/browser` and renders ten views behind a
+The panel connects to `/ws/browser` and renders twelve views behind a
 header (live LED + fleet stat chips) and a tab bar:
 
 | View | Contents | Data source |
@@ -719,12 +721,14 @@ header (live LED + fleet stat chips) and a tab bar:
 | **Fleet** | Searchable full-fleet, per-machine, or cross-machine per-project topology; switchable graph/compact-list layouts; machine → project → client/service → agent rollups; `mailbox serve` status; click-through to Console | `hq.snapshot` |
 | **Console** | Full chat transcript plus exact-client control composer for leader/subagent `steer` / `btw` / `queue`, targeted interrupt, optional leader+fleet interrupt, and optimistic outbound turns whose queued → delivered → acked state updates in the chat history | `/api/sessions/:id/events`, live `session.transcript`, `hq.command_status` |
 | **Mailbox** | Live feed + grouped-by-project message browser with type/priority/project/search filters | `hq.snapshot`, `mailbox.event` (backfilled from `/api/events`) |
+| **Kanban** | Read-only project and board selector with columns, cards, WIP limits, task status, assignees, labels, dependencies, and due dates synchronized across clones and machines | `/api/projects/:projectId/kanban`, live `kanban.snapshot` refresh trigger |
 | **Cost** | Hero total, per-project share bars, per-session/model breakdown | `hq.snapshot` |
 | **Brain** | Decision / intervention timeline | `brain.event` (backfilled from `/api/events`) |
 | **Worktrees** | Per-owner lifecycle lanes (allocated → committed → merged / conflict / failed) | `worktree.event` (backfilled) |
 | **Trends** | KPI tiles + SVG column charts (cost / tokens / tool calls) with hover tooltips and 1h–7d range filters | `/api/trends/cost` |
 | **Alerts** | Live alert feed + history | `hq.alert`, `/api/alerts` |
 | **Control** | Advanced staged command composer (`steer` / `btw` / `queue` / `abort` / `spawn` / `broadcast` / gated `run-command`) with fully-qualified machine/project/process/session targets, preview + typed-confirmation gates, and live audit trail | `POST /api/command`, `/api/commands`, `hq.command_status` |
+| **Security** | Browser password and credential management | `/api/auth/status`, `/api/auth/password` |
 
 Panel source: `packages/webui-hq/` (views under `src/views/`, the
 transcript accumulation layer in `src/lib/transcript-store.ts`). An
@@ -746,7 +750,7 @@ when configured. The resolution logic lives in
 | `WRONGSTACK_HQ_TOKEN` | string | _(unset)_ | Optional client enrollment token. When set, the publisher appends it as a `?token=…` query parameter on the `/ws/client` upgrade. Required by Phase 2+ when the server runs in remote/auth mode |
 | `WRONGSTACK_HQ_PASSWORD` | string | _(unset)_ | Server-side browser password used when `--password` is omitted. Sets or rotates the scrypt hash at startup; minimum 8 characters |
 | `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `1` | Publish raw prompt / output / file / log content. Defaults to **on** for every HQ target unless explicitly disabled. Set `0` to force raw-content redaction. Maps to `HqRedactionPolicy.rawContent` |
-| `WRONGSTACK_HQ_PROJECT_ALIAS` | string | _(unset)_ | Stable HQ project identity and display name. Maps to config `hq.projectAlias`. Clients must use the exact same value to synchronize project Kanban records across different machines or independent project copies. Without it, identity falls back to the legacy absolute project path and cross-directory/cross-machine Kanban sync does not occur |
+| `WRONGSTACK_HQ_PROJECT_ALIAS` | string | _(unset)_ | Optional HQ display name and legacy identity fallback. A committed `.wrongstack/project.json` takes precedence for identity |
 
 ### Auto-discovery mode (default)
 
@@ -781,37 +785,33 @@ command writes this block (see [`/hq`](../slash/hq.md)).
 
 ### Project identity and Kanban synchronization
 
-HQ stores Kanban records under a project identity. To synchronize the same
-project's boards from clients on different machines or from independent local
-copies, configure the **same exact** `hq.projectAlias` value on every client:
+HQ stores Kanban records under the committed repository identity in
+`.wrongstack/project.json`:
 
-```jsonc
+```json
 {
-  "hq": {
-    "url": "https://hq.example.com",
-    "projectAlias": "payments-platform"
-  }
+  "version": 1,
+  "projectId": "proj_01J00000000000000000000000"
 }
 ```
 
-The environment equivalent is:
+Commit this file once. Clones, worktrees, and forks that retain it publish to
+the same HQ project and synchronize the same Kanban records across machines.
+The identity lifecycle is explicit:
 
 ```bash
-export WRONGSTACK_HQ_PROJECT_ALIAS=payments-platform
+wstack project id
+wstack project init
+wstack project rekey --yes   # only when a fork becomes an independent project
 ```
 
-The value is case-sensitive and serves two purposes: it is the project name
-shown in HQ and the stable identity key for project-scoped Kanban records.
-Clients using different aliases—or a mix of aliased and unaliased
-configuration—belong to different HQ projects and do not exchange Kanban
-updates.
+`hq.projectAlias` remains useful as a human-readable display name. It is also
+the legacy identity fallback for repositories that do not yet contain
+`.wrongstack/project.json`.
 
-When `hq.projectAlias` and `WRONGSTACK_HQ_PROJECT_ALIAS` are both unset,
-WrongStack intentionally preserves the legacy identity derived from the
-client's **absolute project path**. That fallback works for multiple clients
-pointing at the same directory, but independent copies typically have different
-paths, and paths differ between machines. Consequently, cross-directory and
-cross-machine Kanban synchronization does not occur without a shared alias.
+When neither a committed identity nor an alias exists, WrongStack preserves the
+old absolute-path hash fallback. That fallback is machine-local and therefore
+does not synchronize independent copies.
 
 ### URL normalization examples
 
@@ -1153,7 +1153,7 @@ is also taken.
   control plane, transcript rings, persistence wiring
 - `packages/cli/src/hq-static-serve.ts` — resolve + serve the built
   `@wrongstack/webui-hq/dist` (inline `HQ_HTML` fallback when unbuilt)
-- `packages/webui-hq/` — the React dashboard (10 views + transcript store)
+- `packages/webui-hq/` — the React dashboard (12 views + transcript store)
 - `packages/cli/src/arg-parser.ts` — `--hq`, `--host`, `--port`,
   `--strict-port`, `--open` boolean flags
 - `packages/cli/src/cli-main.ts` — early `--hq` dispatch (before `boot()`)

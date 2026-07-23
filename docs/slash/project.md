@@ -13,6 +13,9 @@ Alias: `/projects`.
 |---|---|
 | `/project` | Open the interactive picker (arrow keys, Enter to confirm; falls back to `list` without a TTY). |
 | `/project ls` / `list` | List all known projects with last-seen age. |
+| `/project id` | Show the committed repository identity used by HQ. |
+| `/project init` | Create `.wrongstack/project.json` when it is missing. |
+| `/project rekey [--yes]` | Give a fork a new identity so it becomes an independent HQ/Kanban project. |
 | `/project add <path> [name]` | Register a project. |
 | `/project rename <slug> <name>` | Rename a project. |
 | `/project remove <slug>` | Remove a project from the registry (files untouched). |
@@ -31,6 +34,8 @@ survives the parent exiting.
 
 ```
 /project
+/project id
+/project init
 /project add D:\Codebox\PROJECTS\MyApp "My App"
 /project rename my-app "My App v2"
 /project switch ../other-repo --name other
@@ -40,6 +45,9 @@ survives the parent exiting.
 
 - `remove` only edits the registry — nothing is deleted on disk; per-project
   data stays under `~/.wrongstack/projects/<slug>/`.
+- Commit `.wrongstack/project.json` so every clone, worktree, and machine uses
+  the same HQ project and Kanban state. Rekey only after a fork becomes an
+  independent project, then restart the running WrongStack session.
 - The picker is also on F1 in the TUI.
 
 See also: `/working_dir` (move within the current project), F1 project
