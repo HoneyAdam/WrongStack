@@ -50,6 +50,7 @@ const VIEWS = [
   'chat',
   'settings',
   'memory',
+  'roster',
   'context',
   'goal',
   'kanban',

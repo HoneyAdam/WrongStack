@@ -43,15 +43,11 @@ import { WorkspaceDock, WorkspaceDockInspector } from './components/WorkspaceDoc
 const AnalyticsDashboard = lazy(() =>
   import('./components/AnalyticsDashboard').then((m) => ({ default: m.AnalyticsDashboard })),
 );
-const CodeMap = lazy(() =>
-  import('./components/CodeMap').then((m) => ({ default: m.CodeMap })),
-);
+const CodeMap = lazy(() => import('./components/CodeMap').then((m) => ({ default: m.CodeMap })));
 const ChronicleDashboard = lazy(() =>
   import('./components/ChronicleDashboard').then((m) => ({ default: m.ChronicleDashboard })),
 );
-const GoalView = lazy(() =>
-  import('./components/GoalView').then((m) => ({ default: m.GoalView })),
-);
+const GoalView = lazy(() => import('./components/GoalView').then((m) => ({ default: m.GoalView })));
 const ChangesView = lazy(() =>
   import('./components/ChangesView').then((m) => ({ default: m.ChangesView })),
 );
@@ -73,6 +69,9 @@ const MailboxDetailView = lazy(() =>
 const MemoryManager = lazy(() =>
   import('./components/MemoryManager').then((m) => ({ default: m.MemoryManager })),
 );
+const AgentRosterView = lazy(() =>
+  import('./components/AgentRosterView').then((m) => ({ default: m.AgentRosterView })),
+);
 const AudienceMemoryPanel = lazy(() =>
   import('./components/AudienceMemoryPanel').then((m) => ({ default: m.AudienceMemoryPanel })),
 );
@@ -91,9 +90,7 @@ const QueuePanel = lazy(() =>
 const RefreshDebugView = lazy(() =>
   import('./components/RefreshDebugView').then((m) => ({ default: m.RefreshDebugView })),
 );
-const SddHub = lazy(() =>
-  import('./components/SddHub').then((m) => ({ default: m.SddHub })),
-);
+const SddHub = lazy(() => import('./components/SddHub').then((m) => ({ default: m.SddHub })));
 const SessionsDashboard = lazy(() =>
   import('./components/SessionsDashboard').then((m) => ({ default: m.SessionsDashboard })),
 );
@@ -562,6 +559,15 @@ function AppInner() {
                 </div>
               </Suspense>
             </div>
+          </ErrorBoundary>
+        )}
+        {currentView === 'roster' && (
+          <ErrorBoundary level="panel" name="Agent Roster">
+            <Suspense fallback={<PanelSuspense label="Loading agent roster…" />}>
+              <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                <AgentRosterView />
+              </div>
+            </Suspense>
           </ErrorBoundary>
         )}
         {currentView === 'context' && (

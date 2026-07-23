@@ -139,13 +139,6 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
-
-  const ctxPct =
-    maxContext > 0 && lastInputTokens > 0
-      ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
-      : 0;
-
   // ── Category tokens for the composition ring ──
   const categories = useMemo(() => {
     if (!data) return null;
@@ -155,6 +148,13 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
       { label: 'Messages', key: 'messages', value: data.messages.total, color: '#22c55e' },
     ];
   }, [data]);
+
+  if (!open) return null;
+
+  const ctxPct =
+    maxContext > 0 && lastInputTokens > 0
+      ? Math.min(100, Math.round((lastInputTokens / maxContext) * 100))
+      : 0;
 
   return (
     <div

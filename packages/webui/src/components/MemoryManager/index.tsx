@@ -517,7 +517,9 @@ export function MemoryManager() {
       if (audienceOnly && !memory.audience) return false;
       if (!query) return true;
       const anchorText = memory.anchors
-        .map((anchor) => [anchor.path, anchor.symbol, anchor.command].filter(Boolean).join(' '))
+        .map((anchor) =>
+          [anchor.path, anchor.symbol, anchor.command, anchor.role].filter(Boolean).join(' '),
+        )
         .join(' ');
       const audienceText = memory.audience
         ? [

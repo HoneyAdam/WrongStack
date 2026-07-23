@@ -4,8 +4,8 @@ import {
   Boxes,
   BrainCircuit,
   Building2,
-  Clock,
   ChartNoAxesCombined,
+  Clock,
   Columns3,
   Command,
   FileText,
@@ -15,11 +15,11 @@ import {
   Keyboard,
   LayoutGrid,
   Mail,
-  Network,
   MessageSquare,
   Monitor,
   Moon,
   MoreHorizontal,
+  Network,
   Palette,
   Rocket,
   Settings as SettingsIcon,
@@ -102,6 +102,7 @@ const VIEWS: ViewDef[] = [
   { id: 'chronicle', icon: <ChartNoAxesCombined size={16} />, label: 'Chronicle' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
   { id: 'memory', icon: <BrainCircuit size={16} />, label: 'Memory' },
+  { id: 'roster', icon: <Bot size={16} />, label: 'Agent Roster' },
 ];
 
 const DESKTOP_CORE_PANEL_IDS: readonly Activity[] = [
@@ -277,6 +278,8 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
         )}
         {/* Connection status dot */}
         <span
+          role="status"
+          aria-label={wsConnected ? t('activity:status.connected') : t('activity:status.disconnected')}
           className={cn(
             'inline-block w-1.5 h-1.5 rounded-full',
             desktopShell ? 'mt-1.5' : 'mt-1',

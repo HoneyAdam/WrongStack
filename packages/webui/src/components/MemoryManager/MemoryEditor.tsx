@@ -9,9 +9,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { sendRosterMessage } from '@/lib/roster-ws';
 import { cn } from '@/lib/utils';
 import type { SuperMemoryAnchor, SuperMemoryScope, SuperMemoryStatus } from '@/types';
 import type { MemoryDraft } from './shared';
@@ -46,8 +47,19 @@ export function MemoryEditor({
   onSubmit,
 }: MemoryEditorProps) {
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const [agentRoles, setAgentRoles] = useState<string[]>([]);
   useEffect(() => {
     textRef.current?.focus();
+    const controller = new AbortController();
+    void sendRosterMessage('agent-roster.list', {}, controller.signal)
+      .then((value) => {
+        const roles = (value as { roles?: unknown }).roles;
+        if (Array.isArray(roles)) {
+          setAgentRoles(roles.filter((role): role is string => typeof role === 'string'));
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   const set = <K extends keyof MemoryDraft>(key: K, value: MemoryDraft[K]) => {
@@ -277,7 +289,11 @@ export function MemoryEditor({
                       onChange={(event) => {
                         const type = event.target.value as SuperMemoryAnchor['type'];
                         const replacement: SuperMemoryAnchor =
-                          type === 'command' ? { type, command: '' } : { type, path: '' };
+                          type === 'command'
+                            ? { type, command: '' }
+                            : type === 'agent'
+                              ? { type, role: '' }
+                              : { type, path: '' };
                         const anchors = draft.anchors.map((item, itemIndex) =>
                           itemIndex === index ? replacement : item,
                         );
@@ -302,6 +318,7 @@ export function MemoryEditor({
                       </label>
                       <Input
                         id={`anchor-value-${index}`}
+                        list={anchor.type === 'agent' ? 'memory-agent-role-options' : undefined}
                         value={anchorValue(anchor)}
                         onChange={(event) => {
                           const anchors = draft.anchors.map((item, itemIndex) =>
@@ -314,7 +331,9 @@ export function MemoryEditor({
                         placeholder={
                           anchor.type === 'command'
                             ? 'pnpm test --filter webui'
-                            : 'packages/webui/src/App.tsx'
+                            : anchor.type === 'agent'
+                              ? 'reviewer'
+                              : 'packages/webui/src/App.tsx'
                         }
                         className="h-10 min-w-0 bg-background font-mono text-xs"
                       />
@@ -358,6 +377,11 @@ export function MemoryEditor({
                 ))}
               </div>
             )}
+            <datalist id="memory-agent-role-options">
+              {agentRoles.map((role) => (
+                <option key={role} value={role} />
+              ))}
+            </datalist>
           </section>
 
           <section className="grid gap-3 border border-border/75 bg-card/45 p-4 sm:grid-cols-2">

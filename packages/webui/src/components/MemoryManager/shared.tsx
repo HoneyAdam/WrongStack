@@ -48,6 +48,7 @@ export const ANCHOR_TYPES: SuperMemoryAnchor['type'][] = [
   'command',
   'test',
   'git',
+  'agent',
 ];
 
 export const KIND_LABELS: Record<string, string> = {
@@ -205,11 +206,12 @@ export function kindClasses(kind: string): string {
 }
 
 export function anchorValue(anchor: SuperMemoryAnchor): string {
-  return anchor.path ?? anchor.command ?? '';
+  return anchor.path ?? anchor.command ?? anchor.role ?? '';
 }
 
 export function updateAnchorValue(anchor: SuperMemoryAnchor, value: string): SuperMemoryAnchor {
   if (anchor.type === 'command') return { type: anchor.type, command: value };
+  if (anchor.type === 'agent') return { type: anchor.type, role: value };
   return {
     type: anchor.type,
     path: value,
@@ -225,6 +227,10 @@ export function normalizeAnchors(anchors: SuperMemoryAnchor[]): SuperMemoryAncho
     if (!value && !symbol) continue;
     if (anchor.type === 'command') {
       normalized.push({ type: 'command', command: value });
+      continue;
+    }
+    if (anchor.type === 'agent') {
+      normalized.push({ type: 'agent', role: value.toLowerCase() });
       continue;
     }
     normalized.push({

@@ -246,7 +246,7 @@ function MemoryAnchors({ anchors }: { anchors: SuperMemoryEntry['anchors'] }) {
       <ul className="divide-y divide-border/55">
         {anchors.map((anchor, index) => (
           <li
-            key={`${anchor.type}:${anchor.path ?? anchor.command ?? anchor.symbol}:${index}`}
+            key={`${anchor.type}:${anchor.path ?? anchor.command ?? anchor.symbol ?? anchor.role}:${index}`}
             className="flex min-w-0 items-start gap-3 px-3 py-2.5"
           >
             <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center border border-info/25 bg-info/5 text-info">
@@ -259,7 +259,7 @@ function MemoryAnchors({ anchors }: { anchors: SuperMemoryEntry['anchors'] }) {
             <div className="min-w-0">
               <p className="text-[9px] font-bold uppercase text-muted-foreground">{anchor.type}</p>
               <p className="mt-0.5 break-all font-mono text-[10px] leading-4 text-foreground/85">
-                {anchor.path ?? anchor.command ?? '—'}
+                {anchor.path ?? anchor.command ?? anchor.role ?? '—'}
                 {anchor.symbol ? `#${anchor.symbol}` : ''}
               </p>
             </div>

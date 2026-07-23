@@ -12,10 +12,10 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Expand } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { SuperMemoryAnchor, SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import type { SuperMemoryAnchor, SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
 
 interface MemoryGraphProps {
   centerMemory: SuperMemoryEntry;
@@ -51,7 +51,7 @@ function anchorLabel(anchor: SuperMemoryAnchor): string {
   if (anchor.type === 'symbol') {
     return [anchor.path, anchor.symbol ? `#${anchor.symbol}` : ''].filter(Boolean).join('');
   }
-  return anchor.path ?? anchor.command ?? anchor.symbol ?? anchor.type;
+  return anchor.path ?? anchor.command ?? anchor.symbol ?? anchor.role ?? anchor.type;
 }
 
 function statusTone(status: string): string {
@@ -327,9 +327,7 @@ export function MemoryGraph({
           {error}
         </p>
       )}
-      {nodes.length > 1 && (
-        <GraphCanvas nodes={nodes} edges={edges} className="h-[320px]" />
-      )}
+      {nodes.length > 1 && <GraphCanvas nodes={nodes} edges={edges} className="h-[320px]" />}
       {directMemoryEdges.some((edge) => edge.evidence?.length) && (
         <div className="grid gap-1 border-t border-border/70 bg-card/35 px-3 py-2">
           {directMemoryEdges

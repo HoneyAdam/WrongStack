@@ -115,7 +115,7 @@ export function ChangesView({ className }: { className?: string }) {
             </div>
           )}
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {loadingDiff || !diff ? (
             timedOut ? (
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">

@@ -675,10 +675,11 @@ export type SuperMemoryStatus =
   | 'deleted';
 
 export interface SuperMemoryAnchor {
-  type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git';
+  type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git' | 'agent';
   path?: string | undefined;
   symbol?: string | undefined;
   command?: string | undefined;
+  role?: string | undefined;
   lineStart?: number | undefined;
   lineEnd?: number | undefined;
 }
@@ -1771,10 +1772,7 @@ export interface BrainCouncilSeatWire {
 }
 
 /** Headless escalation variant. */
-export type BrainTerminalPolicyWire =
-  | 'conservative'
-  | 'deny-all'
-  | 'continue-on-recommended';
+export type BrainTerminalPolicyWire = 'conservative' | 'deny-all' | 'continue-on-recommended';
 
 /** JSON-safe snapshot of the live Brain config (mirrors core's BrainConfigSnapshot). */
 export interface BrainConfigWire {
@@ -2066,6 +2064,7 @@ export type WSClientMessageCore =
   | { type: 'auth.oauth.cancel'; payload: { kind: OAuthKind } }
   | { type: 'tools.list' }
   | { type: 'memory.list' }
+  | { type: `agent-roster.${string}`; payload?: Record<string, unknown> | undefined }
   // ── SuperMemory send types ──
   | { type: 'memory.super.list' }
   | {
@@ -2262,7 +2261,16 @@ export type WSClientMessageCore =
       payload: {
         requestId: string;
         to: string;
-        type: 'note' | 'ask' | 'assign' | 'steer' | 'btw' | 'broadcast' | 'status' | 'result' | 'review';
+        type:
+          | 'note'
+          | 'ask'
+          | 'assign'
+          | 'steer'
+          | 'btw'
+          | 'broadcast'
+          | 'status'
+          | 'result'
+          | 'review';
         audience: 'all' | 'leaders';
         subject: string;
         body: string;

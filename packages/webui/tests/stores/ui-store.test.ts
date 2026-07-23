@@ -549,7 +549,7 @@ describe('setCurrentView', () => {
   });
 
   it('coerces unknown currentView values back to chat', () => {
-    useUIStore.getState().setCurrentView('agentflow');
+    useUIStore.getState().setCurrentView('agentflow' as never);
     expect(useUIStore.getState().currentView).toBe('chat');
   });
 });

@@ -1,5 +1,3 @@
-import { AGENTS_BY_PHASE } from '@wrongstack/core/agent-catalog';
-
 export interface ModelMatrixRouteRole {
   role: string;
   name: string;
@@ -13,15 +11,29 @@ export interface ModelMatrixRouteGroup {
 
 export const MODEL_MATRIX_DEFAULT_ROUTE = '*';
 
+// Browser-safe projection of the core catalog. The contract test compares
+// this compact UI metadata with AGENTS_BY_PHASE so catalog changes cannot
+// silently leave the settings route picker stale. Importing the runtime
+// catalog here would pull its Node-only prompt and project identity modules
+// into the browser bundle.
+const BROWSER_AGENT_ROUTES = {
+  discovery: [['explore', 'Explore'], ['search', 'Search'], ['research', 'Research']],
+  planning: [['analyst', 'Analyst'], ['planner', 'Planner'], ['architect', 'Architect'], ['critic', 'Critic'], ['refactor-planner', 'Refactor Planner']],
+  build: [['executor', 'Executor'], ['refactor', 'Refactor'], ['simplifier', 'Simplifier'], ['migration', 'Migration'], ['vision', 'Vision'], ['debugger', 'Debugger'], ['tracer', 'Tracer'], ['concurrency', 'Concurrency']],
+  verify: [['realtime', 'Realtime'], ['resilience-engineer', 'Resilience Engineer'], ['chaos-engineer', 'Chaos Engineer'], ['verifier', 'Verifier'], ['test', 'Test'], ['e2e', 'E2E'], ['browser', 'Browser'], ['performance', 'Performance'], ['chaos', 'Chaos'], ['security-scanner', 'Security Scanner'], ['bug-hunter', 'Bug Hunter'], ['audit-log', 'Audit Log']],
+  review: [['threat-modeler', 'Threat Modeler'], ['secure-coding-coach', 'Secure Coding Coach'], ['compliance-auditor', 'Compliance Auditor'], ['privacy-engineer', 'Privacy Engineer'], ['reviewer', 'Reviewer'], ['code-reviewer', 'Code Reviewer'], ['security-reviewer', 'Security Reviewer'], ['accessibility', 'Accessibility'], ['compliance', 'Compliance']],
+  domain: [['android', 'Android'], ['desktop', 'Desktop'], ['distributed-systems', 'Distributed Systems'], ['database', 'Database'], ['api', 'API'], ['auth', 'Auth'], ['data', 'Data'], ['frontend', 'Frontend'], ['backend', 'Backend'], ['designer', 'Designer'], ['ios', 'iOS'], ['payments', 'Payments'], ['messaging', 'Messaging'], ['search-relevance', 'Search Relevance'], ['storage', 'Storage'], ['ml-engineer', 'ML Engineer'], ['data-governance', 'Data Governance']],
+  knowledge: [['document', 'Document'], ['uml', 'UML'], ['i18n', 'I18n'], ['prompt', 'Prompt']],
+  delivery: [['platform-engineer', 'Platform Engineer'], ['git', 'Git'], ['release', 'Release'], ['devops', 'DevOps'], ['observability', 'Observability'], ['dependency', 'Dependency']],
+  meta: [['skill-manage', 'Skill Manager'], ['self-improving', 'Self-Improving'], ['context', 'Context'], ['cost', 'Cost'], ['tech-stack', 'Tech Stack Validator'], ['plugin-author', 'Plugin Author'], ['tool-author', 'Tool Author'], ['prompt-evaluator', 'Prompt Evaluator'], ['benchmark-engineer', 'Benchmark Engineer'], ['memory-curator', 'Memory Curator'], ['fleet-coordinator', 'Fleet Coordinator']],
+} as const;
+
 export const MODEL_MATRIX_ROUTE_GROUPS: readonly ModelMatrixRouteGroup[] = Object.entries(
-  AGENTS_BY_PHASE,
-).map(([phase, definitions]) => ({
+  BROWSER_AGENT_ROUTES,
+).map(([phase, roles]) => ({
   phase,
   label: `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`,
-  roles: definitions.flatMap((definition) => {
-    const role = definition.config.role;
-    return role ? [{ role, name: definition.config.name }] : [];
-  }),
+  roles: roles.map(([role, name]) => ({ role, name })),
 }));
 
 export const MODEL_MATRIX_PHASE_ROUTES = MODEL_MATRIX_ROUTE_GROUPS.map((group) => group.phase);
