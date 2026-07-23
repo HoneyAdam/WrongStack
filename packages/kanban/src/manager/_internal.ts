@@ -447,6 +447,10 @@ export async function claimReadyTaskOnBoard(
 ): Promise<{ board: KanbanBoard; task: KanbanTask } | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
+    // Managed lifecycle boards use transitionTask() exclusively.
+    // Direct claiming would bypass lifecycle stage validation and the
+    // persistent transition ledger. Matches assignTask() behaviour.
+    if (board.lifecycle?.mode === 'managed') return null;
     const candidates = input.taskId
       ? [findTask(board, input.taskId)].filter((task): task is KanbanTask => Boolean(task))
       : board.tasks.filter((task) => isTaskReadyForWork(board, task)).sort(compareTasksForWork);

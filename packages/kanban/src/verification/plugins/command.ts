@@ -32,22 +32,30 @@ export class CommandPlugin implements VerifierPlugin {
     }
 
     const result = await context.runCommand(command);
+    // A security-gate rejection (allowlist/blocklist/shell-operator) is
+    // distinct from a real command failure — operators reviewing results must
+    // be able to tell them apart. Surface as `status: 'error'` with the
+    // validation reason in `evidence.rejectionReason` and the `error` string.
+    const rejected = result.rejected === true;
     return {
       checkId: check.id,
       description: check.description,
       type: check.type,
-      status: result.exitCode === 0 ? 'passed' : 'failed',
+      status: rejected ? 'error' : result.exitCode === 0 ? 'passed' : 'failed',
       evidence: {
         command,
         exitCode: result.exitCode,
         stdout: result.stdout.slice(0, 5000),
         stderr: result.stderr.slice(0, 2000),
         durationMs: result.durationMs,
+        ...(rejected ? { rejectionReason: result.stderr } : {}),
       },
       error:
         result.exitCode === 0
           ? undefined
-          : `Command exited with code ${result.exitCode}: ${result.stderr.slice(0, 500) || result.stdout.slice(0, 500)}`,
+          : rejected
+            ? `Command rejected by security gate: ${result.stderr}`
+            : `Command exited with code ${result.exitCode}: ${result.stderr.slice(0, 500) || result.stdout.slice(0, 500)}`,
     };
   }
 }

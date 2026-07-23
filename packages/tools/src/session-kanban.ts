@@ -12,10 +12,7 @@ import {
   type TaskFile,
 } from '@wrongstack/core/storage';
 import { deserializeTaskGraph } from '@wrongstack/core/tasking';
-import type {
-  SerializedTaskGraph,
-  TaskStatus,
-} from '@wrongstack/core/types';
+import type { SerializedTaskGraph, TaskStatus } from '@wrongstack/core/types';
 import { resolveWstackPaths, type TaskItem } from '@wrongstack/core/utils';
 import {
   createBoard,
@@ -454,10 +451,10 @@ export function projectSessionPlanToKanban(
   );
 }
 
-function fireAndForget(work: Promise<unknown>): void {
-  void work.catch(() => {
-    // The session files/state remain recoverable if the observational board
-    // cannot be written; the next mutation or file watcher retries the mirror.
+function fireAndForget(context: string, work: Promise<unknown>): void {
+  void work.catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(JSON.stringify({ level: 'warn', event: 'session-kanban', context, message, timestamp: new Date().toISOString() }));
   });
 }
 
@@ -489,9 +486,7 @@ function broadcastTodoUpdate(context: Context, todos: readonly TodoItem[]): void
 
 function notifyTodoUpdate(context: Context, todos: readonly TodoItem[]): void {
   const summary = todos.length
-    ? todos
-        .map((todo) => `- [${todo.status}] ${todo.content} (${todo.id})`)
-        .join('\n')
+    ? todos.map((todo) => `- [${todo.status}] ${todo.content} (${todo.id})`).join('\n')
     : '- No active todos remain.';
   const text = `[KANBAN TODO UPDATE]\nAnother Kanban agent reassessed the shared board. The canonical todo list is now:\n${summary}\nReassess your current plan before continuing; do not rely on the initial todo snapshot.`;
   const state = context.state as Partial<Context['state']>;
@@ -559,7 +554,10 @@ export function attachSessionKanbanMirror(context: Context): () => void {
     if (currentSessionId === registeredSessionId) return;
     if (registeredSessionId) {
       releaseActiveSessionBoard(attachedProjectRoot, registeredSessionId);
-      fireAndForget(cleanupSessionKanbanBoardIfEmpty(attachedProjectRoot, registeredSessionId));
+      fireAndForget(
+        'cleanup-board',
+        cleanupSessionKanbanBoardIfEmpty(attachedProjectRoot, registeredSessionId),
+      );
     }
     registeredSessionId = currentSessionId;
     if (registeredSessionId) {
@@ -613,7 +611,7 @@ export function attachSessionKanbanMirror(context: Context): () => void {
         (_event, filename) => {
           if (filename?.toString() !== boardFileName) return;
           if (boardTimer) clearTimeout(boardTimer);
-          boardTimer = setTimeout(() => fireAndForget(refreshBoard()), 60);
+          boardTimer = setTimeout(() => fireAndForget('refresh-board', refreshBoard()), 60);
         },
       );
       const touchPresence = () =>
@@ -622,9 +620,9 @@ export function attachSessionKanbanMirror(context: Context): () => void {
           agentId: context.agentId,
           agentName: context.agentName,
         });
-      fireAndForget(touchPresence());
+      fireAndForget('touch-presence', touchPresence());
       if (presenceTimer) clearInterval(presenceTimer);
-      presenceTimer = setInterval(() => fireAndForget(touchPresence()), 60_000);
+      presenceTimer = setInterval(() => fireAndForget('touch-presence', touchPresence()), 60_000);
       presenceTimer.unref?.();
       boardWatcher.on('error', () => {
         boardWatcher?.close();
@@ -659,7 +657,7 @@ export function attachSessionKanbanMirror(context: Context): () => void {
         const taskName = typeof currentTaskPath === 'string' ? basename(currentTaskPath) : '';
         if (name && name !== planName && name !== taskName) return;
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => fireAndForget(refreshFiles()), 60);
+        timer = setTimeout(() => fireAndForget('refresh-files', refreshFiles()), 60);
       });
       watcher.on('error', () => watcher?.close());
     } catch {
@@ -684,14 +682,14 @@ export function attachSessionKanbanMirror(context: Context): () => void {
     if (change.kind === 'meta_set' && (change.key === 'plan.path' || change.key === 'task.path')) {
       syncActiveSessionRegistration();
       configureWatcher();
-      fireAndForget(ensureSessionKanbanBoard(context.projectRoot, sessionId()));
-      fireAndForget(configureBoardWatcher());
-      fireAndForget(refreshFiles());
+      fireAndForget('ensure-board', ensureSessionKanbanBoard(context.projectRoot, sessionId()));
+      fireAndForget('configure-watcher', configureBoardWatcher());
+      fireAndForget('refresh-files', refreshFiles());
     }
   });
 
   configureWatcher();
-  fireAndForget(configureBoardWatcher());
+  fireAndForget('configure-watcher', configureBoardWatcher());
 
   const detach = () => {
     unsubscribe();
@@ -703,7 +701,10 @@ export function attachSessionKanbanMirror(context: Context): () => void {
     bindings.delete(context);
     if (attachedProjectRoot && registeredSessionId) {
       releaseActiveSessionBoard(attachedProjectRoot, registeredSessionId);
-      fireAndForget(cleanupSessionKanbanBoardIfEmpty(attachedProjectRoot, registeredSessionId));
+      fireAndForget(
+        'cleanup-board',
+        cleanupSessionKanbanBoardIfEmpty(attachedProjectRoot, registeredSessionId),
+      );
       registeredSessionId = '';
     }
   };
@@ -792,7 +793,11 @@ function sameTodos(left: readonly TodoItem[], right: readonly TodoItem[]): boole
  */
 export function applySessionKanbanBoardToTodos(context: Context, board: KanbanBoard): TodoItem[] {
   const sessionId = context.session?.id ?? '';
-  if (!sessionId || sessionIdFromTags(board.tags) !== sessionId || !isOwnedSessionBoard(board.tags)) {
+  if (
+    !sessionId ||
+    sessionIdFromTags(board.tags) !== sessionId ||
+    !isOwnedSessionBoard(board.tags)
+  ) {
     return [...context.todos];
   }
 
@@ -807,7 +812,11 @@ export function applySessionKanbanBoardToTodos(context: Context, board: KanbanBo
     .sort((left, right) => {
       const leftColumn = board.columns.find((column) => column.id === left.columnId)?.order ?? 0;
       const rightColumn = board.columns.find((column) => column.id === right.columnId)?.order ?? 0;
-      return leftColumn - rightColumn || left.order - right.order || left.createdAt.localeCompare(right.createdAt);
+      return (
+        leftColumn - rightColumn ||
+        left.order - right.order ||
+        left.createdAt.localeCompare(right.createdAt)
+      );
     })
     .map(sessionTodoFromTask);
 

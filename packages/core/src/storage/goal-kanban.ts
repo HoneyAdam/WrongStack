@@ -22,8 +22,8 @@ import {
   listBoards,
   removeBoard,
 } from '@wrongstack/kanban';
-import type { GoalFile } from './goal-store.js';
 import { color } from '../utils/color.js';
+import type { GoalFile } from './goal-store.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -88,10 +88,12 @@ export async function createGoalKanbanBoard(
     }
   }
 
-  // Add one task per deliverable
+  // Add one task per deliverable, each tagged with origin
+  // so refreshGoalKanban() can match by stable ID instead of title text.
   const targetColumnId = board.columns[0]?.id ?? 'backlog';
   if (goalFile.deliverables && goalFile.deliverables.length > 0) {
-    for (const d of goalFile.deliverables) {
+    for (let index = 0; index < goalFile.deliverables.length; index++) {
+      const d = goalFile.deliverables[index]!;
       const cleaned = d.replace(/^\[[x✓]\]|✅|\(done\)\s*/i, '').trim();
       if (cleaned) {
         await addTask(projectRoot, board.id, {
@@ -99,6 +101,10 @@ export async function createGoalKanbanBoard(
           columnId: targetColumnId,
           description: `Deliverable for goal: ${displayGoal}`,
           priority: 'medium',
+          origin: {
+            system: 'goal',
+            taskId: `deliverable:${index}`,
+          },
         }).catch(() => {
           // Best-effort: a task-add failure for one deliverable won't crash the goal
         });
@@ -116,10 +122,7 @@ export async function createGoalKanbanBoard(
  * Find a kanban board by id. Returns null when the board doesn't exist
  * (e.g. manually deleted). The caller should handle this gracefully.
  */
-export async function findGoalKanbanBoard(
-  projectRoot: string,
-  boardId: string,
-) {
+export async function findGoalKanbanBoard(projectRoot: string, boardId: string) {
   if (!projectRoot || !boardId) return null;
   try {
     return await getBoard(projectRoot, boardId);
@@ -131,10 +134,7 @@ export async function findGoalKanbanBoard(
 /**
  * Delete the kanban board linked to a goal. Best-effort.
  */
-export async function deleteGoalKanbanBoard(
-  projectRoot: string,
-  boardId: string,
-): Promise<void> {
+export async function deleteGoalKanbanBoard(projectRoot: string, boardId: string): Promise<void> {
   if (!projectRoot || !boardId) return;
   await removeBoard(projectRoot, boardId).catch(() => {});
 }
@@ -143,10 +143,7 @@ export async function deleteGoalKanbanBoard(
  * Find a goal-linked kanban board by its goal tag.
  * Used when the goal file's kanbanBoardId is missing but the board exists.
  */
-export async function findGoalBoardByTag(
-  projectRoot: string,
-  goalFile: GoalFile,
-) {
+export async function findGoalBoardByTag(projectRoot: string, goalFile: GoalFile) {
   if (!projectRoot) return null;
   const tag = goalTag(goalFile);
   const boards = await listBoards(projectRoot);
@@ -166,9 +163,7 @@ export function formatGoalKanbanPreview(
   taskCount?: number,
 ): string {
   const lines: string[] = [];
-  const displayGoal = (goalFile.refinedGoal || goalFile.goal)
-    .replace(/\s+/g, ' ')
-    .trim();
+  const displayGoal = (goalFile.refinedGoal || goalFile.goal).replace(/\s+/g, ' ').trim();
 
   // ── Header ──
   lines.push('');
@@ -187,29 +182,28 @@ export function formatGoalKanbanPreview(
 
   // ── Deliverables as kanban columns ──
   const deliverables = goalFile.deliverables ?? [];
-  const doneDeliverables = deliverables.filter((d) =>
-    /^\[[x✓]\]|✅|\(done\)/i.test(d),
-  ).length;
+  const doneDeliverables = deliverables.filter((d) => /^\[[x✓]\]|✅|\(done\)/i.test(d)).length;
   const totalDeliverables = deliverables.length;
 
   if (totalDeliverables > 0) {
     // Backlog section (todo items)
-    const backlog = deliverables.filter(
-      (d) => !/^\[[x✓]\]|✅|\(done\)|🔄|in.progress/i.test(d),
-    );
+    const backlog = deliverables.filter((d) => !/^\[[x✓]\]|✅|\(done\)|🔄|in.progress/i.test(d));
     const inProgress = deliverables.filter((d) => /🔄|in.progress/i.test(d));
     const done = deliverables.filter((d) => /^\[[x✓]\]|✅|\(done\)/i.test(d));
 
-    const renderColumn = (title: string, items: string[], icon: string, accent: (s: string) => string) => {
+    const renderColumn = (
+      title: string,
+      items: string[],
+      icon: string,
+      accent: (s: string) => string,
+    ) => {
       if (items.length === 0) {
         lines.push(`  ${accent(color.bold(`${icon} ${title}`))}  ${color.dim('(empty)')}`);
         return;
       }
       lines.push(`  ${accent(color.bold(`${icon} ${title} (${items.length})`))}`);
       for (const item of items) {
-        const cleaned = item
-          .replace(/^\[[x✓]\]|✅|\(done\)|🔄|in.progress\s*/gi, '')
-          .trim();
+        const cleaned = item.replace(/^\[[x✓]\]|✅|\(done\)|🔄|in.progress\s*/gi, '').trim();
         lines.push(`    ○ ${cleaned}`);
       }
     };
@@ -253,10 +247,7 @@ export function formatGoalKanbanPreview(
  * Build the "Goal event" banner — shown after deliverables in `/goal set`.
  * A compact, visually rich summary that doubles as the "goal event" trigger.
  */
-export function formatGoalEvent(
-  goalFile: GoalFile,
-  boardId?: string | null,
-): string {
+export function formatGoalEvent(goalFile: GoalFile, boardId?: string | null): string {
   const lines: string[] = [];
 
   lines.push('');
@@ -274,9 +265,7 @@ export function formatGoalEvent(
       `  📦 ${deliverables.length} deliverable${deliverables.length !== 1 ? 's' : ''} extracted`,
   );
   if (typeof goalFile.progress === 'number') {
-    lines.push(
-      color.bold(color.green('│')) + `  📊 Progress: ${goalFile.progress}%`,
-    );
+    lines.push(color.bold(color.green('│')) + `  📊 Progress: ${goalFile.progress}%`);
   }
   lines.push(color.bold(color.green('└────────────────────────────────────────────┘')));
 
@@ -323,7 +312,10 @@ export function parseAutonomyChoice(input: string): 'eternal' | 'eternal-paralle
 
 function goalTag(goalFile: GoalFile): string {
   // Use the goal's first 24 chars as a stable tag component
-  const goal = (goalFile.refinedGoal || goalFile.goal).replace(/\s+/g, '-').slice(0, 24).toLowerCase();
+  const goal = (goalFile.refinedGoal || goalFile.goal)
+    .replace(/\s+/g, '-')
+    .slice(0, 24)
+    .toLowerCase();
   return `${GOAL_BOARD_TAG_PREFIX}${goal}`;
 }
 

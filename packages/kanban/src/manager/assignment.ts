@@ -188,6 +188,15 @@ export async function updateTaskAssignment(
       } else if (task.assignment.status === 'running') {
         task.assignment.dispatchedAt = task.assignment.dispatchedAt ?? nowIso();
         delete task.assignment.completedAt;
+      } else if (task.assignment.status === 'failed') {
+        delete task.assignment.completedAt;
+        if (patch.error === undefined) delete task.assignment.error;
+      } else if (task.assignment.status === 'cancelled') {
+        delete task.assignment.completedAt;
+        if (patch.error === undefined) delete task.assignment.error;
+      } else if (task.assignment.status === 'queued' || task.assignment.status === 'assigned') {
+        delete task.assignment.completedAt;
+        if (patch.error === undefined) delete task.assignment.error;
       }
       // Keep the card's managed column/status/lifecycle intact. The worker must
       // persist its result, then explicitly transition Running -> Review.

@@ -1,5 +1,6 @@
 import type { Context } from '@wrongstack/core/agent';
 import {
+  areDependenciesMet,
   assignTask,
   getBoard,
   type KanbanBoard,
@@ -110,6 +111,12 @@ export async function handleKanbanTaskDispatch(
     return;
   }
 
+  // Check task readiness — don't dispatch if dependencies are unmet.
+  if (task.dependsOn && task.dependsOn.length > 0 && !areDependenciesMet(board, task.id)) {
+    reply(ws, 'kanban.task.dispatch', false, `Task "${task.title}" has unmet dependencies and cannot be dispatched yet.`);
+    return;
+  }
+
   const modelRouting =
     (payload?.modelRouting as 'session' | 'fixed' | 'fallback_profile' | undefined) ??
     task.assignment?.modelRouting ??
@@ -153,13 +160,17 @@ export async function handleKanbanTaskDispatch(
     status: 'queued' as const,
     dispatchedAt: new Date().toISOString(),
   };
-  await assignTask(
+  const assignedBoard = await assignTask(
     ctx.projectRoot,
     boardId,
     task.id,
     assignment,
     activityContext(ctx, payload?.activityNote as string | undefined),
   );
+  if (!assignedBoard) {
+    reply(ws, 'kanban.task.dispatch', false, `Failed to assign task "${task.title}". The task may have been removed or the board does not allow external assignment.`);
+    return;
+  }
 
   try {
     const summary = await ctx.dispatchTask(buildKanbanAgentPrompt(board, task, assignment), {

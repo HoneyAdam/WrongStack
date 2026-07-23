@@ -1,18 +1,8 @@
 import { updateTask } from '@wrongstack/kanban';
 import type { BrainArbiter } from '../coordination/brain.js';
 import type { EventBus } from '../kernel/events.js';
-import {
-  appendJournal,
-  loadGoal,
-  recordProgress,
-  saveGoal,
-  type GoalFile,
-} from './goal-store.js';
-import {
-  findGoalBoardByTag,
-  findGoalKanbanBoard,
-  type GoalFileWithKanban,
-} from './goal-kanban.js';
+import { findGoalBoardByTag, findGoalKanbanBoard, type GoalFileWithKanban } from './goal-kanban.js';
+import { appendJournal, type GoalFile, loadGoal, recordProgress, saveGoal } from './goal-store.js';
 
 const DONE_MARKER = /\[done:\s*([^\]]+)\]/gi;
 const DONE_PREFIX = /^\s*(?:✅|\[[x✓]\]|\(done\))\s*/i;
@@ -123,18 +113,11 @@ export async function coordinateGoalIteration(
   const current = await loadGoal(options.goalPath, options.events);
   if (!current) return null;
 
-  const completed = parseCompletedGoalDeliverables(
-    options.finalText,
-    current.deliverables ?? [],
-  );
+  const completed = parseCompletedGoalDeliverables(options.finalText, current.deliverables ?? []);
   let goal = applyGoalDeliverableCompletions(current, completed);
   await saveGoal(options.goalPath, goal, options.events);
 
-  const kanbanUpdatedTaskIds = await refreshGoalKanban(
-    options.projectRoot,
-    goal,
-    completed,
-  );
+  const kanbanUpdatedTaskIds = await refreshGoalKanban(options.projectRoot, goal, completed);
   goal = await recomputeGoalProgressFromKanban(options.projectRoot, goal);
 
   let reached = false;
@@ -151,8 +134,8 @@ export async function coordinateGoalIteration(
         `Goal: ${goal.refinedGoal ?? goal.goal}`,
         `Progress: ${goal.progress ?? 0}%`,
         'Completed deliverables:',
-        ...(goal.deliverables ?? []).map((item, index) =>
-          `${index + 1}. ${stripGoalDeliverableMarker(item)}`,
+        ...(goal.deliverables ?? []).map(
+          (item, index) => `${index + 1}. ${stripGoalDeliverableMarker(item)}`,
         ),
       ].join('\n'),
       risk: 'high',
@@ -216,10 +199,24 @@ async function refreshGoalKanban(
   if (!board) return [];
   const doneColumn = board.columns.find((column) => column.title.toLowerCase() === 'done');
   if (!doneColumn) return [];
+
+  // Build a set of deliverable origin keys from completed items.
+  // Each item carries its index in the deliverables array, which matches
+  // the `deliverable:${index}` origin.taskId set at board creation time.
+  const originKeys = new Set(completed.map((item) => `deliverable:${item.index}`));
+
+  // Build title-based fallback set for boards created before origin tracking.
   const completedTitles = new Set(completed.map((item) => normalizeTitle(item.text)));
+
   const updated: string[] = [];
   for (const task of board.tasks) {
-    if (!completedTitles.has(normalizeTitle(task.title))) continue;
+    // Prefer origin-based matching (stable) over title-based (fragile).
+    const originMatch =
+      task.origin?.system === 'goal' && task.origin?.taskId
+        ? originKeys.has(task.origin.taskId)
+        : false;
+    const titleMatch = completedTitles.has(normalizeTitle(task.title));
+    if (!originMatch && !titleMatch) continue;
     const result = await updateTask(
       projectRoot,
       board.id,
@@ -227,7 +224,9 @@ async function refreshGoalKanban(
       { columnId: doneColumn.id, status: 'completed' },
       {
         actor: 'goal-coordinator',
-        note: 'deliverable-completed: Updated from [DONE:] marker.',
+        note: originMatch
+          ? `deliverable-completed: Matched by origin ${task.origin!.taskId}.`
+          : 'deliverable-completed: Updated from [DONE:] marker (title fallback).',
       },
     );
     if (result) updated.push(task.id);
