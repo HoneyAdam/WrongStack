@@ -168,6 +168,16 @@ export class GlobalMailbox implements Mailbox {
   private _lastHeartbeat = new Map<string, number>();
   /** Last time each local client sent a heartbeat (throttle). */
   private _lastClientHeartbeat = new Map<string, number>();
+
+  /** Keep heartbeat throttle state bounded to currently registered entities. */
+  private pruneHeartbeatThrottleMap(
+    throttleMap: Map<string, number>,
+    registry: ReadonlyMap<string, unknown>,
+  ): void {
+    for (const id of throttleMap.keys()) {
+      if (!registry.has(id)) throttleMap.delete(id);
+    }
+  }
   /**
    * In-memory mirror of the JSONL message file. The mailbox is shared
    * ACROSS PROCESSES, so reads cannot trust the cache blindly — we pair it
@@ -298,6 +308,10 @@ export class GlobalMailbox implements Mailbox {
     // append racing ack's read→rewrite gets silently erased when the rewrite
     // lands. This file is shared ACROSS PROCESSES, so the window is real.
     await withFileLock(this.messagePath, async () => {
+      // Another process may have appended since our last cached read. Refresh
+      // before advancing the cache trackers to our post-append size, otherwise
+      // those cross-process records would become permanently hidden locally.
+      await this._refreshMessageCacheUnderLock();
       await fsp.appendFile(this.messagePath, line, 'utf8');
       // Capture the post-append stat INSIDE the lock so the cache trackers
       // advance with the pushed content. A concurrent reader that lands
@@ -459,15 +473,14 @@ export class GlobalMailbox implements Mailbox {
       targetIds.add(a.messageId);
     }
 
-    // ── Pre-lock snapshot for cross-process desync detection ──
-    const preLockMtime = this._messageCacheMtime;
-    const preLockSize = this._messageCacheSize;
-    this.diag.ackManyPreLockMtime = preLockMtime;
-    this.diag.ackManyPreLockSize = preLockSize;
-
     // Build ack records and find target messages.
     // We need to find messages to return them; use cached view for speed.
     const all = await this._readMessagesCached();
+    // Capture the metadata that produced `all`. Taking this snapshot before
+    // the cached read caused false desync reports whenever that read itself
+    // legitimately discovered a cross-process append.
+    this.diag.ackManyPreLockMtime = this._messageCacheMtime;
+    this.diag.ackManyPreLockSize = this._messageCacheSize;
     for (const msg of all) {
       const a = byId.get(msg.id);
       if (!a) continue;
@@ -524,9 +537,16 @@ export class GlobalMailbox implements Mailbox {
       return updated;
     }
 
-    // Append ack records to the file under the lock.
+    // Append ack records to the file under the lock. Messages appended by
+    // another process during this ack may be absent from `updated`; callers
+    // will observe them on their next query/read.
     const serialized = ackRecords.map((a) => serializeAckRecord(a)).join('');
     await withFileLock(this.messagePath, async () => {
+      // Close the read→lock race: a different process can append after
+      // `_readMessagesCached()` returns but before this lock is acquired.
+      // Reconcile first so advancing the trackers below cannot bless a cache
+      // that is missing those records.
+      await this._refreshMessageCacheUnderLock();
       await fsp.appendFile(this.messagePath, serialized, 'utf8');
       // Capture the post-append stat inside the lock.
       const { mtimeMs, size } = await this._statMessageFile();
@@ -543,19 +563,6 @@ export class GlobalMailbox implements Mailbox {
       this.diag.ackManyPostLockSize = size;
       this.diag.ackManyMessageCount = this._messageCache?.length ?? -1;
       this.diag.ackManyAckCount = ackRecords.length;
-
-      // DETECT: cross-process cache desync
-      // If the post-append stat jumped ahead more than our serialized ack
-      // bytes alone, another process appended data between our cache read
-      // and lock acquisition. The cache would then be missing those messages.
-      const expectedMinSize = preLockSize + serialized.length;
-      if (preLockSize > 0 && size > expectedMinSize) {
-        const extraBytes = size - expectedMinSize;
-        console.error(
-          `[MAILBOX-DIAG] ackMany: post-lock size ${size} exceeds expected ${expectedMinSize} by ${extraBytes}B (mtime ${preLockMtime}->${mtimeMs}). ` +
-            `Cache may be missing cross-process messages. diag.ackManyCacheDesync=${++this.diag.ackManyCacheDesync}`,
-        );
-      }
     });
 
     for (const message of updated) {
@@ -638,6 +645,7 @@ export class GlobalMailbox implements Mailbox {
     };
 
     await withFileLock(this.messagePath, async () => {
+      await this._refreshMessageCacheUnderLock();
       await fsp.appendFile(this.messagePath, serializeAckRecord(ack), 'utf8');
       const { mtimeMs, size } = await this._statMessageFile();
       this._applyAckToCache(ack);
@@ -687,6 +695,7 @@ export class GlobalMailbox implements Mailbox {
     };
 
     await withFileLock(this.messagePath, async () => {
+      await this._refreshMessageCacheUnderLock();
       await fsp.appendFile(this.messagePath, serializeAckRecord(ack), 'utf8');
       const { mtimeMs, size } = await this._statMessageFile();
       this._applyAckToCache(ack);
@@ -740,6 +749,7 @@ export class GlobalMailbox implements Mailbox {
       const registry = await this._readRegistry({ fresh: true });
       // Prune stale agents
       this._pruneStaleInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastHeartbeat, registry);
       // Upsert
       registry.set(input.agentId, agent);
       // Update cache
@@ -783,10 +793,12 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.registryPath, async () => {
       const registry = await this._readRegistry({ fresh: true });
       this._pruneStaleInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastHeartbeat, registry);
       // Capture the record before deletion so HQ telemetry can emit a full,
       // well-typed agent summary rather than a bare id.
       removed = registry.get(agentId);
       registry.delete(agentId);
+      this._lastHeartbeat.delete(agentId);
       this._registryCache = registry;
       this._registryCacheAt = Date.now();
       await this._writeRegistry(registry);
@@ -831,6 +843,7 @@ export class GlobalMailbox implements Mailbox {
       // fresh: see registerAgent — never read-modify-write from the cache.
       const registry = await this._readRegistry({ fresh: true });
       this._pruneStaleInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastHeartbeat, registry);
 
       const agent = registry.get(input.agentId);
       if (agent) {
@@ -928,6 +941,7 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.clientRegistryPath, async () => {
       const registry = await this._readClientRegistry({ fresh: true });
       this._pruneStaleClientsInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastClientHeartbeat, registry);
       registry.set(input.clientId, client);
       this._clientRegistryCache = registry;
       this._clientRegistryCacheAt = Date.now();
@@ -949,6 +963,7 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.clientRegistryPath, async () => {
       const registry = await this._readClientRegistry({ fresh: true });
       this._pruneStaleClientsInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastClientHeartbeat, registry);
       registry.delete(clientId);
       this._clientRegistryCache = registry;
       this._clientRegistryCacheAt = Date.now();
@@ -972,6 +987,7 @@ export class GlobalMailbox implements Mailbox {
     await withFileLock(this.clientRegistryPath, async () => {
       const registry = await this._readClientRegistry({ fresh: true });
       this._pruneStaleClientsInPlace(registry);
+      this.pruneHeartbeatThrottleMap(this._lastClientHeartbeat, registry);
 
       const client = registry.get(input.clientId);
       if (client) {
@@ -1345,6 +1361,34 @@ export class GlobalMailbox implements Mailbox {
       }
       throw err;
     }
+  }
+
+  /**
+   * Reconcile an existing message cache with the authoritative file while the
+   * caller holds `messagePath`'s lock.
+   *
+   * Call this before any append/rewrite under the lock that updates
+   * `_messageCacheSize` or `_messageCacheMtime`. Otherwise a cross-process
+   * append that landed since the last cached read is absent from
+   * `_messageCache`, while the newer size/mtime makes later readers
+   * incorrectly treat that incomplete cache as current.
+   *
+   * Returns true only when a stale populated cache was refreshed. A null
+   * cache is intentionally left alone: it is either not initialized or was
+   * disabled by the size cap, and the next query will perform a full read.
+   */
+  private async _refreshMessageCacheUnderLock(): Promise<boolean> {
+    if (this._messageCache === null) return false;
+
+    const { mtimeMs, size } = await this._statMessageFile();
+    if (this._messageCacheMtime === mtimeMs && this._messageCacheSize === size) {
+      return false;
+    }
+
+    const all = await this._readMessages();
+    this._setMessageCache(all, mtimeMs, size);
+    this.diag.ackManyCacheDesync++;
+    return true;
   }
 
   /**

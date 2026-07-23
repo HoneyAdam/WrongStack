@@ -49,10 +49,10 @@ export class DirectorCollabController {
       ...options,
       onBudgetWarning: (alert) => {
         // Delegate to the host-provided handler if set; 'ignore' by default.
-        // Collab agents are excluded from the Director's
-        // budget.threshold_reached handler, so the session's own wireFleetBus()
-        // budget handler (progress-based timeout logic, session.cancel()) runs
-        // instead of the Director's auto-extend/deny logic.
+        // Active collab agents are excluded from the Director's
+        // budget.threshold_reached handler via `ownsSubagent`, so the session's
+        // own wireFleetBus() budget handler (progress-based timeout logic,
+        // session.cancel()) runs instead of the Director's auto-extend/deny.
         return options.onBudgetWarning?.(alert) ?? 'ignore';
       },
     });
@@ -106,5 +106,20 @@ export class DirectorCollabController {
 
   activeSessionIds(): string[] {
     return Array.from(this.activeSessions.keys());
+  }
+
+  /**
+   * True when `subagentId` belongs to a still-active collab-debug session.
+   * Used by {@link DirectorBudgetPolicy} so plain `delegate({ role: 'critic' })`
+   * spawns (same id prefix, no collab session) still receive auto-extend, while
+   * real collab agents keep their session-owned budget handler.
+   */
+  ownsSubagent(subagentId: string): boolean {
+    for (const { session } of this.activeSessions.values()) {
+      for (const id of session.getSubagentIds().values()) {
+        if (id === subagentId) return true;
+      }
+    }
+    return false;
   }
 }

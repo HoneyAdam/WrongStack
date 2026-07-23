@@ -63,11 +63,14 @@ const SHADOW_AGENT: SubagentConfig = {
  */
 const CRITIC_AGENT = defineAgent('critic', 'Critic');
 
+/** Generic template used directly or cloned into project-specific roles. */
+export const GENERIC_AGENT = defineAgent('generic', 'Generic Project Agent');
+
 /**
  * All agents in a map for easy lookup by role. The 75-role phase catalog
- * (`ALL_AGENT_DEFINITIONS`) contains the historical audit/review specialists;
- * `shadow-agent` remains the additional operational role. The resulting
- * built-in roster has 76 unique role ids.
+ * (`ALL_AGENT_DEFINITIONS`) already includes `critic` and the historical
+ * audit/review specialists. Adding standalone `generic` and `shadow-agent`
+ * roles produces 77 unique built-in role ids.
  */
 export const FLEET_ROSTER: Record<string, SubagentConfig> = {
   'audit-log': AUDIT_LOG_AGENT,
@@ -75,6 +78,7 @@ export const FLEET_ROSTER: Record<string, SubagentConfig> = {
   'refactor-planner': REFACTOR_PLANNER_AGENT,
   'security-scanner': SECURITY_SCANNER_AGENT,
   critic: CRITIC_AGENT,
+  generic: GENERIC_AGENT,
   'shadow-agent': SHADOW_AGENT,
   ...Object.fromEntries(
     ALL_AGENT_DEFINITIONS.map((d) => [d.config.role as string, d.config] as const),
@@ -117,6 +121,7 @@ export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
   'refactor-planner': { timeoutMs: 4 * 60 * 60 * 1000, maxIterations: 3000, maxToolCalls: 9000 },
   'security-scanner': { timeoutMs: 5 * 60 * 60 * 1000, maxIterations: 4000, maxToolCalls: 10000 },
   critic: { timeoutMs: 3 * 60 * 60 * 1000, maxIterations: 2000, maxToolCalls: 6000 },
+  generic: { idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS, maxIterations: 2500, maxToolCalls: 7500 },
   'shadow-agent': {
     idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
     maxIterations: 1000,

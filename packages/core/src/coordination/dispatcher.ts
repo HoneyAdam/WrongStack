@@ -17,12 +17,13 @@
  * If neither stage yields a confident pick, the dispatcher falls back to the
  * `executor` generalist rather than failing.
  */
-import { AGENT_CATALOG, ALL_AGENT_DEFINITIONS, type AgentDefinition } from './agents/index.js';
+
 import {
   readBundledInstructionText,
   renderInstructionTemplate,
 } from '../utils/instruction-file.js';
 import { safeParse } from '../utils/safe-json.js';
+import { AGENT_CATALOG, type AgentDefinition } from './agents/index.js';
 
 /** Default agent used when nothing else matches — the generalist builder. */
 export const DEFAULT_DISPATCH_ROLE = 'executor';
@@ -167,7 +168,7 @@ export async function dispatchAgent(
     const pool = (
       candidates.length > 0
         ? candidates.slice(0, maxCandidates).map((c) => catalog[c.role] ?? FALLBACK_DEFINITION)
-        : ALL_AGENT_DEFINITIONS
+        : Object.values(catalog)
     ).map((d) => ({
       role: d.config.role as string,
       name: d.config.name,

@@ -19,6 +19,15 @@ export interface DirectorBudgetPolicyDeps {
   maxBudgetExtensions: number;
   maxFleetCostUsd: number;
   currentSessionId(): string | undefined;
+  /**
+   * When true, this subagent is owned by an active collab-debug session whose
+   * own `budget.threshold_reached` handler will grant/deny. Skip director
+   * auto-extend so the two policies don't race. Plain `delegate` spawns of
+   * critic / bug-hunter / refactor-planner reuse the same id prefixes but are
+   * NOT collab-owned — they must fall through to the director grant path or
+   * they die at the first soft limit with no extension chance.
+   */
+  isCollabOwned?: ((subagentId: string) => boolean) | undefined;
 }
 
 /** Owns budget-threshold admission, progress heartbeats, and extension history. */
@@ -42,7 +51,17 @@ export class DirectorBudgetPolicy {
         progressBySubagent.set(event.subagentId, current + 1);
       }),
       this.deps.fleet.filter('budget.threshold_reached', (event) => {
-        if (this.isCollabAgent(event.subagentId)) return;
+        // Only skip agents that are currently inside a collab-debug session.
+        // Id-prefix alone is not enough: `delegate({ role: 'critic' })` mints
+        // `critic-<uuid>` ids for ordinary one-shot work, and without this
+        // fall-through nobody answers budget.threshold_reached → negotiation
+        // times out at DECISION_TIMEOUT_MS and the worker dies with budget_timeout.
+        if (
+          this.isCollabAgent(event.subagentId) &&
+          (this.deps.isCollabOwned?.(event.subagentId) ?? false)
+        ) {
+          return;
+        }
         const payload = event.payload as BudgetThresholdPayload;
         if (payload.kind === 'timeout' || payload.kind === 'idle_timeout') {
           this.handleTimeoutThreshold(

@@ -38,6 +38,33 @@ export function makeSpawnTool(
   director: Host.DirectorAdmissionPort,
   roster?: Record<string, SubagentConfig>,
 ): Tool {
+  const dispatchCatalog = (): Record<string, AgentDefinition> | undefined => {
+    if (!roster) return undefined;
+    return Object.fromEntries(
+      Object.entries(roster).map(([role, config]) => {
+        const builtIn = getAgentDefinition(role);
+        if (builtIn) return [role, builtIn];
+        return [
+          role,
+          {
+            config,
+            budget: {
+              timeoutMs: config.timeoutMs,
+              maxIterations: config.maxIterations,
+              maxToolCalls: config.maxToolCalls,
+              maxTokens: config.maxTokens,
+              maxCostUsd: config.maxCostUsd,
+            },
+            capability: {
+              phase: 'meta',
+              summary: config.dispatch?.summary ?? config.prompt ?? config.name,
+              keywords: config.dispatch?.keywords ?? [],
+            },
+          } satisfies AgentDefinition,
+        ];
+      }),
+    );
+  };
   const inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -124,7 +151,7 @@ export function makeSpawnTool(
         // Smart dispatch: route description to best catalog agent using dispatcher
         const dispatchResult = await dispatchAgent(description, {
           classifier: director.dispatchClassifier,
-          catalog: roster as never as Record<string, AgentDefinition> | undefined,
+          catalog: dispatchCatalog(),
         });
         const dispatchRole = dispatchResult.role;
         // If we have a matching roster entry for the dispatched role, use it

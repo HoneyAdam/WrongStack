@@ -74,6 +74,36 @@ describe('delegate timeout never-die (end-to-end)', () => {
     }
   });
 
+  it('auto-extends a plain delegate critic (collab id prefix, no collab session)', async () => {
+    // Regression: DirectorBudgetPolicy used to skip every critic-* id on the
+    // assumption CollabSession owned it. Plain delegate({ role: 'critic' })
+    // uses the same prefix with no collab listener → budget_timeout with no
+    // extension chance. Progressing critics must still get headroom.
+    const director = makeDirector();
+    const bus = new EventBus();
+    const detach = director.fleet.attach('critic-deadbeef', bus);
+    try {
+      bus.emit('tool.executed', { id: 't1', name: 'read', durationMs: 5, ok: true });
+
+      const budget = wireBudget(bus, { timeoutMs: 5 });
+      await new Promise((r) => setTimeout(r, 15));
+
+      let signal: BudgetThresholdSignal | null = null;
+      try {
+        budget.checkTimeout();
+      } catch (e) {
+        signal = e as BudgetThresholdSignal;
+      }
+      expect(signal).toBeInstanceOf(BudgetThresholdSignal);
+
+      const decision = await signal!.decision;
+      expect(decision).not.toBe('stop');
+      expect((decision as { extend: { timeoutMs: number } }).extend.timeoutMs).toBeGreaterThan(5);
+    } finally {
+      detach();
+    }
+  });
+
   it('extends a tool_calls budget ABOVE the current limit (no reduction)', async () => {
     const director = makeDirector();
     const bus = new EventBus();

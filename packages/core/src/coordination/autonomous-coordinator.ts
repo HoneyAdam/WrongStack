@@ -151,8 +151,14 @@ export class AutonomousCoordinator {
   private iterationCount = 0;
   private lastSyncAt = 0;
   private static readonly SYNC_INTERVAL_MS = 5_000;
-  /** Tasks already handled by _onSubagentTerminated (to avoid double goal:failed on fleet event). */
+  /**
+   * Tasks already handled by _onSubagentTerminated (to avoid double goal:failed
+   * on a late fleet event). Bounded FIFO: entries must outlive the duplicate-event
+   * window but not accumulate for the life of a long autonomous run, so the oldest
+   * ids are evicted past a cap. Cleared at the top of run().
+   */
   private readonly _handledBySubagent = new Set<string>();
+  private static readonly HANDLED_BY_SUBAGENT_MAX = 4096;
   /** FleetBus subscription disposers, detached in dispose(). */
   private readonly unsubs: Array<() => void> = [];
 
@@ -229,7 +235,7 @@ export class AutonomousCoordinator {
       const payload = e.payload as { taskId: string; error: string } | undefined;
       const taskId = payload?.taskId;
       if (!taskId || this._handledBySubagent.has(taskId)) return;
-      this._handledBySubagent.add(taskId);
+      this._markHandledBySubagent(taskId);
       this._recordTaskFailed(taskId, payload?.error ?? 'Task failed');
     });
     if (offFailed) this.unsubs.push(offFailed);
@@ -248,6 +254,8 @@ export class AutonomousCoordinator {
     if (this.running) throw new Error('AutonomousCoordinator: already running');
     this.running = true;
     this.iterationCount = 0;
+    // Do not carry the dedup guard across runs on the same instance.
+    this._handledBySubagent.clear();
 
     const maxIterations = opts.maxIterations ?? 100;
     const goal = opts.goal ?? 'Improve the codebase';
@@ -414,15 +422,29 @@ export class AutonomousCoordinator {
    * extracts follow-up goals — the same path as subagent completion.
    */
   async reportTaskCompletion(taskId: string, result: string): Promise<void> {
-    this._handledBySubagent.add(taskId);
+    this._markHandledBySubagent(taskId);
     await this._completeTask(taskId, result);
+  }
+
+  /**
+   * Record a task id in the bounded dedup guard, evicting the oldest ids once the
+   * cap is exceeded. Set preserves insertion order, so the first entry is the
+   * oldest — well outside any realistic late-duplicate-event window.
+   */
+  private _markHandledBySubagent(taskId: string): void {
+    this._handledBySubagent.add(taskId);
+    while (this._handledBySubagent.size > AutonomousCoordinator.HANDLED_BY_SUBAGENT_MAX) {
+      const oldest = this._handledBySubagent.values().next().value;
+      if (oldest === undefined) break;
+      this._handledBySubagent.delete(oldest);
+    }
   }
 
   /**
    * Report that a terminal worker failed a claimed task.
    */
   async reportTaskFailure(taskId: string, error: string): Promise<void> {
-    this._handledBySubagent.add(taskId);
+    this._markHandledBySubagent(taskId);
     await this._failTask(taskId, error);
   }
 
@@ -893,7 +915,7 @@ export class AutonomousCoordinator {
       : this.auction.getTasksForAgent(subagentId);
 
     for (const task of tasks) {
-      this._handledBySubagent.add(task.id); // prevent double-emission when fleet fires task:failed
+      this._markHandledBySubagent(task.id); // prevent double-emission when fleet fires task:failed
       if (succeeded) {
         void this._completeTask(task.id, this._stringifyTaskResult(payload?.result));
       } else {

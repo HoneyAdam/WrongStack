@@ -78,6 +78,8 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
   private completedResults: TaskResult[] = [];
   /** Prevents completedResults from growing unbounded in long-running coordinators. */
   private static readonly MAX_COMPLETED_RESULTS = 10_000;
+  /** Caps each subagent's retained task history (see assign()); bounds RAM + the recordCompletion lookup. */
+  private static readonly MAX_SUBAGENT_TASK_HISTORY = 64;
   private totalIterations = 0;
   private inFlight = 0;
   /**
@@ -629,6 +631,16 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
     subagent.currentTask = task.id;
     task.subagentId = subagentId;
     subagent.context.tasks.push(task);
+    // Bound the per-subagent task history: a worker runs one task at a time, so
+    // the completing task is always among the most recent entries. This keeps a
+    // long-lived worker (idle→assign→complete→…) from accumulating every task it
+    // ever ran, and keeps the `.find` at recordCompletion O(cap) instead of O(N).
+    if (subagent.context.tasks.length > DefaultMultiAgentCoordinator.MAX_SUBAGENT_TASK_HISTORY) {
+      subagent.context.tasks.splice(
+        0,
+        subagent.context.tasks.length - DefaultMultiAgentCoordinator.MAX_SUBAGENT_TASK_HISTORY,
+      );
+    }
 
     this.fleetBus?.emit({
       subagentId,

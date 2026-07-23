@@ -272,8 +272,45 @@ describe('Director budget-threshold extension policy (no brain)', () => {
     expect(cap.denied).toBe(true);
   });
 
-  it('ignores budget thresholds raised by collab subagents', () => {
+  it('auto-extends collab-named roles used outside an active collab session', async () => {
+    // Plain delegate({ role: 'critic' }) mints critic-<uuid> ids. Those must
+    // still receive director auto-extend — only agents owned by a live
+    // CollabSession are skipped.
     const { d } = makeDirector();
+    let denied = false;
+    let extended: Record<string, unknown> | null = null;
+    d.fleet.emit({
+      subagentId: 'critic-abcdef12',
+      taskId: 't',
+      ts: Date.now(),
+      type: 'budget.threshold_reached',
+      payload: {
+        kind: 'iterations',
+        used: 11,
+        limit: 10,
+        extend: (extra: Record<string, unknown>) => {
+          extended = extra;
+        },
+        deny: () => {
+          denied = true;
+        },
+      },
+    } as never);
+    await tick();
+    await tick();
+    expect(denied).toBe(false);
+    expect(extended).not.toBeNull();
+    expect((extended as { maxIterations?: number } | null)?.maxIterations).toBeGreaterThan(10);
+  });
+
+  it('skips budget thresholds for agents owned by an active collab session', () => {
+    const { d } = makeDirector();
+    // Simulate an active collab owning bug-hunter-1 via the collab controller's
+    // ownership probe (no full CollabSession required for this unit check).
+    const collab = (d as unknown as { collab: { ownsSubagent: (id: string) => boolean } }).collab;
+    const original = collab.ownsSubagent.bind(collab);
+    collab.ownsSubagent = (id: string) => id === 'bug-hunter-1' || original(id);
+
     let denied = false;
     let extended = false;
     d.fleet.emit({
@@ -281,7 +318,17 @@ describe('Director budget-threshold extension policy (no brain)', () => {
       taskId: 't',
       ts: Date.now(),
       type: 'budget.threshold_reached',
-      payload: { kind: 'iterations', used: 11, limit: 10, extend: () => { extended = true; }, deny: () => { denied = true; } },
+      payload: {
+        kind: 'iterations',
+        used: 11,
+        limit: 10,
+        extend: () => {
+          extended = true;
+        },
+        deny: () => {
+          denied = true;
+        },
+      },
     } as never);
     expect(denied).toBe(false);
     expect(extended).toBe(false); // director skips — the CollabSession handles it

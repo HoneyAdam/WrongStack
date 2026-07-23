@@ -711,6 +711,15 @@ export class Director implements DirectorFleetHost, ICoordinator {
     this.taskCompletedListener = (payload) => this.handleTaskCompleted(payload);
     this.coordinator.on('task.completed', this.taskCompletedListener);
 
+    // Collab controller first so the budget policy can ask it whether a
+    // threshold event belongs to an active collab session (and should be
+    // left alone) or a plain delegate of a collab-named role (must extend).
+    this.collab = new DirectorCollabController({
+      director: this,
+      fleet: this.fleet,
+      coordinator: this.coordinator,
+      logger: this.logger,
+    });
     this.budgetPolicy = new DirectorBudgetPolicy({
       fleet: this.fleet,
       usage: this.usage,
@@ -718,18 +727,13 @@ export class Director implements DirectorFleetHost, ICoordinator {
       maxBudgetExtensions: opts.maxBudgetExtensions ?? 12,
       maxFleetCostUsd: this.maxFleetCostUsd,
       currentSessionId: () => this.currentSessionId(),
+      isCollabOwned: (subagentId) => this.collab.ownsSubagent(subagentId),
     });
     this.budgetPolicy.start();
     // Large-answer store: prevents big `ask_subagent` responses from
     // bloating the leader's context window. Responses above 2K chars
     // are stored out-of-band; only a summary goes into ctx.messages.
     this.largeAnswerStore = new LargeAnswerStore(2000);
-    this.collab = new DirectorCollabController({
-      director: this,
-      fleet: this.fleet,
-      coordinator: this.coordinator,
-      logger: this.logger,
-    });
   }
 
   private handleTaskCompleted(payload: { task: TaskSpec; result: TaskResult }): void {

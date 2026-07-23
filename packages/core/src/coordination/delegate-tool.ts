@@ -1,14 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../kernel/events.js';
+import { ToolCapabilities } from '../security/capabilities.js';
 import type { SubagentConfig, TaskResult } from '../types/multi-agent.js';
 import type { JSONSchema, Tool } from '../types/tool.js';
+import { toErrorMessage } from '../utils/error.js';
+import { safeParse } from '../utils/safe-json.js';
 import type { Director } from './director.js';
 import { applyRosterBudget, FLEET_ROSTER_BUDGETS } from './fleet.js';
-import { safeParse } from '../utils/safe-json.js';
-import { toErrorMessage } from '../utils/error.js';
-import { ToolCapabilities } from '../security/capabilities.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
@@ -175,7 +175,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      'Hand a piece of work to a subagent and block until it returns. This call is synchronous: the leader\'s iteration pauses for the full duration of the subagent\'s run. (Multiple `delegate` calls fired in the same assistant turn still parallelize through the provider\'s parallel-tool-call surface, but each one eats wall-clock time — so for fan-out you actually control, reach for the async path below.) Use `delegate` when your next step genuinely needs the subagent\'s verdict — a review, a fact-check, a sign-off. Has own context, own LLM call, auto-extending budget, and a partial-completion handoff path (maxHandoffs, default 1). Workers cannot recursively spawn.\n\n**Do NOT use `delegate` for fan-out you control.** Multiple sequential `delegate` calls each block the leader, wasting wall-clock time. For independent investigations you want to run in parallel — security scan + bug hunt + perf review on the same PR — use the async tool family: `spawn_subagent` to create each worker (returns a `subagentId` immediately), `assign_task` to queue work on it (returns a `taskId` immediately), then the `await_tasks` tool with `{mode: \'any\'}` to fold the first useful result into the next decision while the rest keep churning. Reach for `delegate` only when the result gates your next move.',
+      "Hand a piece of work to a subagent and block until it returns. This call is synchronous: the leader's iteration pauses for the full duration of the subagent's run. (Multiple `delegate` calls fired in the same assistant turn still parallelize through the provider's parallel-tool-call surface, but each one eats wall-clock time — so for fan-out you actually control, reach for the async path below.) Use `delegate` when your next step genuinely needs the subagent's verdict — a review, a fact-check, a sign-off. Has own context, own LLM call, auto-extending budget, and a partial-completion handoff path (maxHandoffs, default 1). Workers cannot recursively spawn.\n\n**Do NOT use `delegate` for fan-out you control.** Multiple sequential `delegate` calls each block the leader, wasting wall-clock time. For independent investigations you want to run in parallel — security scan + bug hunt + perf review on the same PR — use the async tool family: `spawn_subagent` to create each worker (returns a `subagentId` immediately), `assign_task` to queue work on it (returns a `taskId` immediately), then the `await_tasks` tool with `{mode: 'any'}` to fold the first useful result into the next decision while the rest keep churning. Reach for `delegate` only when the result gates your next move.",
     usageHint:
       'Set `task` to a complete instruction. Pick `role` from roster or pass `name` for free-form. Raise `maxHandoffs` (default 1, cap 8) for multi-day or multi-refactor tasks; pass larger `timeoutMs`/`maxIterations`/`maxToolCalls` only when needed. For parallel work, use `spawn_subagent` + `assign_task` + `await_tasks` instead.',
     permission: 'auto',
@@ -240,9 +240,10 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
         if (i.role) {
           const base = opts.roster?.[i.role];
           if (!base) {
+            const availableRoles = opts.roster ? Object.keys(opts.roster) : [];
             return {
               ok: false,
-              error: `Unknown role "${i.role}". Available: ${rosterIds.join(', ') || '(no roster configured)'}.`,
+              error: `Unknown role "${i.role}". Available: ${availableRoles.join(', ') || '(no roster configured)'}.`,
             };
           }
           cfg = instantiateRosterConfig(i.role, base, i.timeoutMs, defaultTimeoutMs);

@@ -115,6 +115,63 @@ describe('GlobalMailbox messages', () => {
     expect(await mb.ack({ messageId: 'nope', readerId: 'b' } as never)).toBeNull();
   });
 
+  it('reconciles a cross-process append that lands between the ack read and lock', async () => {
+    const seed = await send({ subject: 'seed' });
+    await mb.query({ limit: 100 });
+
+    const otherProcess = new GlobalMailbox(dir);
+    const internals = mb as unknown as {
+      _readMessagesCached(): Promise<unknown[]>;
+    };
+    const originalRead = internals._readMessagesCached.bind(mb);
+    let injected = false;
+    internals._readMessagesCached = async () => {
+      const messages = await originalRead();
+      if (!injected) {
+        injected = true;
+        await otherProcess.send({
+          from: 'external',
+          to: 'b',
+          type: 'note',
+          subject: 'cross-process',
+          body: 'arrived during ack',
+        });
+      }
+      return messages;
+    };
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await mb.ackMany({ acks: [{ messageId: seed.id, readerId: 'b' }] });
+
+    const all = await mb.query({ limit: 100 });
+    expect(all.map((message) => message.subject)).toContain('cross-process');
+    expect(all.find((message) => message.id === seed.id)?.readBy.b).toBeTruthy();
+    expect(mb.diag.ackManyCacheDesync).toBe(1);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('does not report a desync when the pre-ack cached read discovers the append', async () => {
+    const seed = await send({ subject: 'seed' });
+    await mb.query({ limit: 100 });
+
+    const otherProcess = new GlobalMailbox(dir);
+    await otherProcess.send({
+      from: 'external',
+      to: 'b',
+      type: 'note',
+      subject: 'already-on-disk',
+      body: 'visible to the cached read',
+    });
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await mb.ackMany({ acks: [{ messageId: seed.id, readerId: 'b' }] });
+
+    expect(mb.diag.ackManyCacheDesync).toBe(0);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it('ack with read:false does not record a read receipt', async () => {
     const msg = await send({ to: 'b' });
     const acked = await mb.ack({ messageId: msg.id, readerId: 'b', read: false } as never);

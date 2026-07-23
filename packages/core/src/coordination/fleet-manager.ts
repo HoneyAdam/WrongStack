@@ -599,6 +599,9 @@ export class FleetManager implements IFleetManager {
    * Clean up all fleet-manager state associated with a removed subagent:
    * - Frees the nickname slot so the same name can be reused
    * - Removes any pending tasks for this subagent
+   * - Drops the manifest / meta / price-lookup entries (these previously leaked:
+   *   they were never deleted, so each grew one entry per subagent — and each
+   *   manifest entry's `taskIds[]` one per task — for the whole leader lifetime).
    */
   removeSubagent(subagentId: string): void {
     // Free the nickname slot so the same name can be reused.
@@ -613,6 +616,11 @@ export class FleetManager implements IFleetManager {
         this.pendingTasks.delete(taskId);
       }
     }
+    // Drop the per-subagent metadata maps — the removal is the point at which
+    // this subagent's manifest/meta/price-lookup are no longer needed.
+    this.manifestEntries.delete(subagentId);
+    this.subagentMeta.delete(subagentId);
+    this.priceLookups.delete(subagentId);
   }
 
   /** Release all resources: clear the manifest debounce timer and dispose the usage aggregator. */
