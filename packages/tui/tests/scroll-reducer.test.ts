@@ -74,10 +74,13 @@ describe('TUI scroll reducer', () => {
     expect(out.measuredEntryCount).toBe(55);
   });
 
-  it('setMeasuredLines does NOT grow offset on re-measurement (no new entries)', () => {
-    // Scrolled up by 10; content grows by 5 rows but entry count stays the
-    // same (existing entries were re-measured from estimate to actual).
-    // The offset must NOT grow — that would cause a visual jump.
+  it('setMeasuredLines re-anchors on re-measurement so the top row holds still', () => {
+    // Scrolled up by 10; the visible window is promoted estimate→measured and
+    // grows by 5 rows (entry count unchanged). Because viewportTop =
+    // total - viewportRows - scrollOffset, keeping the offset at 10 would slide
+    // the top of the view down by 5 (a visible jump). Growing the offset by the
+    // same +5 holds `total - scrollOffset` constant, so the top row stays put.
+    // This is a pure re-measurement, so the "↓ N new" counter must NOT advance.
     const s = scrollState({
       totalLines: 100,
       viewportRows: 20,
@@ -88,7 +91,7 @@ describe('TUI scroll reducer', () => {
     });
     const out = reducer(s, { type: 'setMeasuredLines', totalLines: 105 });
     expect(out.totalLines).toBe(105);
-    expect(out.scrollOffset).toBe(10); // unchanged — no visual jump
+    expect(out.scrollOffset).toBe(15); // +5 re-anchor keeps the top row still
     expect(out.pendingNewLines).toBe(0); // not new content
     expect(out.measuredEntryCount).toBe(50); // tracked, not incremented
   });

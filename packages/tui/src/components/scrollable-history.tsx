@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { computeWindow, EntryHeightCache } from '../height-cache.js';
 import { computeLayout } from '../layout-engine.js';
 import { SCROLLBAR_HIT_WIDTH } from '../hit-test.js';
-import { Box, Text, useStdout } from '../ink.js';
+import { Box, type DOMElement, measureElement, Text, useStdout } from '../ink.js';
 import { theme } from '../theme.js';
 import {
   estimateRenderGroupRows,
@@ -183,6 +183,14 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   const heightCacheRef = useRef<EntryHeightCache | null>(null);
   if (heightCacheRef.current === null) heightCacheRef.current = new EntryHeightCache();
   const heightCache = heightCacheRef.current;
+  // Live DOM nodes for the currently-rendered window, keyed by render-group id.
+  // A post-render layout effect measures each against its cached (estimated)
+  // height and promotes it to a real measurement — this is what closes the
+  // estimate-vs-actual gap that otherwise misaligns the virtual spacers.
+  const entryNodeRefs = useRef(new Map<number, DOMElement>());
+  // Bumped whenever a measurement corrects a cached height, so the memoized
+  // total and the window recompute against the real geometry.
+  const [measureTick, setMeasureTick] = useState(0);
   const preparedGroupIdsRef = useRef<string | null>(null);
   const preparedEstimateWidthRef = useRef<number | null>(null);
   // Key that incorporates the layout store's version so persisted data from a
@@ -231,7 +239,12 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   }
 
   const lastReported = useRef(-1);
-  const cacheTotal = useMemo(() => heightCache.totalHeight(), [cacheKey, termWidth]);
+  // `measureTick` is a dependency so post-render measurement corrections flow
+  // into the total (and thus the window + the onMeasure re-anchor dispatch).
+  const cacheTotal = useMemo(
+    () => heightCache.totalHeight(),
+    [cacheKey, termWidth, measureTick],
+  );
   useLayoutEffect(() => {
     const reportedHeight = cacheTotal + toolTailHeight;
     if (reportedHeight === lastReported.current) return;
@@ -278,6 +291,39 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     ? groupedEntries.slice(win.startIdx, win.endIdx)
     : groupedEntries;
 
+  // ── Post-render measurement ─────────────────────────────────────────
+  // Measure the entries actually mounted this frame and replace their cached
+  // estimate with Ink's real geometry. `measureElement` returns the yoga box
+  // height, which excludes margin, so the turn-summary marginBottom is added
+  // back to match the accumulated-height space the window math reserves.
+  //
+  // Only entries in the current window are mounted, so only they get corrected;
+  // off-window entries keep their estimate until scrolled into view (then
+  // persisted via the layout store). The effect re-runs on window/width/scroll
+  // changes and bumps `measureTick` ONLY when a height actually changed, so it
+  // converges in one extra frame instead of looping.
+  useLayoutEffect(() => {
+    let changed = false;
+    for (const group of renderGroups) {
+      const gid = renderGroupId(group);
+      const node = entryNodeRefs.current.get(gid);
+      if (!node) continue;
+      const margin =
+        group.type !== 'tool-group' && group.entry.kind === 'turn-summary' ? 1 : 0;
+      const actual = measureElement(node).height + margin;
+      if (actual <= 0) continue;
+      if (heightCache.getHeight(gid) !== actual) {
+        heightCache.record(gid, actual);
+        layoutStore?.markMeasured(gid, actual);
+        changed = true;
+      }
+    }
+    if (changed) setMeasureTick((tick) => tick + 1);
+    // renderGroups is derived from these; listing the drivers avoids re-running
+    // on every unrelated parent render while still covering scroll/resize.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey, termWidth, effectiveOffset, vp, measureTick, groupIdsKey]);
+
   return (
     <Box flexDirection="row" width={viewportWidth}>
       <Box
@@ -297,10 +343,14 @@ export const ScrollableHistory = memo(function ScrollableHistory({
           {/* Visible entries, with consecutive same-tool calls compacted under
               one header inside the already-selected virtual slice. */}
           {renderGroups.map((group) => {
+            const gid = renderGroupId(group);
+            const setNode = (node: DOMElement | null): void => {
+              if (node) entryNodeRefs.current.set(gid, node);
+              else entryNodeRefs.current.delete(gid);
+            };
             if (group.type === 'tool-group') {
-              const groupId = renderGroupId(group);
               return (
-                <Box key={`tool-group-${groupId}`} flexShrink={0}>
+                <Box key={`tool-group-${gid}`} ref={setNode} flexShrink={0}>
                   <ToolGroup data={group.data} termWidth={termWidth} />
                 </Box>
               );
@@ -309,6 +359,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
             return (
               <Box
                 key={entry.id}
+                ref={setNode}
                 marginBottom={entry.kind === 'turn-summary' ? 1 : 0}
                 flexShrink={0}
               >

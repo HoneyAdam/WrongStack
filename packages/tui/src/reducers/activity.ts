@@ -79,34 +79,42 @@ export function reduceActivity(state: State, action: ActivityAction): State {
       const oldTotal = state.totalLines;
       const maxOffset = Math.max(0, newTotal - state.viewportRows);
 
-      // Detect whether new entries were appended since the last measurement
-      // by comparing the current entry count with the last-recorded count.
-      // When `measuredEntryCount` is undefined (first measurement) or
-      // unchanged, any height change is from re-measurement (estimate→actual),
-      // not from new content — do NOT grow the scroll offset.
       const entryCountNow = state.entries.length;
       const hadNewEntries =
-        state.measuredEntryCount !== undefined &&
-        entryCountNow > state.measuredEntryCount;
+        state.measuredEntryCount !== undefined && entryCountNow > state.measuredEntryCount;
 
-      if (state.scrollOffset > 0 && newTotal > oldTotal && hadNewEntries) {
-        // New entries were appended while scrolled up: grow the offset by
-        // the total height increase so the viewport stays anchored to the
-        // same older entries. The new content is below the viewport.
+      // While scrolled up, the viewport top sits at
+      //   viewportTop = total - viewportRows - scrollOffset
+      // so when `total` GROWS — new entries appended below the viewport, OR the
+      // visible window being promoted estimate→measured (estimates cap out, so
+      // real content is almost always taller) — the offset must grow by the same
+      // delta. Otherwise the top of the view slides down by that delta: the
+      // classic scroll jump. Holding `total - scrollOffset` constant pins the
+      // top row still whether the growth was inside or below the window. Only
+      // genuinely NEW content advances the "↓ N new" counter.
+      //
+      // A SHRINK (retention eviction from the top, /clear, a rare over-estimate)
+      // is handled by the re-clamp below instead of `offset += delta`: eviction
+      // removes rows above the anchor (offset should stay, only re-clamp), and a
+      // wholesale clear must not drive the offset negative.
+      if (state.scrollOffset > 0 && newTotal > oldTotal) {
         const grew = newTotal - oldTotal;
         return {
           ...state,
           totalLines: newTotal,
           scrollOffset: Math.min(maxOffset, state.scrollOffset + grew),
-          pendingNewLines: state.pendingNewLines + grew,
+          pendingNewLines: hadNewEntries
+            ? state.pendingNewLines + grew
+            : state.pendingNewLines,
           measuredEntryCount: entryCountNow,
         };
       }
 
-      // Re-measurement of existing entries (estimate→actual): the scroll
-      // offset must NOT grow — that would cause a visual jump. Instead,
-      // just re-clamp to the new max offset so scrolled-up content doesn't
-      // overshoot. When pinned (offset 0), stay pinned.
+      // Pinned to newest (offset 0), a shrink, or no change: never grow the
+      // anchor. Re-clamp a stale offset to the new max, but keep state identity
+      // when the measurement changed nothing (issue #276: the
+      // layout-effect→dispatch cycle relies on an unchanged measurement being a
+      // true no-op).
       const nextOffset = Math.min(state.scrollOffset, maxOffset);
       if (newTotal === oldTotal && nextOffset === state.scrollOffset) return state;
       return {

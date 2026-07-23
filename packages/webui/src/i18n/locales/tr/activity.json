@@ -1244,6 +1244,8 @@
     "dOpenPanel": "Yan paneli aç (Oturum, Aracılar, Geçmiş, Dosyalar, Değişiklikler, Posta, Beceriler, Ofis Haritası)",
     "dDesignStudio": "Tasarım Stüdyosu yan panelini aç",
     "dWorktrees": "Worktree yan panelini aç",
+    "dSettings": "Ayarları aç",
+    "dMemory": "Hafızayı aç",
     "dFocusInput": "Mesaj girişine odaklan",
     "dSessionPanel": "Oturum paneli",
     "dFleetOverlay": "Filo izleyici katmanı",

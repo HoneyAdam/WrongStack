@@ -201,12 +201,15 @@ if (args.has('--print-baseline')) {
     for (const failure of unparsedFailures) console.error(`  ${failure.project}: exit ${failure.exitCode}\n${failure.output}`);
     process.exit(1);
   }
-  const projects = {};
+  const projectEntries = {};
   for (const item of diagnostics) {
-    projects[item.project] ??= {};
-    projects[item.project][item.id] = item.count;
+    projectEntries[item.project] ??= {};
+    projectEntries[item.project][item.id] = item.count;
   }
-  console.log(JSON.stringify({ schemaVersion: 1, hashAlgorithm: 'sha256-64bit', projects }, null, 2));
+  const baselines = Object.entries(projectEntries).map(([project, diags]) => ({
+    schemaVersion: 1, project, hashAlgorithm: 'sha256-64bit', diagnostics: diags,
+  }));
+  console.log(JSON.stringify(baselines, null, 2));
 } else if (args.has('--json')) {
   console.log(JSON.stringify(report, null, 2));
 } else {

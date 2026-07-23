@@ -1244,6 +1244,8 @@
     "dOpenPanel": "Abrir panel lateral (Sesión, Agentes, Historial, Archivos, Cambios, Buzón, Skills, Office Map)",
     "dDesignStudio": "Abrir panel de Design Studio",
     "dWorktrees": "Abrir panel de Worktrees",
+    "dSettings": "Abrir Configuración",
+    "dMemory": "Abrir Memory",
     "dFocusInput": "Focalizar la entrada de mensajes",
     "dSessionPanel": "Panel de sesión",
     "dFleetOverlay": "Overlay del monitor de flota",

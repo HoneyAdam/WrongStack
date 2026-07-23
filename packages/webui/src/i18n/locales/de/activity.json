@@ -1244,6 +1244,8 @@
     "dOpenPanel": "Seitenleiste öffnen (Session, Agents, Verlauf, Dateien, Changes, Mailbox, Skills, Office Map)",
     "dDesignStudio": "Design-Studio-Seitenleiste öffnen",
     "dWorktrees": "Worktree-Seitenleiste öffnen",
+    "dSettings": "Einstellungen öffnen",
+    "dMemory": "Memory öffnen",
     "dFocusInput": "Nachrichteneingabe fokussieren",
     "dSessionPanel": "Session-Panel",
     "dFleetOverlay": "Fleet-Monitor-Overlay",

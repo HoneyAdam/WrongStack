@@ -263,12 +263,12 @@
       "relativeImports": 0
     },
     "packages/tui/src/app-state.ts": {
-      "lines": 1513,
+      "lines": 1517,
       "relativeImports": 6
     },
     "packages/tui/src/app.tsx": {
-      "lines": 1463,
-      "relativeImports": 58
+      "lines": 1486,
+      "relativeImports": 59
     },
     "packages/tui/src/components/agents-monitor.tsx": {
       "lines": 1017,
