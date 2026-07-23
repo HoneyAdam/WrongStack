@@ -422,8 +422,8 @@ export interface StatusBarProps {
    * prompt usage. Passed straight to {@link tokenDisplayTotals}.
    */
   estimatedContextTokens?: number | undefined;
-  /** All Super Memory records plus the exact count present in the latest provider request. */
-  superMemory?: { total: number; activeInContext: number } | undefined;
+  /** All SAGE records plus the exact count present in the latest provider request. */
+  Sage?: { total: number; activeInContext: number } | undefined;
   /** Memory context monitor state — renders a compact 4th line with matched/injected/filtered/ctx counts (gated by `memory_context` chip key). */
   memoryContextMonitor?: MemoryContextMonitorState | undefined;
   /**
@@ -592,7 +592,7 @@ export function StatusBar({
   cpuPercent,
   context,
   estimatedContextTokens,
-  superMemory,
+  Sage,
   memoryContextMonitor,
   contextStrategy,
   hiddenItems,
@@ -837,13 +837,13 @@ export function StatusBar({
         {glyphs.cpu} {Math.round(cpuPercent)}%
       </Text>
     ) : null;
-  const superMemoryStatusChip = null;
+  const SageStatusChip = null;
 
   // ── Memory context detail line (4th row) ──────────────────────────────
   const memoryMonitor = memoryContextMonitor;
   const memorySummary = memoryMonitor?.latest;
   const hasMemoryDetail =
-    (memorySummary != null || superMemory != null) && showChip('memory_context');
+    (memorySummary != null || Sage != null) && showChip('memory_context');
   const memoryDetailChips: React.ReactElement[] = [];
   if (hasMemoryDetail) {
     const records = memoryMonitor ? Object.values(memoryMonitor.memories) : [];
@@ -856,12 +856,12 @@ export function StatusBar({
       </Text>,
     );
     // Total records + active-in-context (moved from line 1)
-    if (superMemory) {
+    if (Sage) {
       memoryDetailChips.push(
         <Text key="total">
-          {superMemory.total} total
+          {Sage.total} total
           <Text dimColor={!isNoColor}> · </Text>
-          <Text color={chipColor(theme.success, isNoColor)}>{superMemory.activeInContext} ctx</Text>
+          <Text color={chipColor(theme.success, isNoColor)}>{Sage.activeInContext} ctx</Text>
           {memorySummary != null ? <Text dimColor={!isNoColor}> · </Text> : null}
         </Text>,
       );
@@ -960,7 +960,7 @@ export function StatusBar({
           );
         })()
       : null,
-    superMemoryStatusChip,
+    SageStatusChip,
     cache && cache.hitRatio > 0 && isComfortable && showChip('cache') ? (
       <Text dimColor={!isNoColor}>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
     ) : null,
@@ -1078,7 +1078,7 @@ export function StatusBar({
           );
         })()
       : null,
-    superMemoryStatusChip,
+    SageStatusChip,
     // Autonomy mode (if active)
     autonomy && autonomy !== 'off' && showChip('autonomy') ? (
       <Text

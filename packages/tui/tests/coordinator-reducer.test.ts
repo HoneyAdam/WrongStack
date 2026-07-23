@@ -15,10 +15,8 @@ function minimalCoordinatorState(over: Partial<State['coordinator']> = {}): Stat
 
 function minimalState(coordinator: State['coordinator'] = minimalCoordinatorState()): State {
   return {
-    scrollOffset: 0,
-    totalLines: 0,
     viewportRows: 0,
-    pendingNewLines: 0,
+    historyScrolled: false,
     lines: [],
     input: { value: '', cursor: 0 },
     toolbar: { active: 'chat', draft: null },

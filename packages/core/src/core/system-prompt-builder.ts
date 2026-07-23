@@ -148,7 +148,7 @@ export interface DefaultSystemPromptBuilderOptions {
   /**
    * Inject a static "# Relevant Memory" section into the built prompt from
    * `memoryStore`. Default: true. Set to false when a dedicated per-turn memory
-   * retriever (the Super Memory turn middleware) is the single injection
+   * retriever (the SAGE turn middleware) is the single injection
    * channel — this avoids double-injecting the same memories and keeps all
    * memory context flowing through one system.
    */
@@ -1003,7 +1003,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // Memory injection count per tier: off=5, minimal=3, light=5, medium=5, aggressive=5
     const memoryCount = this.tier === 'minimal' || this.tier === 'light' ? 3 : 5;
     const compactMemory = this.tier === 'minimal'; // compact = text only, no badges/tags
-    // When a per-turn memory retriever owns injection (Super Memory turn
+    // When a per-turn memory retriever owns injection (SAGE turn
     // middleware), skip the static prompt section so memory flows through a
     // single channel — no double injection.
     if (this.opts.memoryStore && this.opts.injectMemory !== false) {

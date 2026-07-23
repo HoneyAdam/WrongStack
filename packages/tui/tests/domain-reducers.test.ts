@@ -7,16 +7,14 @@ import { reduceWorkspacePanels } from '../src/reducers/workspace-panels.js';
 describe('composed TUI domain reducers', () => {
   it('reduces viewport activity without passing through the root reducer', () => {
     const state = {
-      totalLines: 120,
       viewportRows: 30,
-      scrollOffset: 10,
-      pendingNewLines: 4,
+      historyScrolled: false,
     } as State;
 
-    const next = reduceActivity(state, { type: 'scrollBy', delta: 20 });
+    const next = reduceActivity(state, { type: 'setHistoryScrolled', scrolled: true });
 
-    expect(next.scrollOffset).toBe(30);
-    expect(next.pendingNewLines).toBe(4);
+    expect(next.historyScrolled).toBe(true);
+    expect(reduceActivity(next, { type: 'setViewportRows', rows: 42 }).viewportRows).toBe(42);
   });
 
   it('applies typed settings patches inside the settings domain', () => {

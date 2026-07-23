@@ -7,19 +7,19 @@
  *
  *   case 'memory.list': return handleMemoryList(ws, memoryStore);
  *
- * SuperMemory handlers request the typed surface capability:
+ * Sage handlers request the typed surface capability:
  *
- *   case 'memory.super.list': return handleSuperMemoryList(ws, memoryStore);
+ *   case 'memory.sage.list': return handleSageList(ws, memoryStore);
  */
 
 import type { MemoryPort } from '@wrongstack/core/types';
-import { getSuperMemorySurface } from '@wrongstack/super-memory';
+import { getSageSurface } from '@wrongstack/sage';
 import type { WebSocket } from 'ws';
 import { errMessage, send } from './ws-utils.js';
 
-// ── SuperMemory response projection ──────────────────────────────────
+// ── Sage response projection ──────────────────────────────────
 
-interface SuperMemoryLike {
+interface SageLike {
   id: string;
   kind: string;
   status: string;
@@ -27,35 +27,35 @@ interface SuperMemoryLike {
   tags: string[];
 }
 
-interface SuperMemoryStatsLike {
+interface SageStatsLike {
   total: number;
   byStatus: Record<string, number>;
   byKind: Partial<Record<string, number>>;
   edges: number;
 }
 
-function requiresSuperMemory(command: string): string {
-  return `\`${command}\` requires the Super Memory backend (superMemory.enabled).`;
+function requiresSage(command: string): string {
+  return `\`${command}\` requires the SAGE backend (Sage.enabled).`;
 }
 
-// ── Memory list (chat `/memory`) — renders the single Super Memory store ──
+// ── Memory list (chat `/memory`) — renders the single SAGE store ──
 
 /**
- * List memory for the chat `/memory` command. When the backend is Super Memory
+ * List memory for the chat `/memory` command. When the backend is SAGE
  * (always, in practice) this renders the rich structured view — the same one
  * surface as the MemoryManager panel and the CLI/TUI `/memory show`. Falls back
- * to `readAll()` text only for a non-super store.
+ * to `readAll()` text only for a non-SAGE store.
  * Responds with `{ type: 'memory.list', payload: { text } }`.
  */
 export async function handleMemoryList(ws: WebSocket, memoryStore: MemoryPort): Promise<void> {
   try {
-    const superMemory = getSuperMemorySurface(memoryStore);
-    if (superMemory) {
-      const [stats, memories] = await Promise.all([superMemory.stats(), superMemory.listSuper()]);
+    const Sage = getSageSurface(memoryStore);
+    if (Sage) {
+      const [stats, memories] = await Promise.all([Sage.stats(), Sage.listSage()]);
       const text =
         memories.length === 0
-          ? '🧠 Super Memory is empty.'
-          : formatSuperMemoryText(stats, memories);
+          ? '🧠 SAGE is empty.'
+          : formatSageText(stats, memories);
       send(ws, { type: 'memory.list', payload: { text } });
       return;
     }
@@ -69,13 +69,13 @@ export async function handleMemoryList(ws: WebSocket, memoryStore: MemoryPort): 
   }
 }
 
-/** Render the Super Memory list as markdown for the chat `/memory` view. */
-function formatSuperMemoryText(stats: SuperMemoryStatsLike, memories: SuperMemoryLike[]): string {
+/** Render the SAGE list as markdown for the chat `/memory` view. */
+function formatSageText(stats: SageStatsLike, memories: SageLike[]): string {
   const active = stats.byStatus['active'] ?? 0;
   const stale = stats.byStatus['stale'] ?? 0;
   const archived = stats.byStatus['archived'] ?? 0;
   const lines: string[] = [
-    '## 🧠 Super Memory',
+    '## 🧠 SAGE',
     '',
     `**Total:** ${stats.total} · 🟢 ${active} active · 🟡 ${stale} stale · 🔵 ${archived} archived · **edges:** ${stats.edges}`,
     '',
@@ -96,52 +96,52 @@ function formatSuperMemoryText(stats: SuperMemoryStatsLike, memories: SuperMemor
   return lines.join('\n');
 }
 
-// ── SuperMemory handlers ─────────────────────────────────────────────
+// ── Sage handlers ─────────────────────────────────────────────
 
 /**
- * List all SuperMemory entries with stats.
- * Request:  { type: 'memory.super.list' }
- * Response: { type: 'memory.super.list', payload: { memories, stats } }
+ * List all Sage entries with stats.
+ * Request:  { type: 'memory.sage.list' }
+ * Response: { type: 'memory.sage.list', payload: { memories, stats } }
  */
-export async function handleSuperMemoryList(ws: WebSocket, memoryStore: MemoryPort): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+export async function handleSageList(ws: WebSocket, memoryStore: MemoryPort): Promise<void> {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.list',
-      payload: { error: requiresSuperMemory('memory.super.list') },
+      type: 'memory.sage.list',
+      payload: { error: requiresSage('memory.sage.list') },
     });
     return;
   }
   try {
-    const [stats, memories] = await Promise.all([superMemory.stats(), superMemory.listSuper()]);
-    send(ws, { type: 'memory.super.list', payload: { memories, stats } });
+    const [stats, memories] = await Promise.all([Sage.stats(), Sage.listSage()]);
+    send(ws, { type: 'memory.sage.list', payload: { memories, stats } });
   } catch (err) {
-    send(ws, { type: 'memory.super.list', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.list', payload: { error: errMessage(err) } });
   }
 }
 
 /**
- * Paginated, status-filtered SuperMemory listing. Preferred over
- * `memory.super.list` for the MemoryManager: it returns a bounded page plus a
+ * Paginated, status-filtered Sage listing. Preferred over
+ * `memory.sage.list` for the MemoryManager: it returns a bounded page plus a
  * cursor so the WebUI never loads thousands of soft-deleted records at once.
  *
- * Request:  { type: 'memory.super.listPage', payload: { statuses?, kind?, query?, limit?, cursor? } }
- * Response: { type: 'memory.super.listPage', payload: { memories, nextCursor, total, statusCounts } }
+ * Request:  { type: 'memory.sage.listPage', payload: { statuses?, kind?, query?, limit?, cursor? } }
+ * Response: { type: 'memory.sage.listPage', payload: { memories, nextCursor, total, statusCounts } }
  *
  * `statuses` defaults (backend-side) to every status EXCEPT `deleted`. Pass
  * `statuses: ['deleted']` for the WebUI "Deleted" tab. Falls back gracefully to
- * a full `listSuper()` for stores that predate `listSuperPage`.
+ * a full `listSage()` for stores that predate `listSagePage`.
  */
-export async function handleSuperMemoryListPage(
+export async function handleSageListPage(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.listPage',
-      payload: { error: requiresSuperMemory('memory.super.listPage') },
+      type: 'memory.sage.listPage',
+      payload: { error: requiresSage('memory.sage.listPage') },
     });
     return;
   }
@@ -157,19 +157,19 @@ export async function handleSuperMemoryListPage(
       cursor: typeof payload['cursor'] === 'string' ? (payload['cursor'] as string) : undefined,
     };
 
-    if (typeof superMemory.listSuperPage === 'function') {
+    if (typeof Sage.listSagePage === 'function') {
       const [page, stats] = await Promise.all([
-        superMemory.listSuperPage(options as never),
-        superMemory.stats(),
+        Sage.listSagePage(options as never),
+        Sage.stats(),
       ]);
-      send(ws, { type: 'memory.super.listPage', payload: { ...page, stats } });
+      send(ws, { type: 'memory.sage.listPage', payload: { ...page, stats } });
       return;
     }
 
     // Backend without native pagination: emulate by loading + slicing in-memory.
     const allowed =
       options.statuses && options.statuses.length > 0 ? new Set(options.statuses) : undefined; // undefined => every status; deleted filtered below
-    const everything = await superMemory.listSuper();
+    const everything = await Sage.listSage();
     const statusCounts: Record<string, number> = {};
     for (const m of everything) statusCounts[m.status] = (statusCounts[m.status] ?? 0) + 1;
     const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
@@ -183,73 +183,73 @@ export async function handleSuperMemoryListPage(
       .filter((m) => !q || m.text.toLowerCase().includes(q));
     const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50)));
     send(ws, {
-      type: 'memory.super.listPage',
+      type: 'memory.sage.listPage',
       payload: {
         memories: filtered.slice(0, limit),
         nextCursor: null,
         total: filtered.length,
         statusCounts,
-        stats: await superMemory.stats(),
+        stats: await Sage.stats(),
       },
     });
   } catch (err) {
-    send(ws, { type: 'memory.super.listPage', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.listPage', payload: { error: errMessage(err) } });
   }
 }
 
 /**
- * Get a single SuperMemory entry by ID.
- * Request:  { type: 'memory.super.get', payload: { id } }
- * Response: { type: 'memory.super.get', payload: { memory } }
+ * Get a single Sage entry by ID.
+ * Request:  { type: 'memory.sage.get', payload: { id } }
+ * Response: { type: 'memory.sage.get', payload: { memory } }
  */
-export async function handleSuperMemoryGet(
+export async function handleSageGet(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.get',
-      payload: { error: requiresSuperMemory('memory.super.get') },
+      type: 'memory.sage.get',
+      payload: { error: requiresSage('memory.sage.get') },
     });
     return;
   }
   const { id } = (msg as { payload: { id: string } }).payload;
   if (!id) {
-    send(ws, { type: 'memory.super.get', payload: { error: 'id is required' } });
+    send(ws, { type: 'memory.sage.get', payload: { error: 'id is required' } });
     return;
   }
   try {
-    const memory = await superMemory.getSuperMemory(id);
+    const memory = await Sage.getSage(id);
     if (!memory) {
-      send(ws, { type: 'memory.super.get', payload: { error: `Memory "${id}" not found.` } });
+      send(ws, { type: 'memory.sage.get', payload: { error: `Memory "${id}" not found.` } });
       return;
     }
-    send(ws, { type: 'memory.super.get', payload: { memory } });
+    send(ws, { type: 'memory.sage.get', payload: { memory } });
   } catch (err) {
-    send(ws, { type: 'memory.super.get', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.get', payload: { error: errMessage(err) } });
   }
 }
 
 /** Return the real persisted graph plus memory records for directly referenced nodes. */
-export async function handleSuperMemoryGraph(
+export async function handleSageGraph(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory?.graphFor) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage?.graphFor) {
     send(ws, {
-      type: 'memory.super.graph',
-      payload: { query: '', error: requiresSuperMemory('memory.super.graph') },
+      type: 'memory.sage.graph',
+      payload: { query: '', error: requiresSage('memory.sage.graph') },
     });
     return;
   }
   const payload = (msg as { payload?: Record<string, unknown> }).payload ?? {};
   const query = typeof payload['query'] === 'string' ? payload['query'].trim() : '';
   if (!query) {
-    send(ws, { type: 'memory.super.graph', payload: { query, error: 'query is required' } });
+    send(ws, { type: 'memory.sage.graph', payload: { query, error: 'query is required' } });
     return;
   }
   const maxDepth =
@@ -261,7 +261,7 @@ export async function handleSuperMemoryGraph(
       ? Math.max(1, Math.min(250, Math.floor(payload['limit'])))
       : 100;
   try {
-    const edges = await superMemory.graphFor(query, maxDepth, limit);
+    const edges = await Sage.graphFor(query, maxDepth, limit);
     const memoryIds = new Set<string>();
     for (const edge of edges) {
       for (const node of [edge.from, edge.to]) {
@@ -269,40 +269,40 @@ export async function handleSuperMemoryGraph(
       }
     }
     const memories = (
-      await Promise.all([...memoryIds].map((id) => superMemory.getSuperMemory(id)))
+      await Promise.all([...memoryIds].map((id) => Sage.getSage(id)))
     ).filter((memory) => memory !== null);
-    send(ws, { type: 'memory.super.graph', payload: { query, edges, memories } });
+    send(ws, { type: 'memory.sage.graph', payload: { query, edges, memories } });
   } catch (err) {
     send(ws, {
-      type: 'memory.super.graph',
+      type: 'memory.sage.graph',
       payload: { query, error: errMessage(err) },
     });
   }
 }
 
 /**
- * Update a SuperMemory entry.
- * Request:  { type: 'memory.super.update', payload: { id, ...patch } }
- * Response: { type: 'memory.super.update', payload: { memory } }
- * On error: { type: 'memory.super.update', payload: { error } }
+ * Update a Sage entry.
+ * Request:  { type: 'memory.sage.update', payload: { id, ...patch } }
+ * Response: { type: 'memory.sage.update', payload: { memory } }
+ * On error: { type: 'memory.sage.update', payload: { error } }
  */
-export async function handleSuperMemoryUpdate(
+export async function handleSageUpdate(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.update',
-      payload: { error: requiresSuperMemory('memory.super.update') },
+      type: 'memory.sage.update',
+      payload: { error: requiresSage('memory.sage.update') },
     });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
   const id = payload['id'] as string | undefined;
   if (!id) {
-    send(ws, { type: 'memory.super.update', payload: { error: 'id is required' } });
+    send(ws, { type: 'memory.sage.update', payload: { error: 'id is required' } });
     return;
   }
 
@@ -311,45 +311,45 @@ export async function handleSuperMemoryUpdate(
   delete patch['id'];
 
   if (Object.keys(patch).length === 0) {
-    send(ws, { type: 'memory.super.update', payload: { error: 'No fields to update.' } });
+    send(ws, { type: 'memory.sage.update', payload: { error: 'No fields to update.' } });
     return;
   }
 
   try {
-    const memory = await superMemory.updateSuperMemory(id, patch as never);
-    send(ws, { type: 'memory.super.update', payload: { memory } });
+    const memory = await Sage.updateSage(id, patch as never);
+    send(ws, { type: 'memory.sage.update', payload: { memory } });
   } catch (err) {
-    send(ws, { type: 'memory.super.update', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.update', payload: { error: errMessage(err) } });
   }
 }
 
 /**
- * Create a new SuperMemory entry with full metadata.
- * Request:  { type: 'memory.super.remember', payload: { text, kind?, scope?, tags?, anchors?, importance?, confidence?, freshness?, supersedes?, contradicts? } }
- * Response: { type: 'memory.super.remember', payload: { memory } }
- * On error: { type: 'memory.super.remember', payload: { error } }
+ * Create a new Sage entry with full metadata.
+ * Request:  { type: 'memory.sage.remember', payload: { text, kind?, scope?, tags?, anchors?, importance?, confidence?, freshness?, supersedes?, contradicts? } }
+ * Response: { type: 'memory.sage.remember', payload: { memory } }
+ * On error: { type: 'memory.sage.remember', payload: { error } }
  */
-export async function handleSuperMemoryRemember(
+export async function handleSageRemember(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.remember',
-      payload: { error: requiresSuperMemory('memory.super.remember') },
+      type: 'memory.sage.remember',
+      payload: { error: requiresSage('memory.sage.remember') },
     });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
   const text = payload['text'] as string | undefined;
   if (!text?.trim()) {
-    send(ws, { type: 'memory.super.remember', payload: { error: 'text is required' } });
+    send(ws, { type: 'memory.sage.remember', payload: { error: 'text is required' } });
     return;
   }
   try {
-    const memory = await superMemory.rememberSuper({
+    const memory = await Sage.rememberSage({
       text: text.trim(),
       kind: payload['kind'] as string | undefined,
       scope: payload['scope'] as string | undefined,
@@ -366,19 +366,19 @@ export async function handleSuperMemoryRemember(
       supersedes: payload['supersedes'] as string[] | undefined,
       contradicts: payload['contradicts'] as string[] | undefined,
     } as never);
-    send(ws, { type: 'memory.super.remember', payload: { memory } });
+    send(ws, { type: 'memory.sage.remember', payload: { memory } });
   } catch (err) {
-    send(ws, { type: 'memory.super.remember', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.remember', payload: { error: errMessage(err) } });
   }
 }
 
 /**
- * Delete a SuperMemory entry (soft-delete with cascade cleanup).
- * Request:  { type: 'memory.super.delete', payload: { id, reason?, force?, neverInject? } }
- * Response: { type: 'memory.super.delete', payload: { success, message } }
+ * Delete a Sage entry (soft-delete with cascade cleanup).
+ * Request:  { type: 'memory.sage.delete', payload: { id, reason?, force?, neverInject? } }
+ * Response: { type: 'memory.sage.delete', payload: { success, message } }
  *
  * `force` defaults to `true` (backward-compatible). When `false`, the
- * permanent-memory guard in `deleteSuperMemory` is respected and
+ * permanent-memory guard in `deleteSage` is respected and
  * `persistence: 'permanent'` entries cannot be deleted.
  *
  * `neverInject` (default false) marks the memory so context injection
@@ -389,16 +389,16 @@ export async function handleSuperMemoryRemember(
  * `key.operation_result`) so the client can correlate the response
  * to this specific action without matching unrelated broadcast events.
  */
-export async function handleSuperMemoryDelete(
+export async function handleSageDelete(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.delete',
-      payload: { success: false, message: requiresSuperMemory('memory.super.delete') },
+      type: 'memory.sage.delete',
+      payload: { success: false, message: requiresSage('memory.sage.delete') },
     });
     return;
   }
@@ -414,7 +414,7 @@ export async function handleSuperMemoryDelete(
   ).payload;
   if (!id) {
     send(ws, {
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: { success: false, message: 'id is required' },
     });
     return;
@@ -423,70 +423,70 @@ export async function handleSuperMemoryDelete(
     // Default force: true for backward compatibility — existing WebUI
     // clients always force-delete.  Newer clients may pass force: false
     // to respect the permanent-memory guard (soft-delete path).
-    await superMemory.deleteSuperMemory(id, reason, {
+    await Sage.deleteSage(id, reason, {
       force: force ?? true,
       neverInject: neverInject === true,
     });
     send(ws, {
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: { success: true, message: `Deleted memory "${id}".` },
     });
   } catch (err) {
     send(ws, {
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: { success: false, message: errMessage(err) },
     });
   }
 }
 
 /**
- * Restore a deleted Super Memory entry to active status (PR #1).
- * Request:  { type: 'memory.super.recover', payload: { id, reason? } }
- * Response: { type: 'memory.super.recover', payload: { memory?, noop?, activeId? } }
+ * Restore a deleted SAGE entry to active status (PR #1).
+ * Request:  { type: 'memory.sage.recover', payload: { id, reason? } }
+ * Response: { type: 'memory.sage.recover', payload: { memory?, noop?, activeId? } }
  *
  * - `noop: true` when the id was already active (no write happened)
  * - `activeId: <id>` when the id was superseded — returns the head of the chain
  * - otherwise returns the freshly-restored memory
  */
-export async function handleSuperMemoryRecover(
+export async function handleSageRecover(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory?.recoverSuperMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage?.recoverSage) {
     send(ws, {
-      type: 'memory.super.recover',
-      payload: { error: requiresSuperMemory('memory.super.recover') },
+      type: 'memory.sage.recover',
+      payload: { error: requiresSage('memory.sage.recover') },
     });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
   const id = payload['id'] as string | undefined;
   if (!id) {
-    send(ws, { type: 'memory.super.recover', payload: { error: 'id is required' } });
+    send(ws, { type: 'memory.sage.recover', payload: { error: 'id is required' } });
     return;
   }
   const reason = payload['reason'] as string | undefined;
   try {
-    const preExisting = await superMemory.getSuperMemory(id);
+    const preExisting = await Sage.getSage(id);
     if (!preExisting) {
       send(ws, {
-        type: 'memory.super.recover',
-        payload: { error: `Super Memory "${id}" not found.` },
+        type: 'memory.sage.recover',
+        payload: { error: `SAGE "${id}" not found.` },
       });
       return;
     }
     // Already active: no-op — return the existing record without calling recover.
     if (preExisting.status === 'active') {
       send(ws, {
-        type: 'memory.super.recover',
+        type: 'memory.sage.recover',
         payload: { recovered: true, memory: preExisting, noop: true },
       });
       return;
     }
     // Deleted or superseded: call recover to get the actual result.
-    const memory = await superMemory.recoverSuperMemory(id, reason);
+    const memory = await Sage.recoverSage(id, reason);
     // Superseded: the store returns the chain head (different id).
     const noop = memory.id !== id;
     const response: Record<string, unknown> = { recovered: true, memory };
@@ -494,31 +494,31 @@ export async function handleSuperMemoryRecover(
       response['activeId'] = memory.id;
       response['noop'] = true;
     }
-    send(ws, { type: 'memory.super.recover', payload: response });
+    send(ws, { type: 'memory.sage.recover', payload: response });
   } catch (err) {
-    send(ws, { type: 'memory.super.recover', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.recover', payload: { error: errMessage(err) } });
   }
 }
 
 /**
  * Resolve a pending hygiene review candidate (PR #1).
- * Request:  { type: 'memory.super.candidateResolve', payload: { candidateId, action: 'accept'|'reject', reason? } }
- * Response: { type: 'memory.super.candidateResolve', payload: { candidate, resolvedAction } }
+ * Request:  { type: 'memory.sage.candidateResolve', payload: { candidateId, action: 'accept'|'reject', reason? } }
+ * Response: { type: 'memory.sage.candidateResolve', payload: { candidate, resolvedAction } }
  *
  * The store handles audit + status mutation; the handler just relays the
  * payload. If the candidate id is unknown, the store returns null and we
  * surface a structured error.
  */
-export async function handleSuperMemoryCandidateResolve(
+export async function handleSageCandidateResolve(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage) {
     send(ws, {
-      type: 'memory.super.candidateResolve',
-      payload: { error: requiresSuperMemory('memory.super.candidateResolve') },
+      type: 'memory.sage.candidateResolve',
+      payload: { error: requiresSage('memory.sage.candidateResolve') },
     });
     return;
   }
@@ -527,14 +527,14 @@ export async function handleSuperMemoryCandidateResolve(
   const action = payload['action'] as 'accept' | 'reject' | undefined;
   if (!candidateId) {
     send(ws, {
-      type: 'memory.super.candidateResolve',
+      type: 'memory.sage.candidateResolve',
       payload: { error: 'candidateId is required' },
     });
     return;
   }
   if (action !== 'accept' && action !== 'reject') {
     send(ws, {
-      type: 'memory.super.candidateResolve',
+      type: 'memory.sage.candidateResolve',
       payload: { error: 'action must be "accept" or "reject"' },
     });
     return;
@@ -543,10 +543,10 @@ export async function handleSuperMemoryCandidateResolve(
   try {
     let candidate: { id: string; status: string } | undefined;
     if (action === 'accept') {
-      const accepted = await superMemory.acceptCandidate(candidateId);
+      const accepted = await Sage.acceptCandidate(candidateId);
       candidate = accepted ? { id: accepted.id, status: accepted.status ?? 'active' } : undefined;
     } else {
-      const rejected = await superMemory.rejectCandidate(
+      const rejected = await Sage.rejectCandidate(
         candidateId,
         reason ?? 'Rejected via WebUI',
       );
@@ -554,18 +554,18 @@ export async function handleSuperMemoryCandidateResolve(
     }
     if (!candidate) {
       send(ws, {
-        type: 'memory.super.candidateResolve',
+        type: 'memory.sage.candidateResolve',
         payload: { error: `Candidate "${candidateId}" not found` },
       });
       return;
     }
     send(ws, {
-      type: 'memory.super.candidateResolve',
+      type: 'memory.sage.candidateResolve',
       payload: { candidate, resolvedAction: action },
     });
   } catch (err) {
     send(ws, {
-      type: 'memory.super.candidateResolve',
+      type: 'memory.sage.candidateResolve',
       payload: { error: errMessage(err) },
     });
   }
@@ -575,23 +575,23 @@ export async function handleSuperMemoryCandidateResolve(
  * Scan deleted records and either preview (dry-run) or apply a backfill
  * that creates fresh active versions for recoverable entries (PR #3).
  *
- * Request:  { type: 'memory.super.backfillRecoverable', payload: { apply, filter? } }
- * Response: { type: 'memory.super.backfillRecoverable', payload: { examined, recovered, recoverable, dryRun } }
+ * Request:  { type: 'memory.sage.backfillRecoverable', payload: { apply, filter? } }
+ * Response: { type: 'memory.sage.backfillRecoverable', payload: { examined, recovered, recoverable, dryRun } }
  *
  * `apply` defaults to false (dry-run preview). When true, the store writes
  * new active versions and links them to the original `deleted` records via
  * `supersedes`. The report count fields are forwarded for dashboard / UI use.
  */
-export async function handleSuperMemoryBackfillRecoverable(
+export async function handleSageBackfillRecoverable(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory?.backfillRecoverable) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage?.backfillRecoverable) {
     send(ws, {
-      type: 'memory.super.backfillRecoverable',
-      payload: { error: requiresSuperMemory('memory.super.backfillRecoverable') },
+      type: 'memory.sage.backfillRecoverable',
+      payload: { error: requiresSage('memory.sage.backfillRecoverable') },
     });
     return;
   }
@@ -614,12 +614,12 @@ export async function handleSuperMemoryBackfillRecoverable(
   if (typeof rawFilter['updatedBefore'] === 'string')
     filter.updatedBefore = rawFilter['updatedBefore'];
   try {
-    const report = await superMemory.backfillRecoverable({
+    const report = await Sage.backfillRecoverable({
       dryRun: !apply,
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
     } as never);
     send(ws, {
-      type: 'memory.super.backfillRecoverable',
+      type: 'memory.sage.backfillRecoverable',
       payload: {
         examined: report.examined,
         recovered: report.recovered,
@@ -629,7 +629,7 @@ export async function handleSuperMemoryBackfillRecoverable(
     });
   } catch (err) {
     send(ws, {
-      type: 'memory.super.backfillRecoverable',
+      type: 'memory.sage.backfillRecoverable',
       payload: { error: errMessage(err) },
     });
   }
@@ -639,27 +639,27 @@ export async function handleSuperMemoryBackfillRecoverable(
  * Rich file-drawer query — returns 3 buckets (primary/symbol/related)
  * with matchedVia, matchStrength, supersededByActiveId, pendingReview (PR #4).
  */
-export async function handleSuperMemoryForFile(
+export async function handleSageForFile(
   ws: WebSocket,
   msg: unknown,
   memoryStore: MemoryPort,
 ): Promise<void> {
-  const superMemory = getSuperMemorySurface(memoryStore);
-  if (!superMemory?.findMemoriesForFile) {
+  const Sage = getSageSurface(memoryStore);
+  if (!Sage?.findMemoriesForFile) {
     send(ws, {
-      type: 'memory.super.forFile',
-      payload: { error: requiresSuperMemory('memory.super.forFile') },
+      type: 'memory.sage.forFile',
+      payload: { error: requiresSage('memory.sage.forFile') },
     });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload ?? {};
   const filePath = payload['filePath'] as string | undefined;
   if (!filePath) {
-    send(ws, { type: 'memory.super.forFile', payload: { error: 'filePath is required' } });
+    send(ws, { type: 'memory.sage.forFile', payload: { error: 'filePath is required' } });
     return;
   }
   try {
-    const response = await superMemory.findMemoriesForFile(filePath, {
+    const response = await Sage.findMemoriesForFile(filePath, {
       ...(typeof payload['lineStart'] === 'number'
         ? { lineStart: payload['lineStart'] as number }
         : {}),
@@ -667,8 +667,8 @@ export async function handleSuperMemoryForFile(
       ...(typeof payload['limit'] === 'number' ? { limit: payload['limit'] as number } : {}),
       ...(payload['includeDeleted'] === true ? { includeDeleted: true } : {}),
     });
-    send(ws, { type: 'memory.super.forFile', payload: response });
+    send(ws, { type: 'memory.sage.forFile', payload: response });
   } catch (err) {
-    send(ws, { type: 'memory.super.forFile', payload: { error: errMessage(err) } });
+    send(ws, { type: 'memory.sage.forFile', payload: { error: errMessage(err) } });
   }
 }

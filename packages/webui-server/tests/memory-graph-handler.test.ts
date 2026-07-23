@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SqliteMemoryPort } from '@wrongstack/super-memory';
-import { handleSuperMemoryGraph } from '@wrongstack/webui-server';
+import { SqliteMemoryPort } from '@wrongstack/sage';
+import { handleSageGraph } from '@wrongstack/webui-server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 
@@ -44,16 +44,16 @@ function mockSocket(): WebSocket & { sent: unknown[] } {
   } as never;
 }
 
-describe('handleSuperMemoryGraph', () => {
+describe('handleSageGraph', () => {
   it('returns persisted edges, evidence, and referenced memory records', async () => {
     const store = newPort({ projectRoot: root });
-    const first = await store.rememberSuper({
+    const first = await store.rememberSage({
       text: 'The auth package owns session state.',
       kind: 'file_note',
       tags: ['auth', 'session'],
       anchors: [{ type: 'package', path: 'packages/auth' }],
     });
-    const second = await store.rememberSuper({
+    const second = await store.rememberSage({
       text: 'Session changes require auth tests.',
       kind: 'command_note',
       tags: ['auth', 'session'],
@@ -61,9 +61,9 @@ describe('handleSuperMemoryGraph', () => {
     });
     const ws = mockSocket();
 
-    await handleSuperMemoryGraph(
+    await handleSageGraph(
       ws,
-      { type: 'memory.super.graph', payload: { query: first.id, maxDepth: 1 } },
+      { type: 'memory.sage.graph', payload: { query: first.id, maxDepth: 1 } },
       store,
     );
 
@@ -76,7 +76,7 @@ describe('handleSuperMemoryGraph', () => {
         memories: Array<{ id: string }>;
       };
     };
-    expect(response.type).toBe('memory.super.graph');
+    expect(response.type).toBe('memory.sage.graph');
     expect(response.payload.query).toBe(first.id);
     expect(
       response.payload.edges.some((edge) => edge.evidence?.includes('package:packages/auth')),

@@ -50,8 +50,8 @@ export function sqliteCachePragmas(): { cacheSizeKiB: number; mmapBytes: number 
   return { cacheSizeKiB: 131_072, mmapBytes: 512 * 1024 * 1024 }; // 128 MiB / 512 MiB
 }
 
-/** Super-memory store defaults (slightly smaller than index). */
-export function superMemoryCachePragmas(): { cacheSizeKiB: number; mmapBytes: number } {
+/** sage store defaults (slightly smaller than index). */
+export function SageCachePragmas(): { cacheSizeKiB: number; mmapBytes: number } {
   if (isFrugalPerf()) {
     return { cacheSizeKiB: 8_192, mmapBytes: 32 * 1024 * 1024 }; // 8 MiB / 32 MiB
   }

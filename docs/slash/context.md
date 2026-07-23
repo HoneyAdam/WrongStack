@@ -4,7 +4,7 @@ Alias: `/ctx`.
 
 ## What it does
 
-Shows a live snapshot of the current context window. In TUI, bare `/context` opens the interactive Ink monitor and leaves only a two-line context/memory summary in chat history; it never prints the removed Markdown dashboard. The panel includes the measured token breakdown and exact Super Memory `ctx`/`pending`/`left` state. CLI/REPL keeps the text report and configuration subcommands below.
+Shows a live snapshot of the current context window. In TUI, bare `/context` opens the interactive Ink monitor and leaves only a two-line context/memory summary in chat history; it never prints the removed Markdown dashboard. The panel includes the measured token breakdown and exact SAGE `ctx`/`pending`/`left` state. CLI/REPL keeps the text report and configuration subcommands below.
 
 ## CLI/REPL subcommands
 

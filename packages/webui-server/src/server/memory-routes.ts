@@ -2,17 +2,17 @@ import type { MemoryPort } from '@wrongstack/core/types';
 import type { WebSocket } from 'ws';
 import {
   handleMemoryList,
-  handleSuperMemoryBackfillRecoverable,
-  handleSuperMemoryCandidateResolve,
-  handleSuperMemoryDelete,
-  handleSuperMemoryForFile,
-  handleSuperMemoryGet,
-  handleSuperMemoryGraph,
-  handleSuperMemoryList,
-  handleSuperMemoryListPage,
-  handleSuperMemoryRecover,
-  handleSuperMemoryRemember,
-  handleSuperMemoryUpdate,
+  handleSageBackfillRecoverable,
+  handleSageCandidateResolve,
+  handleSageDelete,
+  handleSageForFile,
+  handleSageGet,
+  handleSageGraph,
+  handleSageList,
+  handleSageListPage,
+  handleSageRecover,
+  handleSageRemember,
+  handleSageUpdate,
 } from './memory-handlers.js';
 import type { WSClientMessage, WSServerMessage } from './types.js';
 
@@ -23,7 +23,7 @@ export interface MemoryRouteContext {
 }
 
 function unavailable(ctx: MemoryRouteContext, ws: WebSocket, type: string): void {
-  if (type === 'memory.super.delete') {
+  if (type === 'memory.sage.delete') {
     ctx.sendResult(ws, false, 'Memory store not available');
     return;
   }
@@ -31,19 +31,19 @@ function unavailable(ctx: MemoryRouteContext, ws: WebSocket, type: string): void
     type,
     payload: {
       ...(type === 'memory.list' ? { text: '' } : {}),
-      ...(type === 'memory.super.graph' ? { query: '' } : {}),
+      ...(type === 'memory.sage.graph' ? { query: '' } : {}),
       error: 'Memory store not available',
     },
   });
 }
 
-/** Canonical Memory/SuperMemory routing and unavailable-store behavior. */
+/** Canonical Memory/Sage routing and unavailable-store behavior. */
 export async function handleMemoryRoute(
   ctx: MemoryRouteContext,
   ws: WebSocket,
   message: WSClientMessage,
 ): Promise<boolean> {
-  if (message.type !== 'memory.list' && !message.type.startsWith('memory.super.')) return false;
+  if (message.type !== 'memory.list' && !message.type.startsWith('memory.sage.')) return false;
   const store = ctx.getMemoryStore();
   if (!store) {
     unavailable(ctx, ws, message.type);
@@ -53,38 +53,38 @@ export async function handleMemoryRoute(
     case 'memory.list':
       await handleMemoryList(ws, store);
       return true;
-    case 'memory.super.list':
-      await handleSuperMemoryList(ws, store);
+    case 'memory.sage.list':
+      await handleSageList(ws, store);
       return true;
-    case 'memory.super.listPage':
-      await handleSuperMemoryListPage(ws, message, store);
+    case 'memory.sage.listPage':
+      await handleSageListPage(ws, message, store);
       return true;
-    case 'memory.super.get':
-      await handleSuperMemoryGet(ws, message, store);
+    case 'memory.sage.get':
+      await handleSageGet(ws, message, store);
       return true;
-    case 'memory.super.graph':
-      await handleSuperMemoryGraph(ws, message, store);
+    case 'memory.sage.graph':
+      await handleSageGraph(ws, message, store);
       return true;
-    case 'memory.super.update':
-      await handleSuperMemoryUpdate(ws, message, store);
+    case 'memory.sage.update':
+      await handleSageUpdate(ws, message, store);
       return true;
-    case 'memory.super.delete':
-      await handleSuperMemoryDelete(ws, message, store);
+    case 'memory.sage.delete':
+      await handleSageDelete(ws, message, store);
       return true;
-    case 'memory.super.remember':
-      await handleSuperMemoryRemember(ws, message, store);
+    case 'memory.sage.remember':
+      await handleSageRemember(ws, message, store);
       return true;
-    case 'memory.super.recover':
-      await handleSuperMemoryRecover(ws, message, store);
+    case 'memory.sage.recover':
+      await handleSageRecover(ws, message, store);
       return true;
-    case 'memory.super.candidateResolve':
-      await handleSuperMemoryCandidateResolve(ws, message, store);
+    case 'memory.sage.candidateResolve':
+      await handleSageCandidateResolve(ws, message, store);
       return true;
-    case 'memory.super.backfillRecoverable':
-      await handleSuperMemoryBackfillRecoverable(ws, message, store);
+    case 'memory.sage.backfillRecoverable':
+      await handleSageBackfillRecoverable(ws, message, store);
       return true;
-    case 'memory.super.forFile':
-      await handleSuperMemoryForFile(ws, message, store);
+    case 'memory.sage.forFile':
+      await handleSageForFile(ws, message, store);
       return true;
     default:
       return false;

@@ -4,7 +4,7 @@ import {
   indexParallelBatchSize,
   isFrugalPerf,
   sqliteCachePragmas,
-  superMemoryCachePragmas,
+  SageCachePragmas,
   tuiStreamFlushMs,
 } from '../../src/utils/perf-profile.js';
 
@@ -50,7 +50,7 @@ describe('perf-profile', () => {
   it('uses leaner SQLite caches under frugal', () => {
     process.env.WRONGSTACK_PERF_PROFILE = 'frugal';
     const index = sqliteCachePragmas();
-    const mem = superMemoryCachePragmas();
+    const mem = SageCachePragmas();
     expect(index.cacheSizeKiB).toBeLessThan(32_768);
     expect(mem.cacheSizeKiB).toBeLessThan(index.cacheSizeKiB);
     expect(index.mmapBytes).toBeLessThan(128 * 1024 * 1024);

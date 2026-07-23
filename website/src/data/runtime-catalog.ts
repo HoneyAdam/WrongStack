@@ -467,13 +467,6 @@ export const pluginCatalog = [
     source: 'Core',
   },
   {
-    name: 'wstack-security',
-    risk: 'high',
-    summary: 'Security scanning backend used by first-party security flows.',
-    defaultState: 'active',
-    source: 'Core',
-  },
-  {
     name: 'wstack-chimera',
     risk: 'medium',
     summary: 'Spawns a post-session code review subagent when explicitly enabled.',

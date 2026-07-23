@@ -238,11 +238,11 @@
       "lines": 925,
       "relativeImports": 44
     },
-    "packages/super-memory/src/middleware/tool-call-memory.ts": {
+    "packages/sage/src/middleware/tool-call-memory.ts": {
       "lines": 892,
       "relativeImports": 7
     },
-    "packages/super-memory/src/sqlite-store.ts": {
+    "packages/sage/src/sqlite-store.ts": {
       "lines": 3075,
       "relativeImports": 8
     },

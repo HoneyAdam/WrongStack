@@ -42,16 +42,15 @@ function brainSettings(riskLevel: BrainPanelSettings['riskLevel']): BrainPanelSe
 }
 
 describe('reducer — final correct branches', () => {
-  // ── Scroll (needs totalLines, viewportRows now in initial()) ──────
-  it('scrollBy clamps to [0, max]', () => {
-    const r = reducer(initial({ totalLines: 100, viewportRows: 24 } as never), { type: 'scrollBy', delta: 50 });
-    expect(r.scrollOffset).toBe(50);
-    const clamped = reducer(r, { type: 'scrollBy', delta: -60 });
-    expect(clamped.scrollOffset).toBe(0);
+  // ── Scroll (position lives in ScrollableHistory; reducer keeps flags) ──
+  it('setHistoryScrolled stores the scrolled flag', () => {
+    const r = reducer(initial(), { type: 'setHistoryScrolled', scrolled: true });
+    expect(r.historyScrolled).toBe(true);
+    expect(reducer(r, { type: 'setHistoryScrolled', scrolled: false }).historyScrolled).toBe(false);
   });
-  it('scrollToBottom resets scroll', () => {
-    const s = initial({ scrollOffset: 100 } as never);
-    expect(reducer(s, { type: 'scrollToBottom' }).scrollOffset).toBe(0);
+  it('setViewportRows stores the measured rows', () => {
+    const s = initial({ viewportRows: 24 } as never);
+    expect(reducer(s, { type: 'setViewportRows', rows: 30 }).viewportRows).toBe(30);
   });
 
   // ── Goal Kanban ──────────────────────────────────────────────────

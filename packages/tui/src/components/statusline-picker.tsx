@@ -16,7 +16,7 @@ export type StatuslineItem =
   | 'hint'
   | 'index'
   | 'memory'
-  | 'super_memory'
+  | 'sage'
   | 'breaker'
   | 'todos'
   | 'plan'
@@ -100,7 +100,7 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
   hint: 'Transient status hint text',
   index: 'Codebase indexing status',
   memory: 'Current CLI process RAM and V8 heap usage',
-  super_memory: 'Total Super Memory records and exact provider-context active count',
+  sage: 'Total SAGE records and exact provider-context active count',
   breaker: 'Process breaker countdown',
   todos: 'Todo items (pending/in-progress/done)',
   plan: 'Plan board items',
@@ -156,7 +156,7 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   processes: 1,
   queue: 1,
   state: 1,
-  super_memory: 1,
+  sage: 1,
   time: 1,
   tokens: 1,
   version: 1,
@@ -217,8 +217,8 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'model',
   'processes',
   'queue',
+  'sage',
   'state',
-  'super_memory',
   'time',
   'tokens',
   'version',

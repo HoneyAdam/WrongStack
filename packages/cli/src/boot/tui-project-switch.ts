@@ -131,7 +131,7 @@ export async function switchProjectInPlace(
       modeId && modeId !== 'default' && modeStore ? await modeStore.getMode(modeId) : undefined;
     const switchBuilder = new DefaultSystemPromptBuilder({
       memoryStore: memoryStore ?? undefined,
-      // Single injection channel: Super Memory turn middleware, not a static section.
+      // Single injection channel: SAGE turn middleware, not a static section.
       injectMemory: false,
       skillLoader,
       modeStore,

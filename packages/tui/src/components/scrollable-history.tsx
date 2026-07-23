@@ -1,9 +1,32 @@
 import type React from 'react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { computeWindow, EntryHeightCache } from '../height-cache.js';
+import {
+  memo,
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { EntryHeightCache } from '../height-cache.js';
 import { computeLayout } from '../layout-engine.js';
 import { SCROLLBAR_HIT_WIDTH } from '../hit-test.js';
 import { Box, type DOMElement, measureElement, Text, useStdout } from '../ink.js';
+import {
+  anchorAtTopRow,
+  anchorForTrackCell,
+  anchorTopRow,
+  contentRows,
+  maxTopRow,
+  pageRows,
+  planFromAnchor,
+  planPinned,
+  type ScrollAnchor,
+  type ScrollGeometry,
+  scrollAnchorBy,
+  scrollAnchorToTop,
+} from '../scroll-anchor.js';
 import { theme } from '../theme.js';
 import {
   estimateRenderGroupRows,
@@ -21,15 +44,37 @@ import {
   toolStreamBoxHeight,
 } from './history.js';
 
+/**
+ * Imperative scroll surface owned by the ScrollableHistory component. The app
+ * key/mouse handlers call these instead of dispatching reducer actions: all
+ * scroll math needs the live height cache, which lives here, and routing it
+ * through app state previously forced totals and offsets to travel through
+ * separate commits — the root cause of an entire family of jump bugs.
+ */
+export interface HistoryScrollController {
+  /** Scroll by `deltaUp` rows: positive = older content, negative = newer. */
+  scrollBy(deltaUp: number): void;
+  /** Scroll by one viewport page. */
+  scrollPage(dir: 'up' | 'down'): void;
+  /** Jump to the oldest retained entry. */
+  scrollToTop(): void;
+  /** Re-pin to the newest output. */
+  scrollToBottom(): void;
+  /** Jump to a 0-based cell clicked/dragged on the scrollbar track. */
+  scrollToTrackCell(cell: number): void;
+  /** True while the viewport is scrolled away from the newest output. */
+  isScrolled(): boolean;
+}
+
 export interface ScrollableHistoryProps extends HistoryProps {
-  /** Lines scrolled up from the bottom. 0 = pinned to the newest output. */
-  scrollOffset: number;
   /** Height of the viewport in rows, computed by App from the bottom region. */
   viewportRows: number;
-  /** Reports a bounded estimated scroll extent in rows. The estimate is seeded
-   *  before first paint so long transcripts never require a full DOM mount just
-   *  to measure themselves. Optional for isolated renderers. */
-  onMeasure?: ((totalLines: number) => void) | undefined;
+  /** Receives the imperative scroll controller. The component assigns on
+   *  mount and clears on unmount. Optional for isolated renderers. */
+  controllerRef?: MutableRefObject<HistoryScrollController | null> | undefined;
+  /** Reports scroll-state transitions (scrolled away from / re-pinned to the
+   *  newest output) so the host can adjust key hints. */
+  onScrollInfo?: ((info: { scrolled: boolean }) => void) | undefined;
   /** Optional cap on the width used for entry wrapping (right panel mode). */
   maxWidth?: number | undefined;
   /** Layout store for persisting entry height data across renders and sessions.
@@ -60,8 +105,7 @@ export function scrollbarThumb(
 /** Inverse of {@link scrollbarThumb}: given a clicked/dragged 0-based cell on a
  *  track of `rows` height, return the scroll offset (rows up from the bottom)
  *  that lands the visible window there. Cell 0 (top) → oldest content (max
- *  offset); cell rows-1 (bottom) → newest (offset 0). Exported for testing and
- *  the TUI scrollbar mouse handler. */
+ *  offset); cell rows-1 (bottom) → newest (offset 0). Exported for testing. */
 export function scrollOffsetForTrackRow(rows: number, total: number, cell: number): number {
   if (total <= rows) return 0;
   const maxOffset = total - rows;
@@ -104,34 +148,46 @@ function Scrollbar({
   );
 }
 
+/** Extra rows mounted per underfill-correction step. */
+const UNDERFILL_BUMP_ROWS = 16;
+/** Cap on underfill-correction steps per anchor position (loop guard). */
+const MAX_UNDERFILL_BUMPS = 8;
+
 /**
- * Bounded history viewport. Instead of streaming each entry into the terminal's
- * native scrollback via `<Static>`, it renders retained entries
- * into a fixed-height, `overflowY:'hidden'` viewport that the app scrolls
- * itself. PageUp/PageDown always scroll it; mouse mode additionally captures
- * wheel and scrollbar interactions.
+ * Bounded history viewport with anchor-based virtual scrolling.
  *
- * Mechanism (Ink-5 verified): the parent Box is height-bounded. At offset 0,
- * `justifyContent:'flex-end'` pins short content to the viewport bottom. Once
- * scrolled, `justifyContent:'flex-start'` anchors the computed virtual slice at
- * the top; `computeWindow()` selects the visible render groups, while its
- * partial-entry spacer and omitted-suffix spacer preserve row alignment.
+ * Instead of streaming entries into the terminal's native scrollback via
+ * `<Static>`, retained entries render into a fixed-height `overflowY:'hidden'`
+ * viewport the app scrolls itself. PageUp/PageDown always scroll it; mouse
+ * mode additionally captures wheel and scrollbar interactions — both through
+ * the {@link HistoryScrollController} this component owns.
  *
- * Streaming tool tails are a fixed-height suffix in the same scroll space, so
- * they auto-follow while pinned and move below the clip as the offset crosses
- * into committed history. The assistant tail has been removed — committed
- * assistant entries now appear only as normal history entries.
+ * Positioning model (Ink-7 verified against real yoga layout):
+ * - Pinned (anchor `null`): `justifyContent:'flex-end'` + enough trailing
+ *   groups mounted to overfill the viewport. Ink clips the overflow at the
+ *   TOP, so the newest output hugs the input line with zero position math.
+ * - Scrolled (anchor set): `justifyContent:'flex-start'`; groups mount from
+ *   the anchor downward and the inner column gets `marginTop:-clip`, hiding
+ *   exactly the anchor rows above the viewport. Ink clips the excess at the
+ *   BOTTOM. What is on screen therefore depends ONLY on the anchor and the
+ *   real heights of mounted groups — estimated heights of off-window content
+ *   cannot move anything. There are no spacer elements to misalign.
  *
- * Wrapped in `React.memo` so keystrokes in the input buffer don't
- * trigger a full managed-viewport re-layout. All props are primitives
- * or stable reducer references.
+ * Height estimates are still kept (in the {@link EntryHeightCache}) but are
+ * demoted to two harmless jobs: deciding how many groups to mount (overfill is
+ * clipped; underfill self-corrects after measurement) and sizing the scrollbar
+ * thumb. A post-render `measureElement` pass promotes every mounted group to
+ * its real height and persists it via the layout store.
+ *
+ * Wrapped in `React.memo` so keystrokes in the input buffer don't trigger a
+ * full managed-viewport re-layout.
  */
 export const ScrollableHistory = memo(function ScrollableHistory({
   entries,
   toolStream,
-  scrollOffset,
   viewportRows,
-  onMeasure,
+  controllerRef,
+  onScrollInfo,
   maxWidth,
   setSuggestions,
   autonomyMode,
@@ -169,6 +225,11 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   const toolTailHeight = toolTail && toolStream ? toolStreamBoxHeight(toolStream.name) : 0;
   const groupedEntries = useMemo(() => groupEntries(entries), [entries]);
   const groupIds = useMemo(() => groupedEntries.map(renderGroupId), [groupedEntries]);
+  const groupIndexById = useMemo(() => {
+    const map = new Map<number, number>();
+    groupIds.forEach((id, index) => map.set(id, index));
+    return map;
+  }, [groupIds]);
   const groupIdsKey = groupIds.join(',');
 
   // Seed conservative heights before first paint so even a long resumed
@@ -178,19 +239,15 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   //
   // When a LayoutStore is available (from a resumed session / persisted layout),
   // its measured (non-estimated) heights are preferred over the heuristic
-  // estimates — this eliminates the estimate-vs-actual mismatch that causes
-  // scroll jumps on the first render cycle.
+  // estimates — this eliminates the estimate-vs-actual mismatch on the first
+  // render cycle.
   const heightCacheRef = useRef<EntryHeightCache | null>(null);
   if (heightCacheRef.current === null) heightCacheRef.current = new EntryHeightCache();
   const heightCache = heightCacheRef.current;
-  // Live DOM nodes for the currently-rendered window, keyed by render-group id.
+  // Live DOM nodes for the currently-mounted window, keyed by render-group id.
   // A post-render layout effect measures each against its cached (estimated)
-  // height and promotes it to a real measurement — this is what closes the
-  // estimate-vs-actual gap that otherwise misaligns the virtual spacers.
+  // height and promotes it to a real measurement.
   const entryNodeRefs = useRef(new Map<number, DOMElement>());
-  // Bumped whenever a measurement corrects a cached height, so the memoized
-  // total and the window recompute against the real geometry.
-  const [measureTick, setMeasureTick] = useState(0);
   const preparedGroupIdsRef = useRef<string | null>(null);
   const preparedEstimateWidthRef = useRef<number | null>(null);
   // Key that incorporates the layout store's version so persisted data from a
@@ -227,7 +284,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
         }
       }
     } else {
-      // No LayoutStore: fall back to heuristic estimates only (original path).
+      // No LayoutStore: fall back to heuristic estimates only.
       const estimateById = new Map(
         groupedEntries.map((group) => [renderGroupId(group), estimateRenderGroupRows(group, termWidth)]),
       );
@@ -238,70 +295,139 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     preparedEstimateWidthRef.current = termWidth;
   }
 
-  const lastReported = useRef(-1);
-  // `measureTick` is a dependency so post-render measurement corrections flow
-  // into the total (and thus the window + the onMeasure re-anchor dispatch).
-  const cacheTotal = useMemo(
-    () => heightCache.totalHeight(),
-    [cacheKey, termWidth, measureTick],
-  );
-  useLayoutEffect(() => {
-    const reportedHeight = cacheTotal + toolTailHeight;
-    if (reportedHeight === lastReported.current) return;
-    lastReported.current = reportedHeight;
-    onMeasure?.(reportedHeight);
-  }, [cacheTotal, toolTailHeight, onMeasure]);
-
-  // The cache owns committed-entry rows; the live tool tail forms a
-  // separate, fixed-height suffix in the same scroll space. Keeping these
-  // dimensions separate prevents callers from ambiguously including or
-  // excluding live-tail rows in a fallback total. The `toolTailHeight` value
-  // drives both the measure effect and the scrollbar total.
-  const scrollbarTotal = cacheTotal + toolTailHeight;
-
   const vp = Math.max(1, viewportRows);
-  // Clamp the shared entry+tail range here. When committed entries are
-  // windowed below, computeWindow() independently clamps its viewportTop.
-  const effectiveOffset = Math.min(
-    Math.max(0, scrollOffset),
-    Math.max(0, scrollbarTotal - vp),
+
+  // ── Scroll state ────────────────────────────────────────────────────
+  // The anchor is stored by render-group ID (stable across retention
+  // evictions, which shift indexes) plus the rows of that group clipped above
+  // the viewport top. `null` = pinned to the newest output.
+  const [anchor, setAnchor] = useState<{ id: number; clip: number } | null>(null);
+  // Underfill-correction steps for the current anchor position: each step
+  // mounts UNDERFILL_BUMP_ROWS more estimated rows. Reset on scroll.
+  const [mountBump, setMountBump] = useState(0);
+  // Re-render nudge when a measurement changed a cached height but no other
+  // state transition will re-render this memoized component (thumb geometry
+  // and mount planning read the cache during render). Value is never read.
+  const [, setMeasureTick] = useState(0);
+
+  const geometry: ScrollGeometry = {
+    cache: heightCache,
+    groupCount: groupedEntries.length,
+    viewportRows: vp,
+    tailRows: toolTailHeight,
+  };
+
+  // Resolve the stored anchor to an index-based one for this frame. A missing
+  // id (evicted from the top by retention) degrades to the oldest retained
+  // group; an anchor that no longer scrolls (content fits) degrades to pinned.
+  const effectiveAnchor: ScrollAnchor | null = useMemo(() => {
+    if (anchor === null || groupedEntries.length === 0) return null;
+    if (maxTopRow(geometry) <= 0) return null;
+    const index = groupIndexById.get(anchor.id);
+    if (index === undefined) return { index: 0, clip: 0 };
+    return { index, clip: Math.max(0, anchor.clip) };
+    // geometry is rebuilt per render from values covered by these deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor, groupIndexById, groupedEntries.length, cacheKey, vp, toolTailHeight]);
+  const scrolled = effectiveAnchor !== null;
+
+  // Latest-value refs for the stable controller callbacks.
+  const geometryRef = useRef(geometry);
+  geometryRef.current = geometry;
+  const effectiveAnchorRef = useRef(effectiveAnchor);
+  effectiveAnchorRef.current = effectiveAnchor;
+  const groupIdsRef = useRef(groupIds);
+  groupIdsRef.current = groupIds;
+
+  const applyAnchor = useCallback((next: ScrollAnchor | null): void => {
+    const ids = groupIdsRef.current;
+    const nextId = next ? ids[next.index] : undefined;
+    setAnchor(next && nextId !== undefined ? { id: nextId, clip: Math.max(0, next.clip) } : null);
+    setMountBump(0);
+  }, []);
+
+  const controller = useMemo<HistoryScrollController>(
+    () => ({
+      scrollBy: (deltaUp) => {
+        applyAnchor(scrollAnchorBy(geometryRef.current, effectiveAnchorRef.current, deltaUp));
+      },
+      scrollPage: (dir) => {
+        const rows = pageRows(geometryRef.current.viewportRows);
+        applyAnchor(
+          scrollAnchorBy(
+            geometryRef.current,
+            effectiveAnchorRef.current,
+            dir === 'up' ? rows : -rows,
+          ),
+        );
+      },
+      scrollToTop: () => {
+        applyAnchor(scrollAnchorToTop(geometryRef.current));
+      },
+      scrollToBottom: () => {
+        applyAnchor(null);
+      },
+      scrollToTrackCell: (cell) => {
+        applyAnchor(anchorForTrackCell(geometryRef.current, cell));
+      },
+      isScrolled: () => effectiveAnchorRef.current !== null,
+    }),
+    [applyAnchor],
   );
 
-  // ── Virtual window computation ──────────────────────────────────────
-  // When the cache has data and content exceeds the viewport, compute
-  // which entries to render and how tall the spacers should be.
-  const visibleTailRows = Math.max(0, toolTailHeight - effectiveOffset);
-  const entryViewportRows = Math.max(1, vp - visibleTailRows);
-  const entryScrollOffset = Math.max(0, effectiveOffset - toolTailHeight);
-  const windowed =
-    cacheTotal > 0 && groupedEntries.length > 0 && cacheTotal > entryViewportRows;
-  const win = windowed
-    ? computeWindow(
-        cacheTotal,
-        entryViewportRows,
-        entryScrollOffset,
-        groupedEntries.length,
-        heightCache,
-      )
-    : null;
+  useEffect(() => {
+    if (!controllerRef) return undefined;
+    controllerRef.current = controller;
+    return () => {
+      // Unconditionally null so the cleanup does not race against a new
+      // effect that has already been queued in the same commit phase.
+      // The `=== controller` guard in the previous code created a window
+      // where a stale controller reference was left alive on re-render.
+      controllerRef.current = null;
+    };
+  }, [controllerRef, controller]);
 
-  // Window the same render groups whose heights populate the cache, so virtual
-  // indexes and rendered rows stay aligned when consecutive tools compact.
-  const renderGroups = win?.windowed
-    ? groupedEntries.slice(win.startIdx, win.endIdx)
-    : groupedEntries;
+  // Report scroll-state transitions (drives the "managed" key hint).
+  // Use a ref for `onScrollInfo` so the effect does not re-fire when the
+  // caller passes an unstable function reference (inline arrow, re-created
+  // callback, etc.). Only `scrolled` transitions trigger the notification.
+  const lastReportedScrolled = useRef<boolean | null>(null);
+  const onScrollInfoRef = useRef(onScrollInfo);
+  onScrollInfoRef.current = onScrollInfo;
+  useEffect(() => {
+    if (lastReportedScrolled.current === scrolled) return;
+    lastReportedScrolled.current = scrolled;
+    onScrollInfoRef.current?.({ scrolled });
+  }, [scrolled]);
+
+  // ── Mount planning ──────────────────────────────────────────────────
+  const plan = effectiveAnchor
+    ? planFromAnchor(geometry, effectiveAnchor, mountBump * UNDERFILL_BUMP_ROWS)
+    : planPinned(geometry, mountBump * UNDERFILL_BUMP_ROWS);
+  const renderGroups = groupedEntries.slice(plan.startIdx, plan.endIdx);
+  const clip = effectiveAnchor?.clip ?? 0;
+
+  const totalRows = contentRows(geometry);
+  const offsetFromBottom = scrolled
+    ? Math.max(0, maxTopRow(geometry) - anchorTopRow(geometry, effectiveAnchor))
+    : 0;
 
   // ── Post-render measurement ─────────────────────────────────────────
-  // Measure the entries actually mounted this frame and replace their cached
-  // estimate with Ink's real geometry. `measureElement` returns the yoga box
-  // height, which excludes margin, so the turn-summary marginBottom is added
-  // back to match the accumulated-height space the window math reserves.
+  // Measure the groups actually mounted this frame and replace their cached
+  // estimate with Ink's real geometry (persisted via the layout store).
+  // `measureElement` returns the yoga box height (excludes margin), so the
+  // turn-summary marginBottom is added back to match the rows the group
+  // really occupies.
   //
-  // Only entries in the current window are mounted, so only they get corrected;
-  // off-window entries keep their estimate until scrolled into view (then
-  // persisted via the layout store). The effect re-runs on window/width/scroll
-  // changes and bumps `measureTick` ONLY when a height actually changed, so it
-  // converges in one extra frame instead of looping.
+  // Corrections this pass can make — all local, none can move the viewport:
+  // - Anchor normalization: if the anchor group's real height turns out to be
+  //   at most `clip` (its estimate was too big), advance the anchor into the
+  //   following group(s) so the top of the viewport still shows real content.
+  // - Bottom clamp: if measurements shrank the total, keep the viewport full.
+  // - Underfill: if the mounted groups' real heights don't cover the
+  //   viewport, mount more (bounded by MAX_UNDERFILL_BUMPS per position).
+  // - Otherwise, a bare re-render nudge so thumb geometry and future mount
+  //   plans see the corrected heights.
   useLayoutEffect(() => {
     let changed = false;
     for (const group of renderGroups) {
@@ -318,11 +444,83 @@ export const ScrollableHistory = memo(function ScrollableHistory({
         changed = true;
       }
     }
+
+    const geom = geometryRef.current;
+    const cur = effectiveAnchorRef.current;
+
+    if (cur !== null) {
+      // Anchor normalization: keep 0 <= clip < height(anchor group).
+      if (maxTopRow(geom) <= 0) {
+        applyAnchor(null);
+        return;
+      }
+      let { index, clip: nextClip } = cur;
+      let advanced = false;
+      let height = heightCache.getHeight(groupIdsRef.current[index] ?? -1) ?? 1;
+      while (nextClip >= height) {
+        if (index >= geom.groupCount - 1) {
+          applyAnchor(null);
+          return;
+        }
+        nextClip -= height;
+        index += 1;
+        height = heightCache.getHeight(groupIdsRef.current[index] ?? -1) ?? 1;
+        advanced = true;
+      }
+      if (advanced) {
+        applyAnchor({ index, clip: nextClip });
+        return;
+      }
+      // Bottom clamp: measurements may have SHRUNK the total so the anchor now
+      // sits within a viewport of the end (or past it). Re-clamp so the last
+      // rows always fill the viewport instead of leaving a blank bottom.
+      const topRow = heightCache.accumulatedHeight(index) + nextClip;
+      if (topRow > maxTopRow(geom)) {
+        applyAnchor(anchorAtTopRow(geom, topRow));
+        return;
+      }
+      // Underfill: mounted rows below the clip must cover the viewport.
+      const startTop = heightCache.accumulatedHeight(plan.startIdx);
+      const mountedRows = heightCache.accumulatedHeight(plan.endIdx) - startTop;
+      const visibleBudget =
+        mountedRows - cur.clip + (plan.mountTail ? geom.tailRows : 0);
+      if (
+        visibleBudget < geom.viewportRows &&
+        plan.endIdx < geom.groupCount &&
+        mountBump < MAX_UNDERFILL_BUMPS
+      ) {
+        setMountBump((bump) => Math.min(MAX_UNDERFILL_BUMPS, bump + 1));
+        return;
+      }
+    } else {
+      // Pinned underfill: trailing groups + tail must cover the viewport.
+      const mountedRows =
+        heightCache.totalHeight() - heightCache.accumulatedHeight(plan.startIdx);
+      if (
+        mountedRows + geom.tailRows < geom.viewportRows &&
+        plan.startIdx > 0 &&
+        mountBump < MAX_UNDERFILL_BUMPS
+      ) {
+        setMountBump((bump) => Math.min(MAX_UNDERFILL_BUMPS, bump + 1));
+        return;
+      }
+    }
+
     if (changed) setMeasureTick((tick) => tick + 1);
-    // renderGroups is derived from these; listing the drivers avoids re-running
-    // on every unrelated parent render while still covering scroll/resize.
+    // renderGroups/plan are derived from these; listing the drivers avoids
+    // re-running on every unrelated parent render while covering scroll,
+    // resize, content changes, and underfill correction.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheKey, termWidth, effectiveOffset, vp, measureTick, groupIdsKey]);
+  }, [
+    cacheKey,
+    termWidth,
+    vp,
+    groupIdsKey,
+    toolTailHeight,
+    mountBump,
+    effectiveAnchor?.index,
+    effectiveAnchor?.clip,
+  ]);
 
   return (
     <Box flexDirection="row" width={viewportWidth}>
@@ -331,17 +529,17 @@ export const ScrollableHistory = memo(function ScrollableHistory({
         flexGrow={1}
         height={vp}
         overflowY="hidden"
-        justifyContent={effectiveOffset > 0 ? 'flex-start' : 'flex-end'}
+        justifyContent={scrolled ? 'flex-start' : 'flex-end'}
       >
-        <Box flexDirection="column" flexShrink={0}>
-          {/* `spacerAbove` is only the clipped part of the first visible entry;
-              omitted entries are represented by the selected slice itself. */}
-          {win?.windowed && win.spacerAbove > 0 ? (
-            <Box height={win.spacerAbove} flexShrink={0} />
-          ) : null}
-
-          {/* Visible entries, with consecutive same-tool calls compacted under
-              one header inside the already-selected virtual slice. */}
+        <Box
+          flexDirection="column"
+          flexShrink={0}
+          marginTop={scrolled && clip > 0 ? -clip : 0}
+        >
+          {/* Mounted groups, with consecutive same-tool calls compacted under
+              one header. At scrolled positions the first group is the anchor:
+              its clipped rows hide above the viewport via the negative margin.
+              At pinned positions flex-end clips the overfill at the top. */}
           {renderGroups.map((group) => {
             const gid = renderGroupId(group);
             const setNode = (node: DOMElement | null): void => {
@@ -377,13 +575,10 @@ export const ScrollableHistory = memo(function ScrollableHistory({
             );
           })}
 
-          {/* Keep the live tail after the omitted suffix. At scrolled positions
-              this spacer naturally pushes the tail below the clipped viewport. */}
-          {win?.windowed && win.spacerBelow > 0 ? (
-            <Box height={win.spacerBelow} flexShrink={0} />
-          ) : null}
-
-          {toolTail && toolStream ? (
+          {/* The live tool tail is a fixed-height suffix in the same scroll
+              space: mounted whenever the window reaches the newest group, and
+              clipped by the viewport like everything else. */}
+          {plan.mountTail && toolTail && toolStream ? (
             <ToolStreamBox
               name={toolStream.name}
               text={toolTail}
@@ -393,7 +588,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
           ) : null}
         </Box>
       </Box>
-      <Scrollbar rows={vp} offset={effectiveOffset} total={scrollbarTotal} />
+      <Scrollbar rows={vp} offset={offsetFromBottom} total={totalRows} />
     </Box>
   );
 });

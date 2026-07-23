@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunResult } from '../../src/core/agent-types.js';
 import type { Context } from '../../src/core/context.js';
 import {
-  type ConsolidatorSuperMemory,
+  type ConsolidatorSage,
   SessionMemoryConsolidator,
 } from '../../src/storage/memory-consolidator.js';
 import type { MemoryStore } from '../../src/types/memory.js';
@@ -20,31 +20,31 @@ const mkStore = () =>
   };
 
 /**
- * Store mock that also exposes a Super Memory–shaped backend via `getBackend()`.
- * Used to prove the consolidator never routes deletions through the Super
- * Memory deletion API either — not just the legacy `forget()` path.
+ * Store mock that also exposes a SAGE–shaped backend via `getBackend()`.
+ * Used to prove the consolidator never routes deletions through the SAGE
+ * memory deletion API either — not just the legacy `forget()` path.
  */
 const mkStoreWithBackend = () => {
-  const deleteSuperMemory = vi.fn(async () => {});
-  const listSuper = vi.fn(async () => [] as never[]);
+  const deleteSage = vi.fn(async () => {});
+  const listSage = vi.fn(async () => [] as never[]);
   const store = {
     list: vi.fn(async () => [] as never[]),
     remember: vi.fn(async () => {}),
     forget: vi.fn(async () => 1),
-    getBackend: vi.fn(() => ({ deleteSuperMemory, listSuper })),
+    getBackend: vi.fn(() => ({ deleteSage, listSage })),
   };
   return {
     store: store as never as MemoryStore & Record<string, ReturnType<typeof vi.fn>>,
-    deleteSuperMemory,
-    listSuper,
+    deleteSage,
+    listSage,
   };
 };
 
-const mkSuperMemory = () =>
+const mkSage = () =>
   ({
-    rememberSuper: vi.fn(async () => ({})),
-    searchSuper: vi.fn(async () => [] as unknown[]),
-  }) satisfies ConsolidatorSuperMemory;
+    rememberSage: vi.fn(async () => ({})),
+    searchSage: vi.fn(async () => [] as unknown[]),
+  }) satisfies ConsolidatorSage;
 
 const mkProvider = (text: string): Provider =>
   ({
@@ -138,9 +138,9 @@ describe('SessionMemoryConsolidator operations', () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));
   });
 
-  it('uses Super Memory search for dedup context when the legacy store has no list method', async () => {
-    const superMemory = mkSuperMemory();
-    superMemory.searchSuper.mockResolvedValue([
+  it('uses SAGE search for dedup context when the legacy store has no list method', async () => {
+    const Sage = mkSage();
+    Sage.searchSage.mockResolvedValue([
       { text: 'existing super fact', scope: 'project', createdAt: '2026-01-01T00:00:00Z' },
       { text: 'private user preference', scope: 'user', createdAt: '2026-01-02T00:00:00Z' },
     ]);
@@ -148,16 +148,16 @@ describe('SessionMemoryConsolidator operations', () => {
     const provider = mkProvider('{"operations":[{"action":"add","text":"new super fact"}]}');
     const c = new SessionMemoryConsolidator({
       memoryStore: sqliteShapedStore,
-      superMemory,
+      Sage,
       provider,
     });
 
     c.afterRun(ctx(), result());
 
     await vi.waitFor(() => {
-      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+      expect(Sage.rememberSage).toHaveBeenCalledTimes(1);
     });
-    expect(superMemory.searchSuper).toHaveBeenCalledWith('', {
+    expect(Sage.searchSage).toHaveBeenCalledWith('', {
       limit: 15,
       scope: 'project',
       includeStatuses: ['active'],
@@ -168,37 +168,37 @@ describe('SessionMemoryConsolidator operations', () => {
     expect(prompt).not.toContain('private user preference');
   });
 
-  it('filters non-project records returned by Super Memory list', async () => {
-    const superMemory = {
-      rememberSuper: vi.fn(async () => ({})),
-      listSuper: vi.fn(async () => [
+  it('filters non-project records returned by SAGE list', async () => {
+    const Sage = {
+      rememberSage: vi.fn(async () => ({})),
+      listSage: vi.fn(async () => [
         { text: 'project convention', scope: 'project', updatedAt: '2026-01-02T00:00:00Z' },
         { text: 'private user preference', scope: 'user', updatedAt: '2026-01-03T00:00:00Z' },
       ]),
-    } satisfies ConsolidatorSuperMemory;
+    } satisfies ConsolidatorSage;
     const provider = mkProvider('{"operations":[{"action":"add","text":"new super fact"}]}');
     const c = new SessionMemoryConsolidator({
       memoryStore: {} as MemoryStore,
-      superMemory,
+      Sage,
       provider,
     });
 
     c.afterRun(ctx(), result());
 
     await vi.waitFor(() => {
-      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+      expect(Sage.rememberSage).toHaveBeenCalledTimes(1);
     });
-    expect(superMemory.listSuper).toHaveBeenCalledWith(['active']);
+    expect(Sage.listSage).toHaveBeenCalledWith(['active']);
     const complete = provider.complete as ReturnType<typeof vi.fn>;
     const prompt = complete.mock.calls[0]?.[0].system[0].text as string;
     expect(prompt).toContain('project convention');
     expect(prompt).not.toContain('private user preference');
   });
 
-  it('maps legacy kinds and priorities, then continues after a rejected Super Memory write', async () => {
+  it('maps legacy kinds and priorities, then continues after a rejected SAGE write', async () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const superMemory = mkSuperMemory();
-    superMemory.rememberSuper
+    const Sage = mkSage();
+    Sage.rememberSage
       .mockRejectedValueOnce(new Error('rejected item'))
       .mockResolvedValueOnce({});
     const ops = {
@@ -209,23 +209,23 @@ describe('SessionMemoryConsolidator operations', () => {
     };
     const c = new SessionMemoryConsolidator({
       memoryStore: {} as MemoryStore,
-      superMemory,
+      Sage,
       provider: mkProvider(JSON.stringify(ops)),
     });
 
     c.afterRun(ctx(), result());
 
     await vi.waitFor(() => {
-      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(2);
+      expect(Sage.rememberSage).toHaveBeenCalledTimes(2);
     });
-    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(
+    expect(Sage.rememberSage).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         kind: 'file_note',
         importance: 0.95,
       }),
     );
-    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(
+    expect(Sage.rememberSage).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         kind: 'decision',
@@ -237,7 +237,7 @@ describe('SessionMemoryConsolidator operations', () => {
   });
 
   it('continues after a malformed operation and preserves session provenance', async () => {
-    const superMemory = mkSuperMemory();
+    const Sage = mkSage();
     const provider = mkProvider(
       JSON.stringify({
         operations: [null, { action: 'add', text: 'valid session-derived fact' }],
@@ -245,16 +245,16 @@ describe('SessionMemoryConsolidator operations', () => {
     );
     const c = new SessionMemoryConsolidator({
       memoryStore: {} as MemoryStore,
-      superMemory,
+      Sage,
       provider,
     });
 
     c.afterRun(ctx(), result());
 
     await vi.waitFor(() => {
-      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+      expect(Sage.rememberSage).toHaveBeenCalledTimes(1);
     });
-    expect(superMemory.rememberSuper).toHaveBeenCalledWith(
+    expect(Sage.rememberSage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'valid session-derived fact',
         sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
@@ -263,7 +263,7 @@ describe('SessionMemoryConsolidator operations', () => {
   });
 
   it('persists anchored long-lived memory from bounded run evidence before afterRun returns', async () => {
-    const superMemory = mkSuperMemory();
+    const Sage = mkSage();
     const provider = mkProvider(
       JSON.stringify({
         operations: [
@@ -304,13 +304,13 @@ describe('SessionMemoryConsolidator operations', () => {
     } as never as Context;
     const c = new SessionMemoryConsolidator({
       memoryStore: {} as MemoryStore,
-      superMemory,
+      Sage,
       provider,
     });
 
     await c.afterRun(evidenceCtx, result({ iterations: 1 }));
 
-    expect(superMemory.rememberSuper).toHaveBeenCalledWith(
+    expect(Sage.rememberSage).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'symbol_note',
         persistence: 'long_lived',
@@ -349,12 +349,12 @@ describe('SessionMemoryConsolidator operations', () => {
     expect(stderr).not.toHaveBeenCalled();
   });
 
-  it('never routes deletions through the Super Memory backend either (regression: mass deletion)', async () => {
+  it('never routes deletions through the SAGE backend either (regression: mass deletion)', async () => {
     // A future reintroduction of destructive routing could bypass forget()
-    // by calling getBackend().deleteSuperMemory() — this test locks that path
+    // by calling getBackend().deleteSage() — this test locks that path
     // out too, so the add-only contract holds regardless of which deletion
     // surface a regression tries to use.
-    const { store: backendStore, deleteSuperMemory, listSuper } = mkStoreWithBackend();
+    const { store: backendStore, deleteSage, listSage } = mkStoreWithBackend();
     const ops = {
       operations: [
         { action: 'delete', query: 'gone' },
@@ -372,8 +372,8 @@ describe('SessionMemoryConsolidator operations', () => {
         (backendStore as { remember: ReturnType<typeof vi.fn> }).remember,
       ).toHaveBeenCalledTimes(1);
     });
-    expect(deleteSuperMemory).not.toHaveBeenCalled();
-    expect(listSuper).not.toHaveBeenCalled();
+    expect(deleteSage).not.toHaveBeenCalled();
+    expect(listSage).not.toHaveBeenCalled();
     expect((backendStore as { forget: ReturnType<typeof vi.fn> }).forget).not.toHaveBeenCalled();
   });
 
@@ -484,12 +484,12 @@ describe('SessionMemoryConsolidator operations', () => {
   // ── End-to-end add-only contract ─────────────────────────────────────
   // Walks the full consolidator flow as one observable scenario: the LLM
   // emits a mixed batch of add/edit/delete ops, and only adds are applied.
-  // Verifies that NO destructive surface (forget, deleteSuperMemory) is
+  // Verifies that NO destructive surface (forget, deleteSage) is
   // ever touched — regardless of what the LLM returns. This is the
   // consolidator-side mirror of the propose→resolve deletion contract test.
   it('end-to-end: consolidator applies only adds and never touches any deletion surface', async () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const { store: backendStore, deleteSuperMemory, listSuper } = mkStoreWithBackend();
+    const { store: backendStore, deleteSage, listSage } = mkStoreWithBackend();
 
     // The LLM "helpfully" returns a full add/edit/delete batch — including
     // an edit that matches existing memory and a delete targeting real text.
@@ -542,8 +542,8 @@ describe('SessionMemoryConsolidator operations', () => {
 
     // 2. NO deletion surface was ever called — the core invariant
     expect((backendStore as { forget: ReturnType<typeof vi.fn> }).forget).not.toHaveBeenCalled();
-    expect(deleteSuperMemory).not.toHaveBeenCalled();
-    expect(listSuper).not.toHaveBeenCalled();
+    expect(deleteSage).not.toHaveBeenCalled();
+    expect(listSage).not.toHaveBeenCalled();
 
     // 3. The summary log mentions only adds — no edits, no deletions
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));

@@ -20,13 +20,6 @@ const llmProfiles: Record<string, DeclaredLlmProfile> = {
     routing: 'Uses the active session provider and host-owned credentials.',
     fallback: 'Browsing and rendering saved prompts remain deterministic.',
   },
-  'wstack-security': {
-    mode: 'core-orchestrated',
-    summary: 'Full security scans dispatch a specialist subagent for evidence-backed analysis.',
-    routing:
-      'Model routing follows the security/fleet role matrix rather than a plugin-local API key.',
-    fallback: 'Synchronous dependency audit and redaction checks remain available without an LLM.',
-  },
   'wstack-chimera': {
     mode: 'core-orchestrated',
     summary: 'A post-session event asks the host to spawn a dedicated review subagent.',

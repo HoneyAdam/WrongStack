@@ -57,7 +57,7 @@ export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand 
   return {
     name: 'context',
     aliases: ['ctx'],
-    description: 'Open the interactive provider-context and Super Memory monitor.',
+    description: 'Open the interactive provider-context and SAGE monitor.',
     argsHint: '[window|detail|mode|limit|thresholds|cache|repair]',
     category: 'Inspect',
     help:

@@ -55,7 +55,7 @@ plug-lsp/          — LSP bridge + language tooling
 telegram/          — Telegram bridge plugin
 sdd/               — Spec-Driven Development workflows
 security-scanner/  — standalone scanner
-super-memory/      — memory store, graph, retrieval, and hygiene
+sage/      — memory store, graph, retrieval, and hygiene
       ↓
 cli/           — boot assembly, REPL, commands, surface launchers
 tui/           — React/Ink terminal UI
@@ -86,7 +86,7 @@ apps/desktop/   — Electron shell
 | `runtime` | Default host composition and runtime helpers |
 | `sdd` | Spec-Driven Development workflows |
 | `security-scanner` | Standalone scanning package |
-| `super-memory` | Project memory, graph, retrieval, verification, and hygiene |
+| `sage` | Project memory, graph, retrieval, verification, and hygiene |
 | `plugins` | First-party 63-entry plugin catalog |
 | `acp` | ACP server/client integration |
 

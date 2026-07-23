@@ -51,8 +51,8 @@ const MailboxPage = lazy(async () => ({
   default: (await import('@/pages/MailboxPage')).MailboxPage,
 }));
 const MemoryPage = lazy(async () => ({ default: (await import('@/pages/MemoryPage')).MemoryPage }));
-const SuperMemoryPage = lazy(async () => ({
-  default: (await import('@/pages/SuperMemoryPage')).SuperMemoryPage,
+const SagePage = lazy(async () => ({
+  default: (await import('@/pages/SagePage')).SagePage,
 }));
 const DesignStudioPage = lazy(async () => ({
   default: (await import('@/pages/DesignStudioPage')).DesignStudioPage,
@@ -152,7 +152,7 @@ const pages = {
   '/agent-roster': AgentRosterPage,
   '/mailbox': MailboxPage,
   '/memory': MemoryPage,
-  '/super-memory': SuperMemoryPage,
+  '/sage': SagePage,
   '/design-studio': DesignStudioPage,
   '/skills': SkillsPage,
   '/prompts': PromptsPage,

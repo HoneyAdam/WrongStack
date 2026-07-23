@@ -70,14 +70,14 @@ The 350-line threshold is currently advisory. `scripts/check-file-size.mjs` repo
 | File or subsystem | Observed condition | Refactor interpretation |
 |---|---|---|
 | `packages/tui/src/app.tsx` | 7,672 lines, 117 relative imports, 57 effects | Product shell, controller, state bridge, and workflows are one component |
-| `packages/super-memory/src/store.ts` | 3,772 lines | Commands, queries, indexing, migration, injection tracking, and persistence are one store |
+| `packages/sage/src/store.ts` | 3,772 lines | Commands, queries, indexing, migration, injection tracking, and persistence are one store |
 | `packages/webui/src/types.ts` | 3,004 lines | Wire protocol, UI models, and domain types share one authority |
 | `packages/cli/src/cli-main.ts` | 2,643 lines | Bootstrap, lifecycle, dispatch, surfaces, and shutdown remain coupled |
 | `packages/tui/src/app-reducer.ts` | 2,533 lines and hundreds of cases | State domains and view-component models are coupled |
 | `packages/core/src/coordination/director.ts` | 2,362 lines | Assignment, policies, lifecycle, tools, recovery, and budget behavior share one class |
 | `packages/core/src/coordination/director-tools.ts` | 2,013 lines | Tool contracts depend back on Director implementation errors |
 | `packages/core/src/storage/session-store.ts` | 1,856 lines | Persistence facade and session-domain behavior are combined |
-| `packages/cli/src/slash-commands/memory.ts` | 1,798 lines | CLI command owns legacy/super-memory compatibility and domain behavior |
+| `packages/cli/src/slash-commands/memory.ts` | 1,798 lines | CLI command owns legacy/sage compatibility and domain behavior |
 | `packages/cli/src/execution.ts` | 1,793 lines | Execution orchestration remains in host layer |
 
 ## Verified architecture failure modes

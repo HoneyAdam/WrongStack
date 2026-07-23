@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
+import type { SageEntry, SageGraphEdge } from '@/types';
 import { MemoryGraph } from './MemoryGraph';
 import {
   formatAudienceText,
@@ -31,10 +31,10 @@ import {
 } from './shared';
 
 export interface MemoryDetailProps {
-  memory: SuperMemoryEntry;
-  allMemories: SuperMemoryEntry[];
+  memory: SageEntry;
+  allMemories: SageEntry[];
   relatedMemories: Array<{ relation: string; id: string }>;
-  graphEdges: SuperMemoryGraphEdge[];
+  graphEdges: SageGraphEdge[];
   graphLoading: boolean;
   graphError: string | null;
   onClose: () => void;
@@ -154,7 +154,7 @@ export function MemoryDetail({
   );
 }
 
-function MemoryBody({ memory }: { memory: SuperMemoryEntry }) {
+function MemoryBody({ memory }: { memory: SageEntry }) {
   return (
     <div className="relative overflow-hidden border border-border/75 bg-card/55 p-5 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)]">
       <div className="pointer-events-none absolute -right-10 -top-10 size-36 bg-[radial-gradient(circle,hsl(var(--info)/0.13),transparent_68%)]" />
@@ -178,7 +178,7 @@ function MemoryBody({ memory }: { memory: SuperMemoryEntry }) {
   );
 }
 
-function MemoryScoreRow({ memory }: { memory: SuperMemoryEntry }) {
+function MemoryScoreRow({ memory }: { memory: SageEntry }) {
   const scores: Array<[string, number, LucideIcon]> = [
     ['Importance', memory.importance, ShieldCheck],
     ['Confidence', memory.confidence, CircleDot],
@@ -234,7 +234,7 @@ function MemoryTags({ tags, onTagSelect }: { tags: string[]; onTagSelect: (tag: 
   );
 }
 
-function MemoryAnchors({ anchors }: { anchors: SuperMemoryEntry['anchors'] }) {
+function MemoryAnchors({ anchors }: { anchors: SageEntry['anchors'] }) {
   return (
     <section className="border border-border/75 bg-card/40">
       <div className="flex items-center justify-between border-b border-border/65 px-3 py-2.5">
@@ -281,7 +281,7 @@ function MemoryRelationships({
   onOpenMemory,
 }: {
   relatedMemories: Array<{ relation: string; id: string }>;
-  allMemories: SuperMemoryEntry[];
+  allMemories: SageEntry[];
   onOpenMemory: (id: string) => void;
 }) {
   return (
@@ -331,7 +331,7 @@ function MemoryRelationships({
   );
 }
 
-function MemoryMeta({ memory }: { memory: SuperMemoryEntry }) {
+function MemoryMeta({ memory }: { memory: SageEntry }) {
   const rows: Array<[string, string, LucideIcon]> = [
     ['Created', formatDate(memory.createdAt), BookMarked],
     ['Updated', formatDate(memory.updatedAt), RefreshCw],

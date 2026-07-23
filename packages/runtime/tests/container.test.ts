@@ -1,7 +1,7 @@
 import { FallbackProfileManager } from '@wrongstack/core/agent';
 import { Container, TOKENS } from '@wrongstack/core/kernel';
 import { DefaultConfigStore } from '@wrongstack/core/storage';
-import { SqliteMemoryPort } from '@wrongstack/super-memory';
+import { SqliteMemoryPort } from '@wrongstack/sage';
 import { describe, expect, it } from 'vitest';
 import { createDefaultContainer } from '../src/container.js';
 
@@ -124,7 +124,7 @@ describe('createDefaultContainer', () => {
     expect(c.has(TOKENS.Compactor)).toBe(true);
   });
 
-  it('defaults Super Memory storage to SQLite when the engine is omitted', () => {
+  it('defaults SAGE storage to SQLite when the engine is omitted', () => {
     const c = createDefaultContainer({
       config: mockConfig,
       wpaths: mockWpaths,
@@ -139,7 +139,7 @@ describe('createDefaultContainer', () => {
     const c = createDefaultContainer({
       config: {
         ...mockConfig,
-        superMemory: { storage: { engine: 'jsonl' } },
+        Sage: { storage: { engine: 'jsonl' } },
       },
       wpaths: mockWpaths,
       logger: mockLogger,

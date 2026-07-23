@@ -297,11 +297,6 @@ export const ALLOWED_ACTION_TYPES = defineActionTypes([
   'rewindOverlayClose',
   'rewindOverlayMove',
   'rewindOverlayOpen',
-  'scrollBy',
-  'scrollPage',
-  'scrollTo',
-  'scrollToBottom',
-  'scrollToTop',
   'sddBoardSnapshot',
   'sddBoardFocusNext',
   'sddBoardFocusPrev',
@@ -316,8 +311,8 @@ export const ALLOWED_ACTION_TYPES = defineActionTypes([
   'sessionsPanelSet',
   'setBuffer',
   'setFleetChat',
+  'setHistoryScrolled',
   'setInputHistory',
-  'setMeasuredLines',
   'setViewportRows',
   'settingsClose',
   'settingsFieldMove',
@@ -869,26 +864,12 @@ export function validateAction(action: {
     }
 
     // ── Scroll ──────────────────────────────────────────────────────
-    case 'scrollBy': {
-      const delta = Number(action.delta);
-      if (!Number.isInteger(delta)) {
-        return { valid: false, error: `scrollBy.delta: ${action.delta} is not an integer.` };
-      }
-      return { valid: true, value: payload };
-    }
-
-    case 'scrollPage': {
-      const dir = String(action.dir ?? '');
-      if (!ALLOWED_SCROLL_DIRS.has(dir)) {
-        return { valid: false, error: `scrollPage.dir: "${dir}" not on allow-list (up|down).` };
-      }
-      return { valid: true, value: payload };
-    }
-
-    case 'setMeasuredLines': {
-      const lines = Number(action.totalLines);
-      if (!Number.isInteger(lines) || lines < 0) {
-        return { valid: false, error: `setMeasuredLines.totalLines: ${action.totalLines} is not a non-negative integer.` };
+    case 'setHistoryScrolled': {
+      if (typeof action.scrolled !== 'boolean') {
+        return {
+          valid: false,
+          error: `setHistoryScrolled.scrolled: ${action.scrolled} is not a boolean.`,
+        };
       }
       return { valid: true, value: payload };
     }
@@ -1474,8 +1455,6 @@ export function validateAction(action: {
     case 'sddBoardFocusNext':
     case 'sddBoardFocusPrev':
     case 'compactHistory':
-    case 'scrollToBottom':
-    case 'scrollToTop':
     case 'pickerOpen':
     case 'pickerClose':
     case 'slashPickerOpen':

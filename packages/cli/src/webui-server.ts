@@ -258,7 +258,7 @@ export interface CliWebUIOptions {
    * the session that is now actually being written.
    */
   onSessionSwapped?: ((newSessionId: string) => void) | undefined;
-  /** Memory store — enables the Memory panel + chat `/memory` (memory.list) and the structured memory.super.* operations. */
+  /** Memory store — enables the Memory panel + chat `/memory` (memory.list) and the structured memory.sage.* operations. */
   memoryStore?: MemoryPort | undefined;
   /** Skill loader — enables the SkillsPanel (skills.list). */
   skillLoader?: SkillLoader | undefined;

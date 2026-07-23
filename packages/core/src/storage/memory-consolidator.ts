@@ -13,13 +13,13 @@ import {
 // ── Types ───────────────────────────────────────────────────────────────
 
 /**
- * Minimal interface for writing to Super Memory without importing
- * @wrongstack/super-memory (core cannot depend on super-memory).
+ * Minimal interface for writing to SAGE without importing
+ * @wrongstack/sage (core cannot depend on sage).
  * Tools like the consolidator use this to route adds through
- * rememberSuper rather than the legacy MemoryStore.remember(),
- * making them visible to searchSuper/turn-middleware.
+ * rememberSage rather than the legacy MemoryStore.remember(),
+ * making them visible to searchSage/turn-middleware.
  */
-type ConsolidatorSuperMemoryKind =
+type ConsolidatorSageKind =
   | 'fact'
   | 'decision'
   | 'convention'
@@ -39,18 +39,18 @@ interface ConsolidatorMemoryAnchor {
   command?: string | undefined;
 }
 
-interface ConsolidatorSuperMemoryRecord {
+interface ConsolidatorSageRecord {
   text: string;
   scope?: string | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }
 
-export interface ConsolidatorSuperMemory {
-  rememberSuper(input: {
+export interface ConsolidatorSage {
+  rememberSage(input: {
     text: string;
     scope?: string | undefined;
-    kind?: ConsolidatorSuperMemoryKind | undefined;
+    kind?: ConsolidatorSageKind | undefined;
     tags?: string[] | undefined;
     priority?: string | undefined;
     importance?: number | undefined;
@@ -59,14 +59,14 @@ export interface ConsolidatorSuperMemory {
     anchors?: ConsolidatorMemoryAnchor[] | undefined;
     sources?: Array<{ type: string; sessionId?: string | undefined }> | undefined;
   }): Promise<unknown>;
-  listSuper?(statuses?: Array<'active'>): Promise<unknown[]>;
-  searchSuper?(
+  listSage?(statuses?: Array<'active'>): Promise<unknown[]>;
+  searchSage?(
     query: string,
     opts?: { limit?: number; scope?: 'project'; includeStatuses?: Array<'active'> },
   ): Promise<unknown[]>;
 }
 
-function isSuperMemoryRecord(value: unknown): value is ConsolidatorSuperMemoryRecord {
+function isSageRecord(value: unknown): value is ConsolidatorSageRecord {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -76,7 +76,7 @@ function isSuperMemoryRecord(value: unknown): value is ConsolidatorSuperMemoryRe
 
 function toPromptEntries(records: unknown[], limit: number): MemoryEntry[] {
   return records
-    .filter(isSuperMemoryRecord)
+    .filter(isSageRecord)
     .filter((record) => record.scope === 'project')
     .slice(0, limit)
     .map((record) => ({
@@ -86,7 +86,7 @@ function toPromptEntries(records: unknown[], limit: number): MemoryEntry[] {
     }));
 }
 
-function toSuperMemoryKind(type: string | undefined): ConsolidatorSuperMemoryKind {
+function toSageKind(type: string | undefined): ConsolidatorSageKind {
   switch (type) {
     case 'decision':
     case 'convention':
@@ -153,13 +153,13 @@ interface ConsolidationResponse {
 export interface MemoryConsolidatorOptions {
   memoryStore: MemoryStore;
   /**
-   * Optional Super Memory writer. When provided, the consolidator routes
-   * adds through `rememberSuper()` and reads existing entries for dedup
-   * context via `searchSuper()` instead of the legacy `MemoryStore`.
+   * Optional SAGE writer. When provided, the consolidator routes
+   * adds through `rememberSage()` and reads existing entries for dedup
+   * context via `searchSage()` instead of the legacy `MemoryStore`.
    * This makes consolidator-sourced memories visible to the turn-middleware
-   * (searchSuper, retrieveForPath) which only queries Super Memory.
+   * (searchSage, retrieveForPath) which only queries SAGE.
    */
-  superMemory?: ConsolidatorSuperMemory | undefined;
+  Sage?: ConsolidatorSage | undefined;
   /**
    * Provider used for the consolidation LLM call. Uses the session's
    * provider by default.
@@ -308,7 +308,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
   owner = 'core';
 
   private readonly memoryStore: MemoryStore;
-  private readonly superMemory?: ConsolidatorSuperMemory | undefined;
+  private readonly Sage?: ConsolidatorSage | undefined;
   private readonly provider?: Provider | undefined;
   private readonly model?: string | undefined;
   private readonly minIterations: number;
@@ -317,7 +317,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
 
   constructor(opts: MemoryConsolidatorOptions) {
     this.memoryStore = opts.memoryStore;
-    this.superMemory = opts.superMemory;
+    this.Sage = opts.Sage;
     this.provider = opts.provider;
     this.model = opts.model;
     // Every meaningful run is eligible. The LLM still returns an empty
@@ -348,13 +348,13 @@ export class SessionMemoryConsolidator implements AgentExtension {
     // supposedly durable memory depend on teardown timing.
     try {
       // Load existing memory through the same backend contract used for writes.
-      // SQLite-shaped Super Memory stores intentionally do not implement the
+      // SQLite-shaped SAGE stores intentionally do not implement the
       // legacy MemoryStore.list() interface.
       let existingEntries: MemoryEntry[];
-      if (this.superMemory) {
-        const records = this.superMemory.listSuper
-          ? await this.superMemory.listSuper(['active'])
-          : ((await this.superMemory.searchSuper?.('', {
+      if (this.Sage) {
+        const records = this.Sage.listSage
+          ? await this.Sage.listSage(['active'])
+          : ((await this.Sage.searchSage?.('', {
               limit: this.maxExistingEntries,
               scope: 'project',
               includeStatuses: ['active'],
@@ -414,13 +414,13 @@ export class SessionMemoryConsolidator implements AgentExtension {
           if (typeof op.text !== 'string' || !op.text.trim()) continue;
           const memoryText = op.text.trim();
 
-          if (this.superMemory) {
-            // Translate the legacy prompt enum before crossing the Super
-            // Memory boundary; reference is represented as file_note there.
-            await this.superMemory.rememberSuper({
+          if (this.Sage) {
+            // Translate the legacy prompt enum before crossing the SAGE
+            // memory boundary; reference is represented as file_note there.
+            await this.Sage.rememberSage({
               text: memoryText,
               scope: 'project',
-              kind: toSuperMemoryKind(op.type),
+              kind: toSageKind(op.type),
               tags: op.tags,
               importance: importanceFromPriority(op.priority),
               confidence: normalizeConfidence(op.confidence),

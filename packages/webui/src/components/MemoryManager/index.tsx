@@ -25,10 +25,10 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useUIStore } from '@/stores';
 import type {
-  SuperMemoryEntry,
-  SuperMemoryGraphEdge,
-  SuperMemoryStats,
-  SuperMemoryStatus,
+  SageEntry,
+  SageGraphEdge,
+  SageStats,
+  SageStatus,
 } from '@/types';
 import { MemoryDetail } from './MemoryDetail';
 import { MemoryDrawer } from './MemoryDrawer';
@@ -49,28 +49,28 @@ import {
 export function MemoryManager() {
   const {
     client,
-    listSuperMemoriesPage,
-    rememberSuperMemory,
-    updateSuperMemory,
-    deleteSuperMemory,
-    getSuperMemoryGraph,
-    recoverSuperMemory,
+    listSageMemoriesPage,
+    rememberSage,
+    updateSage,
+    deleteSage,
+    getSageGraph,
+    recoverSage,
     resolveMemoryCandidate,
   } = useWebSocket();
   const wsConnected = useConfigStore((state) => state.wsConnected);
   const setCurrentView = useUIStore((state) => state.setCurrentView);
   const memoryListRef = useScrollPosition<HTMLDivElement>('memory');
 
-  const [memories, setMemories] = useState<SuperMemoryEntry[]>([]);
-  const [stats, setStats] = useState<SuperMemoryStats | null>(null);
+  const [memories, setMemories] = useState<SageEntry[]>([]);
+  const [stats, setStats] = useState<SageStats | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [graphEdges, setGraphEdges] = useState<SuperMemoryGraphEdge[]>([]);
-  const [graphMemories, setGraphMemories] = useState<SuperMemoryEntry[]>([]);
+  const [graphEdges, setGraphEdges] = useState<SageGraphEdge[]>([]);
+  const [graphMemories, setGraphMemories] = useState<SageEntry[]>([]);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -80,7 +80,7 @@ export function MemoryManager() {
   const [busyAction, setBusyAction] = useState<'create' | 'update' | 'delete' | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | SuperMemoryStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | SageStatus>('all');
   const [kindFilter, setKindFilter] = useState('all');
   const [audienceOnly, setAudienceOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -149,7 +149,7 @@ export function MemoryManager() {
         if (listCleanupRef.current === cleanup) listCleanupRef.current = null;
       };
 
-      off = client.on('memory.super.listPage', (message) => {
+      off = client.on('memory.sage.listPage', (message) => {
         if (generation !== listGenerationRef.current || !mountedRef.current) {
           cleanup();
           return;
@@ -201,7 +201,7 @@ export function MemoryManager() {
       }, 20_000);
 
       listCleanupRef.current = cleanup;
-      listSuperMemoriesPage(
+      listSageMemoriesPage(
         {
           limit: PAGE_SIZE,
           ...(showDeleted ? { statuses: ['deleted'] } : {}),
@@ -210,7 +210,7 @@ export function MemoryManager() {
         { echoToChat: false },
       );
     },
-    [client, listSuperMemoriesPage, showDeleted],
+    [client, listSageMemoriesPage, showDeleted],
   );
 
   const loadMemories = useCallback(() => {
@@ -247,7 +247,7 @@ export function MemoryManager() {
     const query = selectedId;
     setGraphLoading(true);
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    const off = client.on('memory.super.graph', (message) => {
+    const off = client.on('memory.sage.graph', (message) => {
       if (message.payload.query !== query) return;
       if (timeout !== null) clearTimeout(timeout);
       setGraphEdges(message.payload.edges ?? []);
@@ -259,12 +259,12 @@ export function MemoryManager() {
       setGraphError('Relationship graph did not respond in time.');
       setGraphLoading(false);
     }, 15_000);
-    getSuperMemoryGraph(query, { maxDepth: 1, limit: 120 }, { echoToChat: false });
+    getSageGraph(query, { maxDepth: 1, limit: 120 }, { echoToChat: false });
     return () => {
       if (timeout !== null) clearTimeout(timeout);
       off();
     };
-  }, [client, getSuperMemoryGraph, selectedId]);
+  }, [client, getSageGraph, selectedId]);
 
   const wasConnectedRef = useRef(wsConnected);
   useEffect(() => {
@@ -324,7 +324,7 @@ export function MemoryManager() {
 
   const runMutation = useCallback(
     (
-      type: 'memory.super.remember' | 'memory.super.update',
+      type: 'memory.sage.remember' | 'memory.sage.update',
       send: () => void,
       action: 'create' | 'update',
     ) => {
@@ -350,7 +350,7 @@ export function MemoryManager() {
       };
 
       const onResponse = (message: {
-        payload: { memory?: SuperMemoryEntry | undefined; error?: string | undefined };
+        payload: { memory?: SageEntry | undefined; error?: string | undefined };
       }) => {
         if (generation !== mutationGenerationRef.current || !mountedRef.current) {
           cleanup();
@@ -374,10 +374,10 @@ export function MemoryManager() {
         loadMemories();
       };
 
-      if (type === 'memory.super.remember') {
-        off = client.on('memory.super.remember', onResponse);
+      if (type === 'memory.sage.remember') {
+        off = client.on('memory.sage.remember', onResponse);
       } else {
-        off = client.on('memory.super.update', onResponse);
+        off = client.on('memory.sage.update', onResponse);
       }
       timeout = setTimeout(() => {
         if (generation !== mutationGenerationRef.current || !mountedRef.current) return;
@@ -395,9 +395,9 @@ export function MemoryManager() {
 
   const submitCreate = useCallback(() => {
     runMutation(
-      'memory.super.remember',
+      'memory.sage.remember',
       () =>
-        rememberSuperMemory(
+        rememberSage(
           {
             text: draft.text.trim(),
             kind: draft.kind,
@@ -425,14 +425,14 @@ export function MemoryManager() {
         ),
       'create',
     );
-  }, [draft, rememberSuperMemory, runMutation]);
+  }, [draft, rememberSage, runMutation]);
 
   const submitUpdate = useCallback(() => {
     if (!selectedMemory) return;
     runMutation(
-      'memory.super.update',
+      'memory.sage.update',
       () =>
-        updateSuperMemory(
+        updateSage(
           selectedMemory.id,
           {
             text: draft.text.trim(),
@@ -461,7 +461,7 @@ export function MemoryManager() {
         ),
       'update',
     );
-  }, [draft, runMutation, selectedMemory, updateSuperMemory]);
+  }, [draft, runMutation, selectedMemory, updateSage]);
 
   const confirmDelete = useCallback(() => {
     if (!deletingId) return;
@@ -481,7 +481,7 @@ export function MemoryManager() {
       if (mutationCleanupRef.current === cleanup) mutationCleanupRef.current = null;
     };
 
-    off = client.on('memory.super.delete', (message) => {
+    off = client.on('memory.sage.delete', (message) => {
       if (generation !== mutationGenerationRef.current || !mountedRef.current) {
         cleanup();
         return;
@@ -505,8 +505,8 @@ export function MemoryManager() {
       setMutationError('Delete timed out. The memory may still exist; refresh to confirm.');
     }, 20_000);
     mutationCleanupRef.current = cleanup;
-    deleteSuperMemory(deletingId, 'Deleted from the WebUI Memory Manager.');
-  }, [client, deleteSuperMemory, deletingId, loadMemories]);
+    deleteSage(deletingId, 'Deleted from the WebUI Memory Manager.');
+  }, [client, deleteSage, deletingId, loadMemories]);
 
   const filteredMemories = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -598,7 +598,7 @@ export function MemoryManager() {
           </div>
         </div>
         <span className="sr-only" role="status">
-          Loading Super Memory content
+          Loading SAGE content
         </span>
       </div>
     );
@@ -645,7 +645,7 @@ export function MemoryManager() {
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-bold sm:text-lg">Super Memory</h1>
+              <h1 className="text-base font-bold sm:text-lg">SAGE</h1>
               <span className="border border-success/35 bg-success/10 px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-success">
                 project knowledge
               </span>
@@ -976,7 +976,7 @@ export function MemoryManager() {
                 onMarkPermanent={async (memoryId) => {
                   setBusyAction('update');
                   try {
-                    await updateSuperMemory(memoryId, { persistence: 'permanent' });
+                    await updateSage(memoryId, { persistence: 'permanent' });
                     setNotice(`Memory ${memoryId.slice(0, 12)}… promoted to permanent.`);
                     await loadMemories();
                   } catch (err) {
@@ -987,9 +987,9 @@ export function MemoryManager() {
                 }}
                 onRecover={async (memoryId) => {
                   // PR #1: restore `deleted` memory to active status. The
-                  // server replies with `memory.super.recover` carrying the
+                  // server replies with `memory.sage.recover` carrying the
                   // restored entry (or `noop: true` if it was already active).
-                  recoverSuperMemory({ id: memoryId, reason: 'recovered via file drawer' });
+                  recoverSage({ id: memoryId, reason: 'recovered via file drawer' });
                   setNotice(`Recovered ${memoryId.slice(0, 12)}…`);
                   setTimeout(() => {
                     void loadMemories();
@@ -1034,7 +1034,7 @@ export function MemoryManager() {
             </span>
             <DialogTitle>Delete this memory?</DialogTitle>
             <DialogDescription className="leading-6">
-              Super Memory will mark the record deleted, remove graph edges, and clean references
+              SAGE will mark the record deleted, remove graph edges, and clean references
               from related memories. The record remains in the audit trail but cannot be restored
               from this page.
             </DialogDescription>

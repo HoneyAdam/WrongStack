@@ -67,7 +67,7 @@ export const siteRoutes = [
   '/troubleshooting',
   '/brand',
   '/created-by',
-  '/super-memory',
+  '/sage',
   '/design-studio',
   '/skills',
   '/prompts',
@@ -367,8 +367,8 @@ export const moreNav = [
     group: 'operate',
   },
   {
-    href: '/super-memory',
-    label: 'Super Memory',
+    href: '/sage',
+    label: 'SAGE',
     description: 'Structured knowledge, scoring and graph',
     icon: Database,
     group: 'operate',
@@ -486,7 +486,7 @@ export const featureStories: Feature[] = [
     eyebrow: 'Continuity',
     title: 'Sessions and memory survive the chat window',
     summary:
-      'Append-only session logs preserve reconstructable history while Super Memory stores verified project facts, anchors and relationships across sessions.',
+      'Append-only session logs preserve reconstructable history while SAGE stores verified project facts, anchors and relationships across sessions.',
     details: [
       'Crash recovery and date-sharded session storage',
       'Project, user and session memory scopes',
@@ -651,7 +651,7 @@ export const featureStories: Feature[] = [
     eyebrow: 'Durable state',
     title: 'Sessions, checkpoints and memory each preserve the right thing',
     summary:
-      'Append-only session history, reversible checkpoints, replay tools, project registration and Super Memory keep durable state explicit and recoverable.',
+      'Append-only session history, reversible checkpoints, replay tools, project registration and SAGE keep durable state explicit and recoverable.',
     details: [
       'Date-sharded reconstructable session logs',
       'Crash recovery through in-flight markers',
@@ -770,7 +770,7 @@ export const capabilityIndex = [
   ],
   [
     'Persistence',
-    'Sessions, checkpoints, replay, rewind, Super Memory, project registry',
+    'Sessions, checkpoints, replay, rewind, SAGE, project registry',
     'persistence',
   ],
   ['Extensibility', 'MCP, skills, plugins, hooks, prompts and provider adapters', 'extensibility'],
@@ -1135,7 +1135,7 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
   '/memory': {
     title: 'Memory & sessions — WrongStack',
     description:
-      'Learn how session logs, Super Memory, checkpoints, compaction, replay and recovery preserve continuity.',
+      'Learn how session logs, SAGE, checkpoints, compaction, replay and recovery preserve continuity.',
   },
   '/providers': {
     title: 'Providers & model routing — WrongStack',
@@ -1176,8 +1176,8 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     description:
       'Meet WrongStack creator Ersin KOÇ and explore AGEZT, OwnPilot and the wider open-source project workshop.',
   },
-  '/super-memory': {
-    title: 'Super Memory — WrongStack',
+  '/sage': {
+    title: 'SAGE — WrongStack',
     description:
       'Persistent, structured knowledge that the agent remembers across sessions. Scopes, types, relevance scoring, graph edges, and auto-injection.',
   },
@@ -1698,7 +1698,7 @@ export const architectureLayers = [
   },
   {
     label: 'Capabilities',
-    packages: ['providers', 'tools', 'mcp', 'plug-lsp', 'acp', 'kanban', 'sdd', 'super-memory'],
+    packages: ['providers', 'tools', 'mcp', 'plug-lsp', 'acp', 'kanban', 'sdd', 'sage'],
     description: 'Contracts and implementations used by every surface.',
     tone: 'blue',
   },

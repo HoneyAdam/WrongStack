@@ -43,7 +43,7 @@ export function SyncPage() {
             { icon: Layers3, label: 'Settings', path: 'settings/', body: 'Provider configs, model routing, tool permissions, context policy, and all user preferences.' },
             { icon: Tag, label: 'Skills', path: 'skills/', body: 'Installed skill packages with their trigger words, capability declarations, and instruction bodies.' },
             { icon: GitBranch, label: 'Prompts', path: 'prompts/', body: 'User-layer prompt templates with variables, favorites, and metadata. Bundled prompts stay immutable.' },
-            { icon: HardDrive, label: 'Memory', path: 'memory.md', body: 'Super Memory entries — facts, conventions, decisions, and anti-patterns the agent has learned.' },
+            { icon: HardDrive, label: 'Memory', path: 'memory.md', body: 'SAGE entries — facts, conventions, decisions, and anti-patterns the agent has learned.' },
             { icon: History, label: 'History', path: 'sessions/', body: 'Session logs with timestamps, tool calls, and results. Audit trail that follows you across machines.' },
           ].map(({ icon: Icon, label, path, body }) => (
             <article key={label} className="bg-card p-6">

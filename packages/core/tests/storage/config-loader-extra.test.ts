@@ -418,11 +418,11 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
     warn.mockRestore();
   });
 
-  it('strips the Super Memory storage destination but keeps benign injection and hygiene knobs', () => {
+  it('strips the SAGE storage destination but keeps benign injection and hygiene knobs', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const out = stripUnsafeInProjectFields(
       {
-        superMemory: {
+        Sage: {
           storage: { projectLocal: true, directory: 'C:/Users/victim/.ssh' },
           inject: { maxHintsPerTool: 2 },
           hygiene: { retentionDays: 14 },
@@ -432,17 +432,17 @@ describe('DefaultConfigLoader in-project config hardening (WS-06)', () => {
       warn,
     );
     const memory = (out as {
-      superMemory?: {
+      Sage?: {
         storage?: { projectLocal?: boolean; directory?: string };
         inject?: { maxHintsPerTool?: number };
         hygiene?: { retentionDays?: number };
       };
-    }).superMemory;
+    }).Sage;
     expect(memory?.storage?.directory).toBeUndefined();
     expect(memory?.storage?.projectLocal).toBe(true);
     expect(memory?.inject?.maxHintsPerTool).toBe(2);
     expect(memory?.hygiene?.retentionDays).toBe(14);
-    expect(warn.mock.calls.map((call) => String(call[0])).join('\n')).toContain('superMemory.storage.directory');
+    expect(warn.mock.calls.map((call) => String(call[0])).join('\n')).toContain('Sage.storage.directory');
     warn.mockRestore();
   });
 

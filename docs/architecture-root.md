@@ -63,7 +63,7 @@ packages/
   runtime/          Default host composition and runtime helpers.
   sdd/              Spec-Driven Development workflows.
   security-scanner/ Standalone security scanning surface.
-  super-memory/     Project memory, graph, retrieval, and hygiene.
+  sage/     Project memory, graph, retrieval, and hygiene.
   acp/              ACP server/client integration.
   plug-lsp/         LSP bridge and language tooling.
   plugins/          63-entry first-party plugin catalog.
@@ -113,7 +113,7 @@ The workspace currently contains these package-level responsibilities. File coun
 | `@wrongstack/webui-hq` | HQ Command Center dashboard: cross-machine session aggregation, fleet views, cost trends. |
 | `@wrongstack/sdd` | Spec-Driven Development stores and workflow helpers. |
 | `@wrongstack/security-scanner` | Standalone security scanner package. |
-| `@wrongstack/super-memory` | Project memory store, graph, retrieval, verification, and hygiene. |
+| `@wrongstack/sage` | Project memory store, graph, retrieval, verification, and hygiene. |
 
 ## Dependency Topology
 

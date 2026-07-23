@@ -1073,7 +1073,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       } as never as WSServerMessage);
     }),
 
-    // ── Super Memory events — retrieval, verification and hygiene observability ──
+    // ── SAGE events — retrieval, verification and hygiene observability ──
     events.onPattern('memory.*', (eventName, payload) => {
       broadcast(clients, {
         type: 'memory.event',

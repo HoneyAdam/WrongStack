@@ -56,12 +56,12 @@ const CHAT_ECHO_RESPONSE_BY_REQUEST: Partial<
   'context.debug': 'context.debug',
   'diag.get': 'diag.get',
   'memory.list': 'memory.list',
-  'memory.super.get': 'memory.super.get',
-  'memory.super.graph': 'memory.super.graph',
-  'memory.super.list': 'memory.super.list',
-  'memory.super.listPage': 'memory.super.listPage',
-  'memory.super.remember': 'memory.super.remember',
-  'memory.super.update': 'memory.super.update',
+  'memory.sage.get': 'memory.sage.get',
+  'memory.sage.graph': 'memory.sage.graph',
+  'memory.sage.list': 'memory.sage.list',
+  'memory.sage.listPage': 'memory.sage.listPage',
+  'memory.sage.remember': 'memory.sage.remember',
+  'memory.sage.update': 'memory.sage.update',
   'skills.list': 'skills.list',
   'stats.get': 'stats.get',
   'tools.list': 'tools.list',
@@ -831,10 +831,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.list' }, options);
   }
 
-  // ---- SuperMemory commands ----
+  // ---- Sage commands ----
 
-  listSuperMemories(options?: WSSendOptions) {
-    this.send({ type: 'memory.super.list' }, options);
+  listSageMemories(options?: WSSendOptions) {
+    this.send({ type: 'memory.sage.list' }, options);
   }
 
   /**
@@ -842,7 +842,7 @@ export class WrongStackWebSocketClient {
    * except `deleted`. Pass `{ statuses: ['deleted'] }` for the "Deleted" tab and
    * `cursor` (from the previous page's `nextCursor`) to load the next page.
    */
-  listSuperMemoriesPage(
+  listSageMemoriesPage(
     params?: {
       statuses?: string[];
       kind?: string;
@@ -852,45 +852,45 @@ export class WrongStackWebSocketClient {
     },
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.listPage', payload: { ...params } }, options);
+    this.send({ type: 'memory.sage.listPage', payload: { ...params } }, options);
   }
 
-  getSuperMemory(id: string, options?: WSSendOptions) {
-    this.send({ type: 'memory.super.get', payload: { id } }, options);
+  getSage(id: string, options?: WSSendOptions) {
+    this.send({ type: 'memory.sage.get', payload: { id } }, options);
   }
 
-  getSuperMemoryGraph(
+  getSageGraph(
     query: string,
     params?: { maxDepth?: number; limit?: number },
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.graph', payload: { query, ...params } }, options);
+    this.send({ type: 'memory.sage.graph', payload: { query, ...params } }, options);
   }
 
-  updateSuperMemory(id: string, patch: Record<string, unknown>, options?: WSSendOptions) {
-    this.send({ type: 'memory.super.update', payload: { id, ...patch } }, options);
+  updateSage(id: string, patch: Record<string, unknown>, options?: WSSendOptions) {
+    this.send({ type: 'memory.sage.update', payload: { id, ...patch } }, options);
   }
 
   /**
-   * Delete a Super Memory record.
+   * Delete a SAGE record.
    * @param reason - Optional human-readable reason. Uses `!== undefined` (not
    *   truthy) so an empty string `''` is intentionally included — the caller
    *   may want to record an explicit blank reason rather than omitting the
-   *   field. This is consistent with the `updateSuperMemory` style which
+   *   field. This is consistent with the `updateSage` style which
    *   spreads the entire `patch` unconditionally.
    */
-  deleteSuperMemory(id: string, reason?: string) {
+  deleteSage(id: string, reason?: string) {
     this.send({
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: { id, ...(reason !== undefined ? { reason } : {}) },
     });
   }
 
-  rememberSuperMemory(
-    opts: Extract<WSClientMessage, { type: 'memory.super.remember' }>['payload'],
+  rememberSage(
+    opts: Extract<WSClientMessage, { type: 'memory.sage.remember' }>['payload'],
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.remember', payload: opts }, options);
+    this.send({ type: 'memory.sage.remember', payload: opts }, options);
   }
 
   /**
@@ -899,22 +899,22 @@ export class WrongStackWebSocketClient {
    * / lineEnd are provided. Read-only — opens a file without mutating store.
    */
   findMemoriesForFile(
-    opts: Extract<WSClientMessage, { type: 'memory.super.forFile' }>['payload'],
+    opts: Extract<WSClientMessage, { type: 'memory.sage.forFile' }>['payload'],
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.forFile', payload: opts }, options);
+    this.send({ type: 'memory.sage.forFile', payload: opts }, options);
   }
 
   /**
-   * Restore a `deleted` Super Memory entry to active status (PR #1). The
-   * server replies with `memory.super.recover` carrying the restored memory
+   * Restore a `deleted` SAGE entry to active status (PR #1). The
+   * server replies with `memory.sage.recover` carrying the restored memory
    * (or `noop: true` when the id was already active/superseded).
    */
-  recoverSuperMemory(
-    opts: Extract<WSClientMessage, { type: 'memory.super.recover' }>['payload'],
+  recoverSage(
+    opts: Extract<WSClientMessage, { type: 'memory.sage.recover' }>['payload'],
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.recover', payload: opts }, options);
+    this.send({ type: 'memory.sage.recover', payload: opts }, options);
   }
 
   /**
@@ -923,10 +923,10 @@ export class WrongStackWebSocketClient {
    * mark candidate rejected). Optional `reason` is recorded in audit.
    */
   resolveMemoryCandidate(
-    opts: Extract<WSClientMessage, { type: 'memory.super.candidateResolve' }>['payload'],
+    opts: Extract<WSClientMessage, { type: 'memory.sage.candidateResolve' }>['payload'],
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.candidateResolve', payload: opts }, options);
+    this.send({ type: 'memory.sage.candidateResolve', payload: opts }, options);
   }
 
   /**
@@ -935,10 +935,10 @@ export class WrongStackWebSocketClient {
    * is false (dry-run); pass `apply: true` to actually write.
    */
   backfillRecoverable(
-    opts: Extract<WSClientMessage, { type: 'memory.super.backfillRecoverable' }>['payload'],
+    opts: Extract<WSClientMessage, { type: 'memory.sage.backfillRecoverable' }>['payload'],
     options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.backfillRecoverable', payload: opts }, options);
+    this.send({ type: 'memory.sage.backfillRecoverable', payload: opts }, options);
   }
 
   // ── MCP server management ─────────────────────────────────────────────────────

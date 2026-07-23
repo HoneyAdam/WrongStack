@@ -21,7 +21,7 @@ Kod tabanı üretim güvenliği açısından sağlam. 12/12 paket typecheck temi
 | `cli` | ✅ 0 hata | `tools` | ✅ 0 hata |
 | `webui-server` | ✅ 0 hata | `runtime` | ✅ 0 hata |
 | `mcp` | ✅ 0 hata | `kanban` | ✅ 0 hata |
-| `super-memory` | ✅ 0 hata | `plugins` | ✅ 0 hata |
+| `sage` | ✅ 0 hata | `plugins` | ✅ 0 hata |
 | `tui` | ✅ 0 hata | `webui` | ✅ 0 hata |
 | `acp` | ✅ 0 hata | | |
 

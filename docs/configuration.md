@@ -1345,9 +1345,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## Super Memory storage
+## SAGE memory storage
 
-Super Memory stores project-scoped knowledge (facts, decisions, conventions, preferences) in `.wrongstack/memories/` using SQLite.
+SAGE memory stores project-scoped knowledge (facts, decisions, conventions, preferences) in `.wrongstack/memories/` using SQLite.
 
 Indexed database (`memories.db`) using Node's built-in `node:sqlite`, with WAL mode for multi-process concurrency and FTS5 for full-text search.
 
@@ -1358,20 +1358,20 @@ SQLite is the only runtime backend and needs no engine configuration. On first o
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `superMemory.storage.directory` | `string` | `.wrongstack/memories` | Project-relative directory for memory files. |
-| `superMemory.storage.projectLocal` | `boolean` | `true` | Store memory inside the project (gitignored). |
+| `Sage.storage.directory` | `string` | `.wrongstack/memories` | Project-relative directory for memory files. |
+| `Sage.storage.projectLocal` | `boolean` | `true` | Store memory inside the project (gitignored). |
 
-> **Migration is automatic.** Existing JSONL records migrate to SQLite on first launch. The original JSONL files remain unchanged as a recovery backup.
+> **Migration is automatic.** Existing JSONL records migrate to SQLite on first launch. The original JSONL files remain unchanged as a recovery backup. Configs written before the SAGE rename keep working too: a legacy top-level `superMemory` key is migrated into `Sage` on load (explicit `Sage` values win on conflict).
 
 ### Retrieval tuning
 
-By default, Super Memory waits for a relevant tool call and appends a bounded
+By default, SAGE memory waits for a relevant tool call and appends a bounded
 hint block to that tool result. It does not add memory to every ordinary turn.
 The task-aware Memory Injector enriches retrieval with live todo/Kanban state,
 expands direct matches through file/symbol/package/command relationships, and
 measures current context pressure before choosing its budget. Defaults are up
 to 8 diverse hints / 2800 characters at normal pressure, shrinking safely near
-the context ceiling. Set `superMemory.inject.taskAware: false` to use only the
+the context ceiling. Set `Sage.inject.taskAware: false` to use only the
 concrete tool path/query.
 Turn-level system-context injection is an explicit opt-in (default **off** in both
 the CLI and WebUI). It appends a query-dependent block to the system prompt every
@@ -1381,7 +1381,7 @@ on-demand `memory_*` tools, and turn-context is enabled only when you ask for it
 
 ```jsonc
 {
-  "superMemory": {
+  "Sage": {
     "inject": {
       "turnContext": true
     }
@@ -1405,6 +1405,6 @@ score = metadataScore * (metadataWeight + relevance * (1 - metadataWeight))
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `superMemory.retrieval.metadataWeight` | `number` | `0.3` | Weight given to the metadata floor (0–1). At `0.0`, relevance fully gates injection. At `1.0`, metadata alone decides. |
+| `Sage.retrieval.metadataWeight` | `number` | `0.3` | Weight given to the metadata floor (0–1). At `0.0`, relevance fully gates injection. At `1.0`, metadata alone decides. |
 
 > The default `0.3` was validated against 148 real query-memory pairs from session logs, producing F1 = 0.91 and 91.2% accuracy. The `0.3` floor ensures that even a zero-relevance critical memory can still surface for high-importance entries.

@@ -12,11 +12,11 @@
 WrongStack is a mature, disciplined codebase: **layer boundaries are intact** (core depends on no product surface), **dead-code hygiene is excellent** (~110 TODO/FIXME/HACK markers repo-wide, mostly test helpers or template strings — there is **no** "unwired stub" epidemic). The technical debt concentrates in two forms:
 
 1. **God-files (size debt):** modules that outgrew a single responsibility — `tui/app.tsx` (7,589), `kanban/manager.ts` (2,771), `cli/hq-dashboard-html.ts` (2,304), `core/coordination/director.ts` (2,271), `cli/cli-main.ts` (2,414), `webui/types.ts` (2,268).
-2. **Parallel implementations (drift debt):** the same job done by two hand-synced copies — a **dual WebUI/HQ server stack**, a **dual `MemoryStore`** (core ↔ super-memory), **twin "eternal" engines**, **twin `Mailbox`** impls, and an HQ dashboard maintained as a **hand-written React clone**.
+2. **Parallel implementations (drift debt):** the same job done by two hand-synced copies — a **dual WebUI/HQ server stack**, a **dual `MemoryStore`** (core ↔ sage), **twin "eternal" engines**, **twin `Mailbox`** impls, and an HQ dashboard maintained as a **hand-written React clone**.
 
 Separately, the **system-prompt architecture** (116 instruction files, 58 agent personas, 20+ modes) is soundly layered but carries a few near-duplicate prompts and a naming collision.
 
-**The 6 highest-value moves:** ① unify the dual server stack · ② extract `hq-dashboard-html.ts` into real assets · ③ pull `handleKey`/`useAgentRun` out of `app.tsx` · ④ split `director.ts` · ⑤ reconcile the core ↔ super-memory `MemoryStore` pair · ⑥ de-collide the "Brain" naming and the coordinator triad.
+**The 6 highest-value moves:** ① unify the dual server stack · ② extract `hq-dashboard-html.ts` into real assets · ③ pull `handleKey`/`useAgentRun` out of `app.tsx` · ④ split `director.ts` · ⑤ reconcile the core ↔ sage `MemoryStore` pair · ⑥ de-collide the "Brain" naming and the coordinator triad.
 
 ---
 
@@ -51,11 +51,11 @@ The actual prompt text lives not in TypeScript but in **override-able `.md` file
 
 This is a surface that earns the "extremely comprehensive autonomous coding assistant" label:
 
-- **20 packages:** kernel (core), providers, tools (~50 builtin tools, 3-tier token budget), mcp, plug-lsp, acp, cli, tui, runtime, kanban, sdd, security-scanner, super-memory, telegram, webui, webui-server, webui-hq, plugins (**63 first-party plugins**), bench. Plus `apps/{wrongstack,desktop}`.
+- **20 packages:** kernel (core), providers, tools (~50 builtin tools, 3-tier token budget), mcp, plug-lsp, acp, cli, tui, runtime, kanban, sdd, security-scanner, sage, telegram, webui, webui-server, webui-hq, plugins (**63 first-party plugins**), bench. Plus `apps/{wrongstack,desktop}`.
 - **83 slash commands** + 28 subcommand handlers — assembled declaratively into a single flat `SlashCommand[]` (clean registration pattern).
 - **Surfaces:** CLI/REPL, TUI (Ink/React), WebUI (Vite/React), SimpleUI (lightweight browser chat), Desktop (Electron), HQ Command Center (port 3499, the only deliberately cross-machine server).
 - **Multi-agent orchestration:** Director (leader-with-tools), Fleet (task queue + budget + supervisor), Brain (policy→LLM→human decision gate), TaskAuctioneer (task marketplace), Goal, SDD (spec-driven), CollabSession (bug-hunter→refactor-planner→critic).
-- **Infrastructure:** cross-surface mailbox, SessionRegistry, super-memory (graph + verification + hygiene), codebase-index (worker thread + FTS5), OAuth login engine (ChatGPT/Claude/Copilot), MCP registry, LSP bridge.
+- **Infrastructure:** cross-surface mailbox, SessionRegistry, sage (graph + verification + hygiene), codebase-index (worker thread + FTS5), OAuth login engine (ChatGPT/Claude/Copilot), MCP registry, LSP bridge.
 
 ---
 
@@ -99,7 +99,7 @@ Priority: 🔴 High · 🟡 Medium · 🟢 Low. All line references verified dur
 |---|---|---|---|---|
 | 🔴 | `kanban/manager.ts` | 2,771 | **73% of a 7-file package in one module**; not a class — **48 exported free functions** + ~55 private. Board CRUD + task CRUD + assignment queue + dependency graph + TaskGraph bridge + markdown gen. | Split into 5–6 modules: `boards/tasks/assignment/dependencies/task-graph-bridge/serialization.ts`. No behavioral risk (shared `readBoard`/`mutateBoard`). |
 | 🔴 | `mcp/transport.ts` | 1,321 | 3 concerns: URL/TLS validation + SSE parsing + two full transports (SSE, StreamableHTTP). Siblings `registry.ts` (1,282), `client.ts` (1,028) also large. | `transport-security/sse-reader/transport-sse/transport-streamable/transport-base.ts`. |
-| 🟡 | `super-memory/store.ts` | 1,553 | `SuperMemoryStore` god-class: CRUD + graph + verification + hygiene + candidate lifecycle + legacy import + audit + **legacy `MemoryStore` surface** (dual duty). | Split graph/verification/hygiene/candidate into collaborators; make the legacy surface a thin adapter. |
+| 🟡 | `sage/store.ts` | 1,553 | `SageStore` god-class: CRUD + graph + verification + hygiene + candidate lifecycle + legacy import + audit + **legacy `MemoryStore` surface** (dual duty). | Split graph/verification/hygiene/candidate into collaborators; make the legacy surface a thin adapter. |
 | 🟡 | `acp/client/acp-session.ts` | 1,353 | ~30 async methods: session lifecycle + auth + provider + prompting + message/update dispatch. | Separate protocol-message dispatch from the session-command API. |
 | 🟢 | tools catalog | — | **Healthiest area.** ~50 tools, 3-tier token budget (TIER1/2/3+OPTIONAL); consistent conventions (tool=file, `_`-prefixed internals, complex tools in subdirs). | No refactor needed. |
 
@@ -126,9 +126,9 @@ One browser protocol is driven by **two parallel servers**: CLI-launched (`wstac
 
 `cli/src/hq-dashboard-html.ts` (2,304 lines) is a **hand-written** clone of the React+React-Flow fleet dashboard via `esm.sh` CDN, kept feature-in-sync with `packages/webui-hq/` (proper Vite/React app, 7,038 LOC, 42 files). It's a deliberate offline fallback (`hq-server.ts:790-805`: serves `webui-hq/dist` if present, else `HQ_HTML`). **Recommendation:** either ship a prebuilt `webui-hq/dist` as a package asset (removing the from-scratch fallback), or shrink `HQ_HTML` to a minimal "build the dashboard" placeholder.
 
-### IV.C — 🔴 RECONCILE: Duplicate `MemoryStore` (core ↔ super-memory)
+### IV.C — 🔴 RECONCILE: Duplicate `MemoryStore` (core ↔ sage)
 
-`core/src/storage/` already carries a full memory stack (`memory-store.ts` `DefaultMemoryStore`, `memory-backend.ts` `FileMemoryBackend`, `memory-consolidator.ts`, `memory-graph-backend.ts`). `super-memory` imports the **same** `MemoryStore` interface and `FileMemoryBackend` from core and provides a **second, richer** implementation. One interface, two implementations across a package boundary; graph/consolidation concepts appear in both — the **clearest architectural overlap**. **Recommendation:** either super-memory owns the whole memory domain (core keeps only the interface), or super-memory folds under `core/storage/super-memory`. The current split invites drift.
+`core/src/storage/` already carries a full memory stack (`memory-store.ts` `DefaultMemoryStore`, `memory-backend.ts` `FileMemoryBackend`, `memory-consolidator.ts`, `memory-graph-backend.ts`). `sage` imports the **same** `MemoryStore` interface and `FileMemoryBackend` from core and provides a **second, richer** implementation. One interface, two implementations across a package boundary; graph/consolidation concepts appear in both — the **clearest architectural overlap**. **Recommendation:** either sage owns the whole memory domain (core keeps only the interface), or sage folds under `core/storage/sage`. The current split invites drift.
 
 ### IV.D — 🟡 SPLIT: "Brain" naming collision + coordinator triad
 
@@ -166,7 +166,7 @@ Also the **coordinator triad**: `DefaultMultiAgentCoordinator` (1,271), `Autonom
 
 ### P1 — High impact, more surface
 4. **Split `director.ts`** (4 collaborators) + split `director-tools.ts` (IV/III-core).
-5. **Reconcile core ↔ super-memory `MemoryStore`** (IV.C).
+5. **Reconcile core ↔ sage `MemoryStore`** (IV.C).
 6. **Split `kanban/manager.ts` into 5–6 modules** (III-feature) — mechanical, low-risk.
 7. **Domain-slice the tui reducer/state** (III-tui) — generic `PickerState<T>`.
 

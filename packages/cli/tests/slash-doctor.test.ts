@@ -39,7 +39,7 @@ describe('diagnoseConfig', () => {
       uiLocale: 'en',
       favoriteModels: ['gpt-4'],
       favoriteModelsOnly: false,
-      superMemory: { enabled: true },
+      Sage: { enabled: true },
       skills: ['git-flow'],
       brain: { defaultMode: 'off' },
       fallbackProfiles: { coding: ['gpt-4o'] },

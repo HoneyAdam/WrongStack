@@ -97,7 +97,7 @@ export type SendMode = 'queue' | 'btw' | 'steer';
 
 export type StatuslineItem =
   | 'version' | 'state' | 'model' | 'tokens' | 'cache' | 'queue' | 'processes'
-  | 'hint' | 'index' | 'memory' | 'super_memory' | 'breaker' | 'todos' | 'plan'
+  | 'hint' | 'index' | 'memory' | 'sage' | 'breaker' | 'todos' | 'plan'
   | 'tasks' | 'fleet' | 'fleet_agents' | 'git' | 'elapsed' | 'context' | 'cost'
   | 'working_dir' | 'project' | 'yolo' | 'autonomy' | 'eternal_stage' | 'goal'
   | 'mode' | 'auto_proceed' | 'sessions' | 'time' | 'tools' | 'token_saving'

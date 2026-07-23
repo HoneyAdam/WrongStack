@@ -16,7 +16,7 @@ packages/
   runtime/           default runtime implementations and host composition
   sdd/               Spec-Driven Development stores and workflow helpers
   security-scanner/  standalone security scanning surface
-  super-memory/      project memory, graph, retrieval, and hygiene
+  sage/      project memory, graph, retrieval, and hygiene
   acp/               ACP server/client integration for external agent protocols
   plug-lsp/          LSP bridge + language tooling + slash commands
   plugins/           bundled plugin library

@@ -506,6 +506,12 @@
     },
     {
       "specifier": "@wrongstack/core/agent",
+      "file": "packages/cli/src/wiring/sage.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
       "file": "packages/cli/src/wiring/sdd-handlers.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
@@ -531,12 +537,6 @@
     {
       "specifier": "@wrongstack/core/agent",
       "file": "packages/cli/src/wiring/slash-commands.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/agent",
-      "file": "packages/cli/src/wiring/super-memory.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },
@@ -770,6 +770,24 @@
     },
     {
       "specifier": "@wrongstack/core/agent",
+      "file": "packages/sage/src/middleware/memory-injector-agent.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
+      "file": "packages/sage/src/middleware/tool-call-memory.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
+      "file": "packages/sage/tests/tool-call-memory.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/agent",
       "file": "packages/sdd/src/sdd-parallel-run.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -801,24 +819,6 @@
     {
       "specifier": "@wrongstack/core/agent",
       "file": "packages/security-scanner/src/slash-command.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/agent",
-      "file": "packages/super-memory/src/middleware/memory-injector-agent.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/agent",
-      "file": "packages/super-memory/src/middleware/tool-call-memory.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/agent",
-      "file": "packages/super-memory/tests/tool-call-memory.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },
@@ -1844,6 +1844,12 @@
     },
     {
       "specifier": "@wrongstack/core/coordination",
+      "file": "packages/sage/src/anchors/verify.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/coordination",
       "file": "packages/sdd/src/sdd-parallel-run.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 1
@@ -1859,12 +1865,6 @@
       "file": "packages/sdd/src/start-sdd-run.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/coordination",
-      "file": "packages/super-memory/src/anchors/verify.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
     },
     {
       "specifier": "@wrongstack/core/coordination",
@@ -3614,6 +3614,12 @@
     },
     {
       "specifier": "@wrongstack/core/kernel",
+      "file": "packages/cli/src/wiring/sage.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
       "file": "packages/cli/src/wiring/session-command-handlers.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -3627,12 +3633,6 @@
     {
       "specifier": "@wrongstack/core/kernel",
       "file": "packages/cli/src/wiring/slash-commands.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/cli/src/wiring/super-memory.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
     },
@@ -3950,6 +3950,42 @@
     },
     {
       "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/src/middleware/context-monitor.ts",
+      "typeOnly": 2,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/src/middleware/tool-call-memory.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/src/middleware/turn-memory.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/src/types.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/tests/context-monitor.test.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
+      "file": "packages/sage/tests/tool-call-memory.test.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/kernel",
       "file": "packages/sdd/src/auto-executor.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -3977,42 +4013,6 @@
       "file": "packages/sdd/src/task-flow.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/src/middleware/context-monitor.ts",
-      "typeOnly": 2,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/src/middleware/tool-call-memory.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/src/middleware/turn-memory.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/src/types.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/tests/context-monitor.test.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/tests/tool-call-memory.test.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
     },
     {
       "specifier": "@wrongstack/core/kernel",
@@ -7460,6 +7460,12 @@
     },
     {
       "specifier": "@wrongstack/core/types",
+      "file": "packages/cli/src/wiring/sage.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
       "file": "packages/cli/src/wiring/security-command.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -7481,12 +7487,6 @@
       "file": "packages/cli/src/wiring/slash-commands.ts",
       "typeOnly": 2,
       "runtimeOrMixed": 2
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/cli/src/wiring/super-memory.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/types",
@@ -8966,6 +8966,72 @@
     },
     {
       "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/memory-port.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/middleware/context-monitor.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/middleware/turn-memory.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/service-contract.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/service-guard.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/sqlite-store.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/tools/memory-candidates-tool.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/tools/memory-tools.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/tools/tool-schema-helpers.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/src/types.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
+      "file": "packages/sage/tests/memory-port.test.ts",
+      "typeOnly": 1,
+      "runtimeOrMixed": 0
+    },
+    {
+      "specifier": "@wrongstack/core/types",
       "file": "packages/sdd/src/auto-executor.ts",
       "typeOnly": 2,
       "runtimeOrMixed": 0
@@ -9119,72 +9185,6 @@
       "file": "packages/security-scanner/tests/orchestrator-flow.test.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/memory-port.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/middleware/context-monitor.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/middleware/turn-memory.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/service-contract.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/service-guard.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/sqlite-store.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/tools/memory-candidates-tool.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/tools/memory-tools.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/tools/tool-schema-helpers.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/types.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/tests/memory-port.test.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
     },
     {
       "specifier": "@wrongstack/core/types",
@@ -12272,6 +12272,12 @@
     },
     {
       "specifier": "@wrongstack/core/utils",
+      "file": "packages/sage/src/sqlite-store.ts",
+      "typeOnly": 0,
+      "runtimeOrMixed": 1
+    },
+    {
+      "specifier": "@wrongstack/core/utils",
       "file": "packages/sdd/src/conflict-resolver.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
@@ -12345,12 +12351,6 @@
     {
       "specifier": "@wrongstack/core/utils",
       "file": "packages/security-scanner/src/report-generator.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/super-memory/src/sqlite-store.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
     },

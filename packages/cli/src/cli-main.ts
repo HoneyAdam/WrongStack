@@ -984,7 +984,7 @@ export async function main(argv: string[]): Promise<number> {
   // summary) + background reindex on agent edits and external file changes.
   // Runs here so the startup index completes before any front-end mounts.
   const {
-    runSuperMemorySessionHygiene,
+    runSageSessionHygiene,
     getPluginItems: getPluginPickerItems,
     togglePlugin: togglePluginFromPicker,
     getToolItems: getToolPickerItems,
@@ -1163,7 +1163,7 @@ export async function main(argv: string[]): Promise<number> {
         },
         eternalListeners,
         stageListeners,
-        runSuperMemorySessionHygiene,
+        runSageSessionHygiene,
         pluginHost,
         teardownHandlers,
         stats,

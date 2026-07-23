@@ -64,7 +64,7 @@ These thresholds are enforced on every `pnpm test:coverage` run. The build
 | sdd | 26 | 6,118 | 1,102 | 18.0% |
 | core | 384 | 948,589 | 158,997 | 16.8% |
 | kanban | 14 | 60,303 | 7,759 | 12.9% |
-| super-memory | 14 | 9,253 | 4,521 | 48.9% |
+| sage | 14 | 9,253 | 4,521 | 48.9% |
 | mcp | 18 | 3,278 | 1,349 | 41.2% |
 | **TOTAL** | **1,065** | **1,101,248** | **196,658** | **17.9%** |
 
@@ -95,7 +95,7 @@ directory for `index.ts` files). Files explicitly excluded from coverage by
 | **security-scanner** | 9 | 8 | 1 | **89%** ✅ |
 | **webui-hq** | 17 | 14 | 3 | **82%** ✅ |
 | **bench** | 21 | 17 | 4 | 81% |
-| **super-memory** | 14 | 11 | 3 | 79% |
+| **sage** | 14 | 11 | 3 | 79% |
 | **telegram** | 16 | 12 | 4 | 75% |
 | **webui** | 51 | 35 | 16 | 69% |
 | **tui** | 44 | 30 | 14 | 68% |
@@ -189,7 +189,7 @@ These require special test environments and are excluded from thresholds:
 | techstack | 35 | 7,700 | 16 | 46% |
 | simpleui | 40 | 7,144 | 11 | 28% |
 | sdd | 26 | 6,719 | 23 | 88% |
-| super-memory | 15 | 6,372 | 23 | 153% |
+| sage | 15 | 6,372 | 23 | 153% |
 | kanban | 16 | 5,350 | 5 | 31% |
 | plug-lsp | 41 | 3,909 | 16 | 39% |
 | telegram | 17 | 3,736 | 20 | 118% |

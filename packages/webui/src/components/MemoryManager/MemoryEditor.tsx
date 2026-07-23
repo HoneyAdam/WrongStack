@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { sendRosterMessage } from '@/lib/roster-ws';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryAnchor, SuperMemoryScope, SuperMemoryStatus } from '@/types';
+import type { SageAnchor, SageScope, SageStatus } from '@/types';
 import type { MemoryDraft } from './shared';
 import {
   ANCHOR_TYPES,
@@ -183,7 +183,7 @@ export function MemoryEditor({
                 <select
                   id="memory-scope"
                   value={draft.scope}
-                  onChange={(event) => set('scope', event.target.value as SuperMemoryScope)}
+                  onChange={(event) => set('scope', event.target.value as SageScope)}
                   className="h-10 w-full border border-input bg-background px-3 text-sm"
                 >
                   {MEMORY_SCOPES.map((scope) => (
@@ -204,7 +204,7 @@ export function MemoryEditor({
                 <select
                   id="memory-status"
                   value={draft.status}
-                  onChange={(event) => set('status', event.target.value as SuperMemoryStatus)}
+                  onChange={(event) => set('status', event.target.value as SageStatus)}
                   className="h-10 w-full border border-input bg-background px-3 text-sm"
                 >
                   {EDITABLE_STATUSES.map((status) => (
@@ -287,8 +287,8 @@ export function MemoryEditor({
                       id={`anchor-type-${index}`}
                       value={anchor.type}
                       onChange={(event) => {
-                        const type = event.target.value as SuperMemoryAnchor['type'];
-                        const replacement: SuperMemoryAnchor =
+                        const type = event.target.value as SageAnchor['type'];
+                        const replacement: SageAnchor =
                           type === 'command'
                             ? { type, command: '' }
                             : type === 'agent'
@@ -389,7 +389,7 @@ export function MemoryEditor({
               <h3 className="text-xs font-bold uppercase tracking-[0.14em]">Relationships</h3>
               <p className="mt-1 text-[10px] text-muted-foreground">
                 Reference exact memory IDs. Relationships are validated and graph edges are rebuilt
-                by Super Memory.
+                by SAGE.
               </p>
             </div>
             <div>

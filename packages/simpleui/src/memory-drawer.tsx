@@ -55,7 +55,7 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
 
     // Register a one-shot handler for the response
     const handler = (msg: { type: string; payload?: unknown }) => {
-      if (msg.type !== 'memory.super.forFile') return;
+      if (msg.type !== 'memory.sage.forFile') return;
       // Unsubscribe immediately after receiving the response
       if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
       if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
@@ -85,7 +85,7 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
     };
 
     unsubRef.current = socket.onMessage(handler);
-    socket.send('memory.super.forFile', { path: path.trim(), limit: 20 });
+    socket.send('memory.sage.forFile', { path: path.trim(), limit: 20 });
     // Unsubscribe after 5s max (safety net)
     timeoutRef.current = setTimeout(() => {
       if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }

@@ -87,7 +87,7 @@
 | `core/execution/compactor.ts:36` | `estimator` option | ✅ Kaldırıldı (önceki commit) |
 | `core/core/fallback-profile-manager.ts:54` | `ProviderAvailability` alias | ✅ Kaldırıldı (`221cd7ba5`) |
 | `tui/components/suggestions.ts:5` | Next-steps import shim | ✅ Kaldırıldı (chimera-fix tarafından) |
-| `core/storage/memory-graph-backend.ts:39` | Legacy backend | Beklemede (SuperMemoryStore migration büyük scope) |
+| `core/storage/memory-graph-backend.ts:39` | Legacy backend | Beklemede (SageStore migration büyük scope) |
 
 ### 3.5 Boolean→Enum Migrations (3 tag) ✅ KISMEN TAMAMLANDI
 

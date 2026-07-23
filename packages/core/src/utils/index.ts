@@ -67,7 +67,7 @@ export {
   isFrugalPerf,
   type PerfProfile,
   sqliteCachePragmas,
-  superMemoryCachePragmas,
+  SageCachePragmas,
   tuiStreamFlushMs,
 } from './perf-profile.js';
 export { isPidAlive } from './pid.js';

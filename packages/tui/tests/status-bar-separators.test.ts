@@ -46,9 +46,9 @@ describe('StatusBar chip separators', () => {
     expect(frame).toContain('heap 768M');
   });
 
-  it('shows total Super Memory records and the exact provider-context active count', () => {
+  it('shows total SAGE records and the exact provider-context active count', () => {
     const frame = frameOf({
-      superMemory: { total: 6261, activeInContext: 3 },
+      Sage: { total: 6261, activeInContext: 3 },
       hiddenItems: ['state'],
     });
 
@@ -56,9 +56,9 @@ describe('StatusBar chip separators', () => {
     expect(frame).toContain('3 ctx');
   });
 
-  it('hides Super Memory counts when the statusline item is disabled', () => {
+  it('hides SAGE counts when the statusline item is disabled', () => {
     const frame = frameOf({
-      superMemory: { total: 6261, activeInContext: 3 },
+      Sage: { total: 6261, activeInContext: 3 },
       hiddenItems: ['memory_context'],
     });
 

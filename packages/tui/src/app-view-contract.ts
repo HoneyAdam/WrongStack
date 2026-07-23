@@ -25,14 +25,18 @@ export interface AppViewRuntime {
   viewState: ReturnType<typeof deriveAppViewState>;
   mouseMode: boolean;
   /**
-   * Reports the measured history content height (rows) after every layout so
-   * the host can clamp the scroll offset and drive the "N new lines"
-   * affordance. Optional: when omitted, the ScrollableHistory's measurement
-   * is a no-op and `state.totalLines` stays at its default. The callback is
-   * passed through to ScrollableHistory and invoked after each layout pass
-   * with the freshly measured row count.
+   * Receives the imperative scroll controller assigned by ScrollableHistory.
+   * The app key/mouse handlers and the submit path drive scrolling through it.
    */
-  onMeasure?: ((totalLines: number) => void) | undefined;
+  historyScrollRef: MutableRefObject<
+    import('./components/scrollable-history.js').HistoryScrollController | null
+  >;
+  /**
+   * Stable callback ScrollableHistory calls on scroll-state transitions
+   * (scrolled away from / re-pinned to the newest output). Drives the
+   * "managed" key hint via `state.historyScrolled`.
+   */
+  onScrollInfo?: ((info: { scrolled: boolean }) => void) | undefined;
   bottomRegionRef: MutableRefObject<DOMElement | null>;
   statusBarWrapRef: MutableRefObject<DOMElement | null>;
   belowStatusBarRef: MutableRefObject<DOMElement | null>;

@@ -193,8 +193,9 @@ const profiles = {
       probe: 'src/local-llm-probe.ts',
       'tool-registration': 'src/tool-registration.ts',
     },
-    external: ['@wrongstack/core', '@wrongstack/super-memory', '@wrongstack/tools'],
+    external: ['@wrongstack/core', '@wrongstack/sage', '@wrongstack/tools'],
   },
+  '@wrongstack/sage': standard(['@wrongstack/core', '@wrongstack/core/utils']),
   '@wrongstack/sdd': standard(['@wrongstack/core']),
   '@wrongstack/security-scanner': standard(['@wrongstack/core']),
   '@wrongstack/techstack': standard(['@wrongstack/core', '@wrongstack/tools']),
@@ -204,7 +205,6 @@ const profiles = {
     platform: 'browser',
     clean: false,
   },
-  '@wrongstack/super-memory': standard(['@wrongstack/core', '@wrongstack/core/utils']),
   '@wrongstack/telegram': standard(['@wrongstack/core']),
   '@wrongstack/tools': {
     entries: toolEntries,

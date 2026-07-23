@@ -15,23 +15,23 @@ import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryAnchor, SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
+import type { SageAnchor, SageEntry, SageGraphEdge } from '@/types';
 
 interface MemoryGraphProps {
-  centerMemory: SuperMemoryEntry;
-  allMemories: SuperMemoryEntry[];
-  graphEdges: SuperMemoryGraphEdge[];
+  centerMemory: SageEntry;
+  allMemories: SageEntry[];
+  graphEdges: SageGraphEdge[];
   loading?: boolean;
   error?: string | null;
 }
 
 interface MemoryNodeData extends Record<string, unknown> {
-  entry: SuperMemoryEntry;
+  entry: SageEntry;
   center: boolean;
 }
 
 interface AnchorNodeData extends Record<string, unknown> {
-  anchor: SuperMemoryAnchor;
+  anchor: SageAnchor;
   label: string;
 }
 
@@ -47,7 +47,7 @@ function preview(text: string, max = 58): string {
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
 
-function anchorLabel(anchor: SuperMemoryAnchor): string {
+function anchorLabel(anchor: SageAnchor): string {
   if (anchor.type === 'symbol') {
     return [anchor.path, anchor.symbol ? `#${anchor.symbol}` : ''].filter(Boolean).join('');
   }
@@ -118,7 +118,7 @@ const nodeTypes = {
   anchorNode: AnchorNodeCard,
 };
 
-function missingMemory(id: string): SuperMemoryEntry {
+function missingMemory(id: string): SageEntry {
   return {
     id,
     revision: 0,

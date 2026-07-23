@@ -173,7 +173,7 @@ export default defineConfig({
       thresholds: {
         // Floor — must not regress.
         // Raised after ~470+ new coverage tests added across kanban (95%),
-        // techstack (84%), super-memory (82%), sdd (90%), plug-lsp (84%).
+        // techstack (84%), sage (82%), sdd (90%), plug-lsp (84%).
         // Measured repo-wide (2026-07-17): 74.62% lines, 73.99% funcs,
         // 64.02% branches, 73.12% stmts. Set at floor-below-measured.
         lines: 74,

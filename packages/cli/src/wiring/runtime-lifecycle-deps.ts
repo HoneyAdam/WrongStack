@@ -26,7 +26,7 @@ export interface RuntimeLifecycleDepsInput {
   };
   eternalListeners: Set<(entry: JournalEntry) => void>;
   stageListeners: Set<(stage: AutonomyStage) => void>;
-  runSuperMemorySessionHygiene: () => Promise<void>;
+  runSageSessionHygiene: () => Promise<void>;
   pluginHost?: { dispose(): Promise<void> } | undefined;
   teardownHandlers: Array<() => void>;
   stats: SessionStats;
@@ -75,8 +75,8 @@ export function createRuntimeLifecycleDeps(input: RuntimeLifecycleDepsInput): Li
       return () => input.stageListeners.delete(listener);
     },
     onDestroy: () => {
-      void input.runSuperMemorySessionHygiene().catch((error) => {
-        input.logger.warn('super-memory session hygiene failed', { error: String(error) });
+      void input.runSageSessionHygiene().catch((error) => {
+        input.logger.warn('sage session hygiene failed', { error: String(error) });
       });
       void input.pluginHost?.dispose().catch((error) => {
         input.logger.warn('plugin host disposal failed', { error: String(error) });

@@ -205,7 +205,7 @@
     },
     {
       "id": "t-10",
-      "title": "Consolidator → SuperMemory: Fix SessionMemoryConsolidator to write <sanitized>Super",
+      "title": "Consolidator → Sage: Fix SessionMemoryConsolidator to write <sanitized>Super",
       "columnId": "in-progress",
       "order": 0,
       "priority": "high",
@@ -213,7 +213,7 @@
       "status": "in_progress",
       "createdAt": "2026-07-18T12:44:37.191Z",
       "updatedAt": "1970-01-01T00:00:00.000Z",
-      "description": "Change memory-consolidator.ts to accept SuperMemoryServiceLike instead of MemoryStore, call rememberSuper() with proper kind/scope/tags so consolidator-sourced memories appear in searchSuper/turn-middleware. Update CLI wiring to pass the SuperMemory store.",
+      "description": "Change memory-consolidator.ts to accept SageServiceLike instead of MemoryStore, call rememberSuper() with proper kind/scope/tags so consolidator-sourced memories appear in searchSuper/turn-middleware. Update CLI wiring to pass the Sage store.",
       "origin": {
         "system": "session-task",
         "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
@@ -231,7 +231,7 @@
       "status": "in_progress",
       "createdAt": "2026-07-18T12:44:37.191Z",
       "updatedAt": "1970-01-01T00:00:00.001Z",
-      "description": "SqliteSuperMemoryStore.consolidateSession() is a no-op stub. Implement real consolidation (dedup + accept) mirroring JSONL store.",
+      "description": "SqliteSageStore.consolidateSession() is a no-op stub. Implement real consolidation (dedup + accept) mirroring JSONL store.",
       "origin": {
         "system": "session-task",
         "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
@@ -286,7 +286,7 @@
       "status": "completed",
       "createdAt": "2026-07-18T12:44:37.191Z",
       "updatedAt": "1970-01-01T00:00:00.004Z",
-      "description": "In CLI wiring/super-memory.ts, detect when turn-middleware and static injectMemory are both active. Log a warning. Optionally auto-disable injectMemory when middleware is on.",
+      "description": "In CLI wiring/sage.ts, detect when turn-middleware and static injectMemory are both active. Log a warning. Optionally auto-disable injectMemory when middleware is on.",
       "origin": {
         "system": "session-task",
         "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
@@ -323,7 +323,7 @@
       "status": "completed",
       "createdAt": "2026-07-18T12:44:37.191Z",
       "updatedAt": "1970-01-01T00:00:00.006Z",
-      "description": "Mark GraphMemoryBackend deprecated. Add comment referencing SuperMemoryGraph as replacement. Verify nothing outside legacy paths depends on it.",
+      "description": "Mark GraphMemoryBackend deprecated. Add comment referencing SageGraph as replacement. Verify nothing outside legacy paths depends on it.",
       "origin": {
         "system": "session-task",
         "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
@@ -342,7 +342,7 @@
       "status": "completed",
       "createdAt": "2026-07-18T12:44:37.191Z",
       "updatedAt": "1970-01-01T00:00:00.007Z",
-      "description": "Extract COUNTER_FLUSH_INTERVAL_MS from store.ts constant into SuperMemoryStoreOptions. Update CLI wiring config types.",
+      "description": "Extract COUNTER_FLUSH_INTERVAL_MS from store.ts constant into SageStoreOptions. Update CLI wiring config types.",
       "origin": {
         "system": "session-task",
         "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",

@@ -132,12 +132,12 @@
       "fingerprint": "46a5ff27fae8ada5"
     },
     {
-      "file": "packages/super-memory/tests/agent-anchor.test.ts",
+      "file": "packages/sage/tests/agent-anchor.test.ts",
       "kind": "skipIf",
       "fingerprint": "3cb013d0b5fda090"
     },
     {
-      "file": "packages/super-memory/tests/feedback-counters.test.ts",
+      "file": "packages/sage/tests/feedback-counters.test.ts",
       "kind": "skipIf",
       "fingerprint": "8e909ca24c740b5c"
     },

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SuperMemoryEntry, SuperMemoryStats } from '../../src/types.js';
+import type { SageEntry, SageStats } from '../../src/types.js';
 
 const handlers = new Map<string, Set<(message: { type: string; payload: unknown }) => void>>();
 const sends: Array<{ type: string; payload?: unknown }> = [];
@@ -16,16 +16,16 @@ const client = {
 
 const websocket = {
   client,
-  listSuperMemories: () => sends.push({ type: 'memory.super.list' }),
-  listSuperMemoriesPage: (params: unknown, _options: unknown) =>
-    sends.push({ type: 'memory.super.listPage', payload: params }),
-  getSuperMemoryGraph: (query: string, params: unknown) =>
-    sends.push({ type: 'memory.super.graph', payload: { query, ...(params as object) } }),
-  rememberSuperMemory: (payload: unknown) => sends.push({ type: 'memory.super.remember', payload }),
-  updateSuperMemory: (id: string, patch: unknown) =>
-    sends.push({ type: 'memory.super.update', payload: { id, ...(patch as object) } }),
-  deleteSuperMemory: (id: string, reason?: string) =>
-    sends.push({ type: 'memory.super.delete', payload: { id, reason } }),
+  listSageMemories: () => sends.push({ type: 'memory.sage.list' }),
+  listSageMemoriesPage: (params: unknown, _options: unknown) =>
+    sends.push({ type: 'memory.sage.listPage', payload: params }),
+  getSageGraph: (query: string, params: unknown) =>
+    sends.push({ type: 'memory.sage.graph', payload: { query, ...(params as object) } }),
+  rememberSage: (payload: unknown) => sends.push({ type: 'memory.sage.remember', payload }),
+  updateSage: (id: string, patch: unknown) =>
+    sends.push({ type: 'memory.sage.update', payload: { id, ...(patch as object) } }),
+  deleteSage: (id: string, reason?: string) =>
+    sends.push({ type: 'memory.sage.delete', payload: { id, reason } }),
 };
 
 vi.mock('@/hooks/useWebSocket', () => ({
@@ -45,7 +45,7 @@ vi.mock('@/components/MemoryManager/MemoryGraph', () => ({
 import { MemoryManager } from '../../src/components/MemoryManager/index.js';
 import { useConfigStore } from '../../src/stores/config-store.js';
 
-const memory: SuperMemoryEntry = {
+const memory: SageEntry = {
   id: 'mem_architecture',
   revision: 3,
   scope: 'project',
@@ -61,7 +61,7 @@ const memory: SuperMemoryEntry = {
   updatedAt: '2026-07-16T08:00:00.000Z',
 };
 
-const secondMemory: SuperMemoryEntry = {
+const secondMemory: SageEntry = {
   ...memory,
   id: 'mem_testing',
   revision: 1,
@@ -70,7 +70,7 @@ const secondMemory: SuperMemoryEntry = {
   tags: ['testing'],
 };
 
-const stats: SuperMemoryStats = {
+const stats: SageStats = {
   total: 2,
   byStatus: { active: 2 },
   byKind: { decision: 1, workflow: 1 },
@@ -85,8 +85,8 @@ function emit(type: string, payload: unknown) {
 
 async function loadManager() {
   render(<MemoryManager />);
-  expect(sends).toContainEqual(expect.objectContaining({ type: 'memory.super.listPage' }));
-  emit('memory.super.listPage', {
+  expect(sends).toContainEqual(expect.objectContaining({ type: 'memory.sage.listPage' }));
+  emit('memory.sage.listPage', {
     memories: [memory, secondMemory],
     nextCursor: null,
     statusCounts: { active: 2 },
@@ -108,10 +108,10 @@ describe('MemoryManager', () => {
     fireEvent.click(screen.getByText(memory.text));
 
     expect(sends).toContainEqual({
-      type: 'memory.super.graph',
+      type: 'memory.sage.graph',
       payload: { query: memory.id, maxDepth: 1, limit: 120 },
     });
-    emit('memory.super.graph', {
+    emit('memory.sage.graph', {
       query: memory.id,
       edges: [
         {
@@ -132,7 +132,7 @@ describe('MemoryManager', () => {
     });
   });
 
-  it('loads Super Memory records and filters the operator library', async () => {
+  it('loads SAGE records and filters the operator library', async () => {
     await loadManager();
 
     expect(screen.getByText(secondMemory.text)).toBeTruthy();
@@ -158,20 +158,20 @@ describe('MemoryManager', () => {
     fireEvent.change(screen.getByLabelText('Tags'), { target: { value: 'memory, identity' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add anchor' }));
     fireEvent.change(screen.getByLabelText('Anchor 1 value'), {
-      target: { value: 'packages/super-memory/src/store.ts' },
+      target: { value: 'packages/sage/src/store.ts' },
     });
     fireEvent.change(screen.getByLabelText('Supersedes'), { target: { value: memory.id } });
     fireEvent.click(screen.getByRole('button', { name: 'Create memory' }));
 
-    const request = sends.find((entry) => entry.type === 'memory.super.remember');
+    const request = sends.find((entry) => entry.type === 'memory.sage.remember');
     expect(request).toEqual({
-      type: 'memory.super.remember',
+      type: 'memory.sage.remember',
       payload: expect.objectContaining({
         text: 'Use stable IDs for every durable relationship.',
         scope: 'user',
         tags: ['memory', 'identity'],
         freshness: 1,
-        anchors: [{ type: 'file', path: 'packages/super-memory/src/store.ts' }],
+        anchors: [{ type: 'file', path: 'packages/sage/src/store.ts' }],
         supersedes: [memory.id],
       }),
     });
@@ -184,7 +184,7 @@ describe('MemoryManager', () => {
     fireEvent.change(editor, { target: { value: 'A draft that must survive.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create memory' }));
 
-    emit('memory.super.remember', { error: 'Duplicate memory exists.' });
+    emit('memory.sage.remember', { error: 'Duplicate memory exists.' });
 
     expect(screen.getByRole('alert').textContent).toContain('Duplicate memory exists.');
     expect(
@@ -202,14 +202,14 @@ describe('MemoryManager', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete memory' }));
 
     expect(sends).toContainEqual({
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: {
         id: memory.id,
         reason: 'Deleted from the WebUI Memory Manager.',
       },
     });
 
-    emit('memory.super.delete', { success: true, message: 'Deleted.' });
+    emit('memory.sage.delete', { success: true, message: 'Deleted.' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

@@ -13,7 +13,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
       '  /clear   Reset the conversation and start a new session',
       '',
       'Wipes everything in the current REPL state: messages, todos, read-file tracking,',
-      'file mtimes, meta, and chat history. Super Memory is durable and is always',
+      'file mtimes, meta, and chat history. SAGE is durable and is always',
       'preserved. Use explicit /memory commands to review or delete memory entries.',
       'The terminal is wiped.',
       'Use this when you want a fresh conversation without restarting `wstack`.',
@@ -87,7 +87,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
       opts.onClear?.();
       await opts.onNewSession?.();
       opts.renderer.clear();
-      const msg = 'Session cleared (context and history reset; Super Memory preserved).';
+      const msg = 'Session cleared (context and history reset; SAGE preserved).';
       opts.renderer.writeInfo(msg);
       return { message: msg, metadata: { cleared: true } };
     },

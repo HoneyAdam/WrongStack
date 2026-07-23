@@ -74,7 +74,7 @@ const KNOWN_TOP_LEVEL_KEYS = [
   'pluginManager',
   'log',
   'features',
-  'superMemory',
+  'Sage',
   'skills',
   'yolo',
   'nextPrediction',

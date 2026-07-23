@@ -82,7 +82,7 @@ describe('bundled operational skills → prompt context', () => {
       expect(text).toContain(`## Skill: ${name}`);
     }
     expect(text).toContain('Auto Review — Built-in Plugin');
-    expect(text).toContain('Mnemosyne — Super Memory Custodian');
+    expect(text).toContain('Mnemosyne — SAGE Memory Custodian');
   });
 
   it('injects their deterministic name and trigger manifest in progressive mode', async () => {

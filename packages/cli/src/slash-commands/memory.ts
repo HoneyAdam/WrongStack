@@ -9,17 +9,17 @@ import type {
   MemoryForFileMatch,
   MemoryGraphEdge,
   MemoryVerificationResult,
-  SuperMemory,
-  SuperMemoryAuditRecord,
-  SuperMemoryHygieneReport,
-  SuperMemoryKind,
-  SuperMemoryScope,
-  SuperMemoryStats,
-  SuperMemoryStatus,
-  SuperMemorySurface,
-  UpdateSuperMemoryInput,
-} from '@wrongstack/super-memory';
-import { getSuperMemorySurface } from '@wrongstack/super-memory';
+  Sage,
+  SageAuditRecord,
+  SageHygieneReport,
+  SageKind,
+  SageScope,
+  SageStats,
+  SageStatus,
+  SageSurface,
+  UpdateSageInput,
+} from '@wrongstack/sage';
+import { getSageSurface } from '@wrongstack/sage';
 import type { SlashCommandContext } from './command-context.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 
@@ -32,23 +32,23 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
-      const superMemory = getSuperMemorySurface(store);
+      const Sage = getSageSurface(store);
       const { cmd, rest } = parseSubcommand(args);
       const restJoined = rest.join(' ').trim();
       switch (cmd) {
         case '':
         case 'show':
         case 'list': {
-          // SuperMemory path: show stats + structured entries when available
-          if (superMemory) {
+          // Sage path: show stats + structured entries when available
+          if (Sage) {
             const [stats, allMemories] = await Promise.all([
-              superMemory.stats(),
-              superMemory.listSuper(),
+              Sage.stats(),
+              Sage.listSage(),
             ]);
             if (allMemories.length === 0) {
-              return { message: '🧠 Super Memory is empty.' };
+              return { message: '🧠 SAGE is empty.' };
             }
-            return { message: formatSuperMemoryShow(stats, allMemories) };
+            return { message: formatSageShow(stats, allMemories) };
           }
           // Legacy path: flat-file memory store
           const text = await store.readAll();
@@ -67,7 +67,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
                 'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--agent <role>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
             };
           }
-          if (!superMemory) {
+          if (!Sage) {
             // Legacy fallback: no structured args available.
             if (!restJoined) return { message: 'Usage: /memory remember <text>' };
             await store.remember(restJoined);
@@ -81,7 +81,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               message: 'Nothing to remember — provide the memory text before/after the flags.',
             };
           try {
-            const memory = await superMemory.rememberSuper({
+            const memory = await Sage.rememberSage({
               text: parsed.text,
               ...(parsed.kind && { kind: parsed.kind }),
               ...(parsed.scope && { scope: parsed.scope }),
@@ -103,7 +103,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'update':
         case 'edit': {
-          if (!superMemory) return requiresSuperMemory('update');
+          if (!Sage) return requiresSage('update');
           const id = rest[0];
           if (!id)
             return {
@@ -113,7 +113,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           const parsed = parseMemoryFlags(rest.slice(1));
           if (parsed.errors.length > 0)
             return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
-          const patch: UpdateSuperMemoryInput = {
+          const patch: UpdateSageInput = {
             ...(parsed.text && { text: parsed.text }),
             ...(parsed.kind && { kind: parsed.kind }),
             ...(parsed.tags && { tags: parsed.tags }),
@@ -132,7 +132,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             };
           }
           try {
-            const memory = await superMemory.updateSuperMemory(id, patch);
+            const memory = await Sage.updateSage(id, patch);
             return {
               message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
             };
@@ -142,16 +142,16 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'delete':
         case 'del': {
-          if (!superMemory) return requiresSuperMemory('delete');
+          if (!Sage) return requiresSage('delete');
           const id = rest[0];
           if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
           const reason = rest.slice(1).join(' ').trim() || undefined;
           try {
-            const existing = await superMemory.getSuperMemory(id);
+            const existing = await Sage.getSage(id);
             if (!existing) return { message: `No memory with id \`${id}\`.` };
             // `/memory delete` is an explicit user command, so it satisfies
-            // Super Memory's destructive-operation authorization contract.
-            await superMemory.deleteSuperMemory(id, reason, { force: true });
+            // SAGE's destructive-operation authorization contract.
+            await Sage.deleteSage(id, reason, { force: true });
             return { message: `Deleted \`${id}\`.` };
           } catch (err) {
             return { message: `Could not delete: ${toErrorMessage(err)}` };
@@ -198,7 +198,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         // Optional cursor line range boosts symbol-anchored memories that
         // overlap the caret position.
         case 'for-file': {
-          if (!superMemory?.findMemoriesForFile) return requiresSuperMemory('for-file');
+          if (!Sage?.findMemoriesForFile) return requiresSage('for-file');
           if (!restJoined)
             return {
               message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]',
@@ -220,7 +220,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           }
           const { singleLine, limit, showDeleted } = forFileFlags;
           try {
-            const response = await superMemory.findMemoriesForFile(pathArg, {
+            const response = await Sage.findMemoriesForFile(pathArg, {
               ...(singleLine !== undefined ? { lineStart: singleLine, lineEnd: singleLine } : {}),
               limit,
               includeDeleted: showDeleted || undefined,
@@ -234,7 +234,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'search': {
           if (!restJoined) return { message: 'Usage: /memory search <query>' };
-          if (!superMemory) {
+          if (!Sage) {
             const entries = await store.search(restJoined, 'project-memory', 20);
             return {
               message: formatLegacyEntries(
@@ -244,33 +244,33 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             };
           }
           return {
-            message: formatSuperMemories(
-              await superMemory.searchSuper(restJoined, { limit: 20 }),
+            message: formatSageMemories(
+              await Sage.searchSage(restJoined, { limit: 20 }),
               `Search: ${restJoined}`,
             ),
           };
         }
         case 'graph': {
-          if (!superMemory?.graphFor) return requiresSuperMemory('graph');
+          if (!Sage?.graphFor) return requiresSage('graph');
           if (!restJoined) return { message: 'Usage: /memory graph <memory-id|path|query>' };
           return {
-            message: formatGraph(await superMemory.graphFor(restJoined, 2, 100), restJoined),
+            message: formatGraph(await Sage.graphFor(restJoined, 2, 100), restJoined),
           };
         }
         case 'verify': {
-          if (!superMemory?.verify) return requiresSuperMemory('verify');
-          return { message: formatVerification(await superMemory.verify(restJoined || undefined)) };
+          if (!Sage?.verify) return requiresSage('verify');
+          return { message: formatVerification(await Sage.verify(restJoined || undefined)) };
         }
         case 'hygiene': {
-          if (!superMemory) return requiresSuperMemory('hygiene');
-          return { message: formatHygiene(await superMemory.hygiene()) };
+          if (!Sage) return requiresSage('hygiene');
+          return { message: formatHygiene(await Sage.hygiene()) };
         }
         case 'candidates': {
-          if (!superMemory) return requiresSuperMemory('candidates');
+          if (!Sage) return requiresSage('candidates');
           const action = rest[0]?.toLowerCase() ?? 'list';
           if (action === 'accept') {
             if (!rest[1]) return { message: 'Usage: /memory candidates accept <candidate-id>' };
-            const accepted = await superMemory.acceptCandidate(rest[1]);
+            const accepted = await Sage.acceptCandidate(rest[1]);
             return {
               message: accepted
                 ? `Accepted ${rest[1]} as ${accepted.id}.`
@@ -280,7 +280,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           if (action === 'reject') {
             if (!rest[1])
               return { message: 'Usage: /memory candidates reject <candidate-id> [reason]' };
-            const rejected = await superMemory.rejectCandidate(
+            const rejected = await Sage.rejectCandidate(
               rest[1],
               rest.slice(2).join(' ') || 'Rejected from /memory.',
             );
@@ -289,28 +289,28 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             };
           }
           return {
-            message: formatCandidates(await superMemory.listCandidates(action === 'all')),
+            message: formatCandidates(await Sage.listCandidates(action === 'all')),
           };
         }
         case 'audit': {
-          if (!superMemory?.readAudit) return requiresSuperMemory('audit');
-          return { message: formatAudit(await superMemory.readAudit(50)) };
+          if (!Sage?.readAudit) return requiresSage('audit');
+          return { message: formatAudit(await Sage.readAudit(50)) };
         }
         case 'import-legacy': {
-          if (!superMemory?.importLegacy) return requiresSuperMemory('import-legacy');
+          if (!Sage?.importLegacy) return requiresSage('import-legacy');
           const legacyPaths = [opts.paths?.projectMemory, opts.paths?.globalMemory].filter(
             (value): value is string => !!value,
           );
           if (legacyPaths.length === 0)
             return { message: 'Legacy memory paths are unavailable in this session.' };
-          return { message: formatLegacyImport(await superMemory.importLegacy(legacyPaths)) };
+          return { message: formatLegacyImport(await Sage.importLegacy(legacyPaths)) };
         }
         case 'clear': {
           const force = rest.includes('--force');
           if (!force) {
             return {
               message:
-                'Bulk memory clear is blocked by default because Super Memory is durable. ' +
+                'Bulk memory clear is blocked by default because SAGE is durable. ' +
                 'Review entries with `/memory show` and delete individual IDs, or use ' +
                 '`/memory clear --force` for an intentional full wipe.',
             };
@@ -331,15 +331,15 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return runCompact(opts);
         }
         case 'compact-log': {
-          if (!superMemory) return requiresSuperMemory('compact-log');
-          if (typeof superMemory.compactLog !== 'function') {
+          if (!Sage) return requiresSage('compact-log');
+          if (typeof Sage.compactLog !== 'function') {
             return {
               message:
                 '🧹 Log compaction is only available on the JSONL backend. The SQLite backend compacts automatically via UPSERT.',
             };
           }
           try {
-            const result = await superMemory.compactLog();
+            const result = await Sage.compactLog();
             if (result.beforeRecords === result.afterRecords) {
               return {
                 message: `🧹 Log already compact — ${result.uniqueIds} records, 0 duplicates removed.`,
@@ -356,10 +356,10 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           }
         }
         case 'stats': {
-          if (superMemory) {
+          if (Sage) {
             const [stats, allMems] = await Promise.all([
-              superMemory.stats(),
-              superMemory.listSuper(['active', 'stale']),
+              Sage.stats(),
+              Sage.listSage(['active', 'stale']),
             ]);
             const scopedCount = allMems.filter((m) => m.audience).length;
             const roles = new Set<string>();
@@ -370,11 +370,11 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               for (const r of m.audience.modes ?? []) roles.add(r);
             }
             const roleList = [...roles].sort().join(', ');
-            const statsLines = formatSuperStats(stats, scopedCount, roleList).split('\n');
+            const statsLines = formatSageStats(stats, scopedCount, roleList).split('\n');
             // Append log health if available (JSONL backend only)
-            if (typeof superMemory.getLogStats === 'function') {
+            if (typeof Sage.getLogStats === 'function') {
               try {
-                const logStats = await superMemory.getLogStats();
+                const logStats = await Sage.getLogStats();
                 const kbSize = (logStats.fileSizeBytes / 1024).toFixed(1);
                 const ratio = logStats.duplicateRatio.toFixed(1);
                 const healthIcon =
@@ -396,8 +396,8 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'audience':
         case 'role': {
-          if (!superMemory) return requiresSuperMemory('audience');
-          return runAudienceMemory(superMemory, rest);
+          if (!Sage) return requiresSage('audience');
+          return runAudienceMemory(Sage, rest);
         }
         default:
           return {
@@ -433,7 +433,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
 
 // ── /memory remember|update flag parsing ────────────────────────────────
 
-const MEMORY_KINDS: SuperMemoryKind[] = [
+const MEMORY_KINDS: SageKind[] = [
   'fact',
   'decision',
   'convention',
@@ -447,8 +447,8 @@ const MEMORY_KINDS: SuperMemoryKind[] = [
   'command_note',
   'summary',
 ];
-const MEMORY_SCOPES: SuperMemoryScope[] = ['project', 'user', 'session', 'file', 'symbol'];
-const MEMORY_STATUSES: SuperMemoryStatus[] = [
+const MEMORY_SCOPES: SageScope[] = ['project', 'user', 'session', 'file', 'symbol'];
+const MEMORY_STATUSES: SageStatus[] = [
   'active',
   'stale',
   'superseded',
@@ -459,9 +459,9 @@ const MEMORY_STATUSES: SuperMemoryStatus[] = [
 
 interface ParsedMemoryFlags {
   text: string;
-  kind?: SuperMemoryKind;
-  scope?: SuperMemoryScope;
-  status?: SuperMemoryStatus;
+  kind?: SageKind;
+  scope?: SageScope;
+  status?: SageStatus;
   tags?: string[];
   anchors?: MemoryAnchor[];
   importance?: number | undefined;
@@ -473,7 +473,7 @@ interface ParsedMemoryFlags {
 }
 
 /**
- * Parse `remember`/`update` argument tokens into structured Super Memory fields.
+ * Parse `remember`/`update` argument tokens into structured SAGE fields.
  * Recognized flags take the single following token as their value; every other
  * token is collected as free-text and joined into `text`. `--tag`,
  * `--supersedes`, and `--contradicts` accept comma-separated lists.
@@ -519,17 +519,17 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
     switch (name) {
       case 'kind':
         if (value && (MEMORY_KINDS as string[]).includes(value))
-          out.kind = value as SuperMemoryKind;
+          out.kind = value as SageKind;
         else errors.push(`--kind must be one of: ${MEMORY_KINDS.join(', ')}.`);
         break;
       case 'scope':
         if (value && (MEMORY_SCOPES as string[]).includes(value))
-          out.scope = value as SuperMemoryScope;
+          out.scope = value as SageScope;
         else errors.push(`--scope must be one of: ${MEMORY_SCOPES.join(', ')}.`);
         break;
       case 'status':
         if (value && (MEMORY_STATUSES as string[]).includes(value))
-          out.status = value as SuperMemoryStatus;
+          out.status = value as SageStatus;
         else errors.push(`--status must be one of: ${MEMORY_STATUSES.join(', ')}.`);
         break;
       case 'tag':
@@ -671,7 +671,7 @@ function previewText(text: string, maxLen: number): string {
 
 function formatForFileResponse(filePath: string, response: FindMemoriesForFileResponse): string {
   const lines: string[] = [
-    `## Super Memory — File: \`${filePath}\``,
+    `## SAGE — File: \`${filePath}\``,
     '',
     `Total ${response.totalCount} match${response.totalCount === 1 ? '' : 'es'} ` +
       `(${response.activeCount} active, ${response.supersededCount} superseded, ` +
@@ -710,22 +710,22 @@ async function runPathMemory(
   targetPath: string,
   includeAncestors: boolean,
 ): Promise<{ message: string }> {
-  const superMemory = getSuperMemorySurface(store);
-  if (!superMemory) {
+  const Sage = getSageSurface(store);
+  if (!Sage) {
     return {
       message:
-        '`/memory file` requires the Super Memory backend. Enable `superMemory.enabled` and restart the session.',
+        '`/memory file` requires the SAGE backend. Enable `Sage.enabled` and restart the session.',
     };
   }
-  const memories = await superMemory.retrieveForPath({
+  const memories = await Sage.retrieveForPath({
     path: targetPath,
     limit: 20,
     includeAncestors,
   });
   if (memories.length === 0) {
-    return { message: `No Super Memory entries are attached to ${targetPath}.` };
+    return { message: `No SAGE entries are attached to ${targetPath}.` };
   }
-  const lines = [`## Super Memory for ${targetPath}`];
+  const lines = [`## SAGE for ${targetPath}`];
   for (const memory of memories) {
     const tags = memory.tags.length > 0 ? ` ${memory.tags.map((tag) => `#${tag}`).join(' ')}` : '';
     const anchor = memory.anchors.find((a) => a.path || a.symbol || a.command);
@@ -797,7 +797,7 @@ function formatAudienceSelector(audience: MemoryAudienceSelector): string {
 }
 
 async function runAudienceMemory(
-  store: SuperMemorySurface,
+  store: SageSurface,
   rest: string[],
 ): Promise<{ message: string }> {
   const sub = rest[0]?.toLowerCase() ?? 'list';
@@ -827,7 +827,7 @@ async function runAudienceMemory(
       return { message: lines.join('\n') };
     }
     // No selectors: list ALL audience-scoped memories
-    const all = await store.listSuper(['active', 'stale']);
+    const all = await store.listSage(['active', 'stale']);
     const scoped = all.filter((m) => m.audience);
     if (scoped.length === 0) {
       return {
@@ -884,7 +884,7 @@ async function runAudienceMemory(
       if (flags.roles?.length) audience.roles = flags.roles;
       if (flags.taskTypes?.length) audience.taskTypes = flags.taskTypes;
       if (flags.modes?.length) audience.modes = flags.modes;
-      const memory = await store.rememberSuper({ text, audience });
+      const memory = await store.rememberSage({ text, audience });
       return {
         message: `Remembered \`${memory.id}\` for ${formatAudienceSelector(memory.audience!)}: ${memory.text}`,
       };
@@ -898,7 +898,7 @@ async function runAudienceMemory(
     const id = rest[1];
     if (!id) return { message: 'Usage: /memory audience clear <memory-id>' };
     try {
-      await store.updateSuperMemory(id, { audience: {} });
+      await store.updateSage(id, { audience: {} });
       return {
         message: `Cleared audience scope from \`${id}\` — it is now general project memory.`,
       };
@@ -914,7 +914,7 @@ async function runAudienceMemory(
   if (sub === 'search' || sub === 'find') {
     const query = rest.slice(1).join(' ').trim().toLowerCase();
     if (!query) return { message: 'Usage: /memory audience search <query>' };
-    const all = await store.listSuper(['active', 'stale']);
+    const all = await store.listSage(['active', 'stale']);
     const scoped = all.filter((m) => m.audience);
     const matches = scoped.filter((m) => {
       const haystack = [
@@ -945,7 +945,7 @@ async function runAudienceMemory(
     if (!fromRole || !toRole) {
       return { message: 'Usage: /memory audience transfer <from-role> <to-role>' };
     }
-    const all = await store.listSuper(['active', 'stale']);
+    const all = await store.listSage(['active', 'stale']);
     const toUpdate = all.filter((m) =>
       m.audience?.roles?.some((r) => r.toLowerCase() === fromRole),
     );
@@ -959,7 +959,7 @@ async function runAudienceMemory(
       );
       const deduped = [...new Set(roles)];
       try {
-        await store.updateSuperMemory(mem.id, {
+        await store.updateSage(mem.id, {
           audience: {
             roles: deduped,
             ...(mem.audience!.taskTypes?.length ? { taskTypes: mem.audience!.taskTypes } : {}),
@@ -986,7 +986,7 @@ async function runAudienceMemory(
     if (flags.errors.length > 0) {
       return { message: `Cannot parse audience flags:\n- ${flags.errors.join('\n- ')}` };
     }
-    const all = await store.listSuper(['active', 'stale']);
+    const all = await store.listSage(['active', 'stale']);
     let scoped = all.filter((m) => m.audience);
     if (hasAudienceSelector(flags)) {
       const roleMatch = flags.roles?.[0]?.toLowerCase();
@@ -1056,7 +1056,7 @@ async function runAudienceMemory(
         continue;
       }
       try {
-        await store.rememberSuper({
+        await store.rememberSage({
           text: entry.text,
           ...(typeof entry.kind === 'string' ? { kind: entry.kind as never } : {}),
           ...(Array.isArray(entry.tags) ? { tags: entry.tags as string[] } : {}),
@@ -1094,16 +1094,16 @@ async function runAudienceMemory(
   };
 }
 
-function requiresSuperMemory(command: string): { message: string } {
+function requiresSage(command: string): { message: string } {
   return {
-    message: `\`/memory ${command}\` requires the Super Memory backend. Enable \`superMemory.enabled\` and restart the session.`,
+    message: `\`/memory ${command}\` requires the SAGE backend. Enable \`Sage.enabled\` and restart the session.`,
   };
 }
 
-function formatSuperMemories(memories: SuperMemory[], title: string): string {
-  if (memories.length === 0) return `No Super Memory entries matched ${title}.`;
+function formatSageMemories(memories: Sage[], title: string): string {
+  if (memories.length === 0) return `No SAGE entries matched ${title}.`;
   return [
-    `## Super Memory — ${title}`,
+    `## SAGE — ${title}`,
     ...memories.map(
       (memory) => `- \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
     ),
@@ -1133,7 +1133,7 @@ function formatVerification(results: MemoryVerificationResult[]): string {
   const counts = new Map<string, number>();
   for (const result of results) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
   const lines = [
-    '## Super Memory Verification',
+    '## SAGE Verification',
     ...[...counts].map(([status, count]) => `- ${status}: ${count}`),
   ];
   for (const result of results.filter((item) => item.status !== 'verified').slice(0, 20)) {
@@ -1144,13 +1144,13 @@ function formatVerification(results: MemoryVerificationResult[]): string {
   return lines.join('\n');
 }
 
-function formatHygiene(report: SuperMemoryHygieneReport): string {
+function formatHygiene(report: SageHygieneReport): string {
   const unusedNote =
     report.archivedUnused > 0
       ? ` (${report.archivedUnused} for repeated injection without use)`
       : '';
   return [
-    '## Super Memory Hygiene',
+    '## SAGE Hygiene',
     `Examined ${report.examined}; deduplicated ${report.deduplicated}; superseded ${report.superseded}.`,
     `Verified ${report.verified}; staled ${report.staled}; archived ${report.archived}${unusedNote}; deleted ${report.deleted}.`,
   ].join('\n');
@@ -1167,10 +1167,10 @@ function formatCandidates(candidates: MemoryCandidate[]): string {
   ].join('\n');
 }
 
-function formatAudit(rows: SuperMemoryAuditRecord[]): string {
-  if (rows.length === 0) return 'Super Memory audit log is empty.';
+function formatAudit(rows: SageAuditRecord[]): string {
+  if (rows.length === 0) return 'SAGE audit log is empty.';
   return [
-    '## Super Memory Audit',
+    '## SAGE Audit',
     ...rows.map(
       (row) =>
         `- ${row.at} ${row.event}${row.memoryId ? ` \`${row.memoryId}\`` : ''}${row.reason ? ` — ${row.reason}` : ''}`,
@@ -1182,13 +1182,13 @@ function formatLegacyImport(result: LegacyImportResult): string {
   return `Legacy import complete: ${result.imported} imported, ${result.skipped} skipped from ${result.files} file(s).`;
 }
 
-function formatSuperStats(
-  stats: SuperMemoryStats,
+function formatSageStats(
+  stats: SageStats,
   scopedCount?: number,
   scopedRoles?: string,
 ): string {
   const lines = [
-    '## Super Memory Stats',
+    '## SAGE Stats',
     `Total: ${stats.total}; active ${stats.byStatus.active}; stale ${stats.byStatus.stale}; archived ${stats.byStatus.archived}; deleted ${stats.byStatus.deleted}.`,
     `Graph edges: ${stats.edges}.`,
     `Kinds: ${
@@ -1203,14 +1203,14 @@ function formatSuperStats(
   return lines.join('\n');
 }
 
-function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[]): string {
+function formatSageShow(stats: SageStats, memories: Sage[]): string {
   const lines: string[] = [];
 
   // Stats header
   const active = stats.byStatus['active'] ?? 0;
   const stale = stats.byStatus['stale'] ?? 0;
   const archived = stats.byStatus['archived'] ?? 0;
-  lines.push('## 🧠 Super Memory');
+  lines.push('## 🧠 SAGE');
   lines.push('');
   lines.push(
     `**Total:** ${stats.total} · 🟢 ${active} active · 🟡 ${stale} stale · 🔵 ${archived} archived`,
@@ -1219,7 +1219,7 @@ function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[])
   lines.push('');
 
   // Kind breakdown
-  const kindOrder: SuperMemoryKind[] = [
+  const kindOrder: SageKind[] = [
     'fact',
     'decision',
     'convention',
@@ -1369,13 +1369,13 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   if (!store) return { message: 'No memory store configured.' };
 
   // 1. Gather current entries with their REAL ids + metadata.
-  // Super Memory is the live backend: pull structured memories directly so
-  // operations target real memory ids (updateSuperMemory/deleteSuperMemory).
-  // The legacy text-parsing path is only a fallback for a non-super store.
-  const superStore = getSuperMemorySurface(store);
+  // SAGE is the live backend: pull structured memories directly so
+  // operations target real memory ids (updateSage/deleteSage).
+  // The legacy text-parsing path is only a fallback for a non-SAGE store.
+  const sageStore = getSageSurface(store);
   let compactEntries: CompactEntry[];
-  if (superStore) {
-    const memories = await superStore.listSuper(['active', 'stale']);
+  if (sageStore) {
+    const memories = await sageStore.listSage(['active', 'stale']);
     if (memories.length === 0) {
       return { message: 'Memory is empty — nothing to compact.' };
     }
@@ -1481,13 +1481,13 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             errors.push(`rewrite missing newText for targets: ${op.targets.join(', ')}`);
             continue;
           }
-          if (superStore) {
+          if (sageStore) {
             // Edit the first target in place (preserves id/anchors/graph edges);
             // delete any extra targets folded into the rewrite.
             const [first, ...rest] = op.targets;
-            if (first) await superStore.updateSuperMemory(first, { text: op.newText });
+            if (first) await sageStore.updateSage(first, { text: op.newText });
             for (const t of rest) {
-              await superStore.deleteSuperMemory(t, 'compact: rewrite', { force: true });
+              await sageStore.deleteSage(t, 'compact: rewrite', { force: true });
             }
           } else {
             for (const target of op.targets) await store.forget(target);
@@ -1501,12 +1501,12 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             errors.push(`merge missing newText for targets: ${op.targets.join(', ')}`);
             continue;
           }
-          if (superStore) {
+          if (sageStore) {
             // Keep the first memory (update its text), delete the rest.
             const [keeper, ...rest] = op.targets;
-            if (keeper) await superStore.updateSuperMemory(keeper, { text: op.newText });
+            if (keeper) await sageStore.updateSage(keeper, { text: op.newText });
             for (const t of rest) {
-              await superStore.deleteSuperMemory(t, 'compact: merged', { force: true });
+              await sageStore.deleteSage(t, 'compact: merged', { force: true });
             }
           } else {
             for (const target of op.targets) await store.forget(target);
@@ -1516,9 +1516,9 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
           break;
         }
         case 'delete': {
-          if (superStore) {
+          if (sageStore) {
             for (const target of op.targets) {
-              await superStore.deleteSuperMemory(target, 'compact: obsolete', { force: true });
+              await sageStore.deleteSage(target, 'compact: obsolete', { force: true });
             }
           } else {
             for (const target of op.targets) await store.forget(target);

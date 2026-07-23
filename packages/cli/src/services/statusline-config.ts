@@ -19,7 +19,7 @@ export const STATUSLINE_CONFIG_KEYS = [
   'processes',
   'hint',
   'index',
-  'super_memory',
+  'sage',
   'breaker',
   'yolo',
   'autonomy',

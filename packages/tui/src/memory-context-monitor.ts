@@ -60,7 +60,7 @@ export function emptyMemoryContextMonitor(): MemoryContextMonitorState {
 const MAX_EXITED_MEMORIES = 200;
 
 /**
- * UI-only text budget for memory detail cards. Full text lives in Super Memory
+ * UI-only text budget for memory detail cards. Full text lives in SAGE
  * SQLite; the TUI only needs a short preview for the context panel.
  */
 export const MAX_MEMORY_DETAIL_TEXT_CHARS = 300;
@@ -103,7 +103,7 @@ export function memoryEventMatchesSession(payload: unknown, currentSessionId: st
   return eventSessionId === undefined || eventSessionId === currentSessionId;
 }
 
-/** Read the all-status Super Memory record total without requiring that backend at the type boundary. */
+/** Read the all-status SAGE record total without requiring that backend at the type boundary. */
 export async function readMemoryRecordTotal(store: unknown): Promise<number | undefined> {
   if (!store || typeof store !== 'object' || !('stats' in store)) return undefined;
   const stats = (store as { stats?: unknown }).stats;

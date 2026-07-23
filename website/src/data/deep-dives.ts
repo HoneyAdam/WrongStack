@@ -65,7 +65,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
       },
       {
         title: 'Retrieve relevant memory',
-        body: 'Super Memory scores project-local facts against the current request and injects only novel, bounded context.',
+        body: 'SAGE scores project-local facts against the current request and injects only novel, bounded context.',
         code: 'query → graph expansion → score → cap',
       },
       {
@@ -526,7 +526,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
       },
       {
         title: 'Store verified knowledge',
-        body: 'Super Memory preserves project facts, anchors and graph relations with deduplication and file-change hygiene.',
+        body: 'SAGE preserves project facts, anchors and graph relations with deduplication and file-change hygiene.',
         code: 'fact → verify → memory graph',
       },
     ],
@@ -538,7 +538,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
     signals: [
       { label: 'Session store', value: 'date-sharded JSONL' },
       { label: 'Recovery', value: 'in-flight markers' },
-      { label: 'Knowledge', value: 'Super Memory graph' },
+      { label: 'Knowledge', value: 'SAGE graph' },
     ],
   },
   extensibility: {
@@ -731,7 +731,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
       },
       {
         title: 'Shape agent knowledge',
-        body: 'Project instructions, skills, prompts and Super Memory define reusable context without hardcoding it in application code.',
+        body: 'Project instructions, skills, prompts and SAGE define reusable context without hardcoding it in application code.',
         code: 'AGENTS.md + skills + prompts + memory',
       },
       {

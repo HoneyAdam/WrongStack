@@ -246,9 +246,9 @@ export const commandDetails: CommandDetailMap = {
 
   '/memory': {
     purpose:
-      'Search, graph, verify, clean, import, and inspect the structured SuperMemory system.',
+      'Search, graph, verify, clean, import, and inspect the structured Sage system.',
     behavior:
-      'SuperMemory persists facts across sessions. `/memory search <query>` finds relevant memories. `/memory graph` shows the knowledge graph. `/memory verify` checks integrity. `/memory hygiene` cleans stale entries. `/memory import` loads from external sources. The memory system auto-injects relevant facts into agent context.',
+      'Sage persists facts across sessions. `/memory search <query>` finds relevant memories. `/memory graph` shows the knowledge graph. `/memory verify` checks integrity. `/memory hygiene` cleans stale entries. `/memory import` loads from external sources. The memory system auto-injects relevant facts into agent context.',
     before:
       'Think about what you want to find or manage. Use search for fact retrieval, graph for relationship exploration.',
     during:

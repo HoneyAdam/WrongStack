@@ -15,7 +15,7 @@
 | `/statusline git on\|off` | Toggle git branch + status item |
 | `/statusline elapsed on\|off` | Toggle elapsed time item |
 | `/statusline context on\|off` | Toggle context window % item |
-| `/statusline super_memory on\|off` | Toggle total and provider-context Super Memory counts |
+| `/statusline sage on\|off` | Toggle total and provider-context SAGE memory counts |
 | `/statusline cost on\|off` | Toggle estimated cost item |
 | `/statusline all on` | Show all items |
 | `/statusline all off` | Hide all items |
@@ -30,7 +30,7 @@
 | `git` | Branch name + dirty/clean indicator |
 | `elapsed` | Session elapsed time (HH:MM:SS) |
 | `context` | Context window usage percentage |
-| `super_memory` | All-status Super Memory record total and memories active in the latest provider request |
+| `sage` | All-status SAGE memory record total and memories active in the latest provider request |
 | `cost` | Estimated session cost |
 
 ## Persistence

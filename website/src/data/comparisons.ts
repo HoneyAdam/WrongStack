@@ -195,7 +195,7 @@ export const productComparisons: ProductComparison[] = [
       {
         capability: 'Memory and continuity',
         wrongstack:
-          'Append-only reconstructable sessions plus Super Memory with scopes, anchors, graph relationships, verification and hygiene.',
+          'Append-only reconstructable sessions plus SAGE with scopes, anchors, graph relationships, verification and hygiene.',
         competitor:
           'CLAUDE.md, path-scoped rules, auto memory and managed sessions provide persistent project context.',
         difference:
@@ -464,7 +464,7 @@ export const productComparisons: ProductComparison[] = [
       {
         capability: 'Memory and continuity',
         wrongstack:
-          'Reconstructable session JSONL and graph-based Super Memory include verification, anchors, scopes and file-change hygiene.',
+          'Reconstructable session JSONL and graph-based SAGE include verification, anchors, scopes and file-change hygiene.',
         competitor:
           'Sessions and project instructions are supported; a comparable verified memory graph was not found in the reviewed official pages.',
         difference:
@@ -589,7 +589,7 @@ export const productComparisons: ProductComparison[] = [
       {
         capability: 'Memory and instructions',
         wrongstack:
-          'Super Memory stores scoped, anchored, quality-scored facts in a graph and automatically re-checks affected anchors after edits.',
+          'SAGE stores scoped, anchored, quality-scored facts in a graph and automatically re-checks affected anchors after edits.',
         competitor:
           'Rules provide reusable scoped instructions, while Memories and cloud automation memory carry learnings between runs.',
         difference:

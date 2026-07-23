@@ -145,7 +145,7 @@ export function AppStatusRegion({ host, runtime }: AppViewProps): React.ReactEle
               git={gitInfo}
               context={contextWindow}
               estimatedContextTokens={currentContextTokens}
-              superMemory={
+              Sage={
                 memoryRecordTotal === undefined
                   ? undefined
                   : { total: memoryRecordTotal, activeInContext: activeMemoryInContext }
@@ -387,7 +387,7 @@ export function AppStatusRegion({ host, runtime }: AppViewProps): React.ReactEle
               }
               const ctx: KeyHintContext = {
                 monitor: anyMonitorOpen,
-                managed: state.scrollOffset > 0,
+                managed: state.historyScrolled,
                 picker:
                   state.settingsPicker.open ||
                   state.modelPicker.open ||

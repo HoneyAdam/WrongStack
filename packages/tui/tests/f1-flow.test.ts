@@ -70,10 +70,8 @@ function initialState(over: Partial<State> = {}): State {
     goalRun: null,
     worktrees: {},
     worktreeMonitorOpen: false,
-    scrollOffset: 0,
-    totalLines: 0,
     viewportRows: 0,
-    pendingNewLines: 0,
+    historyScrolled: false,
     debugStreamStats: null,
     ...over,
   } as unknown as State;

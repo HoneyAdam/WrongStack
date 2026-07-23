@@ -211,7 +211,7 @@ remain incremental repository work after the ownership/runtime pilot.
 
 ### Problems
 
-- legacy `MemoryStore` and `SuperMemoryStore` contracts coexist;
+- legacy `MemoryStore` and `SageStore` contracts coexist;
 - Runtime uses `as unknown as MemoryStore`;
 - CLI and WebUI Server define independent duck-typed Super Memory detection;
 - CLI memory command owns backend compatibility behavior;
@@ -231,7 +231,7 @@ The port should expose use cases, not implementation identity checks:
 - deterministic close/dispose;
 - migration status through an administrative interface rather than normal reads.
 
-Optional features use capabilities, not `instanceof` or `isSuperMemoryStore`.
+Optional features use capabilities, not `instanceof` or `isSageStore`.
 
 ### Planned slices
 
@@ -264,7 +264,7 @@ Migrate WebUI Server memory handlers, CLI slash memory, execution services, and 
 Target internal structure:
 
 ```text
-super-memory/
+sage/
   service.ts                 # MemoryPort facade
   commands/                  # write/update/delete orchestration
   queries/                   # retrieval and ranking

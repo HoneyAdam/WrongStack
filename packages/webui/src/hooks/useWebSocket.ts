@@ -177,11 +177,11 @@ export function useWebSocket() {
   const saveSession = useCallback(() => client.saveSession(), [client]);
   const listTools = useCallback((options?: WSSendOptions) => client.listTools(options), [client]);
   const listMemory = useCallback((options?: WSSendOptions) => client.listMemory(options), [client]);
-  const listSuperMemories = useCallback(
-    (options?: WSSendOptions) => client.listSuperMemories(options),
+  const listSageMemories = useCallback(
+    (options?: WSSendOptions) => client.listSageMemories(options),
     [client],
   );
-  const listSuperMemoriesPage = useCallback(
+  const listSageMemoriesPage = useCallback(
     (
       params?: {
         statuses?: string[];
@@ -191,30 +191,30 @@ export function useWebSocket() {
         cursor?: string;
       },
       options?: WSSendOptions,
-    ) => client.listSuperMemoriesPage(params, options),
+    ) => client.listSageMemoriesPage(params, options),
     [client],
   );
-  const getSuperMemory = useCallback(
-    (id: string, options?: WSSendOptions) => client.getSuperMemory(id, options),
+  const getSage = useCallback(
+    (id: string, options?: WSSendOptions) => client.getSage(id, options),
     [client],
   );
-  const getSuperMemoryGraph = useCallback(
+  const getSageGraph = useCallback(
     (query: string, params?: { maxDepth?: number; limit?: number }, options?: WSSendOptions) =>
-      client.getSuperMemoryGraph(query, params, options),
+      client.getSageGraph(query, params, options),
     [client],
   );
-  const updateSuperMemory = useCallback(
+  const updateSage = useCallback(
     (id: string, patch: Record<string, unknown>, options?: WSSendOptions) =>
-      client.updateSuperMemory(id, patch, options),
+      client.updateSage(id, patch, options),
     [client],
   );
-  const deleteSuperMemory = useCallback(
-    (id: string, reason?: string) => client.deleteSuperMemory(id, reason),
+  const deleteSage = useCallback(
+    (id: string, reason?: string) => client.deleteSage(id, reason),
     [client],
   );
-  const rememberSuperMemory = useCallback(
-    (opts: Parameters<typeof client.rememberSuperMemory>[0], options?: WSSendOptions) =>
-      client.rememberSuperMemory(opts, options),
+  const rememberSage = useCallback(
+    (opts: Parameters<typeof client.rememberSage>[0], options?: WSSendOptions) =>
+      client.rememberSage(opts, options),
     [client],
   );
   const findMemoriesForFile = useCallback(
@@ -222,9 +222,9 @@ export function useWebSocket() {
       client.findMemoriesForFile(opts, options),
     [client],
   );
-  const recoverSuperMemory = useCallback(
-    (opts: Parameters<typeof client.recoverSuperMemory>[0], options?: WSSendOptions) =>
-      client.recoverSuperMemory(opts, options),
+  const recoverSage = useCallback(
+    (opts: Parameters<typeof client.recoverSage>[0], options?: WSSendOptions) =>
+      client.recoverSage(opts, options),
     [client],
   );
   const resolveMemoryCandidate = useCallback(
@@ -345,15 +345,15 @@ export function useWebSocket() {
     saveSession,
     listTools,
     listMemory,
-    listSuperMemories,
-    listSuperMemoriesPage,
-    getSuperMemory,
-    getSuperMemoryGraph,
-    updateSuperMemory,
-    deleteSuperMemory,
-    rememberSuperMemory,
+    listSageMemories,
+    listSageMemoriesPage,
+    getSage,
+    getSageGraph,
+    updateSage,
+    deleteSage,
+    rememberSage,
     findMemoriesForFile,
-    recoverSuperMemory,
+    recoverSage,
     resolveMemoryCandidate,
     backfillRecoverable,
     listSkills,

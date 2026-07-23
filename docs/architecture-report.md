@@ -34,7 +34,7 @@
     - [Kanban (packages/kanban)](#171-kanban)
     - [SDD — Spec-Driven Development (packages/sdd)](#172-sdd)
     - [Security Scanner (packages/security-scanner)](#173-security-scanner)
-    - [Super Memory (packages/super-memory)](#174-super-memory)
+    - [SAGE (packages/sage)](#174-sage)
     - [TechStack (packages/techstack)](#175-techstack)
     - [ACP — Agent Client Protocol (packages/acp)](#176-acp)
     - [Plug-LSP (packages/plug-lsp)](#177-plug-lsp)
@@ -103,7 +103,7 @@ packages/
   tools/            → 58 built-in tools (filesystem, shell, git, etc.)
   sdd/              → Spec-Driven Development engine
   security-scanner/ → Security scanning tooling
-  super-memory/     → SQLite-backed memory store
+  sage/     → SQLite-backed memory store
   mcp/              → MCP client (stdio, SSE, streamable HTTP transports)
   acp/              → Agent Client Protocol integration
   plug-lsp/         → LSP bridge + code intelligence
@@ -660,7 +660,7 @@ Each slash command handler receives a `CommandContext` with access to the contai
 - `metrics.ts` — observability wiring
 - `director-setup.ts` — director/fleet wiring
 - `sdd-handlers.ts` — SDD integration
-- `super-memory.ts` — memory backend wiring
+- `sage.ts` — memory backend wiring
 - `mailbox-bridge-bootstrap.ts` — mailbox bridge startup
 - `brain-and-orchestration.ts` — Brain/autonomy wiring
 
@@ -860,7 +860,7 @@ Standalone security scanning surface. Provides:
 - Report generator
 - Interactive slash-command for on-demand security scans
 
-### 17.4 Super Memory (`packages/super-memory`)
+### 17.4 SAGE (`packages/sage`)
 Project-local memory system:
 - SQLite-backed storage
 - Graph-ready anchors (file, symbol, command)
@@ -985,7 +985,7 @@ apps (wrongstack, desktop)
     ↓ depends on
 packages (tui, webui, webui-server, cli, plugins)  → product-facing
     ↓ depends on
-packages (providers, tools, sdd, security-scanner, super-memory, mcp, acp, plug-lsp, techstack, telegram, runtime, bench)  → domain packages
+packages (providers, tools, sdd, security-scanner, sage, mcp, acp, plug-lsp, techstack, telegram, runtime, bench)  → domain packages
     ↓ depends on
 packages/core  → THE KERNEL (container, pipeline, event bus, agent, coordination, storage)
     ↓ depends on
@@ -1020,7 +1020,7 @@ packages/kanban, packages/persistence  → lowest layer (no WrongStack dependenc
 - **Separate runs**: WebUI tests (jsdom environment), HQ dashboard tests
 - **E2E**: Playwright with full test suite for WebUI flows
 - Architecture boundary tests enforce package DAG
-- 470+ coverage enhancement tests (kanban 95%, techstack 84%, super-memory 82%, sdd 90%, plug-lsp 84%)
+- 470+ coverage enhancement tests (kanban 95%, techstack 84%, sage 82%, sdd 90%, plug-lsp 84%)
 
 ---
 

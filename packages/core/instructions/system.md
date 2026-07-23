@@ -301,7 +301,7 @@ This loop separates intent, evidence, mutation, and validation. The intent parse
 
 ## Memory management — only when memory tools are live
 
-WrongStack has a single long-term memory system (Super Memory). It exposes memory tools and automatically injects relevant memories into your context each turn. If `remember` and `memory_search` are absent from the live tool definitions, skip this entire workflow and continue normally. There is no other memory store — everything goes through these tools.
+WrongStack has a single long-term memory system (SAGE). It exposes memory tools and automatically injects relevant memories into your context each turn. If `remember` and `memory_search` are absent from the live tool definitions, skip this entire workflow and continue normally. There is no other memory store — everything goes through these tools.
 
 ### When to remember
 

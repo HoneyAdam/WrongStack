@@ -848,19 +848,16 @@ export type State = {
   };
   /**
    * In-app chat scroll state for the scrollable viewport.
-   *   scrollOffset    — rows scrolled up from the bottom; 0 = pinned to newest.
-   *   totalLines      — last measured content height (rows), from onMeasure.
-   *   viewportRows    — last computed viewport height (rows).
-   *   pendingNewLines — rows added while scrolled up; drives the "↓ N new" hint.
+   *   viewportRows    — last computed viewport height (rows); drives mouse
+   *                     hit-testing and the ScrollableHistory clip box.
+   *   historyScrolled — true while the managed viewport is scrolled away from
+   *                     the newest output (reported by ScrollableHistory).
+   * The scroll POSITION itself lives inside ScrollableHistory as an anchor
+   * (entry id + clipped rows); the app drives it through the imperative
+   * HistoryScrollController instead of reducer actions.
    */
-  scrollOffset: number;
-  totalLines: number;
   viewportRows: number;
-  pendingNewLines: number;
-  /** Entry count at the last `setMeasuredLines` dispatch. Used to distinguish
-   *  new-entry growth (offset follows) from re-measurement of existing
-   *  entries (offset stays). `undefined` before the first measurement. */
-  measuredEntryCount: number | undefined;
+  historyScrolled: boolean;
   /**
    * Live debug-stream telemetry rendered in StatusBar line 3 when
    * stream debugging is active. Updated every ~200 ms by the throttled
@@ -1408,18 +1405,9 @@ export type Action =
   | { type: 'worktreeRemove'; handleId: string }
   | { type: 'toggleWorktreeMonitor' }
   // --- In-app chat scroll ---
-  /** Scroll by `delta` rows: +up (older), -down (newer). Clamped. */
-  | { type: 'scrollBy'; delta: number }
-  | { type: 'scrollTo'; offset: number }
-  /** Scroll by a viewport page in `dir`. */
-  | { type: 'scrollPage'; dir: 'up' | 'down' }
-  /** Jump to the newest output (pinned). */
-  | { type: 'scrollToBottom' }
-  /** Jump to the oldest output. */
-  | { type: 'scrollToTop' }
-  /** Report the measured content height; re-clamps offset + tracks new lines. */
-  | { type: 'setMeasuredLines'; totalLines: number }
-  /** Report the computed viewport height; re-clamps offset. */
+  /** ScrollableHistory reports whether the viewport is scrolled up. */
+  | { type: 'setHistoryScrolled'; scrolled: boolean }
+  /** Report the computed viewport height. */
   | { type: 'setViewportRows'; rows: number }
   /**
    * Fold a batch of fleet/display actions through the reducer in ONE pass so

@@ -15,7 +15,7 @@ This report is retained as the before-state. Its actionable findings were closed
 - **CLI refactor:** the grouped `ExecuteDeps` contract is live; shared controller factories are wired into `main()`, the unsafe mutable `WireContext` prototype was removed, and the typed `toExecuteDeps()` boundary plus controllers have tests.
 - **Dependencies:** `jszip` was removed from runtime and replaced by a built-in, validated ZIP codec; WebUI HQ moved to Vite 8/plugin-react 6 and its Rolldown config was migrated; patch-level audit items were aligned.
 - **Build system + TypeScript 7:** all 19 `tsup` configurations were replaced by the centralized `scripts/build-package.mjs` driver (esbuild for JavaScript, native `tsc --emitDeclarationOnly` for types). The workspace now runs TypeScript 7.0.2. Runtime features that still need the legacy compiler API use the official `@typescript/typescript6` compatibility package, while project builds and typechecks use TypeScript 7.
-- **Security discovered during closure:** repo-controlled `superMemory.storage.directory` is now stripped from in-project config, and Super Memory independently rejects absolute or escaping storage paths.
+- **Security discovered during closure:** repo-controlled `Sage.storage.directory` is now stripped from in-project config, and Super Memory independently rejects absolute or escaping storage paths.
 
 Verification results are recorded in the final task handoff; the sections below describe the original snapshot and are intentionally not rewritten.
 
@@ -30,24 +30,24 @@ Verification results are recorded in the final task handoff; the sections below 
 | Remote divergence | `main` is ahead of `origin/main` — 6 unreachable local commits |
 | Longest untouched code area | `packages/core/src/kernel/` (~1670 lines, stable) |
 | Package count | 20 workspace packages + website |
-| Active development surfaces | CLI, super-memory, security, TUI, providers |
+| Active development surfaces | CLI, sage, security, TUI, providers |
 
 ---
 
 ## 2. Active Work Streams
 
-### 2.1 Super Memory (`packages/super-memory/`)
+### 2.1 Super Memory (`packages/sage/`)
 
 **Status:** Early implementation, ~60% of architecture plan done
 
 **Implemented:**
-- `SuperMemoryStore implements MemoryStore` — full legacy API bridge
+- `SageStore implements MemoryStore` — full legacy API bridge
 - JSONL storage with file-locked append, corrupt-line quarantine, atomic snapshot writes
 - Lexical/path/tag/kind indexes with JSON persistence
-- `createSuperMemoryToolCallMiddleware` — injects memory hints into tool results via `toolCall` pipeline (read/tree/grep/glob/codebase_search/bash/write/edit/patch triggers)
+- `createSageToolCallMiddleware` — injects memory hints into tool results via `toolCall` pipeline (read/tree/grep/glob/codebase_search/bash/write/edit/patch triggers)
 - In-memory cooldown to prevent repeat injection spam
 - Secret/credential rejection on `rememberSuper`
-- CLI wiring module (`packages/cli/src/wiring/super-memory.ts`) ready
+- CLI wiring module (`packages/cli/src/wiring/sage.ts`) ready
 
 **Still Missing (per architecture plan):**
 - Graph engine (`graph/edges.jsonl` + traversal)
@@ -189,7 +189,7 @@ pnpm lint           # style consistency
 | `packages/tui` | ~8 | Heavy (app.tsx rewrite) |
 | `packages/webui` | ~12 | Moderate |
 | `packages/providers` | ~6 | Moderate |
-| `packages/super-memory` | 9 new | All new |
+| `packages/sage` | 9 new | All new |
 | Other packages | ~30 | Light (version bumps) |
 | Docs | ~15 | Light |
 | Root config | ~4 | Light |
@@ -198,17 +198,17 @@ pnpm lint           # style consistency
 
 ```
 docs/plans/cli-main-executiondeps-refactor.md
-docs/plans/super-memory-architecture.md
+docs/plans/sage-architecture.md
 packages/acp/src/integration/run-one-acp-task.ts
 packages/cli/src/execute-deps.ts
 packages/cli/src/wiring/controllers.ts
-packages/cli/src/wiring/super-memory.ts
+packages/cli/src/wiring/sage.ts
 packages/cli/src/wiring/to-execute-deps.ts
 packages/cli/tests/hq-security-hardening.test.ts
 packages/core/src/security/config-secrets.ts
 packages/providers/src/github-copilot-token.ts
 packages/providers/src/openai-codex-account.ts
-packages/super-memory/
+packages/sage/
 packages/tools/src/_fetch-guard.ts
 packages/tools/src/_redact-command.ts
 packages/webui-server/src/server/provider-config-standalone.ts
@@ -234,10 +234,10 @@ techstack.md
 
 | File | Purpose |
 |------|---------|
-| `docs/plans/super-memory-architecture.md` | Super Memory design spec |
+| `docs/plans/sage-architecture.md` | Super Memory design spec |
 | `docs/plans/cli-main-executiondeps-refactor.md` | CLI refactor plan |
-| `packages/super-memory/src/store.ts` | Core store implementation |
-| `packages/super-memory/src/middleware/tool-call-memory.ts` | Pipeline auto-injection |
+| `packages/sage/src/store.ts` | Core store implementation |
+| `packages/sage/src/middleware/tool-call-memory.ts` | Pipeline auto-injection |
 | `packages/cli/src/execute-deps.ts` | New sub-interfaces |
 | `packages/cli/src/wiring/to-execute-deps.ts` | WireContext builder |
 | `packages/cli/src/cli-main.ts` | ~2400-line orchestrator — refactor target |

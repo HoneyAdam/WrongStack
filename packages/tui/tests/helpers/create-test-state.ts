@@ -215,10 +215,8 @@ export function createTestState(overrides: DeepPartial<State> & Record<string, u
     worktrees: {},
     worktreeMonitorOpen: false,
     coordinator: { goals: [], timeline: [], knowledgeCount: 0, monitorOpen: false, healthy: false },
-    scrollOffset: 0,
-    totalLines: 0,
     viewportRows: 0,
-    pendingNewLines: 0,
+    historyScrolled: false,
     debugStreamStats: null,
     countdown: null,
   };

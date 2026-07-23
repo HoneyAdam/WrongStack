@@ -57,6 +57,10 @@ export interface SubmitControllerHost {
     readonly enhanceCancelled: MutableCell<boolean>;
     readonly nextStepsTimer: MutableCell<ReturnType<typeof setInterval> | undefined>;
     readonly midRunSendPicker: MutableCell<boolean>;
+    /** Managed-history scroll surface; null until ScrollableHistory mounts. */
+    readonly historyScroll: MutableCell<
+      import('./components/scrollable-history.js').HistoryScrollController | null
+    >;
   };
   readonly actions: {
     dispatch(action: Action): void;
@@ -185,7 +189,7 @@ export function createSubmitController(host: SubmitControllerHost) {
     autoSubmitLoopGuardRef.current.reset();
     // Submitting anything snaps the managed viewport back to the newest output
     // (no-op when already pinned or outside mouse mode).
-    dispatch({ type: 'scrollToBottom' });
+    host.refs.historyScroll.current?.scrollToBottom();
     const pushSubmittedHistory = () => {
       const decision = shouldPushSubmittedHistory(trimmed);
       if (decision.push) {

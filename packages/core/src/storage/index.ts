@@ -35,7 +35,7 @@ export {
   SessionMemoryConsolidator,
   type MemoryConsolidatorOptions,
   type ConsolidationOp,
-  type ConsolidatorSuperMemory,
+  type ConsolidatorSage,
 } from './memory-consolidator.js';
 export { DefaultConfigStore } from './config-store.js';
 export {

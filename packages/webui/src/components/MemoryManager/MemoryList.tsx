@@ -3,13 +3,13 @@ import type { RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryEntry } from '@/types';
+import type { SageEntry } from '@/types';
 import { KIND_LABELS, kindClasses, memoryPreview, relativeDate, StatusBadge } from './shared';
 
 export interface MemoryListProps {
   memoryListRef: RefObject<HTMLDivElement | null>;
-  memories: SuperMemoryEntry[];
-  filteredMemories: SuperMemoryEntry[];
+  memories: SageEntry[];
+  filteredMemories: SageEntry[];
   selectedId: string | null;
   onSelectMemory: (id: string) => void;
   onOpenCreate: () => void;
@@ -141,7 +141,7 @@ function MemoryListEmpty({ hasMemories, onOpenCreate, onClearFilters }: MemoryLi
 }
 
 interface MemoryCardProps {
-  memory: SuperMemoryEntry;
+  memory: SageEntry;
   isSelected: boolean;
   onClick: () => void;
 }

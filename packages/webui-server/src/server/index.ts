@@ -186,17 +186,17 @@ export type { McpRouteHandlers } from './mcp-routes.js';
 export { handleMcpRoute } from './mcp-routes.js';
 export {
   handleMemoryList,
-  handleSuperMemoryBackfillRecoverable,
-  handleSuperMemoryCandidateResolve,
-  handleSuperMemoryDelete,
-  handleSuperMemoryForFile,
-  handleSuperMemoryGet,
-  handleSuperMemoryGraph,
-  handleSuperMemoryList,
-  handleSuperMemoryListPage,
-  handleSuperMemoryRecover,
-  handleSuperMemoryRemember,
-  handleSuperMemoryUpdate,
+  handleSageBackfillRecoverable,
+  handleSageCandidateResolve,
+  handleSageDelete,
+  handleSageForFile,
+  handleSageGet,
+  handleSageGraph,
+  handleSageList,
+  handleSageListPage,
+  handleSageRecover,
+  handleSageRemember,
+  handleSageUpdate,
 } from './memory-handlers.js';
 export { handleMemoryRoute, type MemoryRouteContext } from './memory-routes.js';
 export { createModeOperations, type ModeOperationsContext } from './mode-operations.js';

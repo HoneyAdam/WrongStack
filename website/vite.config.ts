@@ -197,19 +197,35 @@ function validateProductCatalog() {
   }
 
   const websitePluginBlock = sourceSection(runtimeCatalogSource, 'export const pluginCatalog');
+  // The runtime audit list is split: the CLI host contributes
+  // HOST_PLUGIN_AUDIT_ENTRIES and the plugins package owns
+  // OFFICIAL_PLUGIN_AUDIT_ENTRIES; PLUGIN_AUDIT_ENTRIES is now just the frozen
+  // concat of both, so parse the two source lists directly.
   const pluginManagementSource = fs.readFileSync(
     path.join(repoRoot, 'packages/cli/src/plugin-management.ts'),
     'utf8',
   );
-  const runtimePluginBlock = sourceSection(
+  const hostPluginBlock = sourceSection(
     pluginManagementSource,
-    'export const PLUGIN_AUDIT_ENTRIES',
-    '\n];',
+    'const HOST_PLUGIN_AUDIT_ENTRIES',
+    '\n] as const;',
+  );
+  const officialAuditSource = fs.readFileSync(
+    path.join(repoRoot, 'packages/plugins/src/audit/index.ts'),
+    'utf8',
+  );
+  const officialPluginBlock = sourceSection(
+    officialAuditSource,
+    'export const OFFICIAL_PLUGIN_AUDIT_ENTRIES',
+    '\n] as const;',
   );
   assertSameCatalog(
     'Managed plugin catalog',
     captures(websitePluginBlock, /(?:"name"|name):\s*['"]([^'"]+)['"]/g),
-    captures(runtimePluginBlock, /\bname:\s*'([^']+)'/g),
+    [
+      ...captures(hostPluginBlock, /\bname:\s*'([^']+)'/g),
+      ...captures(officialPluginBlock, /\bname:\s*'([^']+)'/g),
+    ],
   );
 
   // Slash-command catalog parity: every website command row should have a rich detail

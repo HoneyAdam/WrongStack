@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SuperMemoryEntry } from '../../src/types.js';
+import type { SageEntry } from '../../src/types.js';
 
 type Message = { type: string; payload: unknown };
 type Handler = (message: Message) => void;
@@ -19,12 +19,12 @@ const client = {
 
 const websocket = {
   client,
-  listSuperMemories: () => sends.push({ type: 'memory.super.list' }),
-  rememberSuperMemory: (payload: unknown) => sends.push({ type: 'memory.super.remember', payload }),
-  updateSuperMemory: (id: string, patch: unknown) =>
-    sends.push({ type: 'memory.super.update', payload: { id, ...(patch as object) } }),
-  deleteSuperMemory: (id: string, reason?: string) =>
-    sends.push({ type: 'memory.super.delete', payload: { id, reason } }),
+  listSageMemories: () => sends.push({ type: 'memory.sage.list' }),
+  rememberSage: (payload: unknown) => sends.push({ type: 'memory.sage.remember', payload }),
+  updateSage: (id: string, patch: unknown) =>
+    sends.push({ type: 'memory.sage.update', payload: { id, ...(patch as object) } }),
+  deleteSage: (id: string, reason?: string) =>
+    sends.push({ type: 'memory.sage.delete', payload: { id, reason } }),
 };
 
 vi.mock('@/hooks/useWebSocket', () => ({
@@ -33,7 +33,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
 
 import { AudienceMemoryPanel } from '../../src/components/AudienceMemoryPanel.js';
 
-const reviewerMemory: SuperMemoryEntry = {
+const reviewerMemory: SageEntry = {
   id: 'mem_reviewer',
   revision: 1,
   scope: 'project',
@@ -50,7 +50,7 @@ const reviewerMemory: SuperMemoryEntry = {
   updatedAt: '2026-07-16T08:00:00.000Z',
 };
 
-const teachingMemory: SuperMemoryEntry = {
+const teachingMemory: SageEntry = {
   ...reviewerMemory,
   id: 'mem_teaching',
   kind: 'convention',
@@ -59,7 +59,7 @@ const teachingMemory: SuperMemoryEntry = {
   audience: { taskTypes: ['documentation'], modes: ['teach'] },
 };
 
-const generalMemory: SuperMemoryEntry = {
+const generalMemory: SageEntry = {
   ...reviewerMemory,
   id: 'mem_general',
   text: 'This record is general project memory.',
@@ -74,8 +74,8 @@ function emit(type: string, payload: unknown) {
 
 async function loadPanel() {
   render(<AudienceMemoryPanel />);
-  expect(sends).toContainEqual({ type: 'memory.super.list' });
-  emit('memory.super.list', {
+  expect(sends).toContainEqual({ type: 'memory.sage.list' });
+  emit('memory.sage.list', {
     memories: [reviewerMemory, teachingMemory, generalMemory],
   });
   await screen.findByText(reviewerMemory.text);
@@ -120,7 +120,7 @@ describe('AudienceMemoryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remember' }));
 
     expect(sends).toContainEqual({
-      type: 'memory.super.remember',
+      type: 'memory.sage.remember',
       payload: {
         text: 'Never expose raw provider credentials in diagnostic output.',
         kind: 'warning',
@@ -157,7 +157,7 @@ describe('AudienceMemoryPanel', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Import memories' }));
 
-    const imports = sends.filter((message) => message.type === 'memory.super.remember');
+    const imports = sends.filter((message) => message.type === 'memory.sage.remember');
     expect(imports).toHaveLength(2);
     expect(imports[0]?.payload).toEqual({
       text: 'Prefer focused tests for review tasks.',
@@ -179,7 +179,7 @@ describe('AudienceMemoryPanel', () => {
       }),
     );
     expect(sends).toContainEqual({
-      type: 'memory.super.update',
+      type: 'memory.sage.update',
       payload: { id: reviewerMemory.id, audience: undefined },
     });
 
@@ -190,14 +190,14 @@ describe('AudienceMemoryPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete memory' }));
 
     expect(sends).toContainEqual({
-      type: 'memory.super.delete',
+      type: 'memory.sage.delete',
       payload: {
         id: teachingMemory.id,
         reason: 'Removed from the audience memory panel.',
       },
     });
 
-    emit('memory.super.delete', { success: true, message: 'Deleted.' });
+    emit('memory.sage.delete', { success: true, message: 'Deleted.' });
     await waitFor(() => expect(screen.queryByText(teachingMemory.text)).toBeNull());
   });
 });

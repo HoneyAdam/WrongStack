@@ -4,7 +4,7 @@
     { "type": "user_message", "payload": { "content": "hello" } },
     { "type": "files.read", "payload": { "filePath": "README.md" } },
     { "type": "goal.start", "payload": { "title": "Ship" } },
-    { "type": "memory.super.list", "payload": {} },
+    { "type": "memory.sage.list", "payload": {} },
     { "type": "mcp.list", "payload": {} },
     { "type": "collab.join", "payload": { "sessionId": "s1", "role": "observer" } },
     { "type": "kanban.meta", "payload": {} },

@@ -24,7 +24,7 @@
     "testsWithMultipleTypechecks": 0
   },
   "errors": [
-    "packages/super-memory/src/sqlite-store.ts: hotspot grew from 2569 to 2680 lines; review and update the ratchet in the same change",
+    "packages/sage/src/sqlite-store.ts: hotspot grew from 2569 to 2680 lines; review and update the ratchet in the same change",
     "packages/tools/src/codebase-index/writer.ts: hotspot shrunk from 1854 to 1831 lines; review and update the ratchet in the same change",
     "packages/tui/src/app.tsx: hotspot grew from 1462 to 1463 lines; review and update the ratchet in the same change",
     "packages/tui/src/components/history/code-block.tsx: hotspot grew from 1087 to 1109 lines; review and update the ratchet in the same change"
@@ -158,7 +158,7 @@
         "@wrongstack/sdd",
         "@wrongstack/security-scanner",
         "@wrongstack/simpleui",
-        "@wrongstack/super-memory",
+        "@wrongstack/sage",
         "@wrongstack/techstack",
         "@wrongstack/telegram",
         "@wrongstack/tools",
@@ -358,7 +358,7 @@
       "testFiles": 10,
       "workspaceDependencies": [
         "@wrongstack/core",
-        "@wrongstack/super-memory",
+        "@wrongstack/sage",
         "@wrongstack/tools"
       ],
       "tsconfigs": [
@@ -439,8 +439,8 @@
       ]
     },
     {
-      "name": "@wrongstack/super-memory",
-      "dir": "packages/super-memory",
+      "name": "@wrongstack/sage",
+      "dir": "packages/sage",
       "sourceFiles": 24,
       "testFiles": 29,
       "workspaceDependencies": [
@@ -448,12 +448,12 @@
       ],
       "tsconfigs": [
         {
-          "path": "packages/super-memory/tsconfig.json",
+          "path": "packages/sage/tsconfig.json",
           "error": null,
           "testFiles": 0
         },
         {
-          "path": "packages/super-memory/tsconfig.test.json",
+          "path": "packages/sage/tsconfig.test.json",
           "error": null,
           "testFiles": 29
         }
@@ -534,7 +534,7 @@
         "@wrongstack/kanban",
         "@wrongstack/runtime",
         "@wrongstack/sdd",
-        "@wrongstack/super-memory",
+        "@wrongstack/sage",
         "@wrongstack/tools"
       ],
       "tsconfigs": [
@@ -610,7 +610,7 @@
         "@wrongstack/providers",
         "@wrongstack/runtime",
         "@wrongstack/sdd",
-        "@wrongstack/super-memory",
+        "@wrongstack/sage",
         "@wrongstack/techstack",
         "@wrongstack/tools"
       ],
@@ -2595,7 +2595,7 @@
         ]
       },
       {
-        "file": "packages/cli/tests/super-memory-throttle.test.ts",
+        "file": "packages/cli/tests/sage-throttle.test.ts",
         "projects": [
           "root-node"
         ]
@@ -7173,175 +7173,175 @@
         ]
       },
       {
-        "file": "packages/super-memory/tests/advanced.test.ts",
+        "file": "packages/sage/tests/advanced.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/agent-anchor.test.ts",
+        "file": "packages/sage/tests/agent-anchor.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/audience-memory.test.ts",
+        "file": "packages/sage/tests/audience-memory.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/context-monitor.test.ts",
+        "file": "packages/sage/tests/context-monitor.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/coverage-gaps.test.ts",
+        "file": "packages/sage/tests/coverage-gaps.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/deep-cover.test.ts",
+        "file": "packages/sage/tests/deep-cover.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/edge-cases.test.ts",
+        "file": "packages/sage/tests/edge-cases.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/feedback-counters.test.ts",
+        "file": "packages/sage/tests/feedback-counters.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/final-edge.test.ts",
+        "file": "packages/sage/tests/final-edge.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/finish-line.test.ts",
+        "file": "packages/sage/tests/finish-line.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/format.test.ts",
+        "file": "packages/sage/tests/format.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/graph.test.ts",
+        "file": "packages/sage/tests/graph.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/jsonl.test.ts",
+        "file": "packages/sage/tests/jsonl.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/last-mile.test.ts",
+        "file": "packages/sage/tests/last-mile.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/memory-injector-agent.test.ts",
+        "file": "packages/sage/tests/memory-injector-agent.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/memory-port.test.ts",
+        "file": "packages/sage/tests/memory-port.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/memory-tools.test.ts",
+        "file": "packages/sage/tests/memory-tools.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/paths.test.ts",
+        "file": "packages/sage/tests/paths.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/relevance-scoring.test.ts",
+        "file": "packages/sage/tests/relevance-scoring.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/simhash.test.ts",
+        "file": "packages/sage/tests/simhash.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/sqlite-availability.test.ts",
+        "file": "packages/sage/tests/sqlite-availability.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/sqlite-store.test.ts",
+        "file": "packages/sage/tests/sqlite-store.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/store-extra.test.ts",
+        "file": "packages/sage/tests/store-extra.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/store.test.ts",
+        "file": "packages/sage/tests/store.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/tool-call-memory.test.ts",
+        "file": "packages/sage/tests/tool-call-memory.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/turn-memory.test.ts",
+        "file": "packages/sage/tests/turn-memory.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/types.test.ts",
+        "file": "packages/sage/tests/types.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/verify.test.ts",
+        "file": "packages/sage/tests/verify.test.ts",
         "projects": [
           "root-node"
         ]
       },
       {
-        "file": "packages/super-memory/tests/very-last.test.ts",
+        "file": "packages/sage/tests/very-last.test.ts",
         "projects": [
           "root-node"
         ]
@@ -12124,17 +12124,17 @@
       "relativeImports": 44
     },
     {
-      "file": "packages/super-memory/src/middleware/tool-call-memory.ts",
+      "file": "packages/sage/src/middleware/tool-call-memory.ts",
       "lines": 891,
       "relativeImports": 6
     },
     {
-      "file": "packages/super-memory/src/sqlite-store.ts",
+      "file": "packages/sage/src/sqlite-store.ts",
       "lines": 2680,
       "relativeImports": 5
     },
     {
-      "file": "packages/super-memory/src/store.ts",
+      "file": "packages/sage/src/store.ts",
       "lines": 3793,
       "relativeImports": 7
     },
@@ -12401,7 +12401,7 @@
   ],
   "hotspots": [
     {
-      "file": "packages/super-memory/src/store.ts",
+      "file": "packages/sage/src/store.ts",
       "lines": 3793,
       "relativeImports": 7
     },
@@ -12411,7 +12411,7 @@
       "relativeImports": 0
     },
     {
-      "file": "packages/super-memory/src/sqlite-store.ts",
+      "file": "packages/sage/src/sqlite-store.ts",
       "lines": 2680,
       "relativeImports": 5
     },

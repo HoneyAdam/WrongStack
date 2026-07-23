@@ -39,7 +39,7 @@
     "@wrongstack/persistence": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
-    "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/sage": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "ink": "7.1.1",
     "react": "^19.2.7"

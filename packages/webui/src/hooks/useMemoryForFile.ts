@@ -1,7 +1,7 @@
 /**
  * useMemoryForFile — file-drawer hook.
  *
- * Subscribes to `memory.super.forFile` responses and exposes the latest
+ * Subscribes to `memory.sage.forFile` responses and exposes the latest
  * file-scoped memory matches for the drawer UI. Read-only: opening a file
  * must never mutate the memory store (PR #4 contract).
  *
@@ -115,7 +115,7 @@ export function useMemoryForFile(options: UseMemoryForFileOptions): UseMemoryFor
     // can't cross-wire into this hook's state.
     const requestedFilePath = filePath;
 
-    const unsubscribe = client.on('memory.super.forFile', (message) => {
+    const unsubscribe = client.on('memory.sage.forFile', (message) => {
       if (seq !== requestSeq.current) return; // stale (re-fired)
       const response = message.payload.response;
       // Cross-instance guard: even if our seq is current, a response for

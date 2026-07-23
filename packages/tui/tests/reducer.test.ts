@@ -128,7 +128,7 @@ export function initial(over: Partial<State> = {}): State {
     exitConfirm: null, slashConfirm: null, escConfirm: null, clearConfirm: null,
     goalKanbanPanelOpen: false, goalKanbanBoard: null,
     sddBoardMonitorOpen: false,
-    scrollOffset: 0, pendingNewLines: 0, totalLines: 0, viewportRows: 24,
+    viewportRows: 24, historyScrolled: false,
     ...over,
   };
   return state as unknown as State;

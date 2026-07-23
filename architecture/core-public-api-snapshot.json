@@ -384,7 +384,7 @@
         "export { createToolOutputSerializer, type ToolOutputSerializerOptions, } from './tool-output-serializer.js';",
         "export { deriveCachePrefixKey } from './cache-key.js';",
         "export { expandGlob } from './glob-expand.js';",
-        "export { getPerfProfile, indexParallelBatchSize, isFrugalPerf, type PerfProfile, sqliteCachePragmas, superMemoryCachePragmas, tuiStreamFlushMs, } from './perf-profile.js';",
+        "export { getPerfProfile, indexParallelBatchSize, isFrugalPerf, type PerfProfile, sqliteCachePragmas, SageCachePragmas, tuiStreamFlushMs, } from './perf-profile.js';",
         "export { hasMeaningfulContent, type MessageRepairReport, type MessageRepairResult, repairToolUseAdjacency, } from './message-invariants.js';",
         "export { isPidAlive } from './pid.js';",
         "export { isUlid, ulid } from './ulid.js';",
@@ -639,7 +639,7 @@
         "export { ReplayLogStore, type ReplayEntry, type ReplayLogStoreOptions, } from './replay-log-store.js';",
         "export { SessionAnalyzer } from './session-analyzer.js';",
         "export { SessionCheckpointCas, type CheckpointGitResult, type SessionCheckpointCasOptions, } from './session-checkpoint-cas.js';",
-        "export { SessionMemoryConsolidator, type MemoryConsolidatorOptions, type ConsolidationOp, type ConsolidatorSuperMemory, } from './memory-consolidator.js';",
+        "export { SessionMemoryConsolidator, type MemoryConsolidatorOptions, type ConsolidationOp, type ConsolidatorSage, } from './memory-consolidator.js';",
         "export { SessionRecovery, type StaleSession, type RecoveryPlan, } from './session-recovery.js';",
         "export { SessionRegistry, getSessionRegistry, hasSessionRegistry, type SessionRegistryEntry, type AgentEntry, type AgentLiveStatus, type SessionLiveStatus, } from '../session-registry.js';",
         "export { ToolAuditLog, type AuditEntry, type ToolAuditLogOptions, type VerifyResult, } from './tool-audit-log.js';",
@@ -1107,7 +1107,7 @@
       "classification": "storage/repository implementation",
       "intendedOwner": "repositories over dependency-free persistence",
       "sourceFiles": 43,
-      "sourceLines": 14829
+      "sourceLines": 14854
     },
     {
       "directory": "tasking",

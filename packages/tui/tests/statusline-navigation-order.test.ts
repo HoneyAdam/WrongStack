@@ -125,7 +125,7 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
       'tokens',
       'todos',
       'tools',
-      'super_memory',
+      'sage',
       'version',
       'working_dir',
       'yolo',

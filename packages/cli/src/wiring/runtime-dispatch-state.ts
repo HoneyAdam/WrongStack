@@ -9,16 +9,16 @@ import type { PluginPickerItem, ToolPickerItem } from '../execute-deps.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from '../plugin-management.js';
 import { patchConfig } from '../utils.js';
 import { setupCodebaseIndexing } from './codebase-index.js';
-import { setupSuperMemory } from './super-memory.js';
+import { setupSage } from './sage.js';
 
 export interface RuntimeDispatchStateInput {
   getConfig: () => Config;
   setConfig: (config: Config) => void;
   configStore: ConfigStore;
   profileConfigPath: string;
-  pipelines: Parameters<typeof setupSuperMemory>[0]['pipelines'];
+  pipelines: Parameters<typeof setupSage>[0]['pipelines'];
   memoryStore: MemoryPort;
-  logger: Parameters<typeof setupSuperMemory>[0]['logger'];
+  logger: Parameters<typeof setupSage>[0]['logger'];
   events: EventBus;
   agent: Agent;
   context: Context;
@@ -29,7 +29,7 @@ export interface RuntimeDispatchStateInput {
 }
 
 export async function prepareRuntimeDispatch(input: RuntimeDispatchStateInput) {
-  const runSuperMemorySessionHygiene = setupSuperMemory({
+  const runSageSessionHygiene = setupSage({
     config: input.getConfig(),
     pipelines: input.pipelines,
     memoryStore: input.memoryStore,
@@ -110,5 +110,5 @@ export async function prepareRuntimeDispatch(input: RuntimeDispatchStateInput) {
     }
   }
 
-  return { runSuperMemorySessionHygiene, getPluginItems, togglePlugin, getToolItems };
+  return { runSageSessionHygiene, getPluginItems, togglePlugin, getToolItems };
 }

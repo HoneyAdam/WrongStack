@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ToolRegistry } from '@wrongstack/core/registry';
-import { isSqliteAvailable, SqliteMemoryPort } from '@wrongstack/super-memory';
+import { isSqliteAvailable, SqliteMemoryPort } from '@wrongstack/sage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerCanonicalHostTools } from '../src/tool-registration.js';
 
@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 describe('registerCanonicalHostTools with real SqliteMemoryPort', () => {
-  it('registers and executes the Super Memory remember tool end-to-end', async () => {
+  it('registers and executes the SAGE remember tool end-to-end', async () => {
     const registry = new ToolRegistry();
     const result = registerCanonicalHostTools({
       registry,
@@ -39,7 +39,7 @@ describe('registerCanonicalHostTools with real SqliteMemoryPort', () => {
 
     // The SQLite store now satisfies the full MemoryStore contract via the
     // compatibility adapter, so the safe legacy guard should register the
-    // legacy `remember` tool (no SuperMemoryServiceLike claim).
+    // legacy `remember` tool (no SageServiceLike claim).
     expect(result.memoryBackend).toBe('legacy');
     const rememberTool = registry.get('remember');
     expect(rememberTool).toBeDefined();
@@ -65,6 +65,6 @@ describe('registerCanonicalHostTools with real SqliteMemoryPort', () => {
     expect(list.find((entry) => entry.text.startsWith('Always verify'))?.type).toBe('convention');
 
     // The original failure mode (TypeError) cannot recur because the
-    // contract adapter routes the call into rememberSuper.
+    // contract adapter routes the call into rememberSage.
   });
 });

@@ -780,10 +780,10 @@ export interface FeaturesConfig {
   mailboxBridge?: 'auto' | 'off' | undefined;
 }
 
-export interface SuperMemoryConfig {
+export interface SageConfig {
   /**
-   * Default: true. Super Memory is the ONLY memory backend — this flag no longer
-   * swaps the store. When `false`, the backend is still Super Memory (explicit
+   * Default: true. SAGE is the ONLY memory backend — this flag no longer
+   * swaps the store. When `false`, the backend is still SAGE (explicit
    * `/memory`, agent memory tools, and WebUI all keep working); only automatic
    * context injection and session-end hygiene are turned off.
    */
@@ -1728,7 +1728,7 @@ export interface Config {
   log: LogConfig;
   features: FeaturesConfig;
   /** Project-local structured memory, graph-ready anchors, retrieval, and hygiene. */
-  superMemory?: SuperMemoryConfig | undefined;
+  Sage?: SageConfig | undefined;
   /** Skill subsystem options (readClaudeSkills / mode / extraDirs). */
   skills?: SkillsConfig | undefined;
   yolo?: boolean | undefined;

@@ -60,7 +60,8 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
     activity,
     environment,
     viewState,
-    onMeasure,
+    historyScrollRef,
+    onScrollInfo,
     bottomRegionRef,
     stableOnKey,
     liveTodos,
@@ -102,9 +103,9 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
         <ScrollableHistory
           entries={state.entries}
           toolStream={state.toolStream}
-          scrollOffset={state.scrollOffset}
           viewportRows={state.viewportRows}
-          onMeasure={onMeasure}
+          controllerRef={historyScrollRef}
+          onScrollInfo={onScrollInfo}
           setSuggestions={setSuggestions}
           autonomyMode={autonomyLive}
           multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}

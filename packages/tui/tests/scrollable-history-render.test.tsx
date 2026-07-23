@@ -1,10 +1,11 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
-import { ScrollableHistory } from '../src/components/scrollable-history.js';
 import {
-  type HistoryEntry,
-  toolStreamBoxHeight,
-} from '../src/components/history.js';
+  type HistoryScrollController,
+  ScrollableHistory,
+} from '../src/components/scrollable-history.js';
+import { type HistoryEntry } from '../src/components/history.js';
+import { renderRealTty, settle } from './helpers/real-tty.js';
 
 const entries: HistoryEntry[] = Array.from({ length: 50 }, (_, index) => ({
   id: index + 1,
@@ -23,13 +24,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       cwd: '/workspace/wrongstack',
     };
     const view = render(
-      <ScrollableHistory
-        entries={[banner]}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={1}
-        onMeasure={() => {}}
-      />,
+      <ScrollableHistory entries={[banner]} toolStream={null} viewportRows={1} />,
     );
 
     const frame = view.lastFrame() ?? '';
@@ -38,26 +33,26 @@ describe('<ScrollableHistory /> content navigation', () => {
     view.unmount();
   });
 
-  it('changes the rendered history slice when scrollOffset changes', () => {
-    const history = (scrollOffset: number) => (
+  it('changes the rendered history slice through the scroll controller', async () => {
+    const controllerRef = { current: null as HistoryScrollController | null };
+    const view = renderRealTty(
       <ScrollableHistory
         entries={entries}
         toolStream={null}
-        scrollOffset={scrollOffset}
         viewportRows={8}
-        onMeasure={() => {}}
-      />
+        controllerRef={controllerRef}
+      />,
+      { columns: 60, rows: 10 },
     );
+    await settle();
 
-    const view = render(history(0));
-    // First layout populates the height cache; rerender enters virtual mode.
-    view.rerender(history(0));
-    const newest = view.lastFrame() ?? '';
+    const newest = view.lastFrame();
     expect(newest).toContain('history-entry-50');
     expect(newest).not.toContain('history-entry-01');
 
-    view.rerender(history(10_000));
-    const oldest = view.lastFrame() ?? '';
+    controllerRef.current?.scrollToTop();
+    await settle();
+    const oldest = view.lastFrame();
     expect(oldest).toContain('history-entry-01');
     expect(oldest).not.toContain('history-entry-50');
     view.unmount();
@@ -65,13 +60,7 @@ describe('<ScrollableHistory /> content navigation', () => {
 
   it('virtualizes a long transcript on the first frame', () => {
     const view = render(
-      <ScrollableHistory
-        entries={entries}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={8}
-        onMeasure={() => {}}
-      />,
+      <ScrollableHistory entries={entries} toolStream={null} viewportRows={8} />,
     );
 
     const frame = view.lastFrame() ?? '';
@@ -91,9 +80,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       <ScrollableHistory
         entries={[assistant]}
         toolStream={null}
-        scrollOffset={0}
         viewportRows={8}
-        onMeasure={() => {}}
         maxWidth={40}
       />,
     );
@@ -122,9 +109,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       <ScrollableHistory
         entries={replaceEntries}
         toolStream={null}
-        scrollOffset={0}
         viewportRows={60}
-        onMeasure={() => {}}
         multiDiffSummaryThreshold={0}
       />,
     );
@@ -151,13 +136,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       }),
     }));
     const view = render(
-      <ScrollableHistory
-        entries={editEntries}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={60}
-        onMeasure={() => {}}
-      />,
+      <ScrollableHistory entries={editEntries} toolStream={null} viewportRows={60} />,
     );
 
     const frame = view.lastFrame() ?? '';
@@ -166,9 +145,9 @@ describe('<ScrollableHistory /> content navigation', () => {
     view.unmount();
   });
 
-  it('keeps the fixed tool tail in the shared range while scrolled up', () => {
-    const measurements: number[] = [];
-    const history = (toolText: string, scrollOffset: number) => (
+  it('keeps the live tool tail visible while pinned and hides it past the window', async () => {
+    const controllerRef = { current: null as HistoryScrollController | null };
+    const history = (toolText: string) => (
       <ScrollableHistory
         entries={entries}
         toolStream={
@@ -176,22 +155,28 @@ describe('<ScrollableHistory /> content navigation', () => {
             ? { toolUseId: 'read-1', name: 'read', text: toolText, startedAt: Date.now() }
             : null
         }
-        scrollOffset={scrollOffset}
         viewportRows={20}
-        onMeasure={(lines) => measurements.push(lines)}
+        controllerRef={controllerRef}
       />
     );
 
-    const offsetWithinToolTail = 1;
-    const view = render(history('', offsetWithinToolTail));
-    view.rerender(history('', offsetWithinToolTail));
-    const entryLines = measurements.at(-1) ?? 0;
-    view.rerender(history('live read output', offsetWithinToolTail));
+    const view = renderRealTty(history(''), { columns: 60, rows: 22 });
+    await settle();
+    view.rerender(history('live read output'));
+    await settle();
 
-    expect(measurements.at(-1)).toBe(entryLines + toolStreamBoxHeight('read'));
-    const frame = view.lastFrame() ?? '';
-    expect(frame).toContain('live read output');
-    expect(frame).toContain('history-entry-50');
+    // Pinned: the live tail renders at the bottom of the scroll space,
+    // together with the newest committed entry above it.
+    const pinned = view.lastFrame();
+    expect(pinned).toContain('live read output');
+    expect(pinned).toContain('history-entry-50');
+
+    // Far away from the bottom, the tail's window is no longer mounted.
+    controllerRef.current?.scrollToTop();
+    await settle();
+    const scrolled = view.lastFrame();
+    expect(scrolled).toContain('history-entry-01');
+    expect(scrolled).not.toContain('live read output');
     view.unmount();
   });
 
@@ -205,13 +190,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       input: { path: `src/file-${index + 1}.ts` },
     }));
     const view = render(
-      <ScrollableHistory
-        entries={readEntries}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={12}
-        onMeasure={() => {}}
-      />,
+      <ScrollableHistory entries={readEntries} toolStream={null} viewportRows={12} />,
     );
 
     const frame = view.lastFrame() ?? '';
@@ -233,13 +212,7 @@ describe('<ScrollableHistory /> content navigation', () => {
       input: { path: `bounded-file-${String(index + 1).padStart(2, '0')}.ts` },
     }));
     const view = render(
-      <ScrollableHistory
-        entries={toolEntries}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={8}
-        onMeasure={() => {}}
-      />,
+      <ScrollableHistory entries={toolEntries} toolStream={null} viewportRows={8} />,
     );
 
     const frame = view.lastFrame() ?? '';
@@ -250,7 +223,8 @@ describe('<ScrollableHistory /> content navigation', () => {
     view.unmount();
   });
 
-  it('scrolls a consecutive tool group using its rendered height', () => {
+  it('scrolls a consecutive tool group using its rendered height', async () => {
+    const controllerRef = { current: null as HistoryScrollController | null };
     const toolEntries: HistoryEntry[] = Array.from({ length: 50 }, (_, index) => ({
       id: index + 1,
       kind: 'tool',
@@ -259,24 +233,24 @@ describe('<ScrollableHistory /> content navigation', () => {
       ok: true,
       input: { path: `group-file-${String(index + 1).padStart(2, '0')}.ts` },
     }));
-    const history = (scrollOffset: number) => (
+    const view = renderRealTty(
       <ScrollableHistory
         entries={toolEntries}
         toolStream={null}
-        scrollOffset={scrollOffset}
         viewportRows={8}
-        onMeasure={() => {}}
-      />
+        controllerRef={controllerRef}
+      />,
+      { columns: 60, rows: 10 },
     );
+    await settle();
 
-    const view = render(history(0));
-    view.rerender(history(0));
-    const newest = view.lastFrame() ?? '';
+    const newest = view.lastFrame();
     expect(newest).toContain('group-file-50.ts');
     expect(newest).not.toContain('group-file-01.ts');
 
-    view.rerender(history(10_000));
-    const oldest = view.lastFrame() ?? '';
+    controllerRef.current?.scrollToTop();
+    await settle();
+    const oldest = view.lastFrame();
     expect(oldest).toContain('group-file-01.ts');
     expect(oldest).not.toContain('group-file-50.ts');
     view.unmount();

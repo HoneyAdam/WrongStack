@@ -1,15 +1,15 @@
 import type { MemoryCapability, MemoryEntry, MemoryPort, MemoryScope, MemoryStore } from '@wrongstack/core/types';
 import {
   LegacyMemoryPortAdapter,
-  SUPER_MEMORY_SURFACE_CAPABILITY,
-  type SuperMemorySurface,
-} from '@wrongstack/super-memory';
+  SAGE_SURFACE_CAPABILITY,
+  type SageSurface,
+} from '@wrongstack/sage';
 import { describe, expect, it, vi } from 'vitest';
 import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-slash.js';
 
 /**
  * Build a fake MemoryStore backed by a mutable array per scope.
- * This does NOT implement `stats`, `listSuper`, or `retrieveForPath`,
+ * This does NOT implement `stats`, `listSage`, or `retrieveForPath`,
  * so the command takes the legacy path.
  */
 function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): MemoryPort {
@@ -32,10 +32,10 @@ function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): 
 }
 
 /**
- * Build a fake SuperMemory store. Implements `stats`, `listSuper`, and
- * `retrieveForPath` so the command takes the supermemory path.
+ * Build a fake Sage store. Implements `stats`, `listSage`, and
+ * `retrieveForPath` so the command takes the Sage path.
  */
-function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
+function fakeSageStore(memories: SageTestEntry[]) {
   const port = {
     list: async () => [],
     readAll: async () => '',
@@ -47,12 +47,12 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     search: async () => [],
     withTraceId: () => port,
     initialize: async () => {},
-    health: async () => ({ status: 'ready' as const, backend: 'test-super-memory' }),
+    health: async () => ({ status: 'ready' as const, backend: 'test-sage' }),
     dispose: async () => {},
     getCapability: <T>(capability: MemoryCapability<T>): T | undefined =>
-      capability.id === SUPER_MEMORY_SURFACE_CAPABILITY.id ? (port as unknown as T) : undefined,
+      capability.id === SAGE_SURFACE_CAPABILITY.id ? (port as unknown as T) : undefined,
 
-    // ── SuperMemory duck-type methods ──
+    // ── Sage duck-type methods ──
     stats: async () => {
       const total = memories.length;
       const byStatus: Record<string, number> = {
@@ -70,12 +70,12 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
       }
       return { total, byStatus, byKind, edges: 3 };
     },
-    listSuper: async () => memories.map(superEntry),
+    listSage: async () => memories.map(sageEntry),
     retrieveForPath: async (opts: { path: string }) =>
-      memories.filter((m) => m.anchors?.some((a) => a.path?.includes(opts.path))).map(superEntry),
-    searchSuper: async () => [],
-    rememberSuper: async (input: { text: string }) =>
-      superEntry({
+      memories.filter((m) => m.anchors?.some((a) => a.path?.includes(opts.path))).map(sageEntry),
+    searchSage: async () => [],
+    rememberSage: async (input: { text: string }) =>
+      sageEntry({
         id: 'mem_new',
         kind: 'fact',
         status: 'active',
@@ -83,8 +83,8 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
         tags: [],
         createdAt: new Date('2026-07-14T12:00:00Z').toISOString(),
       }),
-    updateSuperMemory: async (id: string) =>
-      superEntry({
+    updateSage: async (id: string) =>
+      sageEntry({
         id,
         kind: 'fact',
         status: 'active',
@@ -92,9 +92,9 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
         tags: [],
         createdAt: new Date('2026-07-14T12:00:00Z').toISOString(),
       }),
-    deleteSuperMemory: async () => {},
-    getSuperMemory: async (id: string) =>
-      superEntry({
+    deleteSage: async () => {},
+    getSage: async (id: string) =>
+      sageEntry({
         id,
         kind: 'fact',
         status: 'active',
@@ -104,10 +104,10 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
       }),
     graphFor: async () => [],
   };
-  return port as typeof port & MemoryPort & SuperMemorySurface;
+  return port as typeof port & MemoryPort & SageSurface;
 }
 
-interface SuperMemoryTestEntry {
+interface SageTestEntry {
   id: string;
   kind: string;
   status: string;
@@ -117,7 +117,7 @@ interface SuperMemoryTestEntry {
   anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
 }
 
-function superEntry(e: SuperMemoryTestEntry) {
+function sageEntry(e: SageTestEntry) {
   return {
     id: e.id,
     kind: e.kind,
@@ -158,7 +158,7 @@ describe('/memory slash command', () => {
       const cmd = createMemorySlashCommand(deps);
       const out = await run(cmd);
       expect(out).toContain('No memory entries found');
-      expect(out).toContain('Super Memory');
+      expect(out).toContain('SAGE');
     });
 
     it('lists entries from project-memory in rich format', async () => {
@@ -180,7 +180,7 @@ describe('/memory slash command', () => {
       expect(out).toContain('decision');
       expect(out).toContain('high');
       // Migration hint
-      expect(out).toContain('Super Memory');
+      expect(out).toContain('SAGE');
       // Entry content
       expect(out).toContain('A key design decision');
       // Footer
@@ -325,10 +325,10 @@ describe('/memory slash command', () => {
     });
   });
 
-  // ── SuperMemory path ────────────────────────────────────────────────────
+  // ── Sage path ────────────────────────────────────────────────────
 
-  describe('super memory store', () => {
-    const fixtMemories: SuperMemoryTestEntry[] = [
+  describe('SAGE store', () => {
+    const fixtMemories: SageTestEntry[] = [
       {
         id: 'mem_001',
         kind: 'decision',
@@ -356,12 +356,12 @@ describe('/memory slash command', () => {
       },
     ];
 
-    it('shows supermemory stats panel', async () => {
-      const store = fakeSuperMemoryStore(fixtMemories);
+    it('shows Sage stats panel', async () => {
+      const store = fakeSageStore(fixtMemories);
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd);
       // Stats panel
-      expect(out).toContain('Super Memory');
+      expect(out).toContain('SAGE');
       expect(out).toContain('3 memories');
       expect(out).toContain('active');
       expect(out).toContain('stale');
@@ -380,7 +380,7 @@ describe('/memory slash command', () => {
     });
 
     it('filters by tag', async () => {
-      const store = fakeSuperMemoryStore(fixtMemories);
+      const store = fakeSageStore(fixtMemories);
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd, '--tag esm');
       expect(out).toContain('ESM-only modules');
@@ -389,7 +389,7 @@ describe('/memory slash command', () => {
     });
 
     it('filters by path', async () => {
-      const store = fakeSuperMemoryStore(fixtMemories);
+      const store = fakeSageStore(fixtMemories);
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd, '--path src/config.ts');
       expect(out).toContain('ESM-only modules');
@@ -398,7 +398,7 @@ describe('/memory slash command', () => {
     });
 
     it('shows compact table format with --compact', async () => {
-      const store = fakeSuperMemoryStore(fixtMemories);
+      const store = fakeSageStore(fixtMemories);
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd, '--compact');
       expect(out).toContain('mem_001');
@@ -407,7 +407,7 @@ describe('/memory slash command', () => {
     });
 
     it('shows persisted graph edge evidence', async () => {
-      const store = fakeSuperMemoryStore(fixtMemories);
+      const store = fakeSageStore(fixtMemories);
       const graphFor = vi.fn(async () => [
         {
           from: 'mem:mem_001',
@@ -428,15 +428,15 @@ describe('/memory slash command', () => {
     });
 
     it('returns empty message when no super memories exist', async () => {
-      const store = fakeSuperMemoryStore([]);
+      const store = fakeSageStore([]);
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd);
-      expect(out).toContain('Super Memory is empty');
+      expect(out).toContain('SAGE is empty');
     });
 
-    it('remember subcommand forwards structured flags to rememberSuper', async () => {
-      const store = fakeSuperMemoryStore([]);
-      const rememberSuper = vi.fn(async (input: { text: string }) => ({
+    it('remember subcommand forwards structured flags to rememberSage', async () => {
+      const store = fakeSageStore([]);
+      const rememberSage = vi.fn(async (input: { text: string }) => ({
         id: 'mem_new',
         kind: 'convention',
         status: 'active',
@@ -449,13 +449,13 @@ describe('/memory slash command', () => {
         anchors: [],
         sources: [],
       }));
-      (store as unknown as { rememberSuper: typeof rememberSuper }).rememberSuper = rememberSuper;
+      (store as unknown as { rememberSage: typeof rememberSage }).rememberSage = rememberSage;
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(
         cmd,
         'remember Project uses pnpm --kind convention --tag pnpm --importance 0.9',
       );
-      expect(rememberSuper).toHaveBeenCalledWith(
+      expect(rememberSage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: 'Project uses pnpm',
           kind: 'convention',
@@ -467,8 +467,8 @@ describe('/memory slash command', () => {
     });
 
     it('update and delete subcommands dispatch by id', async () => {
-      const store = fakeSuperMemoryStore([]);
-      const updateSuperMemory = vi.fn(async (id: string) => ({
+      const store = fakeSageStore([]);
+      const updateSage = vi.fn(async (id: string) => ({
         id,
         kind: 'fact',
         status: 'archived',
@@ -481,33 +481,33 @@ describe('/memory slash command', () => {
         anchors: [],
         sources: [],
       }));
-      const deleteSuperMemory = vi.fn(async () => {});
-      (store as unknown as { updateSuperMemory: typeof updateSuperMemory }).updateSuperMemory =
-        updateSuperMemory;
-      (store as unknown as { deleteSuperMemory: typeof deleteSuperMemory }).deleteSuperMemory =
-        deleteSuperMemory;
+      const deleteSage = vi.fn(async () => {});
+      (store as unknown as { updateSage: typeof updateSage }).updateSage =
+        updateSage;
+      (store as unknown as { deleteSage: typeof deleteSage }).deleteSage =
+        deleteSage;
       const cmd = createMemorySlashCommand({ memoryStore: store });
 
       await run(cmd, 'update mem_123 --status archived');
-      expect(updateSuperMemory).toHaveBeenCalledWith('mem_123', { status: 'archived' });
+      expect(updateSage).toHaveBeenCalledWith('mem_123', { status: 'archived' });
 
       const out = await run(cmd, 'delete mem_123 obsolete');
-      expect(deleteSuperMemory).toHaveBeenCalledWith('mem_123', 'obsolete');
+      expect(deleteSage).toHaveBeenCalledWith('mem_123', 'obsolete');
       expect(out).toContain('Deleted');
     });
 
-    it('rejects an invalid --kind without calling rememberSuper', async () => {
-      const store = fakeSuperMemoryStore([]);
-      const rememberSuper = vi.fn();
-      (store as unknown as { rememberSuper: typeof rememberSuper }).rememberSuper = rememberSuper;
+    it('rejects an invalid --kind without calling rememberSage', async () => {
+      const store = fakeSageStore([]);
+      const rememberSage = vi.fn();
+      (store as unknown as { rememberSage: typeof rememberSage }).rememberSage = rememberSage;
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd, 'remember hello --kind bogus');
       expect(out).toContain('--kind must be one of');
-      expect(rememberSuper).not.toHaveBeenCalled();
+      expect(rememberSage).not.toHaveBeenCalled();
     });
 
-    it('handles supermemory store errors gracefully', async () => {
-      const brokenStore = fakeSuperMemoryStore([]);
+    it('handles Sage store errors gracefully', async () => {
+      const brokenStore = fakeSageStore([]);
       Object.assign(brokenStore, {
         list: async () => {
           throw new Error('broken');
@@ -522,13 +522,13 @@ describe('/memory slash command', () => {
         stats: async () => {
           throw new Error('stats failure');
         },
-        listSuper: async () => {
+        listSage: async () => {
           throw new Error('list failure');
         },
         retrieveForPath: async () => {
           throw new Error('path failure');
         },
-        searchSuper: async () => [],
+        searchSage: async () => [],
       });
       const deps: MemorySlashDeps = { memoryStore: brokenStore };
       const cmd = createMemorySlashCommand(deps);

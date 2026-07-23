@@ -28,7 +28,7 @@ import {
   routeSettingsOverlayKey,
 } from './overlay-key-router.js';
 import { feedPaste, type PasteAccumState } from './paste-accumulator.js';
-import { scrollOffsetForTrackRow } from './components/scrollable-history.js';
+import type { HistoryScrollController } from './components/scrollable-history.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
 import type { AutonomyStage } from './hooks/use-statusline-state.js';
 
@@ -39,6 +39,7 @@ const SB_PADX = 0;
 interface AppKeyHandlerOptions {
   state: State;
   dispatch: Dispatch<Action>;
+  historyScrollRef: MutableRefObject<HistoryScrollController | null>;
   runInterruptLadder: () => void;
   enhanceCancelledRef: MutableRefObject<boolean>;
   enhanceAbortRef: MutableRefObject<AbortController | null>;
@@ -102,6 +103,7 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
   const {
     state,
     dispatch,
+    historyScrollRef,
     runInterruptLadder,
     enhanceCancelledRef,
     enhanceAbortRef,
@@ -502,8 +504,8 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
           )
         ) {
           if (key.mouse.shift)
-            dispatch({ type: 'scrollPage', dir: key.mouse.wheel > 0 ? 'up' : 'down' });
-          else dispatch({ type: 'scrollBy', delta: key.mouse.wheel > 0 ? 3 : -3 });
+            historyScrollRef.current?.scrollPage(key.mouse.wheel > 0 ? 'up' : 'down');
+          else historyScrollRef.current?.scrollBy(key.mouse.wheel > 0 ? 3 : -3);
           return;
         }
       }
@@ -522,10 +524,7 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
           key.mouse.y,
         );
         if (region?.kind === 'scrollbar') {
-          dispatch({
-            type: 'scrollTo',
-            offset: scrollOffsetForTrackRow(state.viewportRows, state.totalLines, region.cell),
-          });
+          historyScrollRef.current?.scrollToTrackCell(region.cell);
           return;
         }
       }
@@ -638,11 +637,11 @@ export function createAppKeyHandler(options: AppKeyHandlerOptions): (
         }
       }
       if (key.pageUp) {
-        dispatch({ type: 'scrollPage', dir: 'up' });
+        historyScrollRef.current?.scrollPage('up');
         return;
       }
       if (key.pageDown) {
-        dispatch({ type: 'scrollPage', dir: 'down' });
+        historyScrollRef.current?.scrollPage('down');
         return;
       }
     }

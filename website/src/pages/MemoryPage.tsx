@@ -22,10 +22,10 @@ export function MemoryPage() {
             <span className="text-brand">context bloat.</span>
           </>
         }
-        description="Sessions reconstruct what happened. Super Memory preserves verified project knowledge. Checkpoints capture reversible file state. Compaction keeps the model window healthy without deleting history."
+        description="Sessions reconstruct what happened. SAGE preserves verified project knowledge. Checkpoints capture reversible file state. Compaction keeps the model window healthy without deleting history."
         aside={
-          <ExternalDoc path="docs/plans/super-memory-architecture.md">
-            Open Super Memory architecture
+          <ExternalDoc path="docs/plans/sage-architecture.md">
+            Open SAGE architecture
           </ExternalDoc>
         }
       />
@@ -41,7 +41,7 @@ export function MemoryPage() {
             ],
             [
               MemoryStick,
-              'Super Memory',
+              'SAGE',
               'Retrieve stable facts, anchors and project relationships.',
               '.wrongstack/memories',
             ],
@@ -122,7 +122,7 @@ export function MemoryPage() {
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
         <SectionIntro
           index="03"
-          eyebrow="Super Memory graph"
+          eyebrow="SAGE graph"
           title="Facts connect to the code they describe."
           description="Memory is not one markdown blob. Graph edges make retrieval aware of symbols, files, directories, packages, commands, sessions and sources."
         />

@@ -77,7 +77,7 @@ function clientHandledTypes(): Set<string> {
     'tool.confirm_needed',
     'pong',
   ]);
-  // Quoted keys may be camelCase (`memory.super.candidateResolve`) or contain
+  // Quoted keys may be camelCase (`memory.sage.candidateResolve`) or contain
   // hyphens (`goal-state.updated`), so the character class must allow uppercase
   // and hyphens — otherwise a wired handler reads as missing and this guard
   // reports a false drop.

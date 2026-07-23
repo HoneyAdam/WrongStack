@@ -39,7 +39,7 @@ export interface MemoryEntry {
   lastAccessed?: string | undefined;
 }
 
-// ── Memory events — emitted by SuperMemoryStore so plugins can react ──
+// ── Memory events — emitted by SageStore so plugins can react ──
 
 export interface MemoryRememberedPayload {
   scope: MemoryScope;
@@ -121,7 +121,7 @@ export interface MemoryStore {
   ): Promise<ScoredEntry[]>;
   /**
    * Run memory hygiene: verify anchors, mark stale entries, archive
-   * low-confidence/old memories. Optional — only Super Memory stores
+   * low-confidence/old memories. Optional — only SAGE stores
    * implement this. Declared on the interface so callers can invoke
    * it without a type-erasing cast.
    */
@@ -174,7 +174,7 @@ export interface MemoryHealth {
 
 /**
  * Host-facing memory boundary. Basic legacy operations remain available during
- * migration; optional graph/admin/Super Memory behavior is capability-based.
+ * migration; optional graph/admin/SAGE behavior is capability-based.
  */
 export interface MemoryPort extends MemoryStore {
   initialize(): Promise<void>;

@@ -12,7 +12,7 @@ The detailed source-to-roadmap classification is in [Gap assessment](00-gap-asse
 
 The source report is useful, but several statements no longer describe the repository accurately:
 
-- SuperMemory is already the default memory store across CLI, TUI, WebUI, SimpleUI, and Desktop. The remaining opportunity is semantic retrieval and stronger continuity, not default wiring.
+- Sage is already the default memory store across CLI, TUI, WebUI, SimpleUI, and Desktop. The remaining opportunity is semantic retrieval and stronger continuity, not default wiring.
 - `/security` is implemented and registered. The remaining slash-command gap is operational parity for `/git`, `/health`, `/metrics`, and `/plan`.
 - WrongStack already accepts vision-capable model input. The remaining media gap is normalized OCR, generation, transformation, and artifact handling.
 - Browser use is available through a Playwright MCP preset and browser-agent instructions. The gap is a dependable first-party browser capability with lifecycle, policy, and cross-surface parity.
@@ -43,7 +43,7 @@ The source report is useful, but several statements no longer describe the repos
 | 10 | [MCP rich content](10-mcp-rich-content.md) | P1 | 2–5 months | Attachment/artifact model |
 | 11 | [MCP registry and installation](11-mcp-registry-and-installation.md) | P2 | 6–12 months | Secure package metadata |
 | 12 | [MCP health and operations](12-mcp-health-and-operations.md) | P0 | 0–3 months | Metrics and Health registries |
-| 13 | [Semantic SuperMemory retrieval](13-semantic-supermemory-retrieval.md) | P0 | 0–4 months | Embedding provider abstraction |
+| 13 | [Semantic Sage retrieval](13-semantic-Sage-retrieval.md) | P0 | 0–4 months | Embedding provider abstraction |
 | 14 | [Cross-session continuity and project state](14-cross-session-continuity-and-project-state.md) | P1 | 3–7 months | 13 and session invariants |
 | 15 | [Desktop distribution](15-desktop-distribution.md) | P1 | 3–6 months | WebUI parity and release signing |
 | 16 | [HQ hardening and operations](16-hq-hardening-and-operations.md) | P0 | 0–3 months | Existing HQ Phase 7 |

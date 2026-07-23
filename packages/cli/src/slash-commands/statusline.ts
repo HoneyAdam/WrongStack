@@ -56,7 +56,7 @@ const ITEM_DESCRIPTIONS: Record<keyof StatuslineConfig, string> = {
   processes: 'Tracked shell/process count',
   hint: 'Transient status hint text',
   index: 'Codebase indexing status',
-  super_memory: 'Total Super Memory records and provider-context active count',
+  sage: 'Total SAGE records and provider-context active count',
   breaker: 'Process breaker countdown',
   working_dir: 'Current working directory',
   project: 'Project name',

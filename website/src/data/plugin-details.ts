@@ -69,14 +69,6 @@ export const pluginDetails: Record<string, PluginDetail> = {
     hooks: [],
     example: "wstack --metrics\n/metrics --json\n/health",
   },
-  "wstack-security": {
-    version: "1.0.0",
-    longDescription: "Built-in security scanning back-end. It exposes the LLM-powered security orchestrator programmatically and deliberately registers no tools or slash commands: the CLI owns the synchronous /security surface (audit-deps, scan, redact-test), and full scans are dispatched to a subagent because they can take minutes. Loading the plugin performs no scanning by itself.",
-    tools: [],
-    configOptions: [],
-    hooks: [],
-    apiVersion: "^0.1",
-  },
   "wstack-chimera": {
     version: "1.0.0",
     longDescription: "Post-session code quality guardian with context-aware review, three auto-fix modes, and an optional bounded correction cascade. When enabled it registers the /chimera status command and subscribes to session.ended: it collects changed files from git (capped at maxFiles, skipping .wrongstack/) and enriches them with diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle provenance before spawning a dedicated review subagent.\n\nThe review report is sent to the inter-agent mailbox so the leader sees it before its next turn. How the report is handled depends on autoFix: off reports only, ask requests permission, and auto immediately spawns a chimera-fix subagent. Independently, cascadeOn can dispatch bug-hunter and security-scanner agents for High or Critical findings. Their edits are re-read and re-reviewed until clean or maxCascadeDepth is reached.\n\nThe autoFix mode can be changed at runtime via /chimera autoFix <mode>, --chimera-auto-fix <mode>, or the Web UI Settings panel.",

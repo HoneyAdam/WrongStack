@@ -28,14 +28,14 @@ describe('WrongStackWebSocketClient chat echo suppression', () => {
   it('tracks concurrent UI requests independently by response type', () => {
     const client = new WrongStackWebSocketClient('ws://127.0.0.1:3457');
 
-    client.listSuperMemories({ echoToChat: false });
-    client.listSuperMemories({ echoToChat: false });
+    client.listSageMemories({ echoToChat: false });
+    client.listSageMemories({ echoToChat: false });
     client.debugContext({ echoToChat: false });
 
-    expect(client.consumeSuppressedChatEcho('memory.super.list')).toBe(true);
+    expect(client.consumeSuppressedChatEcho('memory.sage.list')).toBe(true);
     expect(client.consumeSuppressedChatEcho('context.debug')).toBe(true);
-    expect(client.consumeSuppressedChatEcho('memory.super.list')).toBe(true);
-    expect(client.consumeSuppressedChatEcho('memory.super.list')).toBe(false);
+    expect(client.consumeSuppressedChatEcho('memory.sage.list')).toBe(true);
+    expect(client.consumeSuppressedChatEcho('memory.sage.list')).toBe(false);
   });
 
   it('expires a suppression when the UI request never receives a response', () => {

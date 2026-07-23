@@ -21,7 +21,7 @@ import type { WstackPaths } from '@wrongstack/core/utils';
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
-import { createSqliteMemoryPort, isSqliteAvailable } from '@wrongstack/super-memory';
+import { createSqliteMemoryPort, isSqliteAvailable } from '@wrongstack/sage';
 
 export interface CreateContainerOptions {
   config: Config;
@@ -29,7 +29,7 @@ export interface CreateContainerOptions {
   logger: Logger;
   modelsRegistry: ModelsRegistry;
   /**
-   * Optional event bus — passed to SuperMemoryStore so plugins and
+   * Optional event bus — passed to SageStore so plugins and
    * subsystems can react to memory mutations in real time.
    */
   events?: EventBus | undefined;
@@ -124,23 +124,23 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
       }),
   );
 
-  // Single memory backend: Super Memory is the only store. `superMemory.enabled`
+  // Single memory backend: SAGE is the only store. `Sage.enabled`
   // no longer swaps the backend — it only gates automatic context injection and
-  // session-end hygiene (see wiring/super-memory.ts). This guarantees "one memory
+  // session-end hygiene (see wiring/sage.ts). This guarantees "one memory
   // system, no other" across TUI, slash commands, agent tools, and WebUI.
   //
   // SQLite is the sole production backend. Legacy JSONL data is imported by
-  // SqliteSuperMemoryStore on first open, but JSONL can no longer be selected
+  // SqliteSageStore on first open, but JSONL can no longer be selected
   // as a writable runtime backend.
   if (!isSqliteAvailable()) {
     throw new Error(
-      'Super Memory requires Node built-in SQLite (node:sqlite; Node >= 22.5). ' +
+      'SAGE requires Node built-in SQLite (node:sqlite; Node >= 22.5). ' +
         'The JSONL compatibility fallback has been removed.',
     );
   }
   const memoryStore = createSqliteMemoryPort({
     projectRoot: wpaths.projectRoot,
-    directory: config.superMemory?.storage?.directory,
+    directory: config.Sage?.storage?.directory,
     events: opts.events,
   });
   container.bind(TOKENS.MemoryStore, () => memoryStore);
@@ -172,7 +172,7 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
           },
           skillMode: config.skills?.mode,
           skillEagerMaxChars: config.skills?.eagerMaxChars,
-          // Super Memory's turn middleware owns memory injection — don't also
+          // SAGE's turn middleware owns memory injection — don't also
           // inject a static prompt section. Callers may override via
           // opts.systemPrompt if they truly want the static section.
           injectMemory: false,

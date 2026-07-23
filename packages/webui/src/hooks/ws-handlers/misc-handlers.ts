@@ -255,7 +255,7 @@ export function handleMemoryEvent(msg: WSServerMessage) {
     id: `memory_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     kind: 'memory:event',
     timestamp: Date.now(),
-    source: 'super-memory',
+    source: 'sage',
     target: 'leader',
     label: payload.event.replace(/^memory\./, ''),
     data: payload,
@@ -278,7 +278,7 @@ export function handleMemoryEvent(msg: WSServerMessage) {
   else if (payload.event === 'memory.contradicted')
     toast.warn(`Memory contradicted: ${String(payload['memoryId'] ?? '')}`);
   else if (payload.event === 'memory.hygiene_completed')
-    toast.info('Super Memory hygiene completed');
+    toast.info('SAGE hygiene completed');
 }
 
 export function handleCollabEvent(msg: WSServerMessage) {

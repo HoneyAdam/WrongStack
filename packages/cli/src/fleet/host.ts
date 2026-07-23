@@ -93,7 +93,7 @@ import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { WorktreeManager } from '@wrongstack/core/worktree';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { makePreferSideConflictResolver } from '@wrongstack/sdd';
-import { getSuperMemoryRetrieval } from '@wrongstack/super-memory';
+import { getSageRetrieval } from '@wrongstack/sage';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { buildRoutingRunner } from './routing.js';
 import { createFleetStatusBroadcaster } from './status-broadcast.js';
@@ -1592,7 +1592,7 @@ export class MultiAgentHost {
     taskContext?: Record<string, unknown>,
   ): Promise<string[]> {
     const memoryPort = this.deps.container.safeResolve(TOKENS.MemoryStore);
-    const memory = memoryPort ? getSuperMemoryRetrieval(memoryPort) : undefined;
+    const memory = memoryPort ? getSageRetrieval(memoryPort) : undefined;
     if (!memory?.retrieveForAudience) return [];
     const contextualTaskType =
       typeof taskContext?.['taskType'] === 'string' ? taskContext['taskType'] : undefined;

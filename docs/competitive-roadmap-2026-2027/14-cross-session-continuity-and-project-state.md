@@ -11,7 +11,7 @@ Make long-running work resumable through explicit session handoff summaries and 
 ## Scope
 
 - End-of-session handoff candidate containing goals, decisions, completed work, open risks, and next actions.
-- User-reviewable promotion of durable facts into SuperMemory.
+- User-reviewable promotion of durable facts into Sage.
 - A versioned project state store for plans, SDD items, worktrees, task dependencies, and external references.
 - Resume previews that show what will be restored before context injection.
 - Conflict handling when multiple surfaces update the same project state.
@@ -21,7 +21,7 @@ Make long-running work resumable through explicit session handoff summaries and 
 - Keep session JSONL immutable and canonical for conversation history.
 - Store derived handoffs separately with source event ranges and schema version.
 - Use optimistic revisions and the existing project-wide locking patterns.
-- Link state nodes into SuperMemory's graph without making `core` depend on `super-memory`.
+- Link state nodes into Sage's graph without making `core` depend on `sage`.
 
 ## Delivery plan
 

@@ -124,7 +124,7 @@ export function CommandPalette() {
         category: 'Command',
         label: t('commandPalette:cmd.memory'),
         icon: Brain,
-        keywords: ['memory', 'remember', 'notes', 'supermemory'],
+        keywords: ['memory', 'remember', 'notes', 'Sage'],
         run: () => openMainView('memory'),
       },
       {

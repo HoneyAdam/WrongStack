@@ -25,12 +25,12 @@ export interface MemoryEventMap {
     pattern: string;
     decision: 'always' | 'deny';
   };
-  // ── Memory store events — emitted by SuperMemoryStore so plugins can react ──
+  // ── Memory store events — emitted by SageStore so plugins can react ──
   'memory.remembered': MemoryRememberedPayload;
   'memory.forgotten': MemoryForgottenPayload;
   'memory.cleared': MemoryClearedPayload;
   'memory.consolidated': MemoryConsolidatedPayload;
-  /** Structured Super Memory lifecycle events. Kept structural so core never depends on the package. */
+  /** Structured SAGE lifecycle events. Kept structural so core never depends on the package. */
   'memory.accepted': {
     memoryId: string;
     kind?: string | undefined;
@@ -155,7 +155,7 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
-  /** Exact Super Memory presence in the provider-bound request context. */
+  /** Exact SAGE presence in the provider-bound request context. */
   'memory.context_snapshot': {
     at: string;
     activeMemoryIds: string[];

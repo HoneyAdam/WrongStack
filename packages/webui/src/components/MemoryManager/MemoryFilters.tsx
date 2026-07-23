@@ -2,20 +2,20 @@ import { BrainCircuit, FilterX, Search, Tag, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryStats, SuperMemoryStatus } from '@/types';
+import type { SageStats, SageStatus } from '@/types';
 import { KIND_LABELS, MEMORY_KINDS, MEMORY_STATUSES } from './shared';
 
 export interface MemoryFiltersProps {
   searchQuery: string;
-  statusFilter: 'all' | SuperMemoryStatus;
+  statusFilter: 'all' | SageStatus;
   kindFilter: string;
   audienceOnly: boolean;
   tagFilter: string | null;
   hasFilters: boolean;
   allTags: Array<[string, number]>;
-  stats: SuperMemoryStats | null;
+  stats: SageStats | null;
   onSearchChange: (value: string) => void;
-  onStatusFilterChange: (value: 'all' | SuperMemoryStatus) => void;
+  onStatusFilterChange: (value: 'all' | SageStatus) => void;
   onKindFilterChange: (value: string) => void;
   onToggleAudienceOnly: () => void;
   onTagFilterChange: (value: string | null) => void;
@@ -91,7 +91,7 @@ export function MemoryFilters({
           id="memory-status-filter"
           value={statusFilter}
           onChange={(event) =>
-            onStatusFilterChange(event.target.value as 'all' | SuperMemoryStatus)
+            onStatusFilterChange(event.target.value as 'all' | SageStatus)
           }
           className="h-9 min-w-0 border border-input bg-background px-2 text-xs"
         >

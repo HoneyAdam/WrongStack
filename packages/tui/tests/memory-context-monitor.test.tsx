@@ -85,7 +85,7 @@ describe('TUI memory context monitor', () => {
     expect(activeMemoryContextCount(authoritativeEmptySnapshot)).toBe(0);
   });
 
-  it('reads the all-status record total from a Super Memory-compatible store', async () => {
+  it('reads the all-status record total from a SAGE-compatible store', async () => {
     expect(await readMemoryRecordTotal({ stats: async () => ({ total: 6261 }) })).toBe(6261);
     expect(await readMemoryRecordTotal({})).toBeUndefined();
   });

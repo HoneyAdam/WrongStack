@@ -93,7 +93,7 @@ export const CONFIG_BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     tokenSavingMode: 'auto',
     allowOutsideProjectRoot: true,
   },
-  superMemory: {
+  Sage: {
     enabled: true,
     storage: {
       projectLocal: true,
@@ -428,7 +428,7 @@ type PartialConfig = Partial<Config> & {
  *   - `circuitBreaker`     — process circuit-breaker config (process gating).
  *   - `adaptiveConcurrency` — adaptive concurrency controller.
  *   - `modelRuntime`       — runtime reasoning/cache/parameters.
- *   - `superMemory`        — benign local memory storage/injection/hygiene knobs.
+ *   - `Sage`        — benign local memory storage/injection/hygiene knobs.
  *
  * Fields deliberately NOT in the allow-list (and therefore always stripped
  * from `<project>/.wrongstack/config.json`) — see `KNOWN_DENIED_IN_PROJECT`
@@ -441,7 +441,7 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'context',
   'tools',
   'features',
-  'superMemory',
+  'Sage',
   'skills',
   'autonomy',
   'indexing',
@@ -584,7 +584,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'pluginManager',
   'log',
   'features',
-  'superMemory',
+  'Sage',
   'skills',
   'yolo',
   'nextPrediction',
@@ -770,13 +770,13 @@ export function stripUnsafeInProjectFields(
     }
   }
 
-  // `superMemory` is benign except for `storage.directory`: that value is a
+  // `Sage` is benign except for `storage.directory`: that value is a
   // filesystem write destination and accepts absolute paths in trusted user
   // config. A repo-committed config must not redirect memory logs outside the
   // project, so only the destination override is stripped.
-  const outSuperMemory = (out as Record<string, unknown>)['superMemory'];
-  if (outSuperMemory && typeof outSuperMemory === 'object') {
-    const storage = (outSuperMemory as Record<string, unknown>)['storage'];
+  const outSage = (out as Record<string, unknown>)['Sage'];
+  if (outSage && typeof outSage === 'object') {
+    const storage = (outSage as Record<string, unknown>)['storage'];
     if (
       storage &&
       typeof storage === 'object' &&
@@ -784,11 +784,11 @@ export function stripUnsafeInProjectFields(
     ) {
       const clonedStorage = { ...(storage as Record<string, unknown>) };
       delete clonedStorage['directory'];
-      (out as Record<string, unknown>)['superMemory'] = {
-        ...(outSuperMemory as Record<string, unknown>),
+      (out as Record<string, unknown>)['Sage'] = {
+        ...(outSage as Record<string, unknown>),
         storage: clonedStorage,
       };
-      stripped.push('superMemory.storage.directory');
+      stripped.push('Sage.storage.directory');
     }
   }
 
@@ -851,13 +851,33 @@ function deepMerge<T, TPatch extends object>(base: T, patch: TPatch): T {
   ) as T;
 }
 
+/**
+ * Migrate the retired `superMemory` config key (pre-SAGE-rename user configs)
+ * into `Sage`. Existing `Sage` values win on conflict; top-level sub-keys the
+ * user only ever set under `superMemory` are preserved so a rename release
+ * does not silently drop their storage/injection/hygiene settings.
+ */
+function migrateLegacySuperMemoryKey(config: Record<string, unknown>): boolean {
+  const legacy = config['superMemory'];
+  if (legacy === undefined) return false;
+  if (isPlainRecord(legacy)) {
+    const current = config['Sage'];
+    config['Sage'] = isPlainRecord(current)
+      ? { ...legacy, ...current }
+      : { ...legacy };
+  }
+  delete config['superMemory'];
+  return true;
+}
+
 /** Remove the retired backend selector from legacy/user-supplied configs. */
-function removeLegacySuperMemoryEngine(config: Record<string, unknown>): boolean {
-  const superMemory = config['superMemory'];
-  if (!isPlainRecord(superMemory)) return false;
-  const storage = superMemory['storage'];
+function removeLegacySageEngine(config: Record<string, unknown>): boolean {
+  const migratedKey = migrateLegacySuperMemoryKey(config);
+  const Sage = config['Sage'];
+  if (!isPlainRecord(Sage)) return migratedKey;
+  const storage = Sage['storage'];
   if (!isPlainRecord(storage) || !Object.prototype.hasOwnProperty.call(storage, 'engine')) {
-    return false;
+    return migratedKey;
   }
   delete storage['engine'];
   return true;
@@ -1093,9 +1113,9 @@ export class DefaultConfigLoader implements ConfigLoader {
       }
     }
 
-    // `superMemory.storage.engine` used to select JSONL. SQLite is now the
+    // `Sage.storage.engine` used to select JSONL. SQLite is now the
     // sole backend, so ignore the retired key from every config layer.
-    removeLegacySuperMemoryEngine(cfg as Record<string, unknown>);
+    removeLegacySageEngine(cfg as Record<string, unknown>);
     this.validateBehavior(cfg);
     if (this.strict && !opts.skipIdentityValidation) {
       this.validateIdentity(cfg);
@@ -1270,7 +1290,7 @@ export class DefaultConfigLoader implements ConfigLoader {
       parsed = {};
     }
 
-    const removedLegacyEngine = removeLegacySuperMemoryEngine(parsed);
+    const removedLegacyEngine = removeLegacySageEngine(parsed);
 
     // Migration from old flat config to profile: If the old global config
     // existed and had any setting at all (can be just `version` + one user
@@ -1281,7 +1301,7 @@ export class DefaultConfigLoader implements ConfigLoader {
       // Copy old global content into the profile, excluding bootstrap-only fields.
       seed = { ...oldGlobalParsed };
       delete seed['activeProfile'];
-      removeLegacySuperMemoryEngine(seed);
+      removeLegacySageEngine(seed);
       // Fill in any missing behavior defaults.
       const filled = fillMissingDefaults(seed, CONFIG_BEHAVIOR_DEFAULTS as Record<string, unknown>);
       seed = filled.value;
@@ -1496,6 +1516,11 @@ export class DefaultConfigLoader implements ConfigLoader {
       });
       return {};
     }
+    // Migrate the pre-SAGE `superMemory` key per SOURCE, before the layered
+    // merge: after merging, `Sage` always exists (behavior defaults), so a
+    // post-merge migration could only ever see defaults win and would drop the
+    // user's legacy settings.
+    migrateLegacySuperMemoryKey(parsed.value as Record<string, unknown>);
     this.jsonCache.set(file, { mtimeMs, value: structuredClone(parsed.value) });
     return parsed.value;
   }

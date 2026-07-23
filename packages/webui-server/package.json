@@ -49,7 +49,7 @@
     "@wrongstack/providers": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
-    "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/sage": "workspace:*",
     "@wrongstack/techstack": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "ws": "^8.21.1"

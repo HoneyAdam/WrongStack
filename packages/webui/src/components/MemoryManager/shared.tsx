@@ -1,9 +1,9 @@
 import { cn } from '@/lib/utils';
 import type {
-  SuperMemoryAnchor,
-  SuperMemoryEntry,
-  SuperMemoryScope,
-  SuperMemoryStatus,
+  SageAnchor,
+  SageEntry,
+  SageScope,
+  SageStatus,
 } from '@/types';
 
 export const MEMORY_KINDS = [
@@ -21,7 +21,7 @@ export const MEMORY_KINDS = [
   'summary',
 ] as const;
 
-export const MEMORY_STATUSES: SuperMemoryStatus[] = [
+export const MEMORY_STATUSES: SageStatus[] = [
   'active',
   'stale',
   'superseded',
@@ -30,7 +30,7 @@ export const MEMORY_STATUSES: SuperMemoryStatus[] = [
   'deleted',
 ];
 
-export const EDITABLE_STATUSES: SuperMemoryStatus[] = [
+export const EDITABLE_STATUSES: SageStatus[] = [
   'active',
   'stale',
   'superseded',
@@ -38,9 +38,9 @@ export const EDITABLE_STATUSES: SuperMemoryStatus[] = [
   'archived',
 ];
 
-export const MEMORY_SCOPES: SuperMemoryScope[] = ['project', 'user', 'session', 'file', 'symbol'];
+export const MEMORY_SCOPES: SageScope[] = ['project', 'user', 'session', 'file', 'symbol'];
 
-export const ANCHOR_TYPES: SuperMemoryAnchor['type'][] = [
+export const ANCHOR_TYPES: SageAnchor['type'][] = [
   'file',
   'directory',
   'symbol',
@@ -66,7 +66,7 @@ export const KIND_LABELS: Record<string, string> = {
   summary: 'Summary',
 };
 
-export function formatAudienceText(audience: NonNullable<SuperMemoryEntry['audience']>): string {
+export function formatAudienceText(audience: NonNullable<SageEntry['audience']>): string {
   const parts: string[] = [];
   if (audience.roles?.length) parts.push(`roles: ${audience.roles.join(', ')}`);
   if (audience.taskTypes?.length) parts.push(`tasks: ${audience.taskTypes.join(', ')}`);
@@ -77,13 +77,13 @@ export function formatAudienceText(audience: NonNullable<SuperMemoryEntry['audie
 export interface MemoryDraft {
   text: string;
   kind: string;
-  status: SuperMemoryStatus;
-  scope: SuperMemoryScope;
+  status: SageStatus;
+  scope: SageScope;
   tags: string;
   importance: number;
   confidence: number;
   freshness: number;
-  anchors: SuperMemoryAnchor[];
+  anchors: SageAnchor[];
   audienceRoles: string;
   audienceTaskTypes: string;
   audienceModes: string;
@@ -110,7 +110,7 @@ export function emptyDraft(): MemoryDraft {
   };
 }
 
-export function draftFromMemory(memory: SuperMemoryEntry): MemoryDraft {
+export function draftFromMemory(memory: SageEntry): MemoryDraft {
   return {
     text: memory.text,
     kind: memory.kind,
@@ -176,7 +176,7 @@ function scoreLabel(value: number): string {
   return 'low';
 }
 
-export function statusClasses(status: SuperMemoryStatus): string {
+export function statusClasses(status: SageStatus): string {
   switch (status) {
     case 'active':
       return 'border-success/35 bg-success/10 text-success';
@@ -205,11 +205,11 @@ export function kindClasses(kind: string): string {
   return 'text-foreground';
 }
 
-export function anchorValue(anchor: SuperMemoryAnchor): string {
+export function anchorValue(anchor: SageAnchor): string {
   return anchor.path ?? anchor.command ?? anchor.role ?? '';
 }
 
-export function updateAnchorValue(anchor: SuperMemoryAnchor, value: string): SuperMemoryAnchor {
+export function updateAnchorValue(anchor: SageAnchor, value: string): SageAnchor {
   if (anchor.type === 'command') return { type: anchor.type, command: value };
   if (anchor.type === 'agent') return { type: anchor.type, role: value };
   return {
@@ -219,8 +219,8 @@ export function updateAnchorValue(anchor: SuperMemoryAnchor, value: string): Sup
   };
 }
 
-export function normalizeAnchors(anchors: SuperMemoryAnchor[]): SuperMemoryAnchor[] {
-  const normalized: SuperMemoryAnchor[] = [];
+export function normalizeAnchors(anchors: SageAnchor[]): SageAnchor[] {
+  const normalized: SageAnchor[] = [];
   for (const anchor of anchors) {
     const value = anchorValue(anchor).trim();
     const symbol = anchor.symbol?.trim();
@@ -242,7 +242,7 @@ export function normalizeAnchors(anchors: SuperMemoryAnchor[]): SuperMemoryAncho
   return normalized;
 }
 
-export function StatusBadge({ status }: { status: SuperMemoryStatus }) {
+export function StatusBadge({ status }: { status: SageStatus }) {
   return (
     <span
       className={cn(

@@ -379,13 +379,13 @@ export function useProviderEventBridge({
     const offMemoryStale = events.on('memory.staled', (e) => {
       dispatch({
         type: 'addEntry',
-        entry: { kind: 'warn', text: `Super Memory stale: ${e.memoryId} — ${e.reason}` },
+        entry: { kind: 'warn', text: `SAGE stale: ${e.memoryId} — ${e.reason}` },
       });
     });
     const offMemoryContradicted = events.on('memory.contradicted', (e) => {
       dispatch({
         type: 'addEntry',
-        entry: { kind: 'warn', text: `Super Memory contradicted: ${e.memoryId}` },
+        entry: { kind: 'warn', text: `SAGE contradicted: ${e.memoryId}` },
       });
     });
     const offMemoryHygiene = events.on('memory.hygiene_completed', (e) => {
@@ -393,7 +393,7 @@ export function useProviderEventBridge({
         type: 'addEntry',
         entry: {
           kind: 'info',
-          text: `Super Memory hygiene: ${e.examined} examined, ${e.deduplicated} deduplicated, ${e.staled} stale, ${e.archived} archived.`,
+          text: `SAGE hygiene: ${e.examined} examined, ${e.deduplicated} deduplicated, ${e.staled} stale, ${e.archived} archived.`,
         },
       });
     });

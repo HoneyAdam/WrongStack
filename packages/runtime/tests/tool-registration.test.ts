@@ -1,6 +1,6 @@
 import { ToolRegistry } from '@wrongstack/core/registry';
 import type { MemoryStore, Tool } from '@wrongstack/core/types';
-import { LegacyMemoryPortAdapter } from '@wrongstack/super-memory';
+import { LegacyMemoryPortAdapter } from '@wrongstack/sage';
 import { describe, expect, it } from 'vitest';
 import { registerCanonicalHostTools } from '../src/tool-registration.js';
 

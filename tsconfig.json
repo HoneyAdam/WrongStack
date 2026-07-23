@@ -19,7 +19,7 @@
     { "path": "./packages/sdd" },
     { "path": "./packages/security-scanner" },
     { "path": "./packages/simpleui" },
-    { "path": "./packages/super-memory" },
+    { "path": "./packages/sage" },
     { "path": "./packages/bench" },
     { "path": "./packages/techstack" },
     { "path": "./website" }

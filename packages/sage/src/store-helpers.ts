@@ -1,0 +1,377 @@
+/**
+ * Pure helper functions shared across store implementations.
+ * These functions have no side effects and no dependency on the store instance.
+ */
+
+import { normalizeProjectPath, normalizeSlashes } from './paths.js';
+import {
+  DEFAULT_PERSISTENCE,
+  type MemoryAnchor,
+  type MemoryAudienceSelector,
+  type RememberSageInput,
+  type Sage,
+  type SageKind,
+  type SageScope,
+} from './types.js';
+
+const MAX_MEMORY_TEXT_CHARS = 20_000;
+const MAX_MEMORY_METADATA_ITEMS = 128;
+
+const VALID_SCOPES = new Set<SageScope>(['project', 'user', 'session', 'file', 'symbol']);
+const VALID_KINDS = new Set<SageKind>([
+  'fact',
+  'decision',
+  'convention',
+  'preference',
+  'warning',
+  'anti_pattern',
+  'workflow',
+  'bug_root_cause',
+  'file_note',
+  'symbol_note',
+  'command_note',
+  'summary',
+  'memory_review',
+]);
+const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
+  'file',
+  'directory',
+  'symbol',
+  'package',
+  'command',
+  'test',
+  'git',
+  'agent',
+]);
+
+const AUDIENCE_KEYS = ['roles', 'taskTypes', 'modes'] as const;
+
+export function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Canonical tokenizer for retrieval scoring across BOTH the stores and the
+ * injection middlewares — do not fork it. Invariants:
+ * - NFKC + lowercase: strings differing only in unicode form/case tokenize alike.
+ * - Unicode letters/numbers plus `_`, `.`, `-` are token characters, so
+ *   identifiers like `edge-case`, `snake_case`, and `foo.bar` stay whole.
+ * - Terms shorter than 3 characters are dropped: scoring does substring
+ *   matching (`haystack.includes(term)`), where 1–2 char terms ("in", "go")
+ *   match nearly every text and produce pure noise.
+ * - Output is deduplicated; scoring operates on sets.
+ */
+export function tokenize(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .normalize('NFKC')
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}_.-]+/u)
+        .filter((term) => term.length >= 3),
+    ),
+  ];
+}
+
+/** Canonical text key for memory deduplication and comparison. */
+export function normalizeTextKey(text: string): string {
+  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Canonical dedup key for session consolidation and hygiene.
+ * Strips trailing sentence-ending punctuation so "Use pnpm." and
+ * "Use pnpm" produce the same key, while preserving internal
+ * punctuation in identifiers (`C++`, `foo.bar`).
+ */
+export function canonicalMemoryText(text: string): string {
+  return normalizeTextKey(text).replace(/[.!?,;:]+$/u, '');
+}
+
+export function normalizeTags(tags: string[] | undefined): string[] {
+  return [
+    ...new Set(
+      (tags ?? []).map((tag) => tag.replace(/^#/, '').trim().toLowerCase()).filter(Boolean),
+    ),
+  ];
+}
+
+export function normalizeAnchors(projectRoot: string, anchors: MemoryAnchor[]): MemoryAnchor[] {
+  return dedupeAnchors(
+    anchors.map((anchor) => ({
+      ...anchor,
+      path: anchor.path ? normalizeProjectPath(projectRoot, anchor.path) : undefined,
+      symbol: anchor.symbol?.trim() || undefined,
+      command: anchor.command?.trim().replace(/\s+/g, ' ') || undefined,
+      role: anchor.role?.trim().toLowerCase() || undefined,
+    })),
+  );
+}
+
+export function normalizeAudience(
+  value: MemoryAudienceSelector | undefined,
+): MemoryAudienceSelector | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('SAGE audience must be an object.');
+  }
+  const normalized: MemoryAudienceSelector = {};
+  for (const key of AUDIENCE_KEYS) {
+    const values = value[key];
+    if (values === undefined) continue;
+    if (!Array.isArray(values) || values.some((item) => typeof item !== 'string')) {
+      throw new Error(`SAGE audience.${key} must be an array of strings.`);
+    }
+    if (values.length > MAX_MEMORY_METADATA_ITEMS) {
+      throw new Error(`SAGE audience.${key} exceeds ${MAX_MEMORY_METADATA_ITEMS} items.`);
+    }
+    const items = [...new Set(values.map(normalizeSelectorValue).filter(Boolean))];
+    if (items.some((item) => item.length > 256)) {
+      throw new Error(`SAGE audience.${key} values must be no longer than 256 characters.`);
+    }
+    if (items.length > 0) normalized[key] = items;
+  }
+  return AUDIENCE_KEYS.some((key) => normalized[key]?.length) ? normalized : undefined;
+}
+
+export function normalizeSources(sources: Sage['sources']): Sage['sources'] {
+  return dedupeSources(
+    sources.map((source) => ({
+      ...source,
+      path: source.path ? normalizeSlashes(source.path.trim()) : undefined,
+      command: source.command?.trim().replace(/\s+/g, ' ') || undefined,
+    })),
+  );
+}
+
+/** Rank explicit structural relationships shared with one or more seed memories. */
+export function scoreMemoryRelationship(
+  candidate: Sage,
+  seeds: readonly Sage[],
+  graphRelatedIds: ReadonlySet<string> = new Set(),
+): number {
+  if (seeds.some((seed) => seed.id === candidate.id)) return 0;
+  let relation = graphRelatedIds.has(candidate.id) ? 8 : 0;
+
+  for (const seed of seeds) {
+    const sharedTags = candidate.tags.filter((tag) => seed.tags.includes(tag));
+    relation += Math.min(4, sharedTags.length * 1.5);
+
+    for (const left of candidate.anchors) {
+      for (const right of seed.anchors) {
+        const leftPath = left.path ? normalizeSlashes(left.path).toLowerCase() : '';
+        const rightPath = right.path ? normalizeSlashes(right.path).toLowerCase() : '';
+        if (
+          left.symbol &&
+          right.symbol &&
+          left.symbol.toLowerCase() === right.symbol.toLowerCase()
+        ) {
+          relation += leftPath && leftPath === rightPath ? 12 : 8;
+        }
+        if (left.command && right.command) {
+          const a = normalizeCommand(left.command);
+          const b = normalizeCommand(right.command);
+          if (a === b) relation += 10;
+          else if (commandFamily(a) === commandFamily(b)) relation += 5;
+        }
+        if (left.role && right.role && left.role.toLowerCase() === right.role.toLowerCase()) {
+          relation += 12;
+        }
+        if (leftPath && rightPath) {
+          if (leftPath === rightPath) {
+            relation += left.type === 'package' || right.type === 'package' ? 10 : 8;
+          } else if (leftPath.startsWith(`${rightPath}/`) || rightPath.startsWith(`${leftPath}/`)) {
+            relation += left.type === 'package' || right.type === 'package' ? 6 : 3;
+          }
+        }
+      }
+    }
+  }
+
+  if (relation <= 0) return 0;
+  const persistence = candidate.persistence ?? DEFAULT_PERSISTENCE;
+  const persistenceBonus = persistence === 'permanent' ? 2 : persistence === 'long_lived' ? 1 : -1;
+  const durableKindBonus = [
+    'fact',
+    'decision',
+    'convention',
+    'warning',
+    'anti_pattern',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+  ].includes(candidate.kind)
+    ? 1
+    : 0;
+  return (
+    relation +
+    candidate.importance * 2 +
+    candidate.confidence +
+    candidate.freshness +
+    persistenceBonus +
+    durableKindBonus
+  );
+}
+
+function normalizeCommand(command: string): string {
+  return command.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function commandFamily(command: string): string {
+  return command.split(/\s+/).slice(0, 2).join(' ');
+}
+
+export function validateRememberInput(input: RememberSageInput): void {
+  if (typeof input.text !== 'string') throw new Error('SAGE text must be a string.');
+  if (input.text.length > MAX_MEMORY_TEXT_CHARS) {
+    throw new Error(`SAGE text exceeds ${MAX_MEMORY_TEXT_CHARS} characters.`);
+  }
+  for (const [name, values] of [
+    ['tags', input.tags],
+    ['anchors', input.anchors],
+    ['sources', input.sources],
+    ['supersedes', input.supersedes],
+    ['contradicts', input.contradicts],
+  ] as const) {
+    if (values && values.length > MAX_MEMORY_METADATA_ITEMS) {
+      throw new Error(`SAGE ${name} exceeds ${MAX_MEMORY_METADATA_ITEMS} items.`);
+    }
+  }
+  if (input.tags?.some((tag) => typeof tag !== 'string' || tag.length > 256)) {
+    throw new Error('SAGE tags must be strings no longer than 256 characters.');
+  }
+  if (input.scope && !VALID_SCOPES.has(input.scope)) throw new Error('Invalid SAGE scope.');
+  if (input.kind && !VALID_KINDS.has(input.kind)) throw new Error('Invalid SAGE kind.');
+  normalizeAudience(input.audience);
+  for (const anchor of input.anchors ?? []) {
+    if (!anchor || !VALID_ANCHOR_TYPES.has(anchor.type))
+      throw new Error('Invalid SAGE anchor type.');
+    if (anchor.type === 'command') {
+      if (!anchor.command?.trim()) throw new Error('Command memory anchors require a command.');
+    } else if (anchor.type === 'agent') {
+      if (!anchor.role?.trim()) throw new Error('Agent memory anchors require a role.');
+      if (!/^[a-z0-9][a-z0-9._-]{0,95}$/i.test(anchor.role.trim())) {
+        throw new Error('Agent memory anchor role is invalid.');
+      }
+    } else if (!anchor.path?.trim()) {
+      throw new Error(`${anchor.type} memory anchors require a path.`);
+    }
+    if (anchor.type === 'symbol' && !anchor.symbol?.trim()) {
+      throw new Error('Symbol memory anchors require a symbol.');
+    }
+    // Per-type caps: paths can be deep absolute paths (Windows `C:\...`,
+    // node_modules chains), commands can be long shell one-liners. A flat 256
+    // rejects legitimate input — the stored form is relativized/short anyway.
+    if (
+      (anchor.path?.length ?? 0) > 4_096 ||
+      (anchor.symbol?.length ?? 0) > 1_024 ||
+      (anchor.command?.length ?? 0) > 8_192 ||
+      (anchor.role?.length ?? 0) > 96
+    ) {
+      throw new Error(
+        'SAGE anchor strings are too long (path ≤ 4096, symbol ≤ 1024, command ≤ 8192, role ≤ 96 characters).',
+      );
+    }
+  }
+  for (const source of input.sources ?? []) {
+    if (
+      !source ||
+      !['user', 'session', 'tool_result', 'file', 'git', 'command'].includes(source.type)
+    ) {
+      throw new Error('Invalid SAGE source type.');
+    }
+  }
+}
+
+// ─── Private dedup helpers ──────────────────────────────────────────────
+
+function dedupeAnchors(anchors: MemoryAnchor[]): MemoryAnchor[] {
+  return dedupeByKey(anchors, (anchor) =>
+    JSON.stringify([
+      anchor.type,
+      anchor.path ?? null,
+      anchor.symbol ?? null,
+      anchor.command ?? null,
+      anchor.role ?? null,
+      anchor.contentHash ?? null,
+      anchor.gitBlobHash ?? null,
+      anchor.lineStart ?? null,
+      anchor.lineEnd ?? null,
+    ]),
+  );
+}
+
+function dedupeSources(sources: Sage['sources']): Sage['sources'] {
+  return dedupeByKey(sources, (source) =>
+    JSON.stringify([
+      source.type,
+      source.sessionId ?? null,
+      source.toolUseId ?? null,
+      source.path ?? null,
+      source.command ?? null,
+      source.excerptHash ?? null,
+    ]),
+  );
+}
+
+function dedupeByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = keyOf(value);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeSelectorValue(value: string): string {
+  return value.normalize('NFKC').trim().toLowerCase();
+}
+
+// ─── Secret-detection guard (shared by JSONL and SQLite stores) ─────
+
+/**
+ * Check whether `text` looks like a secret or credential.
+ * Used by both legacy and current store implementations to reject
+ * unsafe candidate proposals before they reach the ReviewQueue.
+ */
+export function looksLikeSecret(text: string): boolean {
+  return [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+    /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}/i,
+    /\b[A-Za-z0-9_]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
+    /\b(?:sk-(?:proj-|svcacct-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i,
+    /\bAKIA[0-9A-Z]{16}\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+/**
+ * Recursively collect every string value from a nested object/array.
+ * Walks arrays and object values so every user-supplied field (text,
+ * tags, anchors, sources, etc.) can be checked for unsafe content.
+ */
+export function collectStringValues(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStringValues(item, out);
+  else if (value && typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>))
+      collectStringValues(item, out);
+  }
+  return out;
+}
+
+/**
+ * Clamp a number into the [0, 1] range. Non-finite inputs collapse to 0,
+ * which is the safe default for score-like values (a missing or NaN
+ * score should not auto-accept or auto-reject in any non-trivial way).
+ *
+ * Shared across `SqliteSageStore`, the
+ * memory-graph helpers, and `shared/session-consolidation` so every
+ * score normalisation agrees on the same edge-case behaviour.
+ */
+export function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}

@@ -576,7 +576,7 @@ function AppInner() {
                   <AudienceMemoryPanel />
                 </div>
               </Suspense>
-              <Suspense fallback={<PanelSuspense label="Loading Super Memory…" />}>
+              <Suspense fallback={<PanelSuspense label="Loading SAGE…" />}>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <MemoryManager />
                 </div>

@@ -25,6 +25,7 @@ import {
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import { reducer, type State } from './app-reducer.js';
 import { leaderTimelineFromEntries } from './components/agents-monitor.js';
+import type { HistoryScrollController } from './components/scrollable-history.js';
 import type { KeyEvent } from './components/input.js';
 import type { StatuslineItem } from './components/statusline-picker.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
@@ -336,12 +337,15 @@ export function App(props: AppProps): React.ReactElement {
       void layoutStore.flushNow();
     };
   }, [layoutStore]);
-  // Stable measurement callback threaded into ScrollableHistory via the
-  // AppView runtime contract. `dispatch` (rawDispatch) is stable, so the
-  // memoized handler is too — ScrollableHistory relies on that stability to
-  // keep its measure effect from re-firing every render.
-  const onMeasure = useCallback(
-    (totalLines: number) => dispatch({ type: 'setMeasuredLines', totalLines }),
+  // Imperative scroll surface assigned by ScrollableHistory: all scroll math
+  // (wheel, PgUp/PgDn, scrollbar clicks, submit-time re-pin) runs inside the
+  // component, where the live height cache lives. The app only learns about
+  // scroll-state transitions through the stable onScrollInfo callback, which
+  // drives the "managed" key hint.
+  const historyScrollRef = useRef<HistoryScrollController | null>(null);
+  const onScrollInfo = useCallback(
+    (info: { scrolled: boolean }) =>
+      dispatch({ type: 'setHistoryScrolled', scrolled: info.scrolled }),
     [dispatch],
   );
   // Board id captured by `/kanban use <boardId>` or the Goal → Kanban
@@ -1221,6 +1225,7 @@ export function App(props: AppProps): React.ReactElement {
   const handleKey = createAppKeyHandler({
     state,
     dispatch,
+    historyScrollRef,
     runInterruptLadder,
     enhanceCancelledRef,
     enhanceAbortRef,
@@ -1387,6 +1392,7 @@ export function App(props: AppProps): React.ReactElement {
       enhanceCancelled: enhanceCancelledRef,
       nextStepsTimer: nextStepsAutoSubmitTimerRef,
       midRunSendPicker: midRunSendPickerRef,
+      historyScroll: historyScrollRef,
     },
     actions: {
       dispatch,
@@ -1440,7 +1446,8 @@ export function App(props: AppProps): React.ReactElement {
       runtime={{
         state,
         dispatch,
-        onMeasure,
+        historyScrollRef,
+        onScrollInfo,
         activity,
         environment,
         statusbar,

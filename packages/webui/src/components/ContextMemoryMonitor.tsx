@@ -28,7 +28,7 @@ export function ContextMemoryMonitor() {
 
       {records.length === 0 ? (
         <p className="px-3 py-4 text-xs text-muted-foreground">
-          No Super Memory has entered this session context yet.
+          No SAGE has entered this session context yet.
         </p>
       ) : (
         <div className="grid gap-3 p-3 xl:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">

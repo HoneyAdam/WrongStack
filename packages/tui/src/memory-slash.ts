@@ -1,6 +1,6 @@
 import type { MemoryEntry, MemoryPort, MemoryScope } from '@wrongstack/core/types';
 import { MEMORY_TYPE_LABELS, type MemoryPriority, type MemoryType } from '@wrongstack/core/types';
-import { getSuperMemorySurface } from '@wrongstack/super-memory';
+import { getSageSurface as getSageSurface } from '@wrongstack/sage';
 
 export interface MemorySlashDeps {
   memoryStore: MemoryPort;
@@ -81,9 +81,9 @@ function recencyLabel(days: number | null): string {
   return `${Math.round(days / 365)}y ago`;
 }
 
-// ── SuperMemory duck-type interface ──────────────────────────────────────────
+// ── Sage duck-type interface ──────────────────────────────────────────
 
-interface SuperMemoryLike {
+interface SageLike {
   id: string;
   kind: string;
   status: string;
@@ -102,7 +102,7 @@ interface SuperMemoryLike {
   sources: Array<{ type: string }>;
 }
 
-interface SuperMemoryStatsLike {
+interface SageStatsLike {
   total: number;
   byStatus: Record<string, number>;
   byKind: Partial<Record<string, number>>;
@@ -116,7 +116,7 @@ interface MemoryAnchorLike {
   command?: string | undefined;
 }
 
-interface UpdateSuperInput {
+interface UpdateSageInput {
   text?: string | undefined;
   kind?: string | undefined;
   tags?: string[] | undefined;
@@ -192,17 +192,17 @@ function computeStats(entries: MemoryEntry[]): Stats {
   return stats;
 }
 
-// ── SuperMemory renderers ───────────────────────────────────────────────────
+// ── Sage renderers ───────────────────────────────────────────────────
 
-function renderSuperMemoryStats(
-  stats: SuperMemoryStatsLike,
-  memories: SuperMemoryLike[],
+function renderSageStats(
+  stats: SageStatsLike,
+  memories: SageLike[],
   tagFilter?: string,
   pathFilter?: string,
 ): string[] {
   const lines: string[] = [];
 
-  lines.push('## 🧠 Super Memory');
+  lines.push('## 🧠 SAGE');
   lines.push('');
 
   // ── Status bar ──
@@ -280,7 +280,7 @@ function renderSuperMemoryStats(
   return lines;
 }
 
-function renderSuperMemoryEntries(memories: SuperMemoryLike[], compact?: boolean): string[] {
+function renderSageEntries(memories: SageLike[], compact?: boolean): string[] {
   if (memories.length === 0) return [];
 
   const lines: string[] = [];
@@ -521,7 +521,7 @@ function parseArgs(raw: string): ParsedArgs {
   // Extract --compact
   result.compact = trimmed.includes('--compact');
 
-  // Remaining positional (scope for legacy, filter for super)
+  // Remaining positional (scope for legacy, filter for SAGE)
   const positional = trimmed
     .replace(/--tag\s+\S+/g, '')
     .replace(/--path\s+\S+/g, '')
@@ -538,7 +538,7 @@ function parseArgs(raw: string): ParsedArgs {
 //
 // Mirrors the CLI `/memory` write surface (packages/cli/src/slash-commands/
 // memory.ts). Kept self-contained (local parser + duck-types) so the TUI does
-// not need a direct @wrongstack/super-memory dependency. Keep the flag set in
+// not need a direct @wrongstack/sage dependency. Keep the flag set in
 // sync with the CLI command.
 
 const MEMORY_WRITE_SUBS = new Set([
@@ -705,8 +705,8 @@ async function handleMemoryWrite(
   sub: string,
   rest: string[],
 ): Promise<{ message: string }> {
-  const superMemory = getSuperMemorySurface(store);
-  // remember has a legacy fallback; every other write op needs Super Memory.
+  const Sage = getSageSurface(store);
+  // remember has a legacy fallback; every other write op needs SAGE.
   if (sub === 'remember' || sub === 'add') {
     if (rest.length === 0) {
       return {
@@ -714,7 +714,7 @@ async function handleMemoryWrite(
           'Usage: /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--symbol path#Name] [--command cmd] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
       };
     }
-    if (!superMemory) {
+    if (!Sage) {
       const text = rest.join(' ').trim();
       if (!text) return { message: 'Usage: /memory remember <text>' };
       await store.remember(text);
@@ -726,7 +726,7 @@ async function handleMemoryWrite(
     if (!parsed.text)
       return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
     try {
-      const memory = await superMemory.rememberSuper({
+      const memory = await Sage.rememberSage({
         text: parsed.text,
         ...(parsed.kind && { kind: parsed.kind }),
         ...(parsed.scope && { scope: parsed.scope }),
@@ -744,8 +744,8 @@ async function handleMemoryWrite(
     }
   }
 
-  if (!superMemory) {
-    return { message: `\`/memory ${sub}\` requires the Super Memory backend.` };
+  if (!Sage) {
+    return { message: `\`/memory ${sub}\` requires the SAGE backend.` };
   }
 
   if (sub === 'update' || sub === 'edit') {
@@ -758,7 +758,7 @@ async function handleMemoryWrite(
     const parsed = parseMemoryFlags(rest.slice(1));
     if (parsed.errors.length > 0)
       return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
-    const patch: UpdateSuperInput = {
+    const patch: UpdateSageInput = {
       ...(parsed.text && { text: parsed.text }),
       ...(parsed.kind && { kind: parsed.kind }),
       ...(parsed.tags && { tags: parsed.tags }),
@@ -776,7 +776,7 @@ async function handleMemoryWrite(
       };
     }
     try {
-      const memory = await superMemory.updateSuperMemory(id, patch as never);
+      const memory = await Sage.updateSage(id, patch as never);
       return {
         message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
       };
@@ -790,9 +790,9 @@ async function handleMemoryWrite(
     if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
     const reason = rest.slice(1).join(' ').trim() || undefined;
     try {
-      const existing = await superMemory.getSuperMemory(id);
+      const existing = await Sage.getSage(id);
       if (!existing) return { message: `No memory with id \`${id}\`.` };
-      await superMemory.deleteSuperMemory(id, reason);
+      await Sage.deleteSage(id, reason);
       return { message: `Deleted \`${id}\`.` };
     } catch (err) {
       return { message: `Could not delete: ${memErr(err)}` };
@@ -818,7 +818,7 @@ async function handleMemoryWrite(
 export function createMemorySlashCommand(deps: MemorySlashDeps) {
   return {
     name: 'memory',
-    description: 'Display memory stats with filtering by tag and path (supports Super Memory).',
+    description: 'Display memory stats with filtering by tag and path (supports SAGE).',
     argsHint: '[--tag <tag>] [--path <path>] [--compact] [scope]',
     category: 'Inspect' as const,
     help:
@@ -848,11 +848,11 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       if (sub === 'graph') {
         const query = tokens.slice(1).join(' ').trim();
         if (!query) return { message: 'Usage: /memory graph <memory-id|path|query>' };
-        const superMemory = getSuperMemorySurface(store);
-        if (!superMemory?.graphFor) {
-          return { message: '`/memory graph` requires the Super Memory graph backend.' };
+        const Sage = getSageSurface(store);
+        if (!Sage?.graphFor) {
+          return { message: '`/memory graph` requires the SAGE graph backend.' };
         }
-        const edges = await superMemory.graphFor(query, 2, 100);
+        const edges = await Sage.graphFor(query, 2, 100);
         if (edges.length === 0) return { message: `No graph relationships matched "${query}".` };
         return {
           message: [
@@ -869,17 +869,17 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       const parsed = parseArgs(args);
 
       try {
-        // ── SuperMemory path ──────────────────────────────────────────────
-        const superMemory = getSuperMemorySurface(store);
-        if (superMemory) {
+        // ── Sage path ──────────────────────────────────────────────
+        const Sage = getSageSurface(store);
+        if (Sage) {
           // Fetch stats and full list
           const [stats, allMemories] = await Promise.all([
-            superMemory.stats(),
-            superMemory.listSuper(),
+            Sage.stats(),
+            Sage.listSage(),
           ]);
 
           if (allMemories.length === 0) {
-            return { message: '🧠 Super Memory is empty.' };
+            return { message: '🧠 SAGE is empty.' };
           }
 
           // Apply filters
@@ -895,7 +895,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
           // Path filter — use retrieveForPath for path-based queries
           if (parsed.path) {
-            const pathMemories = await superMemory.retrieveForPath({
+            const pathMemories = await Sage.retrieveForPath({
               path: parsed.path,
               limit: 200,
               includeAncestors: true,
@@ -907,11 +907,11 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
           const parts: string[] = [];
 
           // ── Stats panel ──
-          parts.push(...renderSuperMemoryStats(stats, allMemories, parsed.tag, parsed.path));
+          parts.push(...renderSageStats(stats, allMemories, parsed.tag, parsed.path));
 
           // ── Entries ──
           if (filteredMemories.length > 0) {
-            parts.push(...renderSuperMemoryEntries(filteredMemories, parsed.compact));
+            parts.push(...renderSageEntries(filteredMemories, parsed.compact));
           } else {
             parts.push('*No entries matched the filter.*');
             parts.push('');
@@ -924,7 +924,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
           const filterSuffix =
             filterDesc.length > 0 ? ` (filtered by ${filterDesc.join(', ')})` : '';
           parts.push(
-            `*${filteredMemories.length} of ${allMemories.length} Super Memory entr${filteredMemories.length === 1 ? 'y' : 'ies'}${filterSuffix}*`,
+            `*${filteredMemories.length} of ${allMemories.length} SAGE entr${filteredMemories.length === 1 ? 'y' : 'ies'}${filterSuffix}*`,
           );
 
           return { message: parts.join('\n') };
@@ -954,7 +954,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
         if (allEntries.length === 0) {
           return {
             message:
-              '🧠 No memory entries found.\n\n> 💡 Enable **Super Memory** (`superMemory.enabled`) for structured memory with tags, paths, and graph relationships.',
+              '🧠 No memory entries found.\n\n> 💡 Enable **SAGE** (`Sage.enabled`) for structured memory with tags, paths, and graph relationships.',
           };
         }
 
@@ -975,10 +975,10 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
         // Legacy migration hint
         parts.push(
-          '> 💡 **Super Memory** available — enables path anchoring, tags, graph, and structured queries.',
+          '> 💡 **SAGE** available — enables path anchoring, tags, graph, and structured queries.',
         );
         parts.push(
-          '> Enable `superMemory.enabled` in config, then run `/memory` for the full stats panel.',
+          '> Enable `Sage.enabled` in config, then run `/memory` for the full stats panel.',
         );
         parts.push('');
 

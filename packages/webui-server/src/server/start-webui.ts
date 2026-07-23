@@ -805,20 +805,20 @@ export async function startWebUI(
       }
       codebaseIndexing.dispose();
       if (
-        config.superMemory?.enabled !== false &&
-        config.superMemory?.hygiene?.autoAfterSession !== false
+        config.Sage?.enabled !== false &&
+        config.Sage?.hygiene?.autoAfterSession !== false
       ) {
         const candidate = memoryStore as unknown as {
           hygiene?: (options?: object) => Promise<unknown>;
         };
         await candidate
           .hygiene?.({
-            retentionDays: config.superMemory?.hygiene?.retentionDays,
+            retentionDays: config.Sage?.hygiene?.retentionDays,
             archiveLowConfidenceAfterDays:
-              config.superMemory?.hygiene?.archiveLowConfidenceAfterDays,
+              config.Sage?.hygiene?.archiveLowConfidenceAfterDays,
           })
           .catch((err: unknown) =>
-            logger.warn(`super-memory session hygiene failed: ${toErrorMessage(err)}`),
+            logger.warn(`sage session hygiene failed: ${toErrorMessage(err)}`),
           );
       }
       await unregisterInstance(process.pid, path.dirname(globalConfigPath));

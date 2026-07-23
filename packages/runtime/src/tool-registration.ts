@@ -7,7 +7,7 @@ import {
 } from '@wrongstack/core/types';
 import type { ToolRegistry } from '@wrongstack/core/registry';
 import { applyToolDescriptionModes, applyToolResultRenderModes } from '@wrongstack/core/utils';
-import { createSuperMemoryTools, getSuperMemoryService } from '@wrongstack/super-memory';
+import { createSageTools, getSageService } from '@wrongstack/sage';
 import {
   forgetTool,
   relatedMemoryTool,
@@ -34,7 +34,7 @@ export interface CanonicalHostToolRegistrationOptions {
 
 export interface CanonicalHostToolRegistrationResult {
   builtinTools: readonly Tool[];
-  memoryBackend: 'disabled' | 'legacy' | 'super-memory';
+  memoryBackend: 'disabled' | 'legacy' | 'sage';
 }
 
 /**
@@ -55,10 +55,10 @@ export function registerCanonicalHostTools(
   let memoryBackend: CanonicalHostToolRegistrationResult['memoryBackend'] = 'disabled';
   const memoryStore = options.memory?.store;
   if (options.memory?.enabled && memoryStore) {
-    const superMemory = getSuperMemoryService(memoryStore);
-    if (superMemory) {
-      options.registry.registerAllOrThrow(createSuperMemoryTools(superMemory), 'super-memory');
-      memoryBackend = 'super-memory';
+    const Sage = getSageService(memoryStore);
+    if (Sage) {
+      options.registry.registerAllOrThrow(createSageTools(Sage), 'sage');
+      memoryBackend = 'sage';
     } else {
       options.registry.registerAllOrThrow(
         [

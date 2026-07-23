@@ -104,7 +104,7 @@ The current halfway state is not acceptable. Runtime must not use unsafe casts t
 
 - `@wrongstack/coordination`: Director, mailbox/fleet coordination, leases, assignment lifecycle, recovery, and coordination policies.
 - `@wrongstack/storage`: persistence primitives and repositories, with domain repositories separated from generic atomic persistence.
-- `@wrongstack/super-memory`: one implementation of `MemoryPort`, internally split into command, query, index, migration, and persistence services.
+- `@wrongstack/sage`: one implementation of `MemoryPort`, internally split into command, query, index, migration, and persistence services.
 - `@wrongstack/webui-server`: sole HTTP/WebSocket backend authority for browser surfaces.
 - `@wrongstack/providers`: provider definitions, factories, auth/capabilities, and generated projections.
 - `@wrongstack/plugins`: product plugin implementations plus a typed, data-only manifest authority.

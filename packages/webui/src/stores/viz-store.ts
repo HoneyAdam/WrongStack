@@ -26,7 +26,7 @@ export type VizEventKind =
   | 'mailbox:send'         // Mailbox message sent
   | 'mailbox:deliver'      // Mailbox message delivered/read
   | 'collab:event'         // Collaboration observer/control event
-  | 'memory:event'         // Super Memory retrieval/verification/hygiene event
+  | 'memory:event'         // SAGE retrieval/verification/hygiene event
   | 'session:start'        // Session started/resumed
   | 'session:end'          // Session ended
   | 'iteration:start'      // Iteration started

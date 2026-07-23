@@ -93,6 +93,49 @@ describe('DefaultConfigLoader', () => {
     });
   });
 
+  it('migrates the legacy `superMemory` key into `Sage` without losing user settings', async () => {
+    const { loader: l, profileCfgPath } = loader();
+    await fs.mkdir(path.dirname(profileCfgPath), { recursive: true });
+    await fs.writeFile(
+      profileCfgPath,
+      JSON.stringify({
+        version: 1,
+        superMemory: {
+          inject: { turnContext: true },
+          storage: { directory: '.custom/memories' },
+        },
+      }),
+    );
+    const cfg = await l.load();
+    const sage = (cfg as unknown as Record<string, unknown>)['Sage'] as {
+      inject?: { turnContext?: boolean };
+      storage?: { directory?: string };
+    };
+    expect(sage?.inject?.turnContext).toBe(true);
+    expect(sage?.storage?.directory).toBe('.custom/memories');
+    expect((cfg as unknown as Record<string, unknown>)['superMemory']).toBeUndefined();
+  });
+
+  it('prefers explicit `Sage` values over migrated legacy `superMemory` ones', async () => {
+    const { loader: l, profileCfgPath } = loader();
+    await fs.mkdir(path.dirname(profileCfgPath), { recursive: true });
+    await fs.writeFile(
+      profileCfgPath,
+      JSON.stringify({
+        version: 1,
+        superMemory: { inject: { turnContext: true }, embeddings: { enabled: true } },
+        Sage: { inject: { turnContext: false } },
+      }),
+    );
+    const cfg = await l.load();
+    const sage = (cfg as unknown as Record<string, unknown>)['Sage'] as {
+      inject?: { turnContext?: boolean };
+      embeddings?: { enabled?: boolean };
+    };
+    expect(sage?.inject?.turnContext).toBe(false); // explicit Sage wins
+    expect(sage?.embeddings?.enabled).toBe(true); // legacy-only sub-key survives
+  });
+
   it('fills missing global defaults without overwriting user settings', async () => {
     const { loader: l, paths, profileCfgPath } = loader();
     await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
@@ -104,7 +147,7 @@ describe('DefaultConfigLoader', () => {
         maxConcurrent: 12,
         autonomy: { defaultMode: 'auto' },
         modelRuntime: { parameters: { user: 'kept' } },
-        superMemory: { storage: { directory: 'custom-memory', engine: 'jsonl' } },
+        Sage: { storage: { directory: 'custom-memory', engine: 'jsonl' } },
       }),
     );
 
@@ -116,8 +159,8 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.autonomy?.autoProceedDelayMs).toBe(45_000);
     expect(cfg.modelRuntime?.parameters?.user).toBe('kept');
     expect(cfg.modelRuntime?.reasoning?.effort).toBeUndefined();
-    expect(cfg.superMemory?.storage?.directory).toBe('custom-memory');
-    expect((cfg.superMemory?.storage as Record<string, unknown>)['engine']).toBeUndefined();
+    expect(cfg.Sage?.storage?.directory).toBe('custom-memory');
+    expect((cfg.Sage?.storage as Record<string, unknown>)['engine']).toBeUndefined();
 
     // User settings are migrated to the profile config
     const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
@@ -128,8 +171,8 @@ describe('DefaultConfigLoader', () => {
     expect(written.autonomy.autoProceedDelayMs).toBe(45_000);
     expect(written.modelRuntime.parameters.user).toBe('kept');
     expect(written.modelRuntime.reasoning.effort).toBeUndefined();
-    expect(written.superMemory.storage.directory).toBe('custom-memory');
-    expect(written.superMemory.storage.engine).toBeUndefined();
+    expect(written.Sage.storage.directory).toBe('custom-memory');
+    expect(written.Sage.storage.engine).toBeUndefined();
   });
 
   it('does not persist env or CLI identity overrides when seeding defaults', async () => {

@@ -139,7 +139,7 @@ export function HowItWorksPage() {
               'User input, model responses, tool results, checkpoints and in-flight markers.',
             ],
             [
-              'Super Memory',
+              'SAGE',
               'Project-local',
               'Verified facts, file/symbol anchors, relationships and hygiene metadata.',
             ],

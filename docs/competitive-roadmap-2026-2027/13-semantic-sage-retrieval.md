@@ -1,4 +1,4 @@
-# Semantic SuperMemory Retrieval
+# Semantic Sage Retrieval
 
 **Priority:** P0  
 **Horizon:** 0–4 months  
@@ -10,7 +10,7 @@ Add embedding-based recall to the existing lexical, anchor, and graph retrieval 
 
 ## Current baseline
 
-SuperMemory is already the default store across runtime surfaces. This plan does not repeat wiring work; it improves relevance and recall.
+Sage is already the default store across runtime surfaces. This plan does not repeat wiring work; it improves relevance and recall.
 
 ## Architecture
 

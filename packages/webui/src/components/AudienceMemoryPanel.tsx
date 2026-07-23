@@ -38,9 +38,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryEntry } from '@/types';
+import type { SageEntry } from '@/types';
 
-type MemoryAudience = NonNullable<SuperMemoryEntry['audience']>;
+type MemoryAudience = NonNullable<SageEntry['audience']>;
 type Feedback = { tone: 'error' | 'success'; text: string };
 
 interface CreateEntry {
@@ -123,7 +123,7 @@ function parseImport(raw: string): { entries: ImportedEntry[]; skipped: number }
   return { entries, skipped };
 }
 
-function includesQuery(memory: SuperMemoryEntry, query: string): boolean {
+function includesQuery(memory: SageEntry, query: string): boolean {
   if (!query) return true;
   const audience = memory.audience;
   return [
@@ -139,7 +139,7 @@ function includesQuery(memory: SuperMemoryEntry, query: string): boolean {
     .includes(query.toLocaleLowerCase());
 }
 
-function uniqueAudienceValues(memories: SuperMemoryEntry[], key: keyof MemoryAudience): string[] {
+function uniqueAudienceValues(memories: SageEntry[], key: keyof MemoryAudience): string[] {
   return [
     ...new Set(
       memories
@@ -151,7 +151,7 @@ function uniqueAudienceValues(memories: SuperMemoryEntry[], key: keyof MemoryAud
 
 export function AudienceMemoryPanel() {
   const ws = useWebSocket();
-  const [memories, setMemories] = useState<SuperMemoryEntry[]>([]);
+  const [memories, setMemories] = useState<SageEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [query, setQuery] = useState('');
@@ -165,19 +165,19 @@ export function AudienceMemoryPanel() {
   const refresh = useCallback(() => {
     setLoading(true);
     setFeedback(null);
-    ws.listSuperMemories({ echoToChat: false });
-  }, [ws.listSuperMemories]);
+    ws.listSageMemories({ echoToChat: false });
+  }, [ws.listSageMemories]);
 
   useEffect(() => {
     const client = ws.client;
-    const unsubList = client.on('memory.super.list', (msg) => {
-      const payload = msg.payload as { memories?: SuperMemoryEntry[]; error?: string };
+    const unsubList = client.on('memory.sage.list', (msg) => {
+      const payload = msg.payload as { memories?: SageEntry[]; error?: string };
       if (payload.error) setFeedback({ tone: 'error', text: payload.error });
       else setMemories(payload.memories ?? []);
       setLoading(false);
     });
-    const unsubRemember = client.on('memory.super.remember', (msg) => {
-      const payload = msg.payload as { memory?: SuperMemoryEntry; error?: string };
+    const unsubRemember = client.on('memory.sage.remember', (msg) => {
+      const payload = msg.payload as { memory?: SageEntry; error?: string };
       setCreating(false);
       if (payload.error) {
         setFeedback({ tone: 'error', text: payload.error });
@@ -191,8 +191,8 @@ export function AudienceMemoryPanel() {
         setShowCreate(false);
       }
     });
-    const unsubUpdate = client.on('memory.super.update', (msg) => {
-      const payload = msg.payload as { memory?: SuperMemoryEntry; error?: string };
+    const unsubUpdate = client.on('memory.sage.update', (msg) => {
+      const payload = msg.payload as { memory?: SageEntry; error?: string };
       if (payload.error) {
         setFeedback({ tone: 'error', text: payload.error });
       } else if (payload.memory) {
@@ -207,7 +207,7 @@ export function AudienceMemoryPanel() {
         }
       }
     });
-    const unsubDelete = client.on('memory.super.delete', (msg) => {
+    const unsubDelete = client.on('memory.sage.delete', (msg) => {
       const payload = msg.payload as { success?: boolean; message?: string };
       const pendingId = deletingIdRef.current;
       if (payload.success && pendingId) {
@@ -257,7 +257,7 @@ export function AudienceMemoryPanel() {
 
   const handleClearScope = (id: string) => {
     setFeedback(null);
-    ws.updateSuperMemory(id, { audience: undefined }, { echoToChat: false });
+    ws.updateSage(id, { audience: undefined }, { echoToChat: false });
   };
 
   const confirmDelete = () => {
@@ -265,7 +265,7 @@ export function AudienceMemoryPanel() {
     deletingIdRef.current = deletingId;
     setDeleting(true);
     setFeedback(null);
-    ws.deleteSuperMemory(deletingId, 'Removed from the audience memory panel.');
+    ws.deleteSage(deletingId, 'Removed from the audience memory panel.');
   };
 
   const handleExport = async () => {
@@ -297,7 +297,7 @@ export function AudienceMemoryPanel() {
   const handleCreate = (entry: CreateEntry) => {
     setFeedback(null);
     setCreating(true);
-    ws.rememberSuperMemory(
+    ws.rememberSage(
       {
         text: entry.text,
         kind: entry.kind,
@@ -322,7 +322,7 @@ export function AudienceMemoryPanel() {
         return false;
       }
       for (const entry of entries) {
-        ws.rememberSuperMemory(entry, { echoToChat: false });
+        ws.rememberSage(entry, { echoToChat: false });
       }
       setFeedback({
         tone: 'success',
@@ -584,7 +584,7 @@ function AudienceMemoryCard({
   onClearScope,
   onDelete,
 }: {
-  memory: SuperMemoryEntry;
+  memory: SageEntry;
   onFilter: (value: string) => void;
   onClearScope: () => void;
   onDelete: () => void;

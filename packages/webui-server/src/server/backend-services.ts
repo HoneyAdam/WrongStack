@@ -32,7 +32,7 @@ import type { Container, EventBus } from '@wrongstack/core/kernel';
 import type { DefaultModeStore } from '@wrongstack/core/models';
 import type { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
 import type { SkillInstaller } from '@wrongstack/core/skills';
-import type { ConsolidatorSuperMemory, SessionReader } from '@wrongstack/core/storage';
+import type { ConsolidatorSage, SessionReader } from '@wrongstack/core/storage';
 import type {
   Compactor,
   Logger,
@@ -83,11 +83,11 @@ import {
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeLightSubagentFactory } from '@wrongstack/runtime';
 import {
-  createSuperMemoryToolCallMiddleware,
-  createSuperMemoryTurnMiddleware,
-  getSuperMemoryRetrieval,
-  getSuperMemoryService,
-} from '@wrongstack/super-memory';
+  createSageToolCallMiddleware,
+  createSageTurnMiddleware,
+  getSageRetrieval,
+  getSageService,
+} from '@wrongstack/sage';
 import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
@@ -217,22 +217,22 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   pipelines.toolCall.prepend(collabPause);
   // Design Studio — per-turn UI-intent detection + kit-menu injection.
   installDesignStudioMiddleware({ pipelines, ctx: context });
-  const memoryRetrieval = getSuperMemoryRetrieval(memoryStore);
+  const memoryRetrieval = getSageRetrieval(memoryStore);
   if (
     config.features.memory !== false &&
-    config.superMemory?.enabled !== false &&
+    config.Sage?.enabled !== false &&
     memoryRetrieval
   ) {
-    if (config.superMemory?.inject?.toolResults !== false) {
+    if (config.Sage?.inject?.toolResults !== false) {
       pipelines.toolCall.use(
-        createSuperMemoryToolCallMiddleware({
+        createSageToolCallMiddleware({
           memory: memoryRetrieval,
-          maxHintsPerTool: config.superMemory?.inject?.maxHintsPerTool,
-          maxCharsPerTool: config.superMemory?.inject?.maxCharsPerTool,
-          minScore: config.superMemory?.inject?.minScore,
-          repeatCooldownMs: config.superMemory?.inject?.repeatCooldownMs,
-          verifyOnMutation: config.superMemory?.hygiene?.autoOnFileChange,
-          triggers: config.superMemory?.inject?.triggers,
+          maxHintsPerTool: config.Sage?.inject?.maxHintsPerTool,
+          maxCharsPerTool: config.Sage?.inject?.maxCharsPerTool,
+          minScore: config.Sage?.inject?.minScore,
+          repeatCooldownMs: config.Sage?.inject?.repeatCooldownMs,
+          verifyOnMutation: config.Sage?.hygiene?.autoOnFileChange,
+          triggers: config.Sage?.inject?.triggers,
         }),
       );
     }
@@ -240,14 +240,14 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     // appends a query-dependent block to the system prompt every turn, which
     // moves the provider cache breakpoint and defeats prefix caching. The
     // default retrieval path is the contextual tool-result injection above plus
-    // the on-demand memory_* tools. See wiring/super-memory.ts.
-    if (config.superMemory?.inject?.turnContext === true) {
+    // the on-demand memory_* tools. See wiring/sage.ts.
+    if (config.Sage?.inject?.turnContext === true) {
       pipelines.request.use(
-        createSuperMemoryTurnMiddleware({
+        createSageTurnMiddleware({
           memory: memoryRetrieval,
-          maxMemories: config.superMemory?.inject?.maxTurnMemories,
-          maxChars: config.superMemory?.inject?.maxCharsPerTurn,
-          minScore: config.superMemory?.inject?.minScore,
+          maxMemories: config.Sage?.inject?.maxTurnMemories,
+          maxChars: config.Sage?.inject?.maxCharsPerTurn,
+          minScore: config.Sage?.inject?.minScore,
         }),
       );
     }
@@ -417,13 +417,13 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     toolExecutor,
   });
   if (config.features.memory && config.features.memoryConsolidation !== false) {
-    const consSuperMemory = getSuperMemoryService(memoryStore) as
-      | ConsolidatorSuperMemory
+    const consSage = getSageService(memoryStore) as
+      | ConsolidatorSage
       | undefined;
     agent.extensions.register(
       new SessionMemoryConsolidator({
         memoryStore,
-        ...(consSuperMemory ? { superMemory: consSuperMemory } : {}),
+        ...(consSage ? { Sage: consSage } : {}),
       }),
     );
   }

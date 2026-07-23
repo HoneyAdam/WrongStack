@@ -226,7 +226,7 @@ const KNOWN_ROLES: RosterAgentEntry[] = [
   {
     role: 'mnemosyne',
     name: 'Mnemosyne',
-    summary: 'Memory curator — reviews and maintains Super Memory integrity.',
+    summary: 'Memory curator — reviews and maintains SAGE integrity.',
     tools: 6,
     budget: { timeoutMs: 7200000, maxIterations: 500, maxToolCalls: 2000 },
   },
@@ -378,7 +378,7 @@ function LiveFleetTab({ nowTick }: { nowTick: number }) {
       <div
         className={cn(
           'flex flex-col min-h-0 min-w-0 overflow-hidden',
-          selected ? 'w-[420px] shrink-0 border-r border-border/50' : 'flex-1',
+          selected ? 'w-80 shrink-0 border-r border-border/50' : 'flex-1',
         )}
       >
         {/* Filter bar */}
@@ -1041,7 +1041,7 @@ function SelfLearningTab({
       <div
         className={cn(
           'flex flex-col min-h-0 min-w-0 overflow-hidden border-r border-border/50',
-          selectedRole ? 'w-72 shrink-0' : 'flex-1',
+          selectedRole ? 'w-80 shrink-0' : 'flex-1',
         )}
       >
         <div className="shrink-0 px-3 py-2 border-b border-border/50">
@@ -1517,7 +1517,7 @@ function CustomizationTab({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* Left sidebar */}
-      <div className="w-60 shrink-0 border-r border-border/50 flex flex-col overflow-hidden">
+      <div className="w-80 shrink-0 border-r border-border/50 flex flex-col overflow-hidden">
         <div className="shrink-0 border-b border-border/50 px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <h3 className="flex items-center gap-1.5 text-xs font-semibold">
@@ -1858,15 +1858,15 @@ export function AgentRosterView({ className }: { className?: string | undefined 
   }, [loadRoster]);
 
   return (
-    <div className={cn('flex h-full min-h-0 min-w-0 flex-col overflow-hidden', className)}>
+    <div className={cn('flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden', className)}>
       {/* ── Header bar ── */}
       <div className="shrink-0 border-b border-border/70 bg-card/80 px-4 py-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
+        <div className="flex items-center justify-between gap-2 flex-nowrap min-w-0">
+          <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+            <div className="flex items-center justify-center w-8 h-8 shrink-0 rounded-lg bg-primary/10">
               <Library className="h-4 w-4 text-primary" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 overflow-hidden">
               <h1 className="text-sm font-semibold truncate">Agent Roster</h1>
               <p className="text-[10px] text-muted-foreground truncate">
                 {
@@ -1878,12 +1878,12 @@ export function AgentRosterView({ className }: { className?: string | undefined 
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {rosterLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <div className="flex items-center gap-2 shrink-0">
+            {rosterLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
             <button
               type="button"
               onClick={loadRoster}
-              className="inline-flex items-center gap-1 rounded border border-border/50 px-2 py-1 text-[10px] hover:bg-accent transition-colors"
+              className="inline-flex items-center gap-1 rounded border border-border/50 px-2 py-1 text-[10px] hover:bg-accent transition-colors shrink-0 whitespace-nowrap"
               title="Refresh roster data"
             >
               <RefreshCw className="h-3 w-3" /> Refresh
@@ -1913,7 +1913,7 @@ export function AgentRosterView({ className }: { className?: string | undefined 
       </div>
 
       {/* ── Tab content ── */}
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background/50">
+      <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-background/50">
         {rosterError && (
           <div className="flex items-center justify-center w-full text-destructive text-xs gap-2">
             <AlertTriangle className="h-4 w-4" />

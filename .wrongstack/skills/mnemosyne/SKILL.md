@@ -2,7 +2,7 @@
 name: mnemosyne
 description: |
   Use this skill when you need a Memory Custodian Agent that curates all
-  Super Memory entries — verifying correctness, necessity, freshness, and
+  SAGE memory entries — verifying correctness, necessity, freshness, and
   consistency using both deterministic checks and LLM-supported semantic
   analysis. Runs in the background via cron and can be invoked on demand.
   Triggers: "memory agent", "memory review", "mnemosyne", "curate memories",
@@ -14,7 +14,7 @@ version: 1.0.0
 
 ## Overview
 
-Mnemosyne is a background agent that reviews every Super Memory in the project,
+Mnemosyne is a background agent that reviews every SAGE memory in the project,
 applying a layered pipeline of deterministic and LLM-supported checks to ensure
 memory integrity. Named after the Greek Titaness of memory, it guards against
 stale facts, contradictions, useless noise, and undetected drift.
@@ -326,7 +326,7 @@ When delegating a batch to the LLM subagent:
 
 ```text
 You are a memory curator reviewing {batchSize} memories from the project's
-Super Memory store. For each memory, evaluate:
+SAGE memory store. For each memory, evaluate:
 
 1. CONTRADICTION: Does this memory conflict with another in this batch?
    - If yes, identify the pair and which one is correct (the newer one wins)
@@ -447,7 +447,7 @@ Status report:
 - **Hygiene never deletes** — `memory_hygiene` only deduplicates, verifies, and surfaces review candidates. Phase 3 follows the same invariant: it proposes, the user decides.
 - **No destructive action on contradictions** — Mnemosyne marks contradictions as `superseded` or `stale` (both non-terminal). It may *propose* deletion of the older one, but never applies it.
 - **Respect user intent** — memories with `importance >= 0.9` are never proposed for deletion or archival; they are logged in findings as `action: "none"`.
-- **Permanent memories are untouchable** — `persistence: 'permanent'` memories refuse deletion at the store layer (`deleteSuperMemory` throws without `force: true`). The resolver also guards them.
+- **Permanent memories are untouchable** — `persistence: 'permanent'` memories refuse deletion at the store layer (`deleteSage` throws without `force: true`). The resolver also guards them.
 - **Batch LLM calls bound at `max_batches`** — prevent runaway token usage in large memory stores.
 - **Report always broadcast** — even an empty review generates a status message so the user knows the cycle completed.
 - **No write amplification** — a memory that passes all checks with flying colors is left untouched (no unnecessary `memory_update` calls that would bump `updatedAt`).
@@ -473,7 +473,7 @@ Status report:
 - `shadow-agent` — background cron pattern, fleet monitoring pattern
 - `auto-review` — subagent delegation pattern, debounce handling
 - `multi-agent` — delegate spawn for parallel LLM batch review
-- `node-modern` — for understanding the Super Memory tool APIs
+- `node-modern` — for understanding the SAGE memory tool APIs
 - `observability` — for structured event logging of findings
 - `prompt-engineering` — for crafting the LLM batch review prompt
 - `testing` — for verifying review actions with memory store mocks

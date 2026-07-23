@@ -159,7 +159,7 @@ WrongStack ships with 25 bundled skills:
 | `docker-deploy` | Docker containerization, multi-stage builds, image scanning |
 | `git-flow` | Commit message style, branch hygiene, safe history operations |
 | `mailbox-bridge` | Loopback HTTP bridge that exposes the project's shared WrongStack mailbox so external agents (Claude Code, Aider, scripts) can read, send, and acknowledge messages |
-| `mnemosyne` | Deterministic and LLM-supported curation of Super Memory entries |
+| `mnemosyne` | Deterministic and LLM-supported curation of SAGE memory entries |
 | `multi-agent` | Leader/worker roles, task delegation, result aggregation, fleet management |
 | `node-modern` | Node.js ≥ 22 idioms: ESM-only, native fetch, AbortSignal patterns |
 | `observability` | Structured logging, traces, metrics, redaction, instrumentation |

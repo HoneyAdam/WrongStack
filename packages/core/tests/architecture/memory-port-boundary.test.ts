@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const SCAN_ROOTS = ['packages', 'apps'];
-const ADAPTER_AUTHORITY = 'packages/super-memory/src/memory-port.ts';
+const ADAPTER_AUTHORITY = 'packages/sage/src/memory-port.ts';
 
 async function productionTypeScriptFiles(root: string): Promise<string[]> {
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -31,11 +31,11 @@ describe('MemoryPort ownership boundary', () => {
       const relative = path.relative(ROOT, file).replaceAll('\\', '/');
       if (relative === ADAPTER_AUTHORITY) continue;
       const source = await fs.readFile(file, 'utf8');
-      if (/new\s+(?:SuperMemoryStore|SqliteSuperMemoryStore)\s*\(/u.test(source)) {
+      if (/new\s+(?:SageStore|SqliteSageStore)\s*\(/u.test(source)) {
         violations.push(`${relative}: constructs a concrete memory backend`);
       }
-      if (/function\s+isSuperMemory(?:Store|Retriever)\s*\(/u.test(source)) {
-        violations.push(`${relative}: defines a local Super Memory capability guard`);
+      if (/function\s+isSage(?:Store|Retriever)\s*\(/u.test(source)) {
+        violations.push(`${relative}: defines a local SAGE capability guard`);
       }
       if (/as\s+unknown\s+as\s+MemoryStore\b/u.test(source)) {
         violations.push(`${relative}: uses an unsafe MemoryStore contract cast`);

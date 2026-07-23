@@ -21,7 +21,7 @@
 
 ## Verification result
 
-- packages/super-memory/src/sqlite-store.ts: hotspot grew from 2569 to 2680 lines; review and update the ratchet in the same change
+- packages/sage/src/sqlite-store.ts: hotspot grew from 2569 to 2680 lines; review and update the ratchet in the same change
 - packages/tools/src/codebase-index/writer.ts: hotspot shrunk from 1854 to 1831 lines; review and update the ratchet in the same change
 - packages/tui/src/app.tsx: hotspot grew from 1462 to 1463 lines; review and update the ratchet in the same change
 - packages/tui/src/components/history/code-block.tsx: hotspot grew from 1087 to 1109 lines; review and update the ratchet in the same change
@@ -32,7 +32,7 @@
 |---|---:|---:|---|
 | @wrongstack/acp | 32 | 27 | @wrongstack/core |
 | @wrongstack/bench | 22 | 38 | @wrongstack/core |
-| @wrongstack/cli | 317 | 258 | @wrongstack/acp, @wrongstack/bench, @wrongstack/core, @wrongstack/desktop, @wrongstack/kanban, @wrongstack/mcp, @wrongstack/plug-lsp, @wrongstack/plugins, @wrongstack/providers, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/security-scanner, @wrongstack/simpleui, @wrongstack/super-memory, @wrongstack/techstack, @wrongstack/telegram, @wrongstack/tools, @wrongstack/tui, @wrongstack/webui, @wrongstack/webui-hq, @wrongstack/webui-server |
+| @wrongstack/cli | 317 | 258 | @wrongstack/acp, @wrongstack/bench, @wrongstack/core, @wrongstack/desktop, @wrongstack/kanban, @wrongstack/mcp, @wrongstack/plug-lsp, @wrongstack/plugins, @wrongstack/providers, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/security-scanner, @wrongstack/simpleui, @wrongstack/sage, @wrongstack/techstack, @wrongstack/telegram, @wrongstack/tools, @wrongstack/tui, @wrongstack/webui, @wrongstack/webui-hq, @wrongstack/webui-server |
 | @wrongstack/core | 493 | 451 | @wrongstack/kanban, @wrongstack/persistence |
 | @wrongstack/desktop | 33 | 15 | @wrongstack/core, @wrongstack/webui, @wrongstack/webui-server |
 | @wrongstack/kanban | 21 | 16 | @wrongstack/persistence |
@@ -41,18 +41,18 @@
 | @wrongstack/plug-lsp | 41 | 19 | @wrongstack/core, @wrongstack/tools |
 | @wrongstack/plugins | 73 | 94 | @wrongstack/core, @wrongstack/tools |
 | @wrongstack/providers | 50 | 39 | @wrongstack/core |
-| @wrongstack/runtime | 9 | 10 | @wrongstack/core, @wrongstack/super-memory, @wrongstack/tools |
+| @wrongstack/runtime | 9 | 10 | @wrongstack/core, @wrongstack/sage, @wrongstack/tools |
 | @wrongstack/sdd | 26 | 25 | @wrongstack/core |
 | @wrongstack/security-scanner | 15 | 20 | @wrongstack/core |
 | @wrongstack/simpleui | 57 | 26 | @wrongstack/tools, @wrongstack/webui-server |
-| @wrongstack/super-memory | 24 | 29 | @wrongstack/core |
+| @wrongstack/sage | 24 | 29 | @wrongstack/core |
 | @wrongstack/techstack | 46 | 26 | @wrongstack/core, @wrongstack/tools |
 | @wrongstack/telegram | 19 | 20 | @wrongstack/core |
 | @wrongstack/tools | 117 | 122 | @wrongstack/core, @wrongstack/kanban |
-| @wrongstack/tui | 208 | 223 | @wrongstack/core, @wrongstack/kanban, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/super-memory, @wrongstack/tools |
+| @wrongstack/tui | 208 | 223 | @wrongstack/core, @wrongstack/kanban, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/sage, @wrongstack/tools |
 | @wrongstack/webui | 305 | 220 | @wrongstack/core, @wrongstack/kanban, @wrongstack/providers, @wrongstack/tools, @wrongstack/webui-server |
 | @wrongstack/webui-hq | 46 | 30 | @wrongstack/core, @wrongstack/tools, @wrongstack/webui-server |
-| @wrongstack/webui-server | 140 | 89 | @wrongstack/core, @wrongstack/kanban, @wrongstack/mcp, @wrongstack/providers, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/super-memory, @wrongstack/techstack, @wrongstack/tools |
+| @wrongstack/webui-server | 140 | 89 | @wrongstack/core, @wrongstack/kanban, @wrongstack/mcp, @wrongstack/providers, @wrongstack/runtime, @wrongstack/sdd, @wrongstack/sage, @wrongstack/techstack, @wrongstack/tools |
 | wrongstack | 1 | 0 | @wrongstack/cli |
 
 ## Module cycles
@@ -83,9 +83,9 @@ None.
 
 | Lines | File |
 |---:|---|
-| 3793 | `packages/super-memory/src/store.ts` |
+| 3793 | `packages/sage/src/store.ts` |
 | 3313 | `packages/webui/src/types.ts` |
-| 2680 | `packages/super-memory/src/sqlite-store.ts` |
+| 2680 | `packages/sage/src/sqlite-store.ts` |
 | 2549 | `packages/webui/src/components/KanbanView.tsx` |
 | 2526 | `packages/cli/src/fleet/host.ts` |
 | 2313 | `packages/webui/src/components/CodeMap.tsx` |

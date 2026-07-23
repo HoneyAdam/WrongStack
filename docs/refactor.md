@@ -27,7 +27,7 @@ This is an **actionable backlog**. Each item is a self-contained ticket: current
 | R2 | P0 | M | Split | Extract HQ dashboard HTML into real assets | TODO |
 | R3 | P0 | L | Split | Decompose `tui/app.tsx` god-component | TODO |
 | R4 | P1 | L | Split | Decompose `core/coordination/director.ts` | **MOSTLY DONE — merged to main** (collab+btw extracted, dead scaffolding removed, constructor 411→117, spawn 228→104; only risky cross-file size reduction remains) |
-| R5 | P1 | M | Merge | Reconcile duplicate `MemoryStore` (core ↔ super-memory) | TODO |
+| R5 | P1 | M | Merge | Reconcile duplicate `MemoryStore` (core ↔ sage) | TODO |
 | R6 | P1 | M | Split | Split `kanban/manager.ts` (2771 LOC flat module) | **DONE — merged to main** (e0f6e7801) |
 | R7 | P1 | M | Split | Slice `tui` reducer/state per domain | TODO |
 | R8 | P1 | S | Split | Break up `cli-main.ts` `main()` wiring blob | TODO |
@@ -135,21 +135,21 @@ This is an **actionable backlog**. Each item is a self-contained ticket: current
 
 ---
 
-### R5 · Reconcile duplicate `MemoryStore` (core ↔ super-memory) `[P1 · Merge · M]`
+### R5 · Reconcile duplicate `MemoryStore` (core ↔ sage) `[P1 · Merge · M]`
 
-**Problem.** `core/src/storage/` has a full memory stack (`memory-store.ts` `DefaultMemoryStore`, `memory-backend.ts` `FileMemoryBackend`, `memory-consolidator.ts`, `memory-graph-backend.ts`). `super-memory` imports the **same** `MemoryStore` interface + `FileMemoryBackend` and provides a **second, richer** implementation. One interface, two implementations, across a package boundary — graph/consolidation modeled in both. Clearest architectural overlap in the repo.
+**Problem.** `core/src/storage/` has a full memory stack (`memory-store.ts` `DefaultMemoryStore`, `memory-backend.ts` `FileMemoryBackend`, `memory-consolidator.ts`, `memory-graph-backend.ts`). `sage` imports the **same** `MemoryStore` interface + `FileMemoryBackend` and provides a **second, richer** implementation. One interface, two implementations, across a package boundary — graph/consolidation modeled in both. Clearest architectural overlap in the repo.
 
 **Target.** Single owner of the memory domain.
 
 **Decision required (pick one):**
-- **(a)** super-memory owns the whole domain; core keeps only the `MemoryStore` interface + types. *(Recommended — super-memory is the richer, actively-developed impl.)*
-- **(b)** Fold super-memory into `core/storage/super-memory` as a core-internal module.
+- **(a)** sage owns the whole domain; core keeps only the `MemoryStore` interface + types. *(Recommended — sage is the richer, actively-developed impl.)*
+- **(b)** Fold sage into `core/storage/sage` as a core-internal module.
 
-**Steps (option a).** Move `DefaultMemoryStore`/`FileMemoryBackend` consumers to super-memory; leave `types/memory.ts` + interface in core; update `runtime`/`cli` wiring to resolve the super-memory impl.
+**Steps (option a).** Move `DefaultMemoryStore`/`FileMemoryBackend` consumers to sage; leave `types/memory.ts` + interface in core; update `runtime`/`cli` wiring to resolve the sage impl.
 
 **Risk.** Touches persistence (append-only invariant). Migration-safe: read path must stay backward compatible with existing `~/.wrongstack` memory files.
 
-**Verify.** super-memory tests + a round-trip test against a fixture memory dir; `/memory` slash command smoke.
+**Verify.** sage tests + a round-trip test against a fixture memory dir; `/memory` slash command smoke.
 
 **Note.** Memory `budget-watchdog-subsystem-user-wip` and `sdd-kanban-extraction-state` flag the user is mid-extraction in adjacent areas — coordinate before moving files.
 

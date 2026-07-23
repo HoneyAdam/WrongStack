@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
-    "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/sage": "workspace:*",
     "@wrongstack/tools": "workspace:*"
   },
   "devDependencies": {

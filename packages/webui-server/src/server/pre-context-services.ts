@@ -404,7 +404,7 @@ export async function createPreContextServices(
   // ── System prompt builder ──
   const systemPromptBuilder = new DefaultSystemPromptBuilder({
     memoryStore,
-    // Super Memory's turn middleware is the single memory-injection channel;
+    // SAGE's turn middleware is the single memory-injection channel;
     // don't also inject a static memory section here (avoids double injection).
     injectMemory: false,
     skillLoader,

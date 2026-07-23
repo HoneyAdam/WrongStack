@@ -7,7 +7,7 @@
 
 ## Context
 
-`@wrongstack/core` currently exposes a broad compatibility barrel and 19 additional package export keys. Its `src/` tree contains 28 top-level domains spanning kernel contracts, coordination, concrete defaults, repositories, product plugins, host tools, and compatibility facades. `@wrongstack/runtime` contains useful concrete subsystems, but its root still re-exports Core defaults and infrastructure while depending on Core, Super Memory, and Tools.
+`@wrongstack/core` currently exposes a broad compatibility barrel and 19 additional package export keys. Its `src/` tree contains 28 top-level domains spanning kernel contracts, coordination, concrete defaults, repositories, product plugins, host tools, and compatibility facades. `@wrongstack/runtime` contains useful concrete subsystems, but its root still re-exports Core defaults and infrastructure while depending on Core, SAGE, and Tools.
 
 R1 must establish ownership before physical moves. Export removal is not driven by a target number: consumer evidence, replacement paths, compatibility windows, and package DAG direction are authoritative.
 
@@ -68,7 +68,7 @@ The 1,800+ line aggregate `Config` remains a compatibility composition type whil
 | Plugin manifests and extension configuration | Core plugin contract | `@wrongstack/plugins` implementation |
 | Security/capabilities/exec danger | Core security contract | Runtime security defaults |
 | Persistence, session logging, history, sync | Repository/persistence contracts | R2 primitive + repository adapters; sync is a plugin feature |
-| Memory and indexing | `MemoryPort` plus capability/admin contracts | R3 adapters and `@wrongstack/super-memory` |
+| Memory and indexing | `MemoryPort` plus capability/admin contracts | R3 adapters and `@wrongstack/sage` |
 | MCP server/health | MCP-compatible neutral contract | MCP/host composition |
 | TUI/HQ/launch menu/presentation | Surface/host contracts | owning UI or host package |
 | Skills and prompt content | data/manifest contracts | plugin or skills implementation owner |

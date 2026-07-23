@@ -8,7 +8,7 @@
 
 The report identifies the right strategic pressure: MCP alone is no longer a differentiator, and WrongStack needs deeper workflows, mature surfaces, measurable reliability, and a stronger ecosystem. The repository review changes the interpretation of several gaps, however.
 
-The main problem is not a lack of primitives. WrongStack already has browser access through MCP, vision input, a generic test tool, broad session/telemetry infrastructure, SuperMemory defaults, and a functioning HQ dashboard. The competitive gap is usually one of productization: lifecycle ownership, cross-surface parity, safe defaults, evidence capture, distribution, evaluation, and operational trust.
+The main problem is not a lack of primitives. WrongStack already has browser access through MCP, vision input, a generic test tool, broad session/telemetry infrastructure, Sage defaults, and a functioning HQ dashboard. The competitive gap is usually one of productization: lifecycle ownership, cross-surface parity, safe defaults, evidence capture, distribution, evaluation, and operational trust.
 
 This leads to four planning conclusions:
 
@@ -59,8 +59,8 @@ This leads to four planning conclusions:
 
 | Report item | Assessment | Evidence/interpretation | Roadmap |
 |---|---|---|---|
-| SuperMemory default | Retired | Project invariants state it is the default on CLI/TUI/WebUI/SimpleUI/Desktop. | None |
-| Vector/semantic search | Confirmed | Current retrieval is lexical/graph/anchor-oriented. | [13](13-semantic-supermemory-retrieval.md) |
+| Sage default | Retired | Project invariants state it is the default on CLI/TUI/WebUI/SimpleUI/Desktop. | None |
+| Vector/semantic search | Confirmed | Current retrieval is lexical/graph/anchor-oriented. | [13](13-semantic-Sage-retrieval.md) |
 | Cross-session continuity | Partial | Sessions and memory persist, but explicit handoff/resume state can improve. | [14](14-cross-session-continuity-and-project-state.md) |
 | Multi-session state machine | Partial | SDD, plans, worktrees, and mailbox state exist in separate models; a shared versioned project-state contract is missing. | [14](14-cross-session-continuity-and-project-state.md) |
 

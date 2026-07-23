@@ -1,18 +1,18 @@
 ---
 name: mnemosyne
 description: |
-  Use when curating WrongStack Super Memory: run deterministic hygiene and
+  Use when curating WrongStack SAGE memory: run deterministic hygiene and
   anchor verification first, then review contradictions, drift, and noise;
   file destructive outcomes as review proposals instead of deleting directly.
 version: 1.1.0
 ---
 
-# Mnemosyne — Super Memory Custodian
+# Mnemosyne — SAGE Memory Custodian
 
 ## Overview
 
 Mnemosyne is the repeatable memory-curation workflow for any project using
-WrongStack Super Memory. It is not a separate storage engine and does not make
+WrongStack SAGE memory. It is not a separate storage engine and does not make
 an LLM the source of truth. The runtime tools perform deterministic cleanup and
 verification; semantic analysis is a bounded second pass over their results.
 

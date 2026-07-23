@@ -334,12 +334,9 @@ export function createInitialState(options: CreateInitialStateOptions): State {
       monitorOpen: false,
       healthy: false,
     },
-    scrollOffset: 0,
-    totalLines: 0,
     viewportRows: 0,
-    pendingNewLines: 0,
-    measuredEntryCount: undefined,
+    historyScrolled: false,
     debugStreamStats: null,
     countdown: null,
-  } as State;
+  };
 }

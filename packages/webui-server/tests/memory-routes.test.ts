@@ -14,17 +14,17 @@ describe('canonical memory handler family', () => {
     };
     const types = [
       'memory.list',
-      'memory.super.list',
-      'memory.super.listPage',
-      'memory.super.get',
-      'memory.super.graph',
-      'memory.super.update',
-      'memory.super.delete',
-      'memory.super.remember',
-      'memory.super.recover',
-      'memory.super.candidateResolve',
-      'memory.super.backfillRecoverable',
-      'memory.super.forFile',
+      'memory.sage.list',
+      'memory.sage.listPage',
+      'memory.sage.get',
+      'memory.sage.graph',
+      'memory.sage.update',
+      'memory.sage.delete',
+      'memory.sage.remember',
+      'memory.sage.recover',
+      'memory.sage.candidateResolve',
+      'memory.sage.backfillRecoverable',
+      'memory.sage.forFile',
     ];
     for (const type of types) {
       expect(await handleMemoryRoute(context, {} as WebSocket, { type })).toBe(true);

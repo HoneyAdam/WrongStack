@@ -241,10 +241,10 @@ describe('validateAction', () => {
     if (!result.valid) expect(result.error).toContain('exceeds');
   });
 
-  it('validates scrollPage direction', () => {
-    expect(validateAction({ type: 'scrollPage', dir: 'up' }).valid).toBe(true);
-    expect(validateAction({ type: 'scrollPage', dir: 'down' }).valid).toBe(true);
-    expect(validateAction({ type: 'scrollPage', dir: 'left' }).valid).toBe(false);
+  it('validates setHistoryScrolled flag', () => {
+    expect(validateAction({ type: 'setHistoryScrolled', scrolled: true }).valid).toBe(true);
+    expect(validateAction({ type: 'setHistoryScrolled', scrolled: false }).valid).toBe(true);
+    expect(validateAction({ type: 'setHistoryScrolled', scrolled: 'yes' }).valid).toBe(false);
   });
 
   it('accepts current run-state and mid-run delivery actions', () => {
@@ -509,8 +509,8 @@ describe('safeDispatch', () => {
 
 describe('ensureValidAction', () => {
   it('returns validated action on success', () => {
-    const result = ensureValidAction({ type: 'scrollToBottom' });
-    expect(result.type).toBe('scrollToBottom');
+    const result = ensureValidAction({ type: 'closeAllPanels' });
+    expect(result.type).toBe('closeAllPanels');
   });
 
   it('throws on invalid action', () => {

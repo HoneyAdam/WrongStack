@@ -126,14 +126,14 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
 
   // ── Session-end memory consolidation ───────────────────────────────────
   if (cfg.features.memory && cfg.features.memoryConsolidation !== false) {
-    const consSuperMemory = typeof memoryStore === 'object' && memoryStore !== null
-      && typeof (memoryStore as Record<string, unknown>).rememberSuper === 'function'
-      ? (memoryStore as import('@wrongstack/core/storage').ConsolidatorSuperMemory)
+    const consSage = typeof memoryStore === 'object' && memoryStore !== null
+      && typeof (memoryStore as Record<string, unknown>).rememberSage === 'function'
+      ? (memoryStore as import('@wrongstack/core/storage').ConsolidatorSage)
       : undefined;
     agent.extensions.register(
       new SessionMemoryConsolidator({
         memoryStore,
-        ...(consSuperMemory ? { superMemory: consSuperMemory } : {}),
+        ...(consSage ? { Sage: consSage } : {}),
       }),
     );
   }

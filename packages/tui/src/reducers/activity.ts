@@ -2,12 +2,7 @@ import type { Action, State } from '../app-state.js';
 import { closePanels } from './helpers.js';
 
 const activityActionTypes = [
-  'scrollBy',
-  'scrollPage',
-  'scrollTo',
-  'scrollToBottom',
-  'scrollToTop',
-  'setMeasuredLines',
+  'setHistoryScrolled',
   'setViewportRows',
   'collabSubagentSpawned',
   'collabBugFound',
@@ -39,96 +34,12 @@ export function isActivityAction(action: Action): action is ActivityAction {
 /** Reduces viewport, collaboration, session, countdown, and coordinator activity. */
 export function reduceActivity(state: State, action: ActivityAction): State {
   switch (action.type) {
-    case 'scrollBy': {
-      const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
-      const next = Math.max(0, Math.min(maxOffset, state.scrollOffset + action.delta));
-      return {
-        ...state,
-        scrollOffset: next,
-        pendingNewLines: next === 0 ? 0 : state.pendingNewLines,
-      };
-    }
-    case 'scrollPage': {
-      const page = Math.max(1, state.viewportRows - 1);
-      const delta = action.dir === 'up' ? page : -page;
-      const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
-      const next = Math.max(0, Math.min(maxOffset, state.scrollOffset + delta));
-      return {
-        ...state,
-        scrollOffset: next,
-        pendingNewLines: next === 0 ? 0 : state.pendingNewLines,
-      };
-    }
-    case 'scrollTo': {
-      const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
-      const next = Math.max(0, Math.min(maxOffset, action.offset));
-      return {
-        ...state,
-        scrollOffset: next,
-        pendingNewLines: next === 0 ? 0 : state.pendingNewLines,
-      };
-    }
-    case 'scrollToBottom':
-      return { ...state, scrollOffset: 0, pendingNewLines: 0 };
-    case 'scrollToTop': {
-      const maxOffset = Math.max(0, state.totalLines - state.viewportRows);
-      return { ...state, scrollOffset: maxOffset };
-    }
-    case 'setMeasuredLines': {
-      const newTotal = action.totalLines;
-      const oldTotal = state.totalLines;
-      const maxOffset = Math.max(0, newTotal - state.viewportRows);
-
-      const entryCountNow = state.entries.length;
-      const hadNewEntries =
-        state.measuredEntryCount !== undefined && entryCountNow > state.measuredEntryCount;
-
-      // While scrolled up, the viewport top sits at
-      //   viewportTop = total - viewportRows - scrollOffset
-      // so when `total` GROWS — new entries appended below the viewport, OR the
-      // visible window being promoted estimate→measured (estimates cap out, so
-      // real content is almost always taller) — the offset must grow by the same
-      // delta. Otherwise the top of the view slides down by that delta: the
-      // classic scroll jump. Holding `total - scrollOffset` constant pins the
-      // top row still whether the growth was inside or below the window. Only
-      // genuinely NEW content advances the "↓ N new" counter.
-      //
-      // A SHRINK (retention eviction from the top, /clear, a rare over-estimate)
-      // is handled by the re-clamp below instead of `offset += delta`: eviction
-      // removes rows above the anchor (offset should stay, only re-clamp), and a
-      // wholesale clear must not drive the offset negative.
-      if (state.scrollOffset > 0 && newTotal > oldTotal) {
-        const grew = newTotal - oldTotal;
-        return {
-          ...state,
-          totalLines: newTotal,
-          scrollOffset: Math.min(maxOffset, state.scrollOffset + grew),
-          pendingNewLines: hadNewEntries
-            ? state.pendingNewLines + grew
-            : state.pendingNewLines,
-          measuredEntryCount: entryCountNow,
-        };
-      }
-
-      // Pinned to newest (offset 0), a shrink, or no change: never grow the
-      // anchor. Re-clamp a stale offset to the new max, but keep state identity
-      // when the measurement changed nothing (issue #276: the
-      // layout-effect→dispatch cycle relies on an unchanged measurement being a
-      // true no-op).
-      const nextOffset = Math.min(state.scrollOffset, maxOffset);
-      if (newTotal === oldTotal && nextOffset === state.scrollOffset) return state;
-      return {
-        ...state,
-        totalLines: newTotal,
-        scrollOffset: nextOffset,
-        measuredEntryCount: entryCountNow,
-      };
-    }
+    case 'setHistoryScrolled':
+      if (action.scrolled === state.historyScrolled) return state;
+      return { ...state, historyScrolled: action.scrolled };
     case 'setViewportRows': {
-      const maxOffset = Math.max(0, state.totalLines - action.rows);
-      const nextOffset = Math.min(state.scrollOffset, maxOffset);
-      if (action.rows === state.viewportRows && nextOffset === state.scrollOffset) return state;
-      return { ...state, viewportRows: action.rows, scrollOffset: nextOffset };
+      if (action.rows === state.viewportRows) return state;
+      return { ...state, viewportRows: action.rows };
     }
     case 'collabSubagentSpawned':
       if (state.collabSession) return state;

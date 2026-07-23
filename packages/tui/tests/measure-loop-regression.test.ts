@@ -5,46 +5,31 @@ import { EntryHeightCache } from '../src/height-cache.js';
 
 function scrollState(overrides: Partial<State> = {}): State {
   return {
-    totalLines: 120,
     viewportRows: 30,
-    scrollOffset: 0,
-    pendingNewLines: 0,
-    measuredEntryCount: undefined,
+    historyScrolled: false,
     entries: [],
     ...overrides,
   } as State;
 }
 
+// Historic context (issue #276): the old architecture reported measured totals
+// through a `setMeasuredLines` dispatch from a layout effect, and an unchanged
+// measurement HAD to be a state-identity no-op or the layout-effect → dispatch
+// → re-render cycle threw React error #185 (Maximum update depth exceeded).
+// The anchor-based viewport keeps all measurement state inside the component,
+// so that dispatch loop no longer exists structurally. What remains dispatch-
+// driven (viewport rows from app.tsx's bottom-region measurement, and the
+// scrolled flag from onScrollInfo) must still be identity no-ops when
+// unchanged — these pin that contract.
 describe('measurement update-loop regression', () => {
-  it('returns the existing state for an unchanged content measurement', () => {
-    const state = scrollState();
-    expect(reducer(state, { type: 'setMeasuredLines', totalLines: 120 })).toBe(state);
-  });
-
   it('returns the existing state for an unchanged viewport measurement', () => {
     const state = scrollState();
     expect(reducer(state, { type: 'setViewportRows', rows: 30 })).toBe(state);
   });
 
-  it('still re-clamps an invalid offset when the measured value is unchanged', () => {
-    const state = scrollState({ scrollOffset: 100 });
-    const next = reducer(state, { type: 'setMeasuredLines', totalLines: 120 });
-    expect(next).not.toBe(state);
-    expect(next.scrollOffset).toBe(90);
-  });
-
-  // Regression for issue #276: the App.onMeasure callback (app.tsx) guards a
-  // dispatch with `if (totalLines === stateRef.current.totalLines) return;`
-  // before calling reducer. This mirrors the viewport-rows sibling guard and
-  // breaks the layout-effect → dispatch → re-render cycle that threw React
-  // error #185 (Maximum update depth exceeded) on Windows when a large layout
-  // re-measured to the same height across consecutive commits. This test pins
-  // the reducer-side half of that contract the callback relies on: an
-  // unchanged total MUST return state identity so the dispatch is a true no-op
-  // even when the offset is already validly clamped (not just at offset 0).
-  it('issue #276: unchanged measurement with a valid offset is a full no-op', () => {
-    const state = scrollState({ scrollOffset: 30 }); // 30 < maxOffset 90, so valid
-    expect(reducer(state, { type: 'setMeasuredLines', totalLines: 120 })).toBe(state);
+  it('returns the existing state for an unchanged scrolled flag', () => {
+    const state = scrollState({ historyScrolled: true });
+    expect(reducer(state, { type: 'setHistoryScrolled', scrolled: true })).toBe(state);
   });
 
   it('drops height-cache rows that were evicted from bounded history', () => {

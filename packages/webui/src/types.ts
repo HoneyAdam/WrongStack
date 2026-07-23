@@ -663,10 +663,10 @@ export interface WSMemoryList {
   };
 }
 
-// ── Super Memory response types ───────────────────────────────────────
+// ── SAGE response types ───────────────────────────────────────
 
-export type SuperMemoryScope = 'project' | 'user' | 'session' | 'file' | 'symbol';
-export type SuperMemoryStatus =
+export type SageScope = 'project' | 'user' | 'session' | 'file' | 'symbol';
+export type SageStatus =
   | 'active'
   | 'stale'
   | 'superseded'
@@ -674,7 +674,7 @@ export type SuperMemoryStatus =
   | 'archived'
   | 'deleted';
 
-export interface SuperMemoryAnchor {
+export interface SageAnchor {
   type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git' | 'agent';
   path?: string | undefined;
   symbol?: string | undefined;
@@ -684,12 +684,12 @@ export interface SuperMemoryAnchor {
   lineEnd?: number | undefined;
 }
 
-export interface SuperMemoryEntry {
+export interface SageEntry {
   id: string;
   revision: number;
-  scope: SuperMemoryScope;
+  scope: SageScope;
   kind: string;
-  status: SuperMemoryStatus;
+  status: SageStatus;
   contextPolicy?: 'eligible' | 'never' | undefined;
   text: string;
   summary?: string | undefined;
@@ -697,7 +697,7 @@ export interface SuperMemoryEntry {
   confidence: number;
   freshness: number;
   tags: string[];
-  anchors: SuperMemoryAnchor[];
+  anchors: SageAnchor[];
   audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
   supersedes?: string[] | undefined;
   supersededBy?: string | undefined;
@@ -709,14 +709,14 @@ export interface SuperMemoryEntry {
   expiresAt?: string | undefined;
 }
 
-export interface SuperMemoryStats {
+export interface SageStats {
   total: number;
   byStatus: Record<string, number>;
   byKind: Record<string, number>;
   edges: number;
 }
 
-export interface SuperMemoryGraphEdge {
+export interface SageGraphEdge {
   id: string;
   from: string;
   to: string;
@@ -726,63 +726,63 @@ export interface SuperMemoryGraphEdge {
   createdAt: string;
 }
 
-export interface WSMemorySuperList {
-  type: 'memory.super.list';
+export interface WSMemorySageList {
+  type: 'memory.sage.list';
   payload: {
-    memories?: SuperMemoryEntry[] | undefined;
-    stats?: SuperMemoryStats | undefined;
+    memories?: SageEntry[] | undefined;
+    stats?: SageStats | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperListPage {
-  type: 'memory.super.listPage';
+export interface WSMemorySageListPage {
+  type: 'memory.sage.listPage';
   payload: {
-    memories?: SuperMemoryEntry[] | undefined;
+    memories?: SageEntry[] | undefined;
     nextCursor?: string | null | undefined;
     total?: number | undefined;
     statusCounts?: Record<string, number> | undefined;
-    stats?: SuperMemoryStats | undefined;
+    stats?: SageStats | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperGet {
-  type: 'memory.super.get';
+export interface WSMemorySageGet {
+  type: 'memory.sage.get';
   payload: {
-    memory?: SuperMemoryEntry | undefined;
+    memory?: SageEntry | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperGraph {
-  type: 'memory.super.graph';
+export interface WSMemorySageGraph {
+  type: 'memory.sage.graph';
   payload: {
     query: string;
-    edges?: SuperMemoryGraphEdge[] | undefined;
-    memories?: SuperMemoryEntry[] | undefined;
+    edges?: SageGraphEdge[] | undefined;
+    memories?: SageEntry[] | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperUpdate {
-  type: 'memory.super.update';
+export interface WSMemorySageUpdate {
+  type: 'memory.sage.update';
   payload: {
-    memory?: SuperMemoryEntry | undefined;
+    memory?: SageEntry | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperRemember {
-  type: 'memory.super.remember';
+export interface WSMemorySageRemember {
+  type: 'memory.sage.remember';
   payload: {
-    memory?: SuperMemoryEntry | undefined;
+    memory?: SageEntry | undefined;
     error?: string | undefined;
   };
 }
 
-export interface WSMemorySuperDelete {
-  type: 'memory.super.delete';
+export interface WSMemorySageDelete {
+  type: 'memory.sage.delete';
   payload: {
     success: boolean;
     message: string;
@@ -791,9 +791,9 @@ export interface WSMemorySuperDelete {
 
 /**
  * Why a memory matched the file/drawer query. Mirrors
- * `MemoryMatchVia` from `@wrongstack/super-memory` (see PR #4 backend).
+ * `MemoryMatchVia` from `@wrongstack/sage` (see PR #4 backend).
  * Kept as a local re-declaration so the webui types module doesn't have to
- * import from super-memory directly.
+ * import from sage directly.
  */
 export type MemoryMatchVia =
   | 'scope_file'
@@ -812,7 +812,7 @@ export interface MemoryPendingReview {
 
 /** Web-side mirror of `MemoryForFileMatch` — superset kept local for layering. */
 export interface MemoryForFileMatch {
-  memory: SuperMemoryEntry;
+  memory: SageEntry;
   matchedVia: MemoryMatchVia;
   /** 0..1; higher = stronger match signal. */
   matchStrength: number;
@@ -834,11 +834,11 @@ export interface MemoryForFileResponse {
 }
 
 /**
- * Request payload for `memory.super.forFile`. Cursor fields are optional —
+ * Request payload for `memory.sage.forFile`. Cursor fields are optional —
  * when both are provided, symbol-anchored memories overlapping the cursor
  * range surface first (cursor-aware boost).
  */
-export interface WSMemorySuperForFileRequest {
+export interface WSMemorySageForFileRequest {
   /** Project-relative file path. */
   filePath: string;
   /** Optional caret line (1-indexed). */
@@ -853,8 +853,8 @@ export interface WSMemorySuperForFileRequest {
   showDeleted?: boolean;
 }
 
-export interface WSMemorySuperForFile {
-  type: 'memory.super.forFile';
+export interface WSMemorySageForFile {
+  type: 'memory.sage.forFile';
   payload: {
     response?: MemoryForFileResponse | undefined;
     error?: string | undefined;
@@ -862,11 +862,11 @@ export interface WSMemorySuperForFile {
 }
 
 // ── Memory recover (PR #1) ──────────────────────────────────────────────
-export interface WSMemorySuperRecover {
-  type: 'memory.super.recover';
+export interface WSMemorySageRecover {
+  type: 'memory.sage.recover';
   payload: {
     /** The restored memory (active status). */
-    memory?: SuperMemoryEntry | undefined;
+    memory?: SageEntry | undefined;
     /** True when the requested id was already active/superseded (no-op write). */
     noop?: boolean | undefined;
     /** Head-of-chain id when the requested id was superseded. */
@@ -876,8 +876,8 @@ export interface WSMemorySuperRecover {
 }
 
 // ── Memory candidate resolve (PR #1 hygiene review queue) ──────────────
-export interface WSMemorySuperCandidateResolve {
-  type: 'memory.super.candidateResolve';
+export interface WSMemorySageCandidateResolve {
+  type: 'memory.sage.candidateResolve';
   payload: {
     /** The resolved candidate (with updated status). */
     candidate?: MemoryCandidateEntry | undefined;
@@ -887,7 +887,7 @@ export interface WSMemorySuperCandidateResolve {
   };
 }
 
-/** Local mirror of super-memory's `MemoryCandidate`. */
+/** Local mirror of sage's `MemoryCandidate`. */
 export interface MemoryCandidateEntry {
   schemaVersion: 1;
   id: string;
@@ -897,7 +897,7 @@ export interface MemoryCandidateEntry {
   confidence: number;
   importance: number;
   tags: string[];
-  anchors: SuperMemoryAnchor[];
+  anchors: SageAnchor[];
   sources: Array<{
     type:
       | 'user'
@@ -919,8 +919,8 @@ export interface MemoryCandidateEntry {
 }
 
 // ── Memory backfill recoverable (PR #3) ───────────────────────────────
-export interface WSMemorySuperBackfillRecoverable {
-  type: 'memory.super.backfillRecoverable';
+export interface WSMemorySageBackfillRecoverable {
+  type: 'memory.sage.backfillRecoverable';
   payload: {
     /** Records that were backfilled into a fresh active version (dryRun=false). */
     recoveredRecords?:
@@ -2065,10 +2065,10 @@ export type WSClientMessageCore =
   | { type: 'tools.list' }
   | { type: 'memory.list' }
   | { type: `agent-roster.${string}`; payload?: Record<string, unknown> | undefined }
-  // ── SuperMemory send types ──
-  | { type: 'memory.super.list' }
+  // ── Sage send types ──
+  | { type: 'memory.sage.list' }
   | {
-      type: 'memory.super.listPage';
+      type: 'memory.sage.listPage';
       payload: {
         statuses?: string[] | undefined;
         kind?: string | undefined;
@@ -2077,35 +2077,35 @@ export type WSClientMessageCore =
         cursor?: string | undefined;
       };
     }
-  | { type: 'memory.super.get'; payload: { id: string } }
-  | { type: 'memory.super.graph'; payload: { query: string; maxDepth?: number; limit?: number } }
+  | { type: 'memory.sage.get'; payload: { id: string } }
+  | { type: 'memory.sage.graph'; payload: { query: string; maxDepth?: number; limit?: number } }
   | {
-      type: 'memory.super.update';
+      type: 'memory.sage.update';
       payload: {
         id: string;
         text?: string | undefined;
         tags?: string[] | undefined;
         kind?: string | undefined;
-        status?: SuperMemoryStatus | undefined;
+        status?: SageStatus | undefined;
         importance?: number | undefined;
         confidence?: number | undefined;
         freshness?: number | undefined;
-        anchors?: SuperMemoryAnchor[] | undefined;
+        anchors?: SageAnchor[] | undefined;
         audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
         supersedes?: string[] | undefined;
         contradicts?: string[] | undefined;
       };
     }
   | {
-      type: 'memory.super.delete';
+      type: 'memory.sage.delete';
       payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined };
     }
   | {
-      type: 'memory.super.recover';
+      type: 'memory.sage.recover';
       payload: { id: string; reason?: string | undefined };
     }
   | {
-      type: 'memory.super.candidateResolve';
+      type: 'memory.sage.candidateResolve';
       payload: {
         candidateId: string;
         action: 'accept' | 'reject';
@@ -2113,7 +2113,7 @@ export type WSClientMessageCore =
       };
     }
   | {
-      type: 'memory.super.backfillRecoverable';
+      type: 'memory.sage.backfillRecoverable';
       payload: {
         apply: boolean;
         kinds?: string[] | undefined;
@@ -2123,20 +2123,20 @@ export type WSClientMessageCore =
       };
     }
   | {
-      type: 'memory.super.forFile';
-      payload: WSMemorySuperForFileRequest;
+      type: 'memory.sage.forFile';
+      payload: WSMemorySageForFileRequest;
     }
   | {
-      type: 'memory.super.remember';
+      type: 'memory.sage.remember';
       payload: {
         text: string;
         kind?: string | undefined;
-        scope?: SuperMemoryScope | undefined;
+        scope?: SageScope | undefined;
         tags?: string[] | undefined;
         importance?: number | undefined;
         confidence?: number | undefined;
         freshness?: number | undefined;
-        anchors?: SuperMemoryAnchor[] | undefined;
+        anchors?: SageAnchor[] | undefined;
         audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
         supersedes?: string[] | undefined;
         contradicts?: string[] | undefined;
@@ -2471,17 +2471,17 @@ export type WSServerMessage =
   | WSContextModeChanged
   | WSToolsList
   | WSMemoryList
-  | WSMemorySuperList
-  | WSMemorySuperListPage
-  | WSMemorySuperGet
-  | WSMemorySuperGraph
-  | WSMemorySuperUpdate
-  | WSMemorySuperRemember
-  | WSMemorySuperDelete
-  | WSMemorySuperRecover
-  | WSMemorySuperCandidateResolve
-  | WSMemorySuperBackfillRecoverable
-  | WSMemorySuperForFile
+  | WSMemorySageList
+  | WSMemorySageListPage
+  | WSMemorySageGet
+  | WSMemorySageGraph
+  | WSMemorySageUpdate
+  | WSMemorySageRemember
+  | WSMemorySageDelete
+  | WSMemorySageRecover
+  | WSMemorySageCandidateResolve
+  | WSMemorySageBackfillRecoverable
+  | WSMemorySageForFile
   | WSSkillsList
   | WSSkillContent
   | WSDesignList

@@ -132,9 +132,9 @@ export function handleConfigDoctorResult(msg: WSServerMessage) {
   chat.addMessage({ role: 'assistant', content: lines.join('\n') });
 }
 
-// ── SuperMemory response handlers ─────────────────────────────────────
+// ── Sage response handlers ─────────────────────────────────────
 
-export function handleMemorySuperList(msg: WSServerMessage) {
+export function handleMemorySageList(msg: WSServerMessage) {
   const p = msg.payload as {
     memories?: Array<{
       id: string;
@@ -158,7 +158,7 @@ export function handleMemorySuperList(msg: WSServerMessage) {
   }
   const memories = p.memories ?? [];
   const stats = p.stats;
-  const lines: string[] = ['## 🧠 Super Memory'];
+  const lines: string[] = ['## 🧠 SAGE'];
   if (stats) {
     const active = stats.byStatus['active'] ?? 0;
     const stale = stats.byStatus['stale'] ?? 0;
@@ -191,7 +191,7 @@ export function handleMemorySuperList(msg: WSServerMessage) {
   useChatStore.getState().addMessage({ role: 'assistant', content: lines.join('\n') });
 }
 
-export function handleMemorySuperGet(msg: WSServerMessage) {
+export function handleMemorySageGet(msg: WSServerMessage) {
   const p = msg.payload as {
     memory?: {
       id: string;
@@ -231,7 +231,7 @@ export function handleMemorySuperGet(msg: WSServerMessage) {
   useChatStore.getState().addMessage({ role: 'assistant', content: lines.join('\n') });
 }
 
-export function handleMemorySuperUpdate(msg: WSServerMessage) {
+export function handleMemorySageUpdate(msg: WSServerMessage) {
   const p = msg.payload as { memory?: Record<string, unknown>; error?: string | undefined };
   if (p.error) {
     useChatStore
@@ -247,7 +247,7 @@ export function handleMemorySuperUpdate(msg: WSServerMessage) {
   }
 }
 
-export function handleMemorySuperRemember(msg: WSServerMessage) {
+export function handleMemorySageRemember(msg: WSServerMessage) {
   const p = msg.payload as { memory?: Record<string, unknown>; error?: string | undefined };
   if (p.error) {
     useChatStore
@@ -263,7 +263,7 @@ export function handleMemorySuperRemember(msg: WSServerMessage) {
   }
 }
 
-export function handleMemorySuperRecover(msg: WSServerMessage) {
+export function handleMemorySageRecover(msg: WSServerMessage) {
   const p = msg.payload as {
     memory?: Record<string, unknown>;
     noop?: boolean;
@@ -289,7 +289,7 @@ export function handleMemorySuperRecover(msg: WSServerMessage) {
   chat.addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` recovered.` });
 }
 
-export function handleMemorySuperCandidateResolve(msg: WSServerMessage) {
+export function handleMemorySageCandidateResolve(msg: WSServerMessage) {
   const p = msg.payload as {
     candidate?: { id: string; status: string };
     resolvedAction?: 'accept' | 'reject';
@@ -308,7 +308,7 @@ export function handleMemorySuperCandidateResolve(msg: WSServerMessage) {
   });
 }
 
-export function handleMemorySuperBackfillRecoverable(msg: WSServerMessage) {
+export function handleMemorySageBackfillRecoverable(msg: WSServerMessage) {
   const p = msg.payload as {
     examined?: number;
     recovered?: number;
@@ -626,13 +626,13 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     'kanban.supervisor.audit': handleKanbanResult,
     'tools.list': handleToolsList,
     'memory.list': handleMemoryList,
-    'memory.super.list': handleMemorySuperList,
-    'memory.super.get': handleMemorySuperGet,
-    'memory.super.update': handleMemorySuperUpdate,
-    'memory.super.remember': handleMemorySuperRemember,
-    'memory.super.recover': handleMemorySuperRecover,
-    'memory.super.candidateResolve': handleMemorySuperCandidateResolve,
-    'memory.super.backfillRecoverable': handleMemorySuperBackfillRecoverable,
+    'memory.sage.list': handleMemorySageList,
+    'memory.sage.get': handleMemorySageGet,
+    'memory.sage.update': handleMemorySageUpdate,
+    'memory.sage.remember': handleMemorySageRemember,
+    'memory.sage.recover': handleMemorySageRecover,
+    'memory.sage.candidateResolve': handleMemorySageCandidateResolve,
+    'memory.sage.backfillRecoverable': handleMemorySageBackfillRecoverable,
     'skills.list': handleSkillsList,
     'diag.get': handleDiagGet,
     'stats.get': handleStatsGet,

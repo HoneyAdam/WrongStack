@@ -607,7 +607,7 @@ function MemoryContextSection({ data }: { data: ContextPanelData }): React.React
   if (!ctx || (Object.keys(ctx.memories).length === 0 && ctx.transitions.length === 0)) {
     return (
       <Box flexDirection="column" marginTop={1}>
-        <SectionLabel>SUPER MEMORY IN CONTEXT</SectionLabel>
+        <SectionLabel>SAGE IN CONTEXT</SectionLabel>
         <Text color={theme.textMuted}>No memory has entered this session context.</Text>
       </Box>
     );
@@ -628,7 +628,7 @@ function MemoryContextSection({ data }: { data: ContextPanelData }): React.React
   }
   return (
     <Box flexDirection="column" marginTop={1}>
-      <SectionLabel>SUPER MEMORY IN CONTEXT</SectionLabel>
+      <SectionLabel>SAGE IN CONTEXT</SectionLabel>
       <Text>
         <Text color={theme.success}>{`${active} ctx`}</Text>
         <Text color={theme.warn}>{` · ${pending} pending`}</Text>
