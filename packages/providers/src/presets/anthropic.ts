@@ -25,7 +25,10 @@ export interface AnthropicStreamState {
   stopReason: StopReason;
   started: boolean;
   stopped: boolean;
-  blocks: Map<number, { kind: BlockKind; id?: string | undefined; name?: string | undefined; partial: string }>;
+  // `chunks` accumulates tool-call `input_json_delta` fragments; joined once at
+  // content_block_stop. Array-of-chunks avoids O(n²) string concatenation for
+  // large tool inputs delivered as many small deltas (mirrors presets/openai.ts).
+  blocks: Map<number, { kind: BlockKind; id?: string | undefined; name?: string | undefined; chunks: string[] }>;
 }
 
 const DEFAULT_VERSION = '2023-06-01';
@@ -154,17 +157,17 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         const index = Number(ev['index'] ?? 0);
         const cb = ev['content_block'] as { type?: string | undefined; id?: string | undefined; name?: string | undefined } | undefined;
         if (cb?.type === 'tool_use') {
-          state.blocks.set(index, { kind: 'tool_use', id: cb.id, name: cb.name, partial: '' });
+          state.blocks.set(index, { kind: 'tool_use', id: cb.id, name: cb.name, chunks: [] });
           if (cb.id && cb.name) {
             out.push({ type: 'tool_use_start', id: cb.id, name: cb.name });
           }
         } else if (cb?.type === 'text') {
-          state.blocks.set(index, { kind: 'text', partial: '' });
+          state.blocks.set(index, { kind: 'text', chunks: [] });
         } else if (cb?.type === 'thinking' || cb?.type === 'redacted_thinking') {
-          state.blocks.set(index, { kind: 'thinking', partial: '' });
+          state.blocks.set(index, { kind: 'thinking', chunks: [] });
           out.push({ type: 'thinking_start' });
         } else {
-          state.blocks.set(index, { kind: 'unknown', partial: '' });
+          state.blocks.set(index, { kind: 'unknown', chunks: [] });
         }
         break;
       }
@@ -185,7 +188,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
           out.push({ type: 'text_delta', text: delta.text });
         } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
           if (block.id) {
-            block.partial += delta.partial_json;
+            block.chunks.push(delta.partial_json);
             out.push({ type: 'tool_use_input_delta', id: block.id, partial: delta.partial_json });
           }
         } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
@@ -199,7 +202,7 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         const index = Number(ev['index'] ?? 0);
         const block = state.blocks.get(index);
         if (block?.kind === 'tool_use' && block.id) {
-          const input = parseToolInput(block.partial);
+          const input = parseToolInput(block.chunks.length === 1 ? (block.chunks[0] ?? '') : block.chunks.join(''));
           out.push({ type: 'tool_use_stop', id: block.id, input });
         } else if (block?.kind === 'thinking') {
           out.push({ type: 'thinking_stop' });

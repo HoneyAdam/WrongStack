@@ -23,7 +23,13 @@ export async function aggregateStream(
   let currentTextIndex = -1;
   const toolBuffers = new Map<
     string,
-    { name: string; partial: string; input?: unknown | undefined; providerMeta?: Record<string, unknown> }
+    {
+      name: string;
+      /** Accumulated as an array of chunks; joined into a string at parse time to avoid O(n²) concat. */
+      chunks: string[];
+      input?: unknown | undefined;
+      providerMeta?: Record<string, unknown>;
+    }
   >();
   const thinkingBuffers: Array<{
     /** Accumulated as an array of chunks; joined into a string at content-build time. */
@@ -54,20 +60,20 @@ export async function aggregateStream(
         // A tool_use block starts — close any open text block so subsequent
         // text_delta starts a new one.
         currentTextIndex = -1;
-        toolBuffers.set(ev.id, { name: ev.name, partial: '' });
+        toolBuffers.set(ev.id, { name: ev.name, chunks: [] });
         blockOrder.push({ kind: 'tool', id: ev.id });
         break;
       case 'tool_use_input_delta': {
         const b = toolBuffers.get(ev.id);
-        if (b) b.partial += ev.partial;
+        if (b) b.chunks.push(ev.partial);
         break;
       }
       case 'tool_use_stop': {
         const b = toolBuffers.get(ev.id);
         if (b) {
           if (ev.input === undefined) {
-            // No upstream input — parse from the accumulated partial buffer.
-            b.input = parseToolInput(b.partial);
+            // No upstream input — parse from the accumulated chunk buffer.
+            b.input = parseToolInput(b.chunks.length === 1 ? (b.chunks[0] ?? '') : b.chunks.join(''));
           } else if (typeof ev.input === 'string') {
             // Upstream gave us a raw JSON string; route through the validator.
             b.input = parseToolInput(ev.input);
