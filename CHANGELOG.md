@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Repository-stable project identity.** `.wrongstack/project.json` carries a committed `proj_<ULID>` across clones, worktrees, forks, and machines, so HQ merges their telemetry and Kanban snapshots under one project without per-machine alias configuration. `wstack project id|init|rekey` and `/project id|init|rekey` expose the lifecycle; explicit rekeying lets a fork become an independent HQ project. Existing `hq.projectAlias` identities remain a fallback when no committed identity exists.
+
+- **HQ shared Kanban view.** The HQ dashboard now exposes a dedicated read-only Kanban workspace with project and board selection, live snapshot-triggered refresh, periodic reconciliation, WIP signals, task metadata, and responsive columns. Boards are loaded through the project-scoped Kanban API, so every clone or machine carrying the same committed project identity sees the same project board.
+
 - **TUI: soft half-block wordmark.** The startup banner's `WRONGSTACK` pixel face is now designed on a 5×5 grid with 2-bit density (empty / lower-half `▄` / upper-half `▀` / full `█`). Each cell renders across two terminal rows, doubling the vertical resolution to 10 rows so diagonals and curves fade through half-blocks instead of the previous hard "either fully lit or fully blank" look. The 53-column footprint and 65-column layout breakpoint are unchanged.
 
 - **Brain: deterministic rule tier.** `brain.rules` is evaluated before anything that costs tokens — match on source, risk band, fallback, offered options and question/context patterns; `defer` carves exceptions out of broader rules. An invalid pattern disables only its own rule and is reported via `/brain rules`.

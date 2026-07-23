@@ -21,6 +21,8 @@ coverage/
 # TUI test artifacts
 packages/tui/_vr.txt
 packages/tui/tmp_*.log
+packages/tui/*.txt
+!packages/tui/tests/*.txt
 
 # Local environment
 .env
@@ -56,6 +58,9 @@ security-reports/*
 
 
 .wrongstack/
+!/.wrongstack/
+/.wrongstack/*
+!/.wrongstack/project.json
 # Design Studio project-local decisions/rules (also self-ignored via .design/.gitignore)
 .design/
 CLAUDE.md
@@ -175,3 +180,14 @@ AGENTS.md
 .worktrees/
 
 .coverage*.*
+!.wrongstack/project.json
+!.wrongstack/AGENTS.md
+!.wrongstack/config.json
+!.wrongstack/skills/
+!.wrongstack/skills/**
+!.wrongstack/prompts/
+!.wrongstack/prompts/**
+!.wrongstack/instructions/
+!.wrongstack/instructions/**
+!.wrongstack/design-kits/
+!.wrongstack/design-kits/**

@@ -121,6 +121,8 @@ export interface StoreOptions {
 export class TechStackStore {
   private db: DatabaseSync;
   private dbPath: string;
+  /** Compile-once cache for fixed SQL used on hot job/snapshot paths. */
+  private readonly stmtCache = new Map<string, ReturnType<DatabaseSync['prepare']>>();
 
   constructor(options: StoreOptions) {
     this.dbPath =
@@ -136,14 +138,30 @@ export class TechStackStore {
     const Database = loadDatabaseSync();
     this.db = new Database(this.dbPath);
     this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA synchronous = NORMAL;');
+    this.db.exec('PRAGMA busy_timeout = 10000;');
+    this.db.exec('PRAGMA temp_store = MEMORY;');
+    this.db.exec('PRAGMA cache_size = -32768;'); // 32 MiB
+    this.db.exec('PRAGMA mmap_size = 134217728;'); // 128 MiB
     this.db.exec('PRAGMA foreign_keys = ON;');
     applySchema(this.db);
+  }
+
+  /** Prepare-once helper: compile `sql` on first use, reuse thereafter. */
+  private stmt(sql: string): ReturnType<DatabaseSync['prepare']> {
+    let prepared = this.stmtCache.get(sql);
+    if (prepared === undefined) {
+      prepared = this.db.prepare(sql);
+      this.stmtCache.set(sql, prepared);
+    }
+    return prepared;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   /** Close the database connection. Idempotent. */
   close(): void {
+    this.stmtCache.clear();
     try {
       this.db.close();
     } catch {
@@ -160,7 +178,7 @@ export class TechStackStore {
 
   /** Persist a snapshot. */
   saveSnapshot(snapshot: Snapshot): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       INSERT OR REPLACE INTO snapshots (id, project_id, target_root, fingerprint, created_at, raw_json, adapter_version)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
@@ -177,7 +195,7 @@ export class TechStackStore {
 
   /** Get a snapshot by project ID (latest). */
   getSnapshot(projectId: string): Snapshot | undefined {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT raw_json FROM snapshots
       WHERE project_id = ?
       ORDER BY created_at DESC
@@ -194,7 +212,7 @@ export class TechStackStore {
 
   /** Get a snapshot by ID. */
   getSnapshotById(id: string): Snapshot | undefined {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT raw_json FROM snapshots WHERE id = ?
     `);
     const row = stmt.get(id) as { raw_json: string } | undefined;
@@ -208,7 +226,7 @@ export class TechStackStore {
 
   /** List all snapshots for a project (newest first). */
   listSnapshots(projectId: string, limit = 20): Snapshot[] {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT raw_json FROM snapshots
       WHERE project_id = ?
       ORDER BY created_at DESC
@@ -228,7 +246,7 @@ export class TechStackStore {
 
   /** Delete snapshots older than a given timestamp. */
   deleteSnapshotsBefore(projectId: string, before: string): number {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       DELETE FROM snapshots WHERE project_id = ? AND created_at < ?
     `);
     const result = stmt.run(projectId, before);
@@ -239,7 +257,7 @@ export class TechStackStore {
 
   /** Persist a job. */
   saveJob(job: TechStackJob): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       INSERT OR REPLACE INTO jobs
         (id, project_id, target_root, kind, status, fingerprint, requested_by, session_id, created_at, completed_at, error, progress_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -262,7 +280,7 @@ export class TechStackStore {
 
   /** Get a job by ID. */
   getJob(id: string): TechStackJob | undefined {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT * FROM jobs WHERE id = ?
     `);
     const row = stmt.get(id) as Record<string, unknown> | undefined;
@@ -277,7 +295,7 @@ export class TechStackStore {
       ? new Date().toISOString()
       : null;
 
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       UPDATE jobs
       SET status = ?, progress_json = ?, completed_at = COALESCE(?, completed_at)
       WHERE id = ?
@@ -287,7 +305,7 @@ export class TechStackStore {
 
   /** List jobs for a project (newest first). */
   listJobs(projectId: string, limit = 50): TechStackJob[] {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?
     `);
     const rows = stmt.all(projectId, limit) as Array<Record<string, unknown>>;
@@ -298,7 +316,7 @@ export class TechStackStore {
 
   /** Create an outbox entry. */
   createOutbox(deliveryId: string, reportId: string, sessionId: string): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       INSERT OR IGNORE INTO outbox (delivery_id, report_id, session_id, status, attempts)
       VALUES (?, ?, ?, 'pending', 0)
     `);
@@ -307,7 +325,7 @@ export class TechStackStore {
 
   /** Claim an outbox entry (atomic CAS). */
   claimOutbox(deliveryId: string, sessionId: string): boolean {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       UPDATE outbox
       SET status = 'claimed', claimed_at = datetime('now'), attempts = attempts + 1
       WHERE delivery_id = ? AND session_id = ? AND status = 'pending'
@@ -318,7 +336,7 @@ export class TechStackStore {
 
   /** Mark an outbox entry as delivered. */
   deliverOutbox(deliveryId: string): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       UPDATE outbox SET status = 'delivered', delivered_at = datetime('now')
       WHERE delivery_id = ?
     `);
@@ -327,7 +345,7 @@ export class TechStackStore {
 
   /** Mark an outbox entry as failed. */
   failOutbox(deliveryId: string): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       UPDATE outbox SET status = 'failed' WHERE delivery_id = ?
     `);
     stmt.run(deliveryId);
@@ -335,7 +353,7 @@ export class TechStackStore {
 
   /** List outbox entries by status. */
   listOutboxByStatus(status: DeliveryStatus): DeliveryOutbox[] {
-    const stmt = this.db.prepare(`
+    const stmt = this.stmt(`
       SELECT * FROM outbox WHERE status = ?
     `);
     const rows = stmt.all(status) as Array<Record<string, unknown>>;

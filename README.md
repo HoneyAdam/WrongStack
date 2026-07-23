@@ -834,6 +834,8 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 `pnpm bench` runs all `*.bench.ts` files via a separate vitest config and writes results to `bench-results.json` (gitignored). Current suite covers compactor hot paths, token estimation, JSON-schema validation, and the system prompt builder. See [`vitest.bench.config.ts`](vitest.bench.config.ts).
 
+`pnpm bench:tui-heap` runs the controlled Ink history heap soak at narrow and wide terminal widths, forces GC checkpoints, captures mounted/unmounted heap snapshots, and writes dominator reports under `.reports/tui-heap-soak/`. Use `pnpm bench:tui-heap --quick` for an end-to-end smoke profile; see [`packages/tui/bench/README.md`](packages/tui/bench/README.md).
+
 ## Examples
 
 See [`examples/`](examples/) for 6 categories of working examples:
