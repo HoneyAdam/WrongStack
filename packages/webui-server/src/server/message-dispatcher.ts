@@ -19,6 +19,7 @@
 
 import path from 'node:path';
 import type { WebSocket } from 'ws';
+import { AgentRosterWSHandler } from './agent-roster-handlers.js';
 import type { ClientTransportRouteHandlers } from './client-transport-routes.js';
 import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
 import type { CompletionRouteHandlers } from './completion-routes.js';
@@ -286,6 +287,9 @@ export function createMessageDispatcher(
       sddWizard: routes.sddWizardRoutes,
       worktree: deps.worktreeHandler,
       kanbanHost: kanbanHostRoutes,
+      agentRoster: {
+        rosterHandler: new AgentRosterWSHandler({ projectRoot: state.getProjectRoot }),
+      },
     },
     memory: { getMemoryStore: () => deps.memoryStore, send, sendResult },
     content: {
@@ -309,8 +313,7 @@ export function createMessageDispatcher(
       getSessionStartedAt: state.getSessionStartedAt,
       getModeId: state.getModeId,
       send,
-      allowSessionMessage: (socket, message) =>
-        ensureCurrentSession(socket, message, message.type),
+      allowSessionMessage: (socket, message) => ensureCurrentSession(socket, message, message.type),
     },
     getKanbanContext: kanbanContext,
     onUnknown: (ws, msg) => {

@@ -1,20 +1,18 @@
 import type { WebSocket } from 'ws';
-import { handleAutonomyRoute, type AutonomyRouteHandlers } from './autonomy-routes.js';
-import { handleBrainRoute, type BrainRouteHandlers } from './brain-routes.js';
-import { handleChronicleRoute, type ChronicleRouteContext } from './chronicle-routes.js';
+import { type AgentRosterRouteHandlers, handleAgentRosterRoute } from './agent-roster-routes.js';
+import { type AutonomyRouteHandlers, handleAutonomyRoute } from './autonomy-routes.js';
+import { type BrainRouteHandlers, handleBrainRoute } from './brain-routes.js';
+import { type ChronicleRouteContext, handleChronicleRoute } from './chronicle-routes.js';
 import {
-  handleClientTransportRoute,
   type ClientTransportRouteHandlers,
+  handleClientTransportRoute,
 } from './client-transport-routes.js';
-import { handleCompletionRoute, type CompletionRouteHandlers } from './completion-routes.js';
-import { handleContentRoute, type ContentRouteContext } from './content-routes.js';
-import { handleConversationRoute, type ConversationRouteHandlers } from './conversation-routes.js';
-import { handleGoalRoute, type GoalRouteHandlers } from './goal-routes.js';
-import {
-  handleGoalSnapshotRoute,
-  type GoalSnapshotRouteHandlers,
-} from './goal-snapshot-routes.js';
-import { handleHostRoute, type HostRouteHandlers } from './host-routes.js';
+import { type CompletionRouteHandlers, handleCompletionRoute } from './completion-routes.js';
+import { type ContentRouteContext, handleContentRoute } from './content-routes.js';
+import { type ConversationRouteHandlers, handleConversationRoute } from './conversation-routes.js';
+import { type GoalRouteHandlers, handleGoalRoute } from './goal-routes.js';
+import { type GoalSnapshotRouteHandlers, handleGoalSnapshotRoute } from './goal-snapshot-routes.js';
+import { type HostRouteHandlers, handleHostRoute } from './host-routes.js';
 import {
   handleIntrospectionRoute,
   type IntrospectionRouteContext,
@@ -63,6 +61,7 @@ export interface RouteFamilyTable {
   sddWizard: SddWizardRouteHandlers;
   worktree: WorktreeRouteHandlers;
   kanbanHost: KanbanHostRouteHandlers;
+  agentRoster: AgentRosterRouteHandlers;
 }
 
 export interface RouteFamilyDispatcherOptions {
@@ -78,10 +77,7 @@ export interface RouteFamilyDispatcherOptions {
   onUnknown: (ws: WebSocket, message: WSClientMessage) => void | Promise<void>;
 }
 
-export type RouteFamilyDispatcher = (
-  ws: WebSocket,
-  message: WSClientMessage,
-) => Promise<void>;
+export type RouteFamilyDispatcher = (ws: WebSocket, message: WSClientMessage) => Promise<void>;
 
 export function createRouteFamilyDispatcher(
   options: RouteFamilyDispatcherOptions,
@@ -112,6 +108,7 @@ export function createRouteFamilyDispatcher(
     if (await handleSddWizardRoute(ws, message, routes.sddWizard)) return;
     if (await handleWorktreeRoute(ws, message, routes.worktree)) return;
     if (await handleKanbanHostRoute(ws, message, routes.kanbanHost)) return;
+    if (await handleAgentRosterRoute(ws, message, routes.agentRoster)) return;
     if (await handleMemoryRoute(options.memory, ws, message)) return;
     if (await handleContentRoute(options.content, ws, message)) return;
     if (await handleChronicleRoute(options.chronicle, ws, message)) return;

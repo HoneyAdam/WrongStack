@@ -1,9 +1,10 @@
 import type { Agent } from '@wrongstack/core/agent';
-import type { Logger, MemoryPort } from '@wrongstack/core/types';
 import type { TrustBoundary } from '@wrongstack/core/security';
+import type { Logger, MemoryPort } from '@wrongstack/core/types';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import type { WebSocket } from 'ws';
+import { AgentRosterWSHandler } from './agent-roster-handlers.js';
 import { createAutonomyRouteHandlers } from './autonomy-routes.js';
 import {
   type BrainHandlerContext,
@@ -235,8 +236,7 @@ export function createEmbeddedMessageRouter(
       // records the same target that handleShellOpen actually executes.
       const normalizedTarget: ShellOpenTarget = normalizeShellOpenTarget(target);
       const authorization = await authorizeWebUIAction(deps.trustBoundary, {
-        capability:
-          normalizedTarget === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
+        capability: normalizedTarget === 'terminal' ? 'process.spawn' : 'filesystem.open-native',
         subject: {
           kind: normalizedTarget === 'terminal' ? 'command' : 'path',
           id: payload.path,
@@ -425,6 +425,9 @@ export function createEmbeddedMessageRouter(
       sddWizard,
       worktree: deps.worktreeHandler,
       kanbanHost: deps.kanbanHostRoutes,
+      agentRoster: {
+        rosterHandler: new AgentRosterWSHandler({ projectRoot }),
+      },
     },
     memory: { getMemoryStore: () => opts.memoryStore, send, sendResult },
     content: {

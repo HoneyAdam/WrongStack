@@ -33,7 +33,7 @@ describe('surface protocol contract', () => {
 
   it('keeps every exact registry entry executable through its directional decoder', () => {
     expect(new Set(CLIENT_MESSAGE_TYPES).size).toBe(204);
-    expect(new Set(SERVER_MESSAGE_TYPES).size).toBe(214);
+    expect(new Set(SERVER_MESSAGE_TYPES).size).toBe(220);
     for (const type of CLIENT_MESSAGE_TYPES) {
       expect(decodeProtocolMessage({ type }, 'client')).toEqual({
         ok: true,
@@ -45,6 +45,22 @@ describe('surface protocol contract', () => {
         ok: true,
         message: { type, payload: null },
       });
+    }
+  });
+
+  it('accepts every prompt-library response emitted by the server', () => {
+    const responseTypes = [
+      'prompts.list',
+      'prompts.search',
+      'prompts.content',
+      'prompts.favorite',
+      'prompts.created',
+      'prompts.used',
+      'prompts.recent',
+    ];
+
+    for (const type of responseTypes) {
+      expect(decodeProtocolMessage({ type, payload: {} }, 'server')).toMatchObject({ ok: true });
     }
   });
 

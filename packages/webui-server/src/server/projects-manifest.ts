@@ -13,6 +13,8 @@ export interface ProjectEntry {
   name: string;
   root: string;
   slug: string;
+  /** Repo-committed identity shared by clones, worktrees, and machines. */
+  projectId?: string | undefined;
   lastSeen?: string | undefined;
   createdAt?: string | undefined;
   /** Working directory of the most recent session (may differ from root). */

@@ -12,11 +12,13 @@ export type CanonicalServerMessage = ProtocolEnvelope<CanonicalServerMessageType
 
 export type CanonicalClientMessageType =
   | import('./registry.js').ExactClientMessageType
-  | `kanban.${string}`;
+  | `kanban.${string}`
+  | `agent-roster.${string}`;
 
 export type CanonicalServerMessageType =
   | import('./registry.js').ExactServerMessageType
-  | `kanban.${string}`;
+  | `kanban.${string}`
+  | `agent-roster.${string}`;
 
 export interface ProtocolDecodeIssue {
   code: 'invalid_envelope' | 'invalid_type' | 'unknown_type' | 'unsafe_key' | 'too_deep';

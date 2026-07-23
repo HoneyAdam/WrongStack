@@ -269,6 +269,7 @@ export async function startStaticServe(
 
   const server = create({
     host: opts.host,
+    port: opts.httpPort,
     distDir,
     globalRoot: opts.globalRoot,
     onFleetPing: opts.onFleetPing,

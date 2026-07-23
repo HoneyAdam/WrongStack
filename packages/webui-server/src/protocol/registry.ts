@@ -60,5 +60,9 @@ const SERVER_TYPE_SET: ReadonlySet<string> = new Set(SERVER_MESSAGE_TYPES);
 
 export function isRegisteredMessageType(type: string, direction: 'client' | 'server'): boolean {
   const exact = direction === 'client' ? CLIENT_TYPE_SET : SERVER_TYPE_SET;
-  return exact.has(type) || (type.startsWith('kanban.') && type.length > 'kanban.'.length);
+  return (
+    exact.has(type) ||
+    (type.startsWith('kanban.') && type.length > 'kanban.'.length) ||
+    (type.startsWith('agent-roster.') && type.length > 'agent-roster.'.length)
+  );
 }
