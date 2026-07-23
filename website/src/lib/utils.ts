@@ -296,9 +296,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.295.0',
+    date: '2026-07-23',
+    latest: true,
+    tagline: 'Stable project identity, shared HQ Kanban, replayable Brain decisions, and indexed SAGE',
+    highlights: [
+      'A committed .wrongstack/project.json proj_<ULID> keeps project identity stable across clones, worktrees, forks, and machines, with explicit id/init/rekey lifecycle commands',
+      'HQ adds a project-scoped read-only Kanban workspace with board selection, live reconciliation, WIP signals, task metadata, and responsive columns',
+      'Brain gains deterministic rules, replay traces, decision provenance, response quality gates, pool circuit breaking, caching, configurable heuristics, and expanded controls',
+      'SAGE defaults to indexed SQLite/FTS5 storage with automatic JSONL migration and a compatibility fallback when node:sqlite is unavailable',
+      'Chronicle aggregation, codebase watcher batches, session listings, and file observation avoid redundant scans, reads, and hashing',
+      'Kanban verification uses a read-only generic command allowlist and argv-safe locally resolved test runners with authoritative nonzero exits and bounded process-tree timeouts',
+      'All 21 packages, 2 apps, README highlights, website metadata and changelog content, and the root changelog are aligned to 0.295.0',
+    ],
+  },
+  {
     version: '0.293.0',
     date: '2026-07-20',
-    latest: true,
     tagline: 'API stabilization, safe-by-default permissions, and token-saving optimizations',
     highlights: [
       'ACP permission policy is safe-by-default: unknown callers get read-only, trusted paths explicitly opt into write/execute',

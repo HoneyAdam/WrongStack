@@ -10,21 +10,20 @@
  * ── Command Security ─────────────────────────────────────────────────────────
  * All shell commands are validated against a base-command allowlist and a
  * shell-operator regex before execution. The allowlist permits only read-only
- * inspection commands and test-runners by default. Shell operators (&&, ||, ;,
+ * inspection commands by default. Shell operators (&&, ||, ;,
  * |, &, >, <, backticks, $(), newline, carriage return) are rejected entirely
  * in `runCommand` to prevent chaining additional operations past the intended
  * command.
  *
  * NOTE: The allowlist is a **base-command gate** — it checks only the first
- * token. An allowlisted command like `git -c ...` can still execute arbitrary
- * subprocess primitives. This design prevents trivial injection but is not a
- * full sandbox. Use the Kanban boundary system for filesystem-scope
- * enforcement at the tool-call level.
+ * token. Package managers, shells, interpreters, compilers, and git are absent
+ * because each can execute arbitrary code even without a shell operator.
  */
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
 import type { KanbanBoard, KanbanTask } from '../types.js';
 
 // ─── Command Allowlist ──────────────────────────────────────────────────────
@@ -47,19 +46,14 @@ import type { KanbanBoard, KanbanTask } from '../types.js';
 export const SHELL_OPERATOR_RE = /(?:&&|\|\||[;&<>|`\n\r]|\$[({])/;
 
 /**
- * Commands permitted by default — read-only inspection + test runners.
- *
- * NOTE: `npx` and `pnpm` are code-execution primitives (they download and run
- * packages). They are included because the test-runner verifier needs a
- * package manager to invoke vitest/jest. If your threat model requires
- * stricter isolation, remove them via
- * `CommandAllowlistConfig.allowedCommands: ["-npx", "-pnpm"]`.
+ * Commands permitted by default — read-only inspection only.
  *
  * `git` is intentionally absent — the verifier uses `runGitCommand()` which
  * spawns git directly with an argument array (not through the shell allowlist).
+ * Test runners resolve a locally installed package's declared bin entry and
+ * invoke it through Node; package managers never use this generic surface.
  */
 export const DEFAULT_ALLOWED_COMMANDS: readonly string[] = [
-  'npx', 'pnpm',
   'ls', 'dir', 'cat', 'type',
   'echo', 'printf', 'test', '[',
   'which', 'where',
@@ -87,6 +81,7 @@ export const DEFAULT_BLOCKED_COMMANDS: readonly string[] = [
   'cmd', 'powershell', 'pwsh',
   'apt', 'apt-get', 'dpkg', 'rpm', 'yum', 'dnf', 'pacman', 'zypper',
   'brew', 'port', 'choco', 'scoop', 'winget',
+  'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'node',
   'make', 'cmake', 'gcc', 'g++', 'clang', 'rustc',
   'tar', 'gzip', 'gunzip', 'zip', 'unzip', '7z', 'rar',
   'base64', 'base32', 'openssl', 'gpg',
@@ -228,6 +223,12 @@ export interface GitStatusResult {
   files: string[];
 }
 
+interface TestRunnerInvocation {
+  command: string;
+  args: string[];
+  kind: 'vitest' | 'jest';
+}
+
 // ─── VerificationContext ───────────────────────────────────────────────────
 
 export class VerificationContext {
@@ -344,7 +345,7 @@ export class VerificationContext {
       const unstaged = lines.filter(
         (l) => /^.[^ ]/.test(l) && !l.startsWith('??'),
       ).length;
-      const staged = lines.filter((l) => /^[^ ]/.test(l)).length;
+      const staged = lines.filter((l) => /^[^ ]/.test(l) && !l.startsWith('??')).length;
       const files = lines.map((l) => l.slice(3).trim()).filter(Boolean);
       return {
         clean: lines.length === 0,
@@ -404,13 +405,10 @@ export class VerificationContext {
    *
    * The command is gated by the base-command allowlist and the shell-operator
    * regex, which rejects `&&`, `||`, `;`, `|`, `&`, `>`, `<`, backticks, and
-   * `$()` by default. Only `runTest()` may bypass the operator gate via
-   * `allowShellOperators: true`, and only because it constructs the command
-   * string itself with platform-aware quoting.
-   *
-   * SECURITY — `allowShellOperators: true` bypasses the metacharacter gate.
-   * Intended exclusively for `runTest()` which constructs safe command strings
-   * and rejects patterns containing `$`, `` ` ``, or `\\` before the bypass. */
+   * `$()` by default. Callers that explicitly set `allowShellOperators` assume
+   * responsibility for validating the complete command string. `runTest()`
+   * does not use this escape hatch; it spawns a locally installed runner with
+   * an argument array and `shell: false`. */
   async runCommand(
     command: string,
     opts?: {
@@ -449,10 +447,12 @@ export class VerificationContext {
         cwd,
         shell: false,
         windowsHide: true,
+        detached: !isWindows,
       });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
+      let settled = false;
 
       child.stdout?.on('data', (chunk: Buffer) => {
         stdout += chunk.toString('utf8');
@@ -461,40 +461,35 @@ export class VerificationContext {
         stderr += chunk.toString('utf8');
       });
 
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill();
+      let timer: NodeJS.Timeout | undefined;
+      const finish = (exitCode: number, suffix = ''): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
         resolve({
           command,
-          exitCode: -1,
+          exitCode,
           stdout,
-          stderr: `${stderr}\n--- timed out after ${timeoutMs}ms ---`,
+          stderr: `${stderr}${suffix}`,
           durationMs: Date.now() - start,
         });
+      };
+
+      timer = setTimeout(() => {
+        timedOut = true;
+        terminateProcessTree(child, !isWindows);
+        finish(-1, `\n--- timed out after ${timeoutMs}ms ---`);
       }, timeoutMs);
 
       child.on('close', (code) => {
-        clearTimeout(timer);
-        if (timedOut) return;
-        resolve({
-          command,
-          exitCode: code ?? -1,
-          stdout,
-          stderr,
-          durationMs: Date.now() - start,
-        });
+        finish(
+          timedOut ? -1 : (code ?? -1),
+          timedOut ? `\n--- timed out after ${timeoutMs}ms ---` : '',
+        );
       });
 
       child.on('error', () => {
-        clearTimeout(timer);
-        if (timedOut) return;
-        resolve({
-          command,
-          exitCode: -1,
-          stdout,
-          stderr: `${stderr}\n--- spawn error ---`,
-          durationMs: Date.now() - start,
-        });
+        finish(-1, timedOut ? `\n--- timed out after ${timeoutMs}ms ---` : '\n--- spawn error ---');
       });
     });
   }
@@ -507,64 +502,51 @@ export class VerificationContext {
   async runTest(pattern: string, opts?: { cwd?: string; timeoutMs?: number }): Promise<TestResult> {
     const start = Date.now();
 
-    // Reject patterns with shell metacharacters to prevent injection into the
-    // constructed command string, even though the platform-aware quoting below
-    // also provides defence in depth.
-    if (SHELL_OPERATOR_RE.test(pattern)) {
+    if (pattern.includes('\0') || pattern.trimStart().startsWith('-')) {
       return {
         testPattern: pattern,
         passed: 0,
-        failed: 0,
+        failed: 1,
         skipped: 0,
         durationMs: Date.now() - start,
-        failureOutput: 'Test pattern contains shell operators and was rejected.',
-      };
-    }
-
-    // Reject $, backticks, and bare backslashes that would survive single-
-    // quote escaping and still be interpreted by the outer `sh -c` once the
-    // outer quotes are stripped. SHELL_OPERATOR_RE only catches unescaped
-    // operators, but `foo'test'$(whoami)` slips through — the operators live
-    // inside single quotes in the source pattern, the lookbehind matches on
-    // an unescaped operator in the raw string, and once the outer `'…'` are
-    // removed by `sh -c`, the embedded `$()` still expands.
-    if (/[$\\`\\]/.test(pattern)) {
-      return {
-        testPattern: pattern,
-        passed: 0,
-        failed: 0,
-        skipped: 0,
-        durationMs: Date.now() - start,
-        failureOutput:
-          'Test pattern contains shell-metacharacter characters ($, backtick, or \\) ' +
-          'which are not permitted in the verifier. Use a simple file path or pattern.',
+        failureOutput: pattern.includes('\0')
+          ? 'Test pattern contains a null byte and was rejected.'
+          : 'Test pattern must not start with an option prefix.',
       };
     }
 
     const cwd = opts?.cwd ?? this.projectRoot;
     const timeoutMs = opts?.timeoutMs ?? 180_000;
     const runner = await this.detectTestRunner(cwd);
-    const isWindows = process.platform === 'win32';
+    if (!runner) {
+      return {
+        testPattern: pattern,
+        passed: 0,
+        failed: 1,
+        skipped: 0,
+        durationMs: Date.now() - start,
+        failureOutput: 'No local Vitest or Jest executable was found.',
+      };
+    }
 
-    // Platform-aware quoting: on POSIX wrap in single quotes with embedded
-    // single-quote escaping; on Windows use double quotes with "" escaping.
-    const escapedPattern = isWindows
-      ? `"${pattern.replace(/"/g, '""')}"`
-      : `'${pattern.replace(/'/g, "'\\''")}'`;
-
-    const stderrRedirect = isWindows ? '2>NUL' : '2>/dev/null';
-    const safeTail = isWindows ? '|| ver>NUL' : '|| true';
-    const command = `${runner} run ${escapedPattern} --reporter=json ${stderrRedirect} ${safeTail}`;
-
-    const result = await this.runCommand(command, {
-      cwd,
-      timeoutMs,
-      allowShellOperators: true,
-    });
+    const runnerArgs =
+      runner.kind === 'vitest'
+        ? [...runner.args, 'run', pattern, '--reporter=json']
+        : [...runner.args, pattern, '--json'];
+    const result = await this.runProcess(runner.command, runnerArgs, { cwd, timeoutMs });
 
     const parsed = tryParseTestJson(result.stdout, pattern);
     if (parsed) {
-      return { ...parsed, durationMs: Date.now() - start };
+      const failed = result.exitCode !== 0 && parsed.failed === 0 ? 1 : parsed.failed;
+      return {
+        ...parsed,
+        failed,
+        durationMs: Date.now() - start,
+        failureOutput:
+          result.exitCode !== 0
+            ? result.stderr.slice(0, 2000) || result.stdout.slice(0, 2000)
+            : undefined,
+      };
     }
 
     const passMatch = result.stdout.match(/(\d+)\s+passed/);
@@ -572,7 +554,7 @@ export class VerificationContext {
     return {
       testPattern: pattern,
       passed: passMatch ? parseInt(passMatch[1]!, 10) : 0,
-      failed: failMatch ? parseInt(failMatch[1]!, 10) : 0,
+      failed: failMatch ? parseInt(failMatch[1]!, 10) : result.exitCode === 0 ? 0 : 1,
       skipped: 0,
       durationMs: Date.now() - start,
       failureOutput:
@@ -591,9 +573,11 @@ export class VerificationContext {
     timeoutMs = 30_000,
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
+      const detachedProcessGroup = process.platform !== 'win32';
       const child = spawn('git', args, {
         cwd: this.projectRoot,
         windowsHide: true,
+        detached: detachedProcessGroup,
       });
       let stdout = '';
       let stderr = '';
@@ -609,7 +593,7 @@ export class VerificationContext {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        child.kill('SIGTERM');
+        terminateProcessTree(child, detachedProcessGroup);
         reject(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
@@ -629,45 +613,162 @@ export class VerificationContext {
     });
   }
 
-  private async detectTestRunner(cwd: string): Promise<string> {
-    const binDir = path.join(cwd, 'node_modules', '.bin');
+  /**
+   * Spawn a trusted local test runner with an argument array. This private
+   * helper is never exposed as a model-selected executable surface.
+   */
+  private async runProcess(
+    command: string,
+    args: string[],
+    opts: { cwd: string; timeoutMs: number },
+  ): Promise<CommandResult> {
+    const start = Date.now();
+    const displayCommand = [command, ...args].join(' ');
+    return new Promise<CommandResult>((resolve) => {
+      const child = spawn(command, args, {
+        cwd: opts.cwd,
+        shell: false,
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+      });
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      let settled = false;
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8');
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+      });
+
+      let timer: NodeJS.Timeout | undefined;
+      const finish = (exitCode: number, suffix = ''): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve({
+          command: displayCommand,
+          exitCode,
+          stdout,
+          stderr: `${stderr}${suffix}`,
+          durationMs: Date.now() - start,
+        });
+      };
+
+      timer = setTimeout(() => {
+        timedOut = true;
+        terminateProcessTree(child, process.platform !== 'win32');
+        finish(-1, `\n--- timed out after ${opts.timeoutMs}ms ---`);
+      }, opts.timeoutMs);
+
+      child.on('close', (code) => {
+        finish(
+          timedOut ? -1 : (code ?? -1),
+          timedOut ? `\n--- timed out after ${opts.timeoutMs}ms ---` : '',
+        );
+      });
+      child.on('error', () => {
+        finish(
+          -1,
+          timedOut ? `\n--- timed out after ${opts.timeoutMs}ms ---` : '\n--- spawn error ---',
+        );
+      });
+    });
+  }
+
+  private async detectTestRunner(cwd: string): Promise<TestRunnerInvocation | null> {
+    let preferred: 'vitest' | 'jest' = 'vitest';
     try {
       const pkg = await fsp.readFile(path.join(cwd, 'package.json'), 'utf8');
       const json = JSON.parse(pkg) as Record<string, unknown>;
       const scripts = json['scripts'];
-      if (typeof scripts === 'object' && scripts !== null) {
-        for (const [name, cmd] of Object.entries(scripts)) {
-          if (name === 'test' && typeof cmd === 'string' && cmd.includes('jest')) {
-            try { await fsp.access(path.join(binDir, 'jest')); return path.join(binDir, 'jest'); }
-            catch { return 'npx jest'; }
-          }
-          if (name === 'test' && typeof cmd === 'string' && cmd.includes('vitest')) {
-            try { await fsp.access(path.join(binDir, 'vitest')); return path.join(binDir, 'vitest'); }
-            catch { return 'npx vitest'; }
-          }
-          if (name === 'test') {
-            try { await fsp.access(path.join(binDir, 'vitest')); return path.join(binDir, 'vitest'); }
-            catch { return 'npx vitest'; }
-          }
-        }
-      }
-      try {
-        await fsp.access(path.join(cwd, 'pnpm-lock.yaml'));
-        return 'pnpm vitest';
-      } catch {
-        try { await fsp.access(path.join(binDir, 'vitest')); return path.join(binDir, 'vitest'); }
-        catch { return 'npx vitest'; }
-      }
+      const testScript =
+        typeof scripts === 'object' && scripts !== null
+          ? (scripts as Record<string, unknown>)['test']
+          : undefined;
+      if (typeof testScript === 'string' && testScript.includes('jest')) preferred = 'jest';
     } catch {
-      try { await fsp.access(path.join(binDir, 'vitest')); return path.join(binDir, 'vitest'); }
-      catch { return 'npx vitest'; }
+      // Fall back to Vitest discovery below.
     }
+
+    const candidates: Array<'vitest' | 'jest'> =
+      preferred === 'jest' ? ['jest', 'vitest'] : ['vitest', 'jest'];
+    let requireFromProject: ReturnType<typeof createRequire>;
+    try {
+      requireFromProject = createRequire(path.resolve(cwd, 'package.json'));
+    } catch {
+      return null;
+    }
+    for (const runner of candidates) {
+      try {
+        const packageJsonPath = requireFromProject.resolve(`${runner}/package.json`);
+        const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf8')) as {
+          bin?: string | Record<string, string>;
+        };
+        const relativeBin =
+          typeof packageJson.bin === 'string'
+            ? packageJson.bin
+            : packageJson.bin?.[runner];
+        if (!relativeBin || path.isAbsolute(relativeBin)) continue;
+        const packageDir = path.dirname(packageJsonPath);
+        const entry = path.resolve(packageDir, relativeBin);
+        if (path.relative(packageDir, entry).startsWith('..')) continue;
+        await fsp.access(entry);
+        return { command: process.execPath, args: [entry], kind: runner };
+      } catch {
+        // Try the next locally installed runner. Never download one during verification.
+      }
+    }
+    return null;
   }
 }
 
 // ---------------------------------------------------------------------------
 // Standalone helpers
 // ---------------------------------------------------------------------------
+
+/** Best-effort process-tree termination that never delays timeout settlement. */
+function terminateProcessTree(child: ChildProcess, detachedProcessGroup: boolean): void {
+  const pid = child.pid;
+  if (typeof pid === 'number' && process.platform === 'win32') {
+    try {
+      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      const forceKillChild = (): void => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // The process already exited.
+        }
+      };
+      killer.once('error', forceKillChild);
+      killer.once('close', (code) => {
+        if (code !== 0) forceKillChild();
+      });
+      killer.unref();
+      return;
+    } catch {
+      // Fall through to direct termination.
+    }
+  }
+  try {
+    if (typeof pid === 'number' && detachedProcessGroup) {
+      process.kill(-pid, 'SIGKILL');
+    } else {
+      child.kill('SIGKILL');
+    }
+  } catch {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // The process already exited.
+    }
+  }
+}
 
 /** Parse `git diff --numstat` output into structured entries. */
 export function parseGitNumstat(output: string): FileDiffEntry[] {

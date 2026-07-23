@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.295.0] — 2026-07-23
+
+> The **repository identity, shared HQ Kanban, Brain control plane, and indexed
+> memory release**. Projects now carry a clone-stable identity, HQ provides a
+> cross-machine Kanban workspace, Brain decisions become configurable and
+> replayable, and SAGE defaults to indexed SQLite/FTS5 storage. The release also
+> hardens deterministic verification and aligns every package, app, README, and
+> website surface to `0.295.0`.
+
 ### Added
 
 - **Repository-stable project identity.** `.wrongstack/project.json` carries a committed `proj_<ULID>` across clones, worktrees, forks, and machines, so HQ merges their telemetry and Kanban snapshots under one project without per-machine alias configuration. `wstack project id|init|rekey` and `/project id|init|rekey` expose the lifecycle; explicit rekeying lets a fork become an independent HQ project. Existing `hq.projectAlias` identities remain a fallback when no committed identity exists.
@@ -42,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session listings now reuse cached summary arrays and incrementally consume appended `_index.jsonl` ranges, avoiding full index reparses after cross-process session updates.
 - Chronicle file observation now hashes project files with bounded concurrency and reuses complete rescan fingerprints, eliminating the second stat/read/SHA-256 pass when `fs.watch` omits a filename.
 - `loadPlugins()` now returns a `PluginHostHandle` (with `.loaded`, `.failed`, `.dispose()`, `.disposed`) instead of the loose `{ loaded, failed }` object. Destructuring `const { loaded, failed } = await loadPlugins(...)` remains compatible. `unloadPlugins()` is deprecated — prefer `handle.dispose()` for unambiguous host-scoped teardown.
+- Kanban verification now keeps package managers and runtimes out of the generic shell allowlist, invokes only locally resolved Vitest/Jest entrypoints with argv-safe spawning, treats nonzero runner exits as failures, drains output deterministically, and terminates timed-out process trees.
+- **All release surfaces aligned to `0.295.0`** — the root, 21 packages, 2 apps, website manifests and structured metadata, README highlights, website changelog, and this changelog report the same current release.
 
 ## [0.293.0] — 2026-07-20
 

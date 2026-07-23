@@ -52,6 +52,7 @@ import { ModelPicker } from './ModelPicker';
 import { TaskActivityTimeline } from './TaskActivityTimeline';
 import { TaskExecutionAttempts } from './TaskExecutionAttempts';
 import { TaskIntelligencePanel } from './TaskIntelligencePanel';
+import { VerificationReportPanel } from './VerificationReportPanel';
 import { analyzeTaskRisk, TaskRiskPanel } from './TaskRiskPanel';
 import { Pagination } from './ui/pagination';
 
@@ -1328,7 +1329,14 @@ function KanbanColumnView({
             />
             <div className="pointer-events-none relative flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <div className="line-clamp-2 text-sm font-medium leading-5">{task.title}</div>
+                <div className="flex items-center gap-1.5">
+                  {task.atomic && (
+                    <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-[10px] font-medium text-warning">
+                      atomic
+                    </span>
+                  )}
+                  <span className="line-clamp-2 text-sm font-medium leading-5">{task.title}</span>
+                </div>
                 {task.description && (
                   <div className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
                     {task.description}
@@ -2267,6 +2275,10 @@ function TaskInspector({
               </div>
             </div>
           </div>
+
+          {task.verificationReport && (
+            <VerificationReportPanel report={task.verificationReport} />
+          )}
 
           <TaskActivityTimeline
             task={task}
