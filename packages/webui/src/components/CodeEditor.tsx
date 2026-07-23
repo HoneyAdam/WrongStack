@@ -18,6 +18,7 @@ import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
+import { EmptyState } from './ui/empty-state';
 import { X, Circle, Send, FileText } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { type OnMount, loader } from '@monaco-editor/react';
@@ -411,16 +412,10 @@ export function CodeEditor() {
 
   if (openFiles.length === 0) {
     return (
-      <div className="flex h-full min-w-0 items-center justify-center">
-        <div className="text-center space-y-2">
-          <p className="text-sm text-muted-foreground">
-            {t('activity:codeEditor.noFilesOpen')}
-          </p>
-          <p className="text-[11px] text-muted-foreground/75">
-            {t('activity:codeEditor.selectToEdit')}
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        title={t('activity:codeEditor.noFilesOpen')}
+        description={t('activity:codeEditor.selectToEdit')}
+      />
     );
   }
 

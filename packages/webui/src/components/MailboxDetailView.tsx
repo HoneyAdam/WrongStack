@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation, i18n } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
+import { EmptyState } from './ui/empty-state';
 import { markdownComponents } from './MessageBubble/utils';
 import { classifyMailboxRecipient } from '@/stores/mailbox-store';
 
@@ -69,25 +70,6 @@ function fmtRelative(iso: string): string {
 }
 
 // ── Component ─────────────────────────────────────────────────────────
-
-function EmptyState() {
-  const { t } = useAppTranslation();
-  return (
-    <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4">
-      <div className="ws-surface flex max-w-md flex-col items-center gap-3 rounded-xl p-6 text-center text-muted-foreground">
-        <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <Mail className="h-6 w-6" />
-        </span>
-        <div>
-          <div className="text-sm font-semibold text-foreground">{t('activity:mailbox.emptyDetail')}</div>
-          <div className="mt-1 text-xs">
-            {t('activity:mailbox.emptyDetailHint')}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function _MessageNotFound() {
   const { t } = useAppTranslation();
@@ -141,7 +123,13 @@ export function MailboxDetailView({ className }: { className?: string }) {
     showPanel('chat');
   }
 
-  if (!msg) return <EmptyState />;
+  if (!msg) return (
+    <EmptyState
+      icon={<Mail className="h-6 w-6" />}
+      title={t('activity:mailbox.emptyDetail')}
+      description={t('activity:mailbox.emptyDetailHint')}
+    />
+  );
 
   const Icon = TYPE_ICONS[msg.type] ?? MessageSquare;
   const typeLabel = t(`activity:mailbox.type.${msg.type}`, { defaultValue: msg.type });

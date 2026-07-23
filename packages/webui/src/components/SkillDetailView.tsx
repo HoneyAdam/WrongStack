@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
+import { EmptyState } from './ui/empty-state';
 import { markdownComponents } from './MessageBubble/utils';
 import {
   Dialog,
@@ -462,26 +463,13 @@ export function SkillDetailView({ className }: { className?: string }) {
 
   if (!selectedSkill) {
     return (
-      <div className={cn('flex h-full min-h-0 flex-1 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4 text-muted-foreground', className)}>
-        <div className="ws-surface flex max-w-md flex-col items-center gap-3 rounded-xl p-6 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <BookOpen className="h-6 w-6" />
-          </span>
-          <div>
-            <p className="text-base font-medium text-foreground">{t('activity:skillDetail.noSkillSelected')}</p>
-            <p className="mt-1 text-sm">
-              {t('activity:skillDetail.selectSkillHint')}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="mt-1 rounded-md border border-border/70 bg-card/70 px-4 py-2 text-sm text-foreground shadow-sm transition-colors hover:bg-accent"
-          >
-            {t('activity:skillDetail.goToChat')}
-          </button>
-        </div>
-      </div>
+      <EmptyState
+        icon={<BookOpen className="h-6 w-6" />}
+        title={t('activity:skillDetail.noSkillSelected')}
+        description={t('activity:skillDetail.selectSkillHint')}
+        action={{ label: t('activity:skillDetail.goToChat'), onClick: handleClose }}
+        className={className}
+      />
     );
   }
 

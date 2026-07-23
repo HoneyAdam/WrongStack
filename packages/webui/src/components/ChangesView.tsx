@@ -12,6 +12,7 @@ import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useGitChangesStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { DiffView } from './DiffView';
+import { EmptyState } from './ui/empty-state';
 import { MonacoDiffView } from './MonacoDiffView';
 
 /** How long the diff spinner may run before flipping to an error + retry. */
@@ -46,22 +47,12 @@ export function ChangesView({ className }: { className?: string }) {
 
   if (!selectedPath) {
     return (
-      <div
-        className={cn(
-          'flex min-h-0 min-w-0 flex-1 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4',
-          className,
-        )}
-      >
-        <div className="ws-surface flex max-w-md flex-col items-center gap-3 rounded-xl p-6 text-center text-muted-foreground">
-          <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <FileDiff className="h-6 w-6" />
-          </span>
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Source changes</h2>
-            <p className="mt-1 text-sm">{t('activity:changes.selectPrompt')}</p>
-          </div>
-        </div>
-      </div>
+      <EmptyState
+        icon={<FileDiff className="h-6 w-6" />}
+        title="Source changes"
+        description={t('activity:changes.selectPrompt')}
+        className={className}
+      />
     );
   }
 
