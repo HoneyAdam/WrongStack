@@ -1,6 +1,7 @@
 import type React from 'react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { computeWindow, EntryHeightCache } from '../height-cache.js';
+import { computeLayout } from '../layout-engine.js';
 import { SCROLLBAR_HIT_WIDTH } from '../hit-test.js';
 import { Box, Text, useStdout } from '../ink.js';
 import { theme } from '../theme.js';
@@ -11,8 +12,6 @@ import {
   ToolGroup,
 } from './history/tool-group.js';
 import {
-  ASSISTANT_TAIL_HEIGHT,
-  AssistantTail,
   Entry,
   type HistoryEntry,
   type HistoryProps,
@@ -33,6 +32,11 @@ export interface ScrollableHistoryProps extends HistoryProps {
   onMeasure?: ((totalLines: number) => void) | undefined;
   /** Optional cap on the width used for entry wrapping (right panel mode). */
   maxWidth?: number | undefined;
+  /** Layout store for persisting entry height data across renders and sessions.
+   *  When provided, the ScrollableHistory seeds its height cache from the
+   *  store's persisted measurements and marks entries as measured after render,
+   *  eliminating estimate-vs-actual scroll jumps on re-render. */
+  layoutStore?: import('../layout-store.js').LayoutStore | undefined;
 }
 
 /** Pure thumb geometry for the scrollbar: where the thumb starts and how many
@@ -113,9 +117,10 @@ function Scrollbar({
  * the top; `computeWindow()` selects the visible render groups, while its
  * partial-entry spacer and omitted-suffix spacer preserve row alignment.
  *
- * Streaming tails (assistant + tool) are a fixed-height suffix in the same
- * scroll space, so they auto-follow while pinned and move below the clip as the
- * offset crosses into committed history.
+ * Streaming tool tails are a fixed-height suffix in the same scroll space, so
+ * they auto-follow while pinned and move below the clip as the offset crosses
+ * into committed history. The assistant tail has been removed — committed
+ * assistant entries now appear only as normal history entries.
  *
  * Wrapped in `React.memo` so keystrokes in the input buffer don't
  * trigger a full managed-viewport re-layout. All props are primitives
@@ -123,7 +128,6 @@ function Scrollbar({
  */
 export const ScrollableHistory = memo(function ScrollableHistory({
   entries,
-  streamingText,
   toolStream,
   scrollOffset,
   viewportRows,
@@ -134,6 +138,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   multiDiffSummaryThreshold,
   todos,
   showModelReasoning,
+  layoutStore,
 }: ScrollableHistoryProps): React.ReactElement {
   const { stdout } = useStdout();
   const resolveViewportWidth = useCallback(() => {
@@ -158,13 +163,10 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     };
   }, [stdout, resolveViewportWidth]);
 
-  const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
-  const assistantTailHeight = tail ? ASSISTANT_TAIL_HEIGHT : 0;
   const toolTail = toolStream?.text
     ? tailForDisplay(toolStream.text, MAX_STREAM_DISPLAY_CHARS)
     : '';
   const toolTailHeight = toolTail && toolStream ? toolStreamBoxHeight(toolStream.name) : 0;
-  const liveTailHeight = assistantTailHeight + toolTailHeight;
   const groupedEntries = useMemo(() => groupEntries(entries), [entries]);
   const groupIds = useMemo(() => groupedEntries.map(renderGroupId), [groupedEntries]);
   const groupIdsKey = groupIds.join(',');
@@ -173,39 +175,76 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   // transcript is virtualized immediately. Synchronization is keyed by stable
   // group ids because reducer commits often replace `entries` without changing
   // its content and should not repeat the O(n) cache preparation.
+  //
+  // When a LayoutStore is available (from a resumed session / persisted layout),
+  // its measured (non-estimated) heights are preferred over the heuristic
+  // estimates — this eliminates the estimate-vs-actual mismatch that causes
+  // scroll jumps on the first render cycle.
   const heightCacheRef = useRef<EntryHeightCache | null>(null);
   if (heightCacheRef.current === null) heightCacheRef.current = new EntryHeightCache();
   const heightCache = heightCacheRef.current;
   const preparedGroupIdsRef = useRef<string | null>(null);
   const preparedEstimateWidthRef = useRef<number | null>(null);
+  // Key that incorporates the layout store's version so persisted data from a
+  // different term width doesn't poison the current render.
+  const cacheKey = layoutStore
+    ? `${groupIdsKey}|w${termWidth}|s${layoutStore.termWidth}`
+    : groupIdsKey;
   if (
-    preparedGroupIdsRef.current !== groupIdsKey ||
+    preparedGroupIdsRef.current !== cacheKey ||
     preparedEstimateWidthRef.current !== termWidth
   ) {
-    const estimateById = new Map(
-      groupedEntries.map((group) => [renderGroupId(group), estimateRenderGroupRows(group, termWidth)]),
-    );
     heightCache.sync(groupIds);
-    heightCache.recordMany(groupIds.map((id) => [id, estimateById.get(id) ?? 3] as const));
-    preparedGroupIdsRef.current = groupIdsKey;
+
+    if (layoutStore) {
+      // Prefer persisted (measured) heights; fall back to heuristic estimates
+      // for entries not yet in the store.
+      layoutStore.setTermWidth(termWidth);
+      // Prune stale entries from the store (history retention evicted them).
+      layoutStore.retain(new Set(groupIds));
+      for (const group of groupedEntries) {
+        const id = renderGroupId(group);
+        const stored = layoutStore.get(id);
+        if (stored && stored.termWidth === termWidth) {
+          // Use the stored layout — it is either a previous measurement or
+          // a persisted estimate from a previous session.
+          heightCache.record(id, stored.rows);
+        } else {
+          // New entry: compute a heuristic estimate and seed the store.
+          const estimatedRows = estimateRenderGroupRows(group, termWidth);
+          heightCache.record(id, estimatedRows);
+          const kind = group.type === 'tool-group' ? 'tool-group' : group.entry.kind;
+          const text = group.type === 'tool-group' ? group.data.name : (group.entry as { text?: string }).text ?? '';
+          layoutStore.set(id, computeLayout(id, kind, text, termWidth, { ...(group.type === 'tool-group' ? { groupCount: group.data.entries.length } : {}) }));
+        }
+      }
+    } else {
+      // No LayoutStore: fall back to heuristic estimates only (original path).
+      const estimateById = new Map(
+        groupedEntries.map((group) => [renderGroupId(group), estimateRenderGroupRows(group, termWidth)]),
+      );
+      heightCache.recordMany(groupIds.map((id) => [id, estimateById.get(id) ?? 3] as const));
+    }
+
+    preparedGroupIdsRef.current = cacheKey;
     preparedEstimateWidthRef.current = termWidth;
   }
 
   const lastReported = useRef(-1);
-  const cacheTotal = useMemo(() => heightCache.totalHeight(), [groupIdsKey, heightCache]);
+  const cacheTotal = useMemo(() => heightCache.totalHeight(), [cacheKey, termWidth]);
   useLayoutEffect(() => {
-    const reportedHeight = cacheTotal + liveTailHeight;
+    const reportedHeight = cacheTotal + toolTailHeight;
     if (reportedHeight === lastReported.current) return;
     lastReported.current = reportedHeight;
     onMeasure?.(reportedHeight);
-  }, [cacheTotal, liveTailHeight, onMeasure]);
+  }, [cacheTotal, toolTailHeight, onMeasure]);
 
-  // The cache owns committed-entry rows; live assistant/tool tails form a
-  // separate, fixed-height suffix in the same scroll space. Keeping those
+  // The cache owns committed-entry rows; the live tool tail forms a
+  // separate, fixed-height suffix in the same scroll space. Keeping these
   // dimensions separate prevents callers from ambiguously including or
-  // excluding live-tail rows in a fallback total.
-  const entryTotal = cacheTotal;
-  const scrollbarTotal = entryTotal + liveTailHeight;
+  // excluding live-tail rows in a fallback total. The `toolTailHeight` value
+  // drives both the measure effect and the scrollbar total.
+  const scrollbarTotal = cacheTotal + toolTailHeight;
 
   const vp = Math.max(1, viewportRows);
   // Clamp the shared entry+tail range here. When committed entries are
@@ -218,14 +257,14 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   // ── Virtual window computation ──────────────────────────────────────
   // When the cache has data and content exceeds the viewport, compute
   // which entries to render and how tall the spacers should be.
-  const visibleTailRows = Math.max(0, liveTailHeight - effectiveOffset);
+  const visibleTailRows = Math.max(0, toolTailHeight - effectiveOffset);
   const entryViewportRows = Math.max(1, vp - visibleTailRows);
-  const entryScrollOffset = Math.max(0, effectiveOffset - liveTailHeight);
+  const entryScrollOffset = Math.max(0, effectiveOffset - toolTailHeight);
   const windowed =
-    entryTotal > 0 && groupedEntries.length > 0 && entryTotal > entryViewportRows;
+    cacheTotal > 0 && groupedEntries.length > 0 && cacheTotal > entryViewportRows;
   const win = windowed
     ? computeWindow(
-        entryTotal,
+        cacheTotal,
         entryViewportRows,
         entryScrollOffset,
         groupedEntries.length,
@@ -293,14 +332,6 @@ export const ScrollableHistory = memo(function ScrollableHistory({
             <Box height={win.spacerBelow} flexShrink={0} />
           ) : null}
 
-          {/* Streaming assistant tail — only rendered while content exists.
-              When absent, the viewport's justifyContent="flex-end" keeps
-              the remaining content pinned to the bottom with no gap. */}
-          {tail ? (
-            <Box height={ASSISTANT_TAIL_HEIGHT} flexShrink={0}>
-              <AssistantTail text={tail} termWidth={termWidth} />
-            </Box>
-          ) : null}
           {toolTail && toolStream ? (
             <ToolStreamBox
               name={toolStream.name}

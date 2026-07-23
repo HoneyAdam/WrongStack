@@ -3,13 +3,15 @@ import { reducer } from '../src/app.js';
 import type { State } from '../src/app-state.js';
 
 // Minimal state carrying just the fields the scroll reducer cases touch — the
-// scroll cases only read/write scrollOffset/totalLines/viewportRows/pendingNewLines.
-function scrollState(over: Partial<Record<string, number>> = {}): State {
+// scroll cases only read/write scrollOffset/totalLines/viewportRows/pendingNewLines/measuredEntryCount.
+function scrollState(over: Partial<Record<string, number>> & { entries?: unknown[] } = {}): State {
   return {
     scrollOffset: 0,
     totalLines: 0,
     viewportRows: 0,
     pendingNewLines: 0,
+    measuredEntryCount: undefined,
+    entries: [],
     ...over,
   } as unknown as State;
 }
@@ -62,11 +64,50 @@ describe('TUI scroll reducer', () => {
       viewportRows: 20,
       scrollOffset: 10,
       pendingNewLines: 0,
+      measuredEntryCount: 50,
+      entries: new Array(55),
     });
     const out = reducer(s, { type: 'setMeasuredLines', totalLines: 105 });
     expect(out.totalLines).toBe(105);
     expect(out.scrollOffset).toBe(15);
     expect(out.pendingNewLines).toBe(5);
+    expect(out.measuredEntryCount).toBe(55);
+  });
+
+  it('setMeasuredLines does NOT grow offset on re-measurement (no new entries)', () => {
+    // Scrolled up by 10; content grows by 5 rows but entry count stays the
+    // same (existing entries were re-measured from estimate to actual).
+    // The offset must NOT grow — that would cause a visual jump.
+    const s = scrollState({
+      totalLines: 100,
+      viewportRows: 20,
+      scrollOffset: 10,
+      pendingNewLines: 0,
+      measuredEntryCount: 50,
+      entries: new Array(50), // same count as measuredEntryCount
+    });
+    const out = reducer(s, { type: 'setMeasuredLines', totalLines: 105 });
+    expect(out.totalLines).toBe(105);
+    expect(out.scrollOffset).toBe(10); // unchanged — no visual jump
+    expect(out.pendingNewLines).toBe(0); // not new content
+    expect(out.measuredEntryCount).toBe(50); // tracked, not incremented
+  });
+
+  it('setMeasuredLines does NOT grow offset on first measurement (measuredEntryCount undefined)', () => {
+    // First measurement: measuredEntryCount is undefined. Even though
+    // entries exist, we treat this as initial population, not new content.
+    const s = scrollState({
+      totalLines: 0,
+      viewportRows: 20,
+      scrollOffset: 0,
+      pendingNewLines: 0,
+      measuredEntryCount: undefined,
+      entries: new Array(10),
+    });
+    const out = reducer(s, { type: 'setMeasuredLines', totalLines: 50 });
+    expect(out.totalLines).toBe(50);
+    expect(out.scrollOffset).toBe(0); // pinned — stays pinned
+    expect(out.measuredEntryCount).toBe(10);
   });
 
   it('setMeasuredLines while pinned (offset 0) stays pinned and follows newest', () => {

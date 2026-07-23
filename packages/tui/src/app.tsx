@@ -68,6 +68,7 @@ import { type DOMElement, measureElement, useApp, useStdout } from './ink.js';
 import { deriveAppViewState } from './app-view-state.js';
 import { AppView } from './app-view.js';
 import { historyViewportRows } from './hit-test.js';
+import { LayoutStore } from './layout-store.js';
 import { MOUSE_DRAG_ON, MOUSE_OFF, shouldEnableMouseTracking } from './mouse.js';
 import { createRunBlocksController } from './run-blocks-controller.js';
 import { createSubmitController } from './submit-controller.js';
@@ -314,6 +315,27 @@ export function App(props: AppProps): React.ReactElement {
   // valid UI actions silently (status changes, slash panels, queueing, picker
   // navigation) and made the entire composer appear frozen.
   const dispatch = rawDispatch;
+
+  // ── Layout store (virtual-scroll position cache) ────────────────────
+  // Created per session; persists entry height data to disk so resumed
+  // sessions reconstruct the virtual viewport without remounting every entry.
+  // Ephemeral mode is used when no sessionsDir is available (test/adhoc).
+  const layoutStore = useMemo(
+    () =>
+      new LayoutStore({
+        sessionDataDir: sessionsDir,
+        ephemeral: !sessionsDir,
+      }),
+    [sessionsDir],
+  );
+  // On mount: load previously-persisted layout data and start the debounced
+  // flush cycle. Cleanup: flush on unmount so no data is lost.
+  useEffect(() => {
+    void layoutStore.load();
+    return () => {
+      void layoutStore.flushNow();
+    };
+  }, [layoutStore]);
   // Stable measurement callback threaded into ScrollableHistory via the
   // AppView runtime contract. `dispatch` (rawDispatch) is stable, so the
   // memoized handler is too — ScrollableHistory relies on that stability to
@@ -1456,6 +1478,7 @@ export function App(props: AppProps): React.ReactElement {
         getLeaderTranscript,
         coordinatorRunning,
         enhanceDelayMs,
+        layoutStore,
       }}
     />
   );

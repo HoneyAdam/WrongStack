@@ -338,6 +338,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     totalLines: 0,
     viewportRows: 0,
     pendingNewLines: 0,
+    measuredEntryCount: undefined,
     debugStreamStats: null,
     countdown: null,
   } as State;

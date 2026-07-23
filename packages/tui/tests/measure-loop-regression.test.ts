@@ -9,6 +9,8 @@ function scrollState(overrides: Partial<State> = {}): State {
     viewportRows: 30,
     scrollOffset: 0,
     pendingNewLines: 0,
+    measuredEntryCount: undefined,
+    entries: [],
     ...overrides,
   } as State;
 }

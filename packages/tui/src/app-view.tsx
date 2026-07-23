@@ -77,6 +77,7 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
     refineModel,
     setEnhanceCountdown,
     enhanceDelayMs,
+    layoutStore,
   } = runtime;
   const {
     nowTick,
@@ -100,7 +101,6 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
       <Box flexDirection="column" flexGrow={1} flexShrink={0}>
         <ScrollableHistory
           entries={state.entries}
-          streamingText={state.streamingText}
           toolStream={state.toolStream}
           scrollOffset={state.scrollOffset}
           viewportRows={state.viewportRows}
@@ -114,6 +114,7 @@ export function AppView({ host, runtime }: AppViewProps): React.ReactElement {
               ? state.settingsPicker.showModelReasoning
               : (liveSettings?.showModelReasoning ?? true)
           }
+          layoutStore={layoutStore}
         />
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
           {/* NOTE: the LiveActivityStrip is deliberately NOT rendered here yet.

@@ -113,6 +113,7 @@ export function reduceConversation(state: State, action: ConversationAction): St
         debugStreamStats: null,
         scrollOffset: 0,
         pendingNewLines: 0,
+        measuredEntryCount: undefined,
         // Bump the generation so <Static> remounts — without this, Ink's
         // already-written index exceeds the new (shorter) array and the
         // committed entries stay on screen even though `state.entries` no

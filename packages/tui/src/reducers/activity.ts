@@ -78,18 +78,43 @@ export function reduceActivity(state: State, action: ActivityAction): State {
       const newTotal = action.totalLines;
       const oldTotal = state.totalLines;
       const maxOffset = Math.max(0, newTotal - state.viewportRows);
-      if (state.scrollOffset > 0 && newTotal > oldTotal) {
+
+      // Detect whether new entries were appended since the last measurement
+      // by comparing the current entry count with the last-recorded count.
+      // When `measuredEntryCount` is undefined (first measurement) or
+      // unchanged, any height change is from re-measurement (estimate→actual),
+      // not from new content — do NOT grow the scroll offset.
+      const entryCountNow = state.entries.length;
+      const hadNewEntries =
+        state.measuredEntryCount !== undefined &&
+        entryCountNow > state.measuredEntryCount;
+
+      if (state.scrollOffset > 0 && newTotal > oldTotal && hadNewEntries) {
+        // New entries were appended while scrolled up: grow the offset by
+        // the total height increase so the viewport stays anchored to the
+        // same older entries. The new content is below the viewport.
         const grew = newTotal - oldTotal;
         return {
           ...state,
           totalLines: newTotal,
           scrollOffset: Math.min(maxOffset, state.scrollOffset + grew),
           pendingNewLines: state.pendingNewLines + grew,
+          measuredEntryCount: entryCountNow,
         };
       }
+
+      // Re-measurement of existing entries (estimate→actual): the scroll
+      // offset must NOT grow — that would cause a visual jump. Instead,
+      // just re-clamp to the new max offset so scrolled-up content doesn't
+      // overshoot. When pinned (offset 0), stay pinned.
       const nextOffset = Math.min(state.scrollOffset, maxOffset);
       if (newTotal === oldTotal && nextOffset === state.scrollOffset) return state;
-      return { ...state, totalLines: newTotal, scrollOffset: nextOffset };
+      return {
+        ...state,
+        totalLines: newTotal,
+        scrollOffset: nextOffset,
+        measuredEntryCount: entryCountNow,
+      };
     }
     case 'setViewportRows': {
       const maxOffset = Math.max(0, state.totalLines - action.rows);

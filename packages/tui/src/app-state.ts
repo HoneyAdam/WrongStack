@@ -857,6 +857,10 @@ export type State = {
   totalLines: number;
   viewportRows: number;
   pendingNewLines: number;
+  /** Entry count at the last `setMeasuredLines` dispatch. Used to distinguish
+   *  new-entry growth (offset follows) from re-measurement of existing
+   *  entries (offset stays). `undefined` before the first measurement. */
+  measuredEntryCount: number | undefined;
   /**
    * Live debug-stream telemetry rendered in StatusBar line 3 when
    * stream debugging is active. Updated every ~200 ms by the throttled

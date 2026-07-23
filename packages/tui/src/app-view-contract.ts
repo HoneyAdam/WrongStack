@@ -63,6 +63,8 @@ export interface AppViewRuntime {
   getLeaderTranscript: () => AgentTimelineEntry[];
   coordinatorRunning: boolean;
   enhanceDelayMs: number;
+  /** Per-session layout store for virtual-scroll positioning. */
+  layoutStore: import('./layout-store.js').LayoutStore;
 }
 
 export interface AppViewProps {
