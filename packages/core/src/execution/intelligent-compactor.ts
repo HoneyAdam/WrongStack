@@ -6,6 +6,12 @@ import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { Logger } from '../types/logger.js';
 import { noOpLogger } from '../infrastructure/logger.js';
+import {
+  type CompactionSummaryCache,
+  compactionSummaryKey,
+  defaultCompactionSummaryCache,
+  isPlaceholderSummary,
+} from './compaction-summary-cache.js';
 import type { OneShotOrchestrator } from './one-shot-llm.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
@@ -58,6 +64,11 @@ export interface IntelligentCompactorOptions {
    * call, gaining fallback chain support and a cheap default model.
    */
   oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  /**
+   * Shared cache for successful semantic summaries. By default uses the process-wide
+   * cache; pass `summaryCache` to inject a private instance for tests or isolation.
+   */
+  summaryCache?: CompactionSummaryCache | undefined;
   /** Structured logger. Defaults to noOpLogger (silent). */
   logger?: Logger | undefined;
 }
@@ -86,6 +97,7 @@ export class IntelligentCompactor implements Compactor {
   private readonly summarizerPrompt: string;
   private readonly summarizerModel?: string | undefined;
   private readonly oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  private readonly summaryCache: CompactionSummaryCache;
   private readonly logger: Logger;
 
   constructor(opts: IntelligentCompactorOptions) {
@@ -101,6 +113,7 @@ export class IntelligentCompactor implements Compactor {
       readBundledInstructionText('llm/intelligent-compactor-summarizer.md');
     this.summarizerModel = opts.summarizerModel;
     this.oneShotOrchestrator = opts.oneShotOrchestrator;
+    this.summaryCache = opts.summaryCache ?? defaultCompactionSummaryCache;
     this.logger = opts.logger ?? noOpLogger;
     setCompactionDebugLogger(this.logger);
   }
@@ -132,11 +145,12 @@ export class IntelligentCompactor implements Compactor {
     let collapsedDigest: string | undefined;
     if (aggressive) {
       const phase2 = await this.summarizeAncientTurns(ctx);
-      // Always record summary phase — even with 0 token savings the
-      // enrichment (buildSmartDigest critical-content preservation) is
-      // valuable for maintaining decision continuity across compaction.
-      reductions.push({ phase: 'summary', saved: Math.max(0, phase2.saved) });
-      collapsedDigest = phase2.digest;
+      if (phase2.digest !== undefined) {
+        // Record completed summaries even with 0 token savings because the
+        // enrichment preserves critical content across compaction.
+        reductions.push({ phase: 'summary', saved: Math.max(0, phase2.saved) });
+        collapsedDigest = phase2.digest;
+      }
     } else if (load >= this.warnThreshold) {
       // Non-aggressive: lightweight elision only.
       const saved2 = this.elide(ctx);
@@ -209,10 +223,17 @@ export class IntelligentCompactor implements Compactor {
     const toSummarize = messages.slice(0, boundary);
     const removedTokens = estimateMessages(toSummarize);
 
+    const summaryModel = this.summarizerModel ?? (this.oneShotOrchestrator ? 'deepseek-chat' : ctx.model);
+    // Cache only the LLM request/result. The context-sensitive smart digest
+    // below is rebuilt from this invocation's full messages on every hit, so
+    // its deterministic evidence is never inherited from another session.
+    const summaryInput = this.messagesToSummary(toSummarize);
     let summaryText: string;
     try {
-      summaryText = await this.callSummarizer(toSummarize, ctx);
-    } catch {
+      // Empty/placeholder results bypass the cache so a later compaction can retry.
+      summaryText = await this.callSummarizer(ctx, summaryModel, summaryInput);
+    } catch (err) {
+      this.logger.warn('Summarizer failed; falling back to lossless digest', { err });
       // Fallback: lossless rule-based digest (text preserved, tool I/O dropped).
       summaryText =
         buildLosslessDigest(toSummarize) ||
@@ -240,87 +261,90 @@ export class IntelligentCompactor implements Compactor {
     return { saved: Math.max(0, removedTokens - summaryTokens), digest: summaryText };
   }
 
-  private async callSummarizer(messages: Message[], ctx: Context): Promise<string> {
+  private async callSummarizer(
+    ctx: Context,
+    summaryModel: string,
+    summaryInput: string,
+  ): Promise<string> {
+    // Cache the semantic summarization request independently of the transport path.
+    // Both OneShot and direct provider calls use this model, instruction, and bounded input.
+    const messages: Message[] = [{ role: 'user', content: summaryInput }];
+    const summaryKey = compactionSummaryKey(summaryModel, this.summarizerPrompt, messages);
+
     // When a OneShotOrchestrator is wired, use it with a cheap default model
     // and fallback support. Otherwise fall back to direct provider.complete().
-    if (this.oneShotOrchestrator) {
-      const result = await this.oneShotOrchestrator.call({
-        system: this.summarizerPrompt,
-        messages: [{ role: 'user', content: this.messagesToSummary(messages) }],
-        model: this.summarizerModel ?? 'deepseek-chat',
-        timeoutMs: 30_000,
-        maxTokens: 1024,
-        signal: ctx.signal,
-        fallbackModels: ['/summary'],
-      });
-      if (result.text && !result.error) return result.text;
-      // OneShotLLM failed — fall through to lossless digest below.
-    } else {
-      // Legacy path: direct provider.complete().
-      const prompt: TextBlock[] = [
-        { type: 'text', text: this.summarizerPrompt },
-        { type: 'text', text: '\n\nConversation to summarize:\n' },
-        ...this.messagesToText(messages),
-      ];
-
-      const req: Request = {
-        model: this.summarizerModel ?? ctx.model,
-        system: prompt,
-        messages: [],
-        maxTokens: 1024,
-      };
-
-      const ac = ctx.signal ? undefined : new AbortController();
-      const signal = ctx.signal ?? ac?.signal;
-      let res;
-      try {
-        res = await this.provider.complete(req, { signal });
-      } finally {
-        ac?.abort();
-      }
-
-      const textBlocks = res.content.filter(isTextBlock);
-      return (
-        textBlocks
-          .map((b) => b.text)
-          .join('\n')
-          .trim() || '(empty summary)'
-      );
-    }
-
-    return '(empty summary)';
-  }
-
-  private messagesToText(messages: Message[]): TextBlock[] {
-    const lines: string[] = [];
-    for (const m of messages) {
-      const role = m.role.padEnd(10, ' ');
-      if (typeof m.content === 'string') {
-        lines.push(`[${role}]: ${m.content.slice(0, 500)}`);
-      } else if (Array.isArray(m.content)) {
-        const textParts = m.content.filter(isTextBlock).map((b) => b.text);
-        if (textParts.length > 0) {
-          lines.push(`[${role}]: ${textParts.join(' ').slice(0, 500)}`);
+    const oneShotOrchestrator = this.oneShotOrchestrator;
+    if (oneShotOrchestrator) {
+      return this.summaryCache.getOrCreate(summaryKey, async () => {
+        const result = await oneShotOrchestrator.call({
+          system: this.summarizerPrompt,
+          messages,
+          model: summaryModel,
+          timeoutMs: 30_000,
+          maxTokens: 1024,
+          signal: ctx.signal,
+        });
+        if (result.error || isPlaceholderSummary(result.text)) {
+          throw new Error(result.error || 'Summarizer returned an empty result');
         }
-      }
+        return result.text;
+      });
     }
-    return [{ type: 'text', text: lines.join('\n') }];
+
+    // Legacy path: direct provider.complete().
+    const prompt: TextBlock[] = [
+      { type: 'text', text: this.summarizerPrompt },
+      { type: 'text', text: '\n\nConversation to summarize:\n' },
+      { type: 'text', text: summaryInput },
+    ];
+    const req: Request = {
+      model: summaryModel,
+      system: prompt,
+      messages: [],
+      maxTokens: 1024,
+    };
+
+    return this.summaryCache.getOrCreate(summaryKey, async () => {
+      const timeoutSignal = AbortSignal.timeout(30_000);
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutSignal]) : timeoutSignal;
+      const res = await this.provider.complete(req, { signal });
+      const summary = res.content
+        .filter(isTextBlock)
+        .map((block) => block.text)
+        .join('\n')
+        .trim();
+      if (isPlaceholderSummary(summary)) {
+        throw new Error('Summarizer returned an empty result');
+      }
+      return summary;
+    });
   }
 
   /** Compact string summary of messages (no TextBlock wrapper). */
   private messagesToSummary(messages: Message[]): string {
     const lines: string[] = [];
-    for (const m of messages) {
-      const role = m.role.padEnd(10, ' ');
-      if (typeof m.content === 'string') {
-        lines.push(`[${role}]: ${m.content.slice(0, 500)}`);
-      } else if (Array.isArray(m.content)) {
-        const textParts = m.content.filter(isTextBlock).map((b) => b.text);
-        if (textParts.length > 0) {
-          lines.push(`[${role}]: ${textParts.join(' ').slice(0, 500)}`);
-        }
+    for (const message of messages) {
+      const text = this.boundedMessageText(message);
+      if (text.length > 0) {
+        lines.push(`[${message.role.padEnd(10, ' ')}]: ${text}`);
       }
     }
     return lines.join('\n');
+  }
+
+  /** Match the summarizer's 500-character limit without joining full block payloads first. */
+  private boundedMessageText(message: Message): string {
+    if (typeof message.content === 'string') return message.content.slice(0, 500);
+
+    let text = '';
+    for (const block of message.content) {
+      if (!isTextBlock(block)) continue;
+      const separator = text.length > 0 ? ' ' : '';
+      const remaining = 500 - text.length - separator.length;
+      if (remaining <= 0) break;
+      text += separator + block.text.slice(0, remaining);
+      if (text.length === 500) break;
+    }
+    return text;
   }
 }

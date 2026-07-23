@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { estimateMessages } from '../../src/execution/compaction-core.js';
+import { CompactionSummaryCache } from '../../src/execution/compaction-summary-cache.js';
 import { SelectiveCompactor } from '../../src/execution/selective-compactor.js';
 import type { ContentBlock, TextBlock } from '../../src/types/blocks.js';
 import type { Message } from '../../src/types/messages.js';
+import type { Logger } from '../../src/types/logger.js';
 import type { Provider, Capabilities } from '../../src/types/provider.js';
-import type { MessageSelector, } from '../../src/types/selector.js';
+import type { MessageSelector } from '../../src/types/selector.js';
 
 function makeTextBlock(text: string): TextBlock {
   return { type: 'text', text };
@@ -92,6 +94,22 @@ describe('SelectiveCompactor', () => {
       };
       const compactor = new SelectiveCompactor({ provider, selector: customSelector });
       expect(compactor).toBeDefined();
+    });
+
+    it('logs the primary-model summarizer fallback in every environment', () => {
+      const logger = {
+        level: 'debug',
+        error: vi.fn(),
+        warn: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn(),
+        trace: vi.fn(),
+        child: vi.fn(),
+      } as unknown as Logger;
+
+      new SelectiveCompactor({ provider: makeFakeProvider([]), logger });
+
+      expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('ctx.model'));
     });
   });
 
@@ -416,6 +434,43 @@ describe('SelectiveCompactor', () => {
 
       const sysMsg = ctx.messages.find((m) => m.role === 'system');
       expect(sysMsg).toBeDefined();
+    });
+
+    it('reuses cached summaries for identical collapsed ranges', async () => {
+      const provider = makeFakeProvider(['cached selective summary', 'unexpected selective summary']);
+      const summaryCache = new CompactionSummaryCache();
+      const makeMessages = (): Message[] => [
+        makeMessage('user', [makeTextBlock('msg1')]),
+        makeMessage('assistant', [makeTextBlock('msg2')]),
+        makeMessage('user', [makeTextBlock('current question')]),
+        makeMessage('assistant', [makeTextBlock('current answer')]),
+      ];
+      const makePlan = () => ({
+        kept: [],
+        collapsed: [{ from: 0, to: 1 }],
+        reasoning: '',
+      });
+      const firstCompactor = new SelectiveCompactor({
+        provider,
+        preserveK: 1,
+        summarizerPrompt: 'summarize',
+        summaryCache,
+      });
+      const secondCompactor = new SelectiveCompactor({
+        provider,
+        preserveK: 1,
+        summarizerPrompt: 'summarize',
+        summaryCache,
+      });
+      const first = fakeContext(makeMessages());
+      const second = fakeContext(makeMessages());
+
+      await (firstCompactor as any).executePlan(first, makePlan());
+      await (secondCompactor as any).executePlan(second, makePlan());
+
+      expect(String(first.messages[0]?.content)).toContain('cached selective summary');
+      expect(String(second.messages[0]?.content)).toContain('cached selective summary');
+      expect(String(second.messages[0]?.content)).not.toContain('unexpected selective summary');
     });
 
     it('uses provided summary when available', async () => {

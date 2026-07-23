@@ -181,7 +181,7 @@ describe('B5 — emitContextPct elision on idle loops', () => {
       await fs.rm(tmp, { recursive: true, force: true });
     };
 
-    const ctxPctEvents: Array<{ load: number; rawLoad?: number | undefined; tokens: number; maxContext: number }> = [];
+    const ctxPctEvents: Array<{ load: number; rawLoad?: number; tokens: number; maxContext: number }> = [];
     events.on('ctx.pct', (payload) => {
       ctxPctEvents.push({
         load: payload.load,
@@ -245,20 +245,7 @@ describe('B5 — emitContextPct elision on idle loops', () => {
     expect(ctxPctEvents[ctxPctEvents.length - 1]?.maxContext).toBe(1_000_000);
   });
 
-  it('stops emitting ctx.pct when messages stop growing (idle loop simulation)', async () => {
-    // This test simulates the B5 elision guard by verifying that the
-    // _lastEmittedMsgCount / _lastEmittedToolCount cache effectively
-    // prevents redundant ctx.pct emissions. We do this by running the
-    // agent three times and verifying the event count matches expectations:
-    //
-    // Turn 1: user message → ctx.pct fires  (new messages)
-    // Turn 2: user message → ctx.pct fires  (messages grew)
-    // Turn 3: user message → ctx.pct fires  (messages grew again)
-    //
-    // In a real autonomous idle loop (where NO messages are added between
-    // iterations), the B5 guard would suppress subsequent emits. The guard
-    // logic is: if (msgCount === _lastEmittedMsgCount) return.
-
+  it('emits ctx.pct for each consecutive turn when messages grow', async () => {
     const { agent, events, tmp, session } = await buildAgent();
     cleanup = async () => {
       await session.close();
@@ -283,14 +270,55 @@ describe('B5 — emitContextPct elision on idle loops', () => {
     expect(ctxPctEvents[1]!.tokens).toBeGreaterThan(ctxPctEvents[0]!.tokens);
     expect(ctxPctEvents[2]!.tokens).toBeGreaterThan(ctxPctEvents[1]!.tokens);
 
-    // B5 elision logic verified by code review:
-    // In the actual implementation, _lastEmittedMsgCount and _lastEmittedToolCount
-    // are tracked as closure variables. When msgCount === _lastEmittedMsgCount,
-    // the function returns early without calling estimateRequestTokensCalibrated()
-    // or emitting the event. This test verifies the NORMAL path (messages grow →
-    // emit), confirming we haven't broken the emission logic. The IDLE path
-    // (messages unchanged → skip) is verified by the B5 benchmark in
-    // session-hot-path.bench.ts, which measures ~1000-5000× speedup.
+  });
+
+  it('rebuilds a request after a same-length compaction rewrite', async () => {
+    // These messages exercise replaceMessages mechanics only; production system prompts
+    // live on ctx.systemPrompt and never appear in ctx.messages.
+    const replacement: Message[] = [
+      { role: 'user', content: 'compacted context' },
+      { role: 'user', content: 'fresh question' },
+    ];
+    const compactCalls: number[] = [];
+    const compactor: Compactor = {
+      async compact(ctx) {
+        compactCalls.push(ctx.messages.length);
+        const before = estimateRequestTokens(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total;
+        ctx.state.replaceMessages(replacement);
+        expect(ctx.messages).toHaveLength(replacement.length);
+        const after = estimateRequestTokens(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total;
+        return {
+          before,
+          after,
+          fullRequestTokensBefore: before,
+          fullRequestTokensAfter: after,
+          reductions: [{ phase: 'summary', saved: Math.max(0, before - after) }],
+        };
+      },
+    };
+    const { agent, provider, tmp, session } = await buildAgent({
+      maxContext: 1_000,
+      compactor,
+      initialMessages: [{ role: 'user', content: `old context ${'x'.repeat(8000)}` }],
+    });
+    cleanup = async () => {
+      await session.close();
+      await fs.rm(tmp, { recursive: true, force: true });
+    };
+
+    await agent.run('fresh question', {});
+
+    // The contract is that preflight compaction runs before the single provider request;
+    // follow-up loop iterations may legitimately compact again after a successful reduction.
+    expect(compactCalls.length).toBeGreaterThanOrEqual(1);
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]!.messages).toEqual(replacement);
+    expect(
+      provider.requests[0]!.messages.some(
+        (message) =>
+          typeof message.content === 'string' && message.content.includes('old context'),
+      ),
+    ).toBe(false);
   });
 
   it('compacts and rebuilds an oversized request before the provider call', async () => {

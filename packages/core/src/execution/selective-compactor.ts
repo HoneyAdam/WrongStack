@@ -3,6 +3,11 @@ import { LLMSelector } from '../models/llm-selector.js';
 import { isTextBlock } from '../types/blocks.js';
 import type { Logger } from '../types/logger.js';
 import { noOpLogger } from '../infrastructure/logger.js';
+import {
+  type CompactionSummaryCache,
+  compactionSummaryKey,
+  defaultCompactionSummaryCache,
+} from './compaction-summary-cache.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
@@ -54,6 +59,8 @@ export interface SelectiveCompactorOptions {
   logger?: Logger | undefined;
   /** Prompt for the summarizer sub-LLM. */
   summarizerPrompt?: string | undefined;
+  /** Shared cache for successful semantic summaries. */
+  summaryCache?: CompactionSummaryCache | undefined;
 }
 
 /**
@@ -76,6 +83,7 @@ export class SelectiveCompactor implements Compactor {
   private readonly eliseThreshold: number;
   private readonly summarizerModel: string | undefined;
   private readonly summarizerPrompt: string;
+  private readonly summaryCache: CompactionSummaryCache;
   private readonly logger: Logger;
 
   constructor(opts: SelectiveCompactorOptions) {
@@ -90,20 +98,18 @@ export class SelectiveCompactor implements Compactor {
     this.eliseThreshold = opts.eliseThreshold ?? 300;
     // Leave undefined when unset so summarizeRange() can fall back to the
     // live ctx.model (mirrors IntelligentCompactor). Never send a 'unknown'
-    // sentinel to the provider — that yields a 400 in non-dev deployments
-    // where the warning below is suppressed.
+    // sentinel to the provider — that yields a 400 in non-dev deployments.
+    // The debug event below makes this potentially expensive fallback observable.
     this.summarizerModel = opts.summarizerModel ?? opts.selectorModel;
+    this.summaryCache = opts.summaryCache ?? defaultCompactionSummaryCache;
     this.logger = opts.logger ?? noOpLogger;
     // Wire the module-level compaction debug logger so instrumentation
     // in compaction-core.ts (emitCompactionMetrics, findPreserveStart,
     // eliseOldToolResults) uses structured logging when available.
     setCompactionDebugLogger(this.logger);
-    if (
-      this.summarizerModel === undefined &&
-      (process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1')
-    ) {
-      this.logger.warn(
-        '[SelectiveCompactor] summarizerModel not set — will fall back to ctx.model at summarize time. Set `summarizerModel` explicitly to silence this warning.',
+    if (this.summarizerModel === undefined) {
+      this.logger.debug(
+        '[SelectiveCompactor] summarizerModel not set — will fall back to ctx.model at summarize time. Set `summarizerModel` explicitly to avoid using the primary model for summaries.',
       );
     }
     this.summarizerPrompt =
@@ -278,27 +284,30 @@ export class SelectiveCompactor implements Compactor {
   private async summarizeRange(messages: Message[], ctx: Context): Promise<string> {
     const systemText = `${this.summarizerPrompt}\n\nSummarize the following message range:`;
     const body = messages.map((m, i) => `[${i}] ${m.role}: ${this.messagePreview(m)}`).join('\n');
-
-    const req: Request = {
-      model: this.summarizerModel ?? ctx.model,
-      system: [{ type: 'text', text: systemText }],
-      messages: [{ role: 'user', content: body }],
-      maxTokens: 512,
-    };
+    const model = this.summarizerModel ?? ctx.model;
+    const key = compactionSummaryKey(model, systemText, messages);
 
     try {
-      // 30-second timeout so a stuck summarizer can't hang compaction.
-      const timeoutSignal = AbortSignal.timeout(30_000);
-      const res = await this.provider.complete(req, {
-        signal: AbortSignal.any([ctx.signal, timeoutSignal]),
+      return await this.summaryCache.getOrCreate(key, async () => {
+        const req: Request = {
+          model,
+          system: [{ type: 'text', text: systemText }],
+          messages: [{ role: 'user', content: body }],
+          maxTokens: 512,
+        };
+        // 30-second timeout so a stuck summarizer can't hang compaction.
+        const timeoutSignal = AbortSignal.timeout(30_000);
+        const res = await this.provider.complete(req, {
+          signal: AbortSignal.any([ctx.signal, timeoutSignal]),
+        });
+        return (
+          res.content
+            .filter(isTextBlock)
+            .map((b) => b.text)
+            .join('\n')
+            .trim() || '(empty)'
+        );
       });
-      return (
-        res.content
-          .filter(isTextBlock)
-          .map((b) => b.text)
-          .join('\n')
-          .trim() || '(empty)'
-      );
     } catch {
       return `[${messages.length} earlier turns omitted]`;
     }
