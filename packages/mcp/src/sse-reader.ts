@@ -72,14 +72,19 @@ export class SSEReader {
         },
       });
     }
-    let idx = this.buffer.indexOf('\n');
+    // Scan with a moving cursor and slice the retained tail ONCE at the end,
+    // instead of `buffer = buffer.slice(idx+1)` per line (which re-copies the
+    // whole remaining buffer for every newline — O(n²) for many small lines).
+    let start = 0;
+    let idx = this.buffer.indexOf('\n', start);
     while (idx !== -1) {
-      const line = this.buffer.slice(0, idx).replace(/\r$/, '');
-      this.buffer = this.buffer.slice(idx + 1);
-      idx = this.buffer.indexOf('\n');
-
-      this.processLine(line);
+      let end = idx;
+      if (end > start && this.buffer.charCodeAt(end - 1) === 13 /* \r */) end--;
+      this.processLine(this.buffer.slice(start, end));
+      start = idx + 1;
+      idx = this.buffer.indexOf('\n', start);
     }
+    if (start > 0) this.buffer = this.buffer.slice(start);
   }
 
   private processLine(line: string): void {
