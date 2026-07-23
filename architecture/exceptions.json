@@ -178,20 +178,6 @@
       "canonicalTask": "R1"
     },
     {
-      "id": "ARCH-CYCLE-TYPE-15",
-      "kind": "type-module-cycle",
-      "members": [
-        "packages/core/src/plugins/chimera-plugin.ts",
-        "packages/core/src/plugins/review-context-builder.ts"
-      ],
-      "owner": "architecture-refactor",
-      "reason": "Pre-existing type-level module SCC captured by the 2026-07-21 G1 baseline; no new members are allowed.",
-      "introduced": "2026-07-21",
-      "reviewBy": "2026-09-15",
-      "removeWhen": "Product plugin implementations and helpers are owned by the plugin package with one-way imports.",
-      "canonicalTask": "M2"
-    },
-    {
       "id": "ARCH-CYCLE-TYPE-17",
       "kind": "type-module-cycle",
       "members": [

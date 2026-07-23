@@ -363,6 +363,7 @@
         "export * from './expect-defined.js';",
         "export * from './glob-match.js';",
         "export * from './newline-normalize.js';",
+        "export * from './project-identity.js';",
         "export * from './safe-json.js';",
         "export * from './sleep.js';",
         "export * from './string.js';",
@@ -383,6 +384,7 @@
         "export { createToolOutputSerializer, type ToolOutputSerializerOptions, } from './tool-output-serializer.js';",
         "export { deriveCachePrefixKey } from './cache-key.js';",
         "export { expandGlob } from './glob-expand.js';",
+        "export { getPerfProfile, indexParallelBatchSize, isFrugalPerf, type PerfProfile, sqliteCachePragmas, superMemoryCachePragmas, tuiStreamFlushMs, } from './perf-profile.js';",
         "export { hasMeaningfulContent, type MessageRepairReport, type MessageRepairResult, repairToolUseAdjacency, } from './message-invariants.js';",
         "export { isPidAlive } from './pid.js';",
         "export { isUlid, ulid } from './ulid.js';",
@@ -453,7 +455,7 @@
         "export { buildCouncilJudgeSystemPrompt, buildCouncilJudgeUserPrompt, buildCouncilQuestionPrompt, buildCouncilVoterSystemPrompt, buildCouncilVoterUserPrompt, COUNCIL_JUDGE_PROMPT_PATH, COUNCIL_VOTER_PROMPT_PATH, } from './council-prompts.js';",
         "export { buildGoalPreamble } from './goal-preamble.js';",
         "export { buildRecoveryStrategies, DEFAULT_RECOVERY_STRATEGIES, DefaultErrorHandler, type RecoveryStrategy, } from './error-handler.js';",
-        "export { buildRefinerContextSections, DEFAULT_REFINER_RETRY_FEEDBACK, enhanceUserPrompt, gatedEnhancerReasoning, type EnhanceFailureKind, normalizedEqual, recentTextTurns, shouldEnhance, } from './prompt-enhancer.js';",
+        "export { buildRefinerContextSections, DEFAULT_REFINER_RETRY_FEEDBACK, enhanceUserPrompt, gatedEnhancerReasoning, type EnhanceFailureKind, isValidEnglishRefinement, normalizedEqual, parseBilingualEnhancement, recentTextTurns, shouldEnhance, } from './prompt-enhancer.js';",
         "export { installSubagentAutoCompaction } from './subagent-compaction.js';",
         "export { nextEnhanceTimeout, resolveConfiguredRefinerRef, resolveEnhanceFallbackRef, } from './enhance-recovery.js';",
         "export { type AutonomyBrainOptions, type BrainAutoRisk, type BrainLlmTarget, buildBrainUserMessage, completeBrainLlm, createAutonomyBrain, createTieredBrainArbiter, formatDecisionSummary, parseOptionDecision, type TieredBrainArbiterOptions, } from './autonomy-brain.js';",
@@ -501,8 +503,8 @@
         "export type { IFleetManager } from './ifleet-manager.js';",
         "export type { MailboxActionInput, MailboxActionResult, MailboxMessageAction, } from './mailbox-actions.js';",
         "export type { TaskAuctionOptions, TaskBid, } from './task-auctioneer.js';",
-        "export { ACP_AGENTS, ALL_FLEET_AGENTS, AUDIT_LOG_AGENT, applyRosterBudget, BUG_HUNTER_AGENT, FLEET_ROSTER, FLEET_ROSTER_BUDGETS, FLEET_ROSTER_WITHACP, type FleetRosterBudget, REFACTOR_PLANNER_AGENT, SECURITY_SCANNER_AGENT, } from './fleet.js';",
-        "export { AGENT_CATALOG, AGENTS_BY_PHASE, type AgentBudgetTier, type AgentCapability, type AgentDefinition, type AgentPhase, ALL_AGENT_DEFINITIONS, BUILD_AGENTS, DELIVERY_AGENTS, DISCOVERY_AGENTS, DOMAIN_AGENTS, getAgentDefinition, HEAVY_BUDGET, KNOWLEDGE_AGENTS, LIGHT_BUDGET, MEDIUM_BUDGET, META_AGENTS, PLANNING_AGENTS, REVIEW_AGENTS, VERIFY_AGENTS, applyProjectAgentConfig, buildProjectContextualizedPrompt, canCaptureNewLearned, CAPTURE_COOLDOWN_MS, CAPTURE_MAX_PER_SESSION, captureLearnedFromAgentOutput, detectLearnedConflicts, getProjectAgentLearnStats, hintLearnedNeedsSummarization, LEARNED_SOFT_LIMIT, LEARNED_HARD_LIMIT, listProjectAgentRoles, loadProjectAgentConfig, loadProjectAgentIdentity, loadProjectAgentLearned, loadRoleKnowledgeManifest, resetProjectAgentIdentity, refreshProjectAgentIdentity, updateProjectAgentLearned, updateProjectAgentIdentity, updateProjectAgentConfig, updateProjectAgentKnowledge, type ProjectAgentConfig, type RoleKnowledgeManifest, } from './agents/index.js';",
+        "export { ACP_AGENTS, ALL_FLEET_AGENTS, AUDIT_LOG_AGENT, applyRosterBudget, BUG_HUNTER_AGENT, FLEET_ROSTER, FLEET_ROSTER_BUDGETS, FLEET_ROSTER_WITHACP, type FleetRosterBudget, GENERIC_AGENT, REFACTOR_PLANNER_AGENT, SECURITY_SCANNER_AGENT, } from './fleet.js';",
+        "export { AGENT_CATALOG, AGENTS_BY_PHASE, type AgentBudgetTier, type AgentCapability, type AgentDefinition, type AgentPhase, ALL_AGENT_DEFINITIONS, BUILD_AGENTS, DELIVERY_AGENTS, DISCOVERY_AGENTS, DOMAIN_AGENTS, getAgentDefinition, HEAVY_BUDGET, KNOWLEDGE_AGENTS, LIGHT_BUDGET, MEDIUM_BUDGET, META_AGENTS, PLANNING_AGENTS, REVIEW_AGENTS, VERIFY_AGENTS, applyProjectAgentConfig, buildProjectContextualizedPrompt, canCaptureNewLearned, CAPTURE_COOLDOWN_MS, CAPTURE_MAX_PER_SESSION, captureLearnedFromAgentOutput, captureLearnedFromAgentOutputDetailed, createProjectAgent, createProjectAgentRoster, detectLearnedConflicts, getProjectAgentLearnStats, hintLearnedNeedsSummarization, LEARNED_SOFT_LIMIT, LEARNED_HARD_LIMIT, listProjectAgentRoles, listProjectAgentLearnedEntries, loadProjectAgentConfig, loadProjectAgentIdentity, loadProjectAgentLearned, loadProjectAgentLearningPolicy, loadProjectAgentProfile, loadRoleKnowledgeManifest, resetProjectAgentIdentity, refreshProjectAgentIdentity, updateProjectAgentLearned, updateProjectAgentIdentity, updateProjectAgentConfig, updateProjectAgentKnowledge, updateProjectAgentLearningPolicy, assertProjectAgentRole, slugifyProjectAgentRole, validateProjectAgentConfig, type LearnedCaptureResult, type ProjectAgentConfig, type ProjectAgentProfile, type CreateProjectAgentInput, type ProjectAgentLearningPolicy, type RoleKnowledgeManifest, } from './agents/index.js';",
         "export { AdaptiveConcurrencyController, type AdaptiveConcurrencyState, } from './adaptive-concurrency.js';",
         "export { AutonomousBrain } from './autonomous-brain.js';",
         "export { AutonomousCoordinator } from './autonomous-coordinator.js';",
@@ -951,14 +953,14 @@
       "classification": "coordination implementation",
       "intendedOwner": "Core subpath until physical extraction is justified",
       "sourceFiles": 99,
-      "sourceLines": 36101
+      "sourceLines": 37038
     },
     {
       "directory": "core",
       "classification": "agent-domain contract",
       "intendedOwner": "Core",
       "sourceFiles": 29,
-      "sourceLines": 8141
+      "sourceLines": 8167
     },
     {
       "directory": "defaults",
@@ -979,7 +981,7 @@
       "classification": "concrete runtime default",
       "intendedOwner": "Runtime pilot candidate after R2/R3",
       "sourceFiles": 43,
-      "sourceLines": 16005
+      "sourceLines": 16286
     },
     {
       "directory": "extension",
@@ -1000,14 +1002,14 @@
       "classification": "product feature",
       "intendedOwner": "feature/plugin owner",
       "sourceFiles": 6,
-      "sourceLines": 1203
+      "sourceLines": 1237
     },
     {
       "directory": "hq",
       "classification": "host/application concern",
       "intendedOwner": "protocol DTOs only in Core; runtime elsewhere",
-      "sourceFiles": 30,
-      "sourceLines": 6902
+      "sourceFiles": 31,
+      "sourceLines": 7221
     },
     {
       "directory": "infrastructure",
@@ -1062,8 +1064,8 @@
       "directory": "plugins",
       "classification": "product feature",
       "intendedOwner": "@wrongstack/plugins",
-      "sourceFiles": 6,
-      "sourceLines": 3211
+      "sourceFiles": 8,
+      "sourceLines": 3420
     },
     {
       "directory": "prompts",
@@ -1105,7 +1107,7 @@
       "classification": "storage/repository implementation",
       "intendedOwner": "repositories over dependency-free persistence",
       "sourceFiles": 43,
-      "sourceLines": 14828
+      "sourceLines": 14829
     },
     {
       "directory": "tasking",
@@ -1126,14 +1128,14 @@
       "classification": "agent-domain contract",
       "intendedOwner": "Core type-only subpaths",
       "sourceFiles": 54,
-      "sourceLines": 8579
+      "sourceLines": 8615
     },
     {
       "directory": "utils",
       "classification": "kernel primitive",
       "intendedOwner": "split dependency-free primitives from concrete helpers",
-      "sourceFiles": 47,
-      "sourceLines": 7309
+      "sourceFiles": 49,
+      "sourceLines": 7580
     },
     {
       "directory": "worktree",
