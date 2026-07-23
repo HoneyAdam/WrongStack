@@ -137,9 +137,11 @@ describe('ts-parser — detectLang', () => {
     expect(detectLang('a.yml')).toBe('yaml');
   });
 
-  it('returns null for unknown extensions and extensionless paths', () => {
+  it('returns null for non-source assets; special basenames are indexable', () => {
     expect(detectLang('a.txt')).toBeNull();
-    expect(detectLang('Makefile')).toBeNull();
+    // Makefile/Dockerfile etc. are intentionally indexed as `other` via the
+    // central languages map so monorepo build scripts enter the index.
+    expect(detectLang('Makefile')).toBe('other');
   });
 
   it('produces a stable FileSymbols shape', () => {

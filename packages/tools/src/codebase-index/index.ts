@@ -9,8 +9,9 @@
  *
  * Storage: `~/.wrongstack/projects/<hash>/codebase-index/index.db`
  *          (outside the repo — no gitignore needed)
- * Parser:  TypeScript Compiler API (ts-morph-free, via `@typescript/typescript6`)
- * Ranking: Okapi BM25 with k1=1.5, b=0.75
+ * Parser:  TS Compiler API + native Go/Python/Rust helpers + universal regex
+ *          fallback so every mapped language always enters the index
+ * Ranking: Okapi BM25 / FTS5 (k1=1.5, b=0.75)
  */
 
 export { codebaseIndexTool } from './codebase-index-tool.js';
@@ -80,3 +81,4 @@ export type {
   CodeMapGraph,
 } from './schema.js';
 export { SCHEMA_VERSION } from './schema.js';
+export { detectLang, isIndexablePath, INDEXABLE_EXTENSIONS } from './languages.js';

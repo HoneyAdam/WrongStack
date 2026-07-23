@@ -70,6 +70,8 @@ export function buildBm25Index(docs: IndexableDoc[]): Bm25Index {
 
 export class Bm25Index {
   private readonly safeAvgLen: number;
+  /** Lazily-built id→doc index so getDoc is O(1) instead of an O(D) linear find. */
+  private _byId: Map<number, Bm25Doc> | undefined;
 
   constructor(
     private documents: Bm25Doc[],
@@ -128,7 +130,10 @@ export class Bm25Index {
   }
 
   getDoc(id: number): Bm25Doc | undefined {
-    return this.documents.find((d) => d.id === id);
+    if (!this._byId) {
+      this._byId = new Map(this.documents.map((d) => [d.id, d]));
+    }
+    return this._byId.get(id);
   }
 
   extractSnippet(docId: number, queryTokens: string[], radius = 40): string {

@@ -1,7 +1,49 @@
 // ─── Symbol kind taxonomy ───────────────────────────────────────────────────────
 
-/** Language a symbol belongs to. */
-export type SymbolLang = 'ts' | 'js' | 'tsx' | 'jsx' | 'go' | 'py' | 'rs' | 'json' | 'yaml';
+/**
+ * Language a symbol belongs to.
+ *
+ * First-class parsers exist for TS/JS, Go, Python, Rust, JSON, YAML.
+ * All other langs are still indexed via the generic regex extractor so
+ * monorepos are never silently skipped just because a native toolchain
+ * is missing. `'other'` covers unusual extensions / special filenames.
+ */
+export type SymbolLang =
+  | 'ts'
+  | 'js'
+  | 'tsx'
+  | 'jsx'
+  | 'go'
+  | 'py'
+  | 'rs'
+  | 'json'
+  | 'yaml'
+  | 'c'
+  | 'cpp'
+  | 'java'
+  | 'csharp'
+  | 'php'
+  | 'ruby'
+  | 'swift'
+  | 'kotlin'
+  | 'scala'
+  | 'shell'
+  | 'sql'
+  | 'md'
+  | 'toml'
+  | 'html'
+  | 'css'
+  | 'vue'
+  | 'svelte'
+  | 'dart'
+  | 'lua'
+  | 'r'
+  | 'proto'
+  | 'graphql'
+  | 'zig'
+  | 'elixir'
+  | 'haskell'
+  | 'other';
 
 /** What kind of symbol this is. */
 export type SymbolKind =

@@ -23,7 +23,7 @@ import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { resolveWstackPaths } from '@wrongstack/core/utils';
+import { resolveWstackPaths, sqliteCachePragmas } from '@wrongstack/core/utils';
 import type {
   FileMeta,
   IndexStats,
@@ -360,7 +360,19 @@ export class IndexStore {
     // lock-conflict errors are resolved without a circuit-breaker failure.
     try {
       this.db.exec('PRAGMA journal_mode = WAL');
-      this.db.exec('PRAGMA busy_timeout = 5000');
+      this.db.exec('PRAGMA synchronous = NORMAL');
+      // Large reindex batches hold the write lock longer; give concurrent
+      // readers/writers more headroom before SQLITE_BUSY → retry.
+      this.db.exec('PRAGMA busy_timeout = 15000');
+      this.db.exec('PRAGMA temp_store = MEMORY');
+      // Cache/mmap follow WRONGSTACK_PERF_PROFILE (frugal = leaner RSS).
+      const cache = sqliteCachePragmas();
+      this.db.exec(`PRAGMA cache_size = -${cache.cacheSizeKiB}`);
+      this.db.exec(`PRAGMA mmap_size = ${cache.mmapBytes}`);
+      this.db.exec('PRAGMA foreign_keys = ON');
+      // Cap WAL growth so long-lived index processes don't leave multi-GB -wal files.
+      this.db.exec('PRAGMA journal_size_limit = 67108864'); // 64 MiB
+      this.db.exec('PRAGMA wal_autocheckpoint = 1000');
     } catch {
       /* pragmas are best-effort — an old SQLite build without WAL still works */
     }
@@ -378,8 +390,7 @@ export class IndexStore {
     // Schema migration: the index is derived, rebuildable data — on any
     // version mismatch we drop everything and let the next index run repopulate
     // from source, instead of maintaining per-version migration scripts.
-    const storedRows = this.db
-      .prepare('SELECT value FROM metadata WHERE key = ?')
+    const storedRows = this.stmt('SELECT value FROM metadata WHERE key = ?')
       .all('version') as { value: string }[];
     const storedVersion = storedRows.length ? Number(storedRows[0]?.value) : null;
     if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
@@ -389,12 +400,10 @@ export class IndexStore {
         DROP TABLE IF EXISTS refs;
       `);
       this.db.exec('DROP TABLE IF EXISTS symbols_fts');
-      this.db
-        .prepare('UPDATE metadata SET value = ? WHERE key = ?')
+      this.stmt('UPDATE metadata SET value = ? WHERE key = ?')
         .run(String(SCHEMA_VERSION), 'version');
     } else if (storedVersion === null) {
-      this.db
-        .prepare('INSERT INTO metadata(key, value) VALUES (?, ?)')
+      this.stmt('INSERT INTO metadata(key, value) VALUES (?, ?)')
         .run('version', String(SCHEMA_VERSION));
     }
 
@@ -431,6 +440,9 @@ export class IndexStore {
     // Index on file_fk: deleteSymbolsForFile and FTS delete paths query by
     // file_fk — without this index every reindex/delete scans the symbols table.
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_file_fk ON symbols(file_fk)');
+    // resolveRefs joins refs.to_name → symbols.name; covering (name, id) avoids
+    // a second lookup for the id column on each unresolved ref.
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_s_name_id ON symbols(name, id)');
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS refs (
@@ -461,25 +473,26 @@ export class IndexStore {
       // the derived table when FTS later becomes available instead of making
       // every historical symbol invisible until a forced rebuild.
       const symbolCount = Number(
-        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols').get() as { n?: number } | undefined)
+        (this.stmt('SELECT COUNT(*) AS n FROM symbols').get() as { n?: number } | undefined)
           ?.n ?? 0,
       );
       const ftsCount = Number(
         (
-          this.db.prepare('SELECT COUNT(*) AS n FROM symbols_fts').get() as
+          this.stmt('SELECT COUNT(*) AS n FROM symbols_fts').get() as
             | { n?: number }
             | undefined
         )?.n ?? 0,
       );
       if (symbolCount !== ftsCount) {
         this.db.exec('DELETE FROM symbols_fts');
-        const insert = this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)');
-        const rows = this.db
-          .prepare('SELECT id, name, signature, doc_comment FROM symbols ORDER BY id')
+        const rows = this.stmt('SELECT id, name, signature, doc_comment FROM symbols ORDER BY id')
           .all() as Array<{ id: number; name: string; signature: string; doc_comment: string }>;
-        for (const row of rows) {
-          insert.run(row.id, buildIndexableText(row.name, row.signature, row.doc_comment));
-        }
+        this.bulkInsertFts(
+          rows.map((row) => ({
+            id: row.id,
+            text: buildIndexableText(row.name, row.signature, row.doc_comment),
+          })),
+        );
         // The drift repair doesn't mutate `symbols`, but the drift may have
         // been caused by an external mutation that left the BM25 cache stale.
         // Invalidate so the next fallback search rebuilds from the repaired
@@ -490,16 +503,141 @@ export class IndexStore {
       // SQLite built without FTS5 — searchRanked falls back to LIKE + BM25.
       this.ftsAvailable = false;
     }
+
+    // Seed the symbol-id sequence once. Subsequent allocations are O(1)
+    // metadata updates instead of SELECT MAX(id) on every insert batch.
+    this.ensureNextSymbolIdSeeded();
+  }
+
+  // ─── ID allocation & bulk helpers ────────────────────────────────────────────
+
+  private static readonly NEXT_SYMBOL_ID_KEY = 'next_symbol_id';
+  /** Stay under typical SQLite SQLITE_MAX_VARIABLE_NUMBER (often 999). */
+  private static readonly MAX_SQL_VARS = 900;
+
+  /**
+   * Ensure `metadata.next_symbol_id` exists. Safe to call outside a write
+   * transaction on open; the first concurrent writer under BEGIN IMMEDIATE
+   * re-reads and advances the counter atomically.
+   */
+  private ensureNextSymbolIdSeeded(): void {
+    const existing = this.stmt('SELECT value FROM metadata WHERE key = ?').get(
+      IndexStore.NEXT_SYMBOL_ID_KEY,
+    ) as { value?: string } | undefined;
+    if (existing?.value !== undefined) return;
+    const maxRows = this.stmt('SELECT MAX(id) AS m FROM symbols').all() as {
+      m: number | null;
+    }[];
+    const next = (maxRows[0]?.m ?? 0) + 1;
+    this.stmt('INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)').run(
+      IndexStore.NEXT_SYMBOL_ID_KEY,
+      String(next),
+    );
+  }
+
+  /**
+   * Reserve `count` consecutive symbol ids. MUST run inside BEGIN IMMEDIATE
+   * so concurrent indexers cannot hand out overlapping ranges.
+   */
+  private allocateSymbolIds(count: number): number {
+    if (count <= 0) return this.getMaxSymbolId() + 1;
+    this.ensureNextSymbolIdSeeded();
+    const row = this.stmt('SELECT value FROM metadata WHERE key = ?').get(
+      IndexStore.NEXT_SYMBOL_ID_KEY,
+    ) as { value?: string } | undefined;
+    const start = Math.max(1, Number(row?.value ?? 1) || 1);
+    this.stmt('INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)').run(
+      IndexStore.NEXT_SYMBOL_ID_KEY,
+      String(start + count),
+    );
+    return start;
+  }
+
+  /** Multi-row INSERT for symbols — amortizes prepare/bind overhead in large batches. */
+  private bulkInsertSymbols(
+    rows: Array<{
+      id: number;
+      lang: string;
+      kind: string;
+      name: string;
+      file: string;
+      line: number;
+      col: number;
+      signature: string;
+      docComment: string;
+      scope: string;
+      text: string;
+    }>,
+  ): void {
+    if (rows.length === 0) return;
+    const cols = 12;
+    const chunkSize = Math.max(1, Math.floor(IndexStore.MAX_SQL_VARS / cols));
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      const stmt = this.stmt(
+        `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
+         VALUES ${placeholders}`,
+      );
+      const binds: (string | number)[] = [];
+      for (const r of chunk) {
+        binds.push(
+          r.id,
+          r.lang,
+          r.kind,
+          r.name,
+          r.file,
+          r.line,
+          r.col,
+          r.signature,
+          r.docComment,
+          r.scope,
+          r.text,
+          r.file,
+        );
+      }
+      stmt.run(...binds);
+    }
+  }
+
+  private bulkInsertFts(rows: Array<{ id: number; text: string }>): void {
+    if (!this.ftsAvailable || rows.length === 0) return;
+    const cols = 2;
+    const chunkSize = Math.max(1, Math.floor(IndexStore.MAX_SQL_VARS / cols));
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '(?, ?)').join(', ');
+      const stmt = this.stmt(`INSERT INTO symbols_fts(rowid, text) VALUES ${placeholders}`);
+      const binds: (string | number)[] = [];
+      for (const r of chunk) binds.push(r.id, r.text);
+      stmt.run(...binds);
+    }
+  }
+
+  private bulkInsertRefs(refs: Ref[]): void {
+    if (refs.length === 0) return;
+    const cols = 5;
+    const chunkSize = Math.max(1, Math.floor(IndexStore.MAX_SQL_VARS / cols));
+    for (let i = 0; i < refs.length; i += chunkSize) {
+      const chunk = refs.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const stmt = this.stmt(
+        `INSERT INTO refs(from_id, to_name, to_id, call_type, line) VALUES ${placeholders}`,
+      );
+      const binds: (string | number | null)[] = [];
+      for (const ref of chunk) {
+        binds.push(ref.fromId, ref.toName, ref.toId ?? null, ref.callType, ref.line);
+      }
+      stmt.run(...binds);
+    }
   }
 
   // ─── Symbol CRUD ─────────────────────────────────────────────────────────────
 
   /**
    * Insert symbols, assigning IDs atomically inside `BEGIN IMMEDIATE` /
-   * `COMMIT`. The ID allocation (`SELECT MAX(id)`) and all `INSERT`s share
-   * the same transaction, preventing UNIQUE constraint violations when two
-   * processes index concurrently (each would see a different `MAX(id)` and
-   * neither can insert with the other's IDs).
+   * `COMMIT`. Id ranges come from the `next_symbol_id` metadata counter
+   * (O(1)); multi-row INSERT amortizes bind overhead for large files.
    *
    * @returns The symbols array with `id` fields populated so the caller can
    *          use them for refs without re-reading from the DB.
@@ -507,45 +645,48 @@ export class IndexStore {
   insertSymbols(symbols: IndexSymbol[]): IndexSymbol[] {
     this.invalidateBm25();
     return this.runWithRetry(() => {
-      // BEGIN IMMEDIATE takes a write lock immediately (does not wait for the
-      // first INSERT). This serializes writers: the next process blocks here
-      // until this transaction commits, so its `SELECT MAX(id)` sees all IDs
-      // we assign — no collisions.
+      // BEGIN IMMEDIATE serializes writers so allocateSymbolIds cannot overlap.
       this.db.exec('BEGIN IMMEDIATE');
       try {
-        const maxRows = this.stmt('SELECT MAX(id) AS m FROM symbols').all() as {
-          m: number | null;
-        }[];
-        let nextId = (maxRows[0]?.m ?? 0) + 1;
-
-        const stmt = this.db.prepare(
-          `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        );
-        const ftsStmt = this.ftsAvailable
-          ? this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)')
-          : null;
-
+        let nextId = this.allocateSymbolIds(symbols.length);
         const result: IndexSymbol[] = [];
+        const bulk: Array<{
+          id: number;
+          lang: string;
+          kind: string;
+          name: string;
+          file: string;
+          line: number;
+          col: number;
+          signature: string;
+          docComment: string;
+          scope: string;
+          text: string;
+        }> = [];
+        const ftsRows: Array<{ id: number; text: string }> = [];
+
         for (const s of symbols) {
           const id = nextId++;
-          stmt.run(
+          bulk.push({
             id,
-            s.lang,
-            s.kind,
-            s.name,
-            s.file,
-            s.line,
-            s.col,
-            s.signature,
-            s.docComment,
-            s.scope,
-            s.text,
-            s.file,
-          );
-          ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
+            lang: s.lang,
+            kind: s.kind,
+            name: s.name,
+            file: s.file,
+            line: s.line,
+            col: s.col,
+            signature: s.signature,
+            docComment: s.docComment,
+            scope: s.scope,
+            text: s.text,
+          });
+          if (this.ftsAvailable) {
+            ftsRows.push({ id, text: buildIndexableText(s.name, s.signature, s.docComment) });
+          }
           result.push({ ...s, id });
         }
+        this.bulkInsertSymbols(bulk);
+        this.bulkInsertFts(ftsRows);
 
         this.db.exec('COMMIT');
         return result;
@@ -579,17 +720,15 @@ export class IndexStore {
       this.db.exec('BEGIN IMMEDIATE');
       try {
         if (this.ftsAvailable) {
-          this.db
-            .prepare(
-              'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
-            )
-            .run(file);
+          this.stmt(
+            'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
+          ).run(file);
         }
-        this.db
-          .prepare('DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)')
-          .run(file);
-        this.db.prepare('DELETE FROM symbols WHERE file_fk = ?').run(file);
-        this.db.prepare('DELETE FROM files WHERE file = ?').run(file);
+        this.stmt(
+          'DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)',
+        ).run(file);
+        this.stmt('DELETE FROM symbols WHERE file_fk = ?').run(file);
+        this.stmt('DELETE FROM files WHERE file = ?').run(file);
         this.db.exec('COMMIT');
       } catch (err) {
         this.db.exec('ROLLBACK');
@@ -637,8 +776,7 @@ export class IndexStore {
 
   getAllFileMetas(): FileMeta[] {
     return (
-      this.db
-        .prepare('SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files')
+      this.stmt('SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files')
         .all() as {
         file: string;
         lang: string;
@@ -665,45 +803,21 @@ export class IndexStore {
       file?: string | undefined;
       lspKind?: number | undefined;
     },
+    opts?: { limit?: number | undefined },
   ): SearchResult[] {
-    const conditions: string[] = [];
-    const values: unknown[] = [];
+    const built = this.buildSearchWhere(query, filter);
+    if (built === null) return [];
 
-    let effectiveKind: SymbolKind | undefined = filter?.kind;
-    if (filter?.lspKind !== undefined) {
-      const mapped = lspKindToInternalKind(filter.lspKind);
-      if (mapped !== null) {
-        effectiveKind = mapped;
-      } else {
-        // LSP kind was explicitly provided but has no internal mapping → no results
-        return [];
-      }
-    }
+    const { where, values } = built;
+    const limit =
+      typeof opts?.limit === 'number' && Number.isFinite(opts.limit)
+        ? Math.max(0, Math.trunc(opts.limit))
+        : undefined;
+    const limitSql = limit !== undefined ? ' LIMIT ?' : '';
+    const sql = `SELECT id, lang, kind, name, file, line, col, signature, doc_comment, text FROM symbols ${where}${limitSql}`;
 
-    if (effectiveKind) {
-      conditions.push('kind = ?');
-      values.push(effectiveKind);
-    }
-    if (filter?.lang) {
-      conditions.push('lang = ?');
-      values.push(filter.lang);
-    }
-    if (filter?.file) {
-      conditions.push("replace(file, '\\', '/') LIKE ? ESCAPE '\\'");
-      values.push(`%${escapeLike(filter.file.replace(/\\/g, '/'))}%`);
-    }
-    if (query.trim()) {
-      const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-      const tokenConds = tokens.map(() => 'text LIKE ?');
-      conditions.push(`(${tokenConds.join(' OR ')})`);
-      for (const t of tokens) values.push(`%${t}%`);
-    }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT id, lang, kind, name, file, line, col, signature, doc_comment, text FROM symbols ${where}`;
-
-    const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...(values as (string | number)[])) as {
+    const binds = limit !== undefined ? [...values, limit] : values;
+    const rows = this.stmt(sql).all(...(binds as (string | number)[])) as {
       id: number;
       lang: string;
       kind: string;
@@ -730,6 +844,70 @@ export class IndexStore {
       snippet: '',
       lspKind: filter?.lspKind,
     }));
+  }
+
+  /** Shared WHERE builder for {@link search} / empty-query ranked totals. */
+  private buildSearchWhere(
+    query: string,
+    filter?: {
+      kind?: SymbolKind | undefined;
+      lang?: SymbolLang | undefined;
+      file?: string | undefined;
+      lspKind?: number | undefined;
+    },
+  ): { where: string; values: unknown[] } | null {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    let effectiveKind: SymbolKind | undefined = filter?.kind;
+    if (filter?.lspKind !== undefined) {
+      const mapped = lspKindToInternalKind(filter.lspKind);
+      if (mapped !== null) {
+        effectiveKind = mapped;
+      } else {
+        // LSP kind was explicitly provided but has no internal mapping → no results
+        return null;
+      }
+    }
+
+    if (effectiveKind) {
+      conditions.push('kind = ?');
+      values.push(effectiveKind);
+    }
+    if (filter?.lang) {
+      conditions.push('lang = ?');
+      values.push(filter.lang);
+    }
+    if (filter?.file) {
+      conditions.push("replace(file, '\\', '/') LIKE ? ESCAPE '\\'");
+      values.push(`%${escapeLike(filter.file.replace(/\\/g, '/'))}%`);
+    }
+    if (query.trim()) {
+      const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+      const tokenConds = tokens.map(() => 'text LIKE ?');
+      conditions.push(`(${tokenConds.join(' OR ')})`);
+      for (const t of tokens) values.push(`%${t}%`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    return { where, values };
+  }
+
+  private countSearch(
+    query: string,
+    filter?: {
+      kind?: SymbolKind | undefined;
+      lang?: SymbolLang | undefined;
+      file?: string | undefined;
+      lspKind?: number | undefined;
+    },
+  ): number {
+    const built = this.buildSearchWhere(query, filter);
+    if (built === null) return 0;
+    const row = this.stmt(`SELECT COUNT(*) AS n FROM symbols ${built.where}`).get(
+      ...(built.values as (string | number)[]),
+    ) as { n?: number } | undefined;
+    return Number(row?.n ?? 0);
   }
 
   /**
@@ -788,16 +966,14 @@ export class IndexStore {
     }
     const where = conditions.join(' AND ');
 
-    const countRows = this.db
-      .prepare(
+    const countRows = this.stmt(
         `SELECT COUNT(*) AS n FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid WHERE ${where}`,
       )
       .all(...values) as { n: number }[];
     const total = countRows[0] ? Number(countRows[0].n) : 0;
     if (total === 0) return { results: [], total: 0 };
 
-    const rows = this.db
-      .prepare(
+    const rows = this.stmt(
         `SELECT s.id, s.lang, s.kind, s.name, s.file, s.line, s.col, s.signature, s.doc_comment,
                 -bm25(symbols_fts) AS score,
                 snippet(symbols_fts, 0, '', '', '…', 12) AS snippet
@@ -903,12 +1079,16 @@ export class IndexStore {
       | undefined,
     limit: number,
   ): { results: SearchResult[]; total: number } {
+    // Empty query = filtered listing: push LIMIT into SQL so a 10k-symbol
+    // corpus never materializes fully just to take the first N rows.
+    if (!query.trim()) {
+      const total = this.countSearch(query, filter);
+      if (total === 0) return { results: [], total: 0 };
+      return { results: this.search(query, filter, { limit }), total };
+    }
+
     const candidates = this.search(query, filter);
     if (candidates.length === 0) return { results: [], total: 0 };
-
-    if (!query.trim()) {
-      return { results: candidates.slice(0, limit), total: candidates.length };
-    }
 
     const candidateById = new Map(candidates.map((c) => [c.id, c]));
     // Use the cached full-corpus BM25 index instead of rebuilding from the
@@ -972,8 +1152,7 @@ export class IndexStore {
   getStats(): IndexStats {
     const sizeBytes = this.sizeBytes();
 
-    const lastRows = this.db
-      .prepare("SELECT value FROM metadata WHERE key = 'last_indexed'")
+    const lastRows = this.stmt("SELECT value FROM metadata WHERE key = 'last_indexed'")
       .all() as { value: string }[];
     const lastIndexed = lastRows.length ? Number(lastRows[0]?.value) : null;
 
@@ -1015,14 +1194,13 @@ export class IndexStore {
 
   setLastIndexed(ts: number): void {
     this.runWithRetry(() => {
-      this.db
-        .prepare("INSERT OR REPLACE INTO metadata(key, value) VALUES('last_indexed', ?)")
+      this.stmt("INSERT OR REPLACE INTO metadata(key, value) VALUES('last_indexed', ?)")
         .run(String(ts));
     });
   }
 
   getMetadata(key: string): string | undefined {
-    const rows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all(key) as {
+    const rows = this.stmt('SELECT value FROM metadata WHERE key = ?').all(key) as {
       value: string;
     }[];
     return rows[0]?.value;
@@ -1030,7 +1208,7 @@ export class IndexStore {
 
   setMetadata(key: string, value: string): void {
     this.runWithRetry(() => {
-      this.db.prepare('INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)').run(key, value);
+      this.stmt('INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)').run(key, value);
     });
   }
 
@@ -1070,14 +1248,7 @@ export class IndexStore {
       // Delete old refs from this symbol (handles re-index)
       this.stmt('DELETE FROM refs WHERE from_id = ?').run(fromId);
       if (refs.length === 0) return;
-
-      const stmt = this.db.prepare(
-        `INSERT INTO refs(from_id, to_name, to_id, call_type, line)
-         VALUES (?, ?, ?, ?, ?)`,
-      );
-      for (const ref of refs) {
-        stmt.run(fromId, ref.toName, ref.toId ?? null, ref.callType, ref.line);
-      }
+      this.bulkInsertRefs(refs.map((ref) => ({ ...ref, fromId })));
     });
   }
 
@@ -1095,13 +1266,7 @@ export class IndexStore {
   insertRefsBatch(refs: Ref[]): void {
     if (refs.length === 0) return;
     this.runWithRetry(() => {
-      const stmt = this.db.prepare(
-        `INSERT INTO refs(from_id, to_name, to_id, call_type, line)
-         VALUES (?, ?, ?, ?, ?)`,
-      );
-      for (const ref of refs) {
-        stmt.run(ref.fromId, ref.toName, ref.toId ?? null, ref.callType, ref.line);
-      }
+      this.bulkInsertRefs(refs);
     });
   }
 
@@ -1145,59 +1310,64 @@ export class IndexStore {
         if (options.deleteForFiles && options.deleteForFiles.length > 0) {
           const placeholders = options.deleteForFiles.map(() => '?').join(',');
           if (this.ftsAvailable) {
-            this.db
-              .prepare(
+            this.stmt(
                 `DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file IN (${placeholders}))`,
               )
               .run(...options.deleteForFiles);
           }
           // Refs first (FK direction: refs.from_id → symbols.id).
-          this.db
-            .prepare(
+          this.stmt(
               `DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file IN (${placeholders}))`,
             )
             .run(...options.deleteForFiles);
-          this.db
-            .prepare(`DELETE FROM symbols WHERE file IN (${placeholders})`)
+          this.stmt(`DELETE FROM symbols WHERE file IN (${placeholders})`)
             .run(...options.deleteForFiles);
         }
 
-        // 2) Assign ids + insert symbols.
-        const maxRows = this.stmt('SELECT MAX(id) AS m FROM symbols').all() as {
-          m: number | null;
-        }[];
-        let nextId = (maxRows[0]?.m ?? 0) + 1;
-
-        const symStmt = this.db.prepare(
-          `INSERT INTO symbols(id, lang, kind, name, file, line, col, signature, doc_comment, scope, text, file_fk)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        );
-        const ftsStmt = this.ftsAvailable
-          ? this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)')
-          : null;
+        // 2) Assign ids + multi-row insert symbols (+ FTS).
+        const totalSymbols = entries.reduce((n, e) => n + e.symbols.length, 0);
+        let nextId = this.allocateSymbolIds(totalSymbols);
 
         const allInserted: IndexSymbol[] = [];
         const refsToInsert: Ref[] = [];
+        const bulkSyms: Array<{
+          id: number;
+          lang: string;
+          kind: string;
+          name: string;
+          file: string;
+          line: number;
+          col: number;
+          signature: string;
+          docComment: string;
+          scope: string;
+          text: string;
+        }> = [];
+        const ftsRows: Array<{ id: number; text: string }> = [];
 
         for (const entry of entries) {
           const insertedForEntry: IndexSymbol[] = [];
           for (const s of entry.symbols) {
             const id = nextId++;
-            symStmt.run(
+            bulkSyms.push({
               id,
-              s.lang,
-              s.kind,
-              s.name,
-              s.file,
-              s.line,
-              s.col,
-              s.signature,
-              s.docComment,
-              s.scope,
-              s.text,
-              s.file,
-            );
-            ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
+              lang: s.lang,
+              kind: s.kind,
+              name: s.name,
+              file: s.file,
+              line: s.line,
+              col: s.col,
+              signature: s.signature,
+              docComment: s.docComment,
+              scope: s.scope,
+              text: s.text,
+            });
+            if (this.ftsAvailable) {
+              ftsRows.push({
+                id,
+                text: buildIndexableText(s.name, s.signature, s.docComment),
+              });
+            }
             const inserted = { ...s, id };
             allInserted.push(inserted);
             insertedForEntry.push(inserted);
@@ -1205,19 +1375,14 @@ export class IndexStore {
           refsToInsert.push(...assignRefsToSymbols(entry.refs, insertedForEntry));
         }
 
-        // 3) Insert all refs in one go.
-        if (refsToInsert.length > 0) {
-          const refStmt = this.db.prepare(
-            `INSERT INTO refs(from_id, to_name, to_id, call_type, line)
-             VALUES (?, ?, ?, ?, ?)`,
-          );
-          for (const ref of refsToInsert) {
-            refStmt.run(ref.fromId, ref.toName, ref.toId ?? null, ref.callType, ref.line);
-          }
-        }
+        this.bulkInsertSymbols(bulkSyms);
+        this.bulkInsertFts(ftsRows);
 
-        // 4) Upsert file metadata for every entry.
-        const upsertStmt = this.db.prepare(
+        // 3) Multi-row insert all refs.
+        this.bulkInsertRefs(refsToInsert);
+
+        // 4) Upsert file metadata for every entry (small N — single-row is fine).
+        const upsertStmt = this.stmt(
           `INSERT INTO files(file, lang, mtime_ms, symbol_count, last_indexed)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(file) DO UPDATE SET
@@ -1246,8 +1411,7 @@ export class IndexStore {
    */
   deleteRefsForFile(file: string): void {
     this.runWithRetry(() => {
-      this.db
-        .prepare('DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file = ?)')
+      this.stmt('DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file = ?)')
         .run(file);
     });
   }
@@ -1262,16 +1426,76 @@ export class IndexStore {
    */
   resolveRefs(): number {
     return this.runWithRetry(() => {
-      const result = this.db
-        .prepare(
+      // Prefer UPDATE-FROM with a pre-aggregated name→id map (SQLite ≥ 3.33).
+      // One hash join instead of a correlated subquery per unresolved row.
+      // MIN(id) matches the previous LIMIT 1 / arbitrary-first semantics when
+      // multiple symbols share a name.
+      try {
+        const result = this.stmt(
+          `UPDATE refs
+           SET to_id = s.id
+           FROM (
+             SELECT name, MIN(id) AS id FROM symbols GROUP BY name
+           ) AS s
+           WHERE refs.to_id IS NULL
+             AND refs.to_name IS NOT NULL
+             AND refs.to_name = s.name`,
+        ).run() as { changes?: number };
+        return result.changes ?? 0;
+      } catch {
+        const result = this.stmt(
           `UPDATE refs SET to_id = (
-           SELECT id FROM symbols WHERE name = refs.to_name LIMIT 1
-         ) WHERE to_id IS NULL AND to_name IS NOT NULL
-           AND to_name IN (SELECT name FROM symbols)`,
-        )
-        .run() as { changes?: number };
-      return result.changes ?? 0;
+             SELECT id FROM symbols WHERE name = refs.to_name LIMIT 1
+           ) WHERE to_id IS NULL AND to_name IS NOT NULL
+             AND to_name IN (SELECT name FROM symbols)`,
+        ).run() as { changes?: number };
+        return result.changes ?? 0;
+      }
     });
+  }
+
+  /**
+   * Clear symbols/refs for a file and mark it as indexed with zero symbols.
+   * Used by the indexer for empty-parse results so three writes share one txn.
+   */
+  replaceEmptyFile(meta: FileMeta): void {
+    this.invalidateBm25();
+    this.runWithRetry(() => {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        if (this.ftsAvailable) {
+          this.stmt(
+            'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
+          ).run(meta.file);
+        }
+        this.stmt(
+          'DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)',
+        ).run(meta.file);
+        this.stmt('DELETE FROM symbols WHERE file_fk = ?').run(meta.file);
+        this.stmt(
+          `INSERT INTO files(file, lang, mtime_ms, symbol_count, last_indexed)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(file) DO UPDATE SET
+             lang = excluded.lang,
+             mtime_ms = excluded.mtime_ms,
+             symbol_count = excluded.symbol_count,
+             last_indexed = excluded.last_indexed`,
+        ).run(meta.file, meta.lang, meta.mtimeMs, meta.symbolCount, meta.lastIndexed);
+        this.db.exec('COMMIT');
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
+      }
+    });
+  }
+
+  /** Best-effort query planner refresh after a large reindex. */
+  optimize(): void {
+    try {
+      this.db.exec('PRAGMA optimize');
+    } catch {
+      /* optional */
+    }
   }
 
   /**
@@ -1279,8 +1503,7 @@ export class IndexStore {
    */
   findRefsTo(symbolId: number): Ref[] {
     return (
-      this.db
-        .prepare(
+      this.stmt(
           'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE to_id = ? OR to_name = (SELECT name FROM symbols WHERE id = ?)',
         )
         .all(symbolId, symbolId) as {
@@ -1306,8 +1529,7 @@ export class IndexStore {
    */
   findRefsFrom(symbolId: number): Ref[] {
     return (
-      this.db
-        .prepare('SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE from_id = ?')
+      this.stmt('SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE from_id = ?')
         .all(symbolId) as {
         id: number;
         from_id: number;
@@ -1400,61 +1622,67 @@ export class IndexStore {
    * symbol resolved in package B). Node metadata includes symbol/file counts.
    */
   getPackageGraph(): CodeMapGraph {
-    type Row = { file: string; id: number };
-    // Only file+id are needed — name, kind, lang, line are not used for
-    // package-level aggregation. Narrow columns reduce data transfer from
-    // SQLite to JS by ~60% for this query.
-    const symbols = this.db
-      .prepare('SELECT file, id FROM symbols ORDER BY id')
-      .all() as Row[];
+    // Aggregate symbol counts per file in SQL — avoids shipping every symbol id
+    // into JS just to count them (5k–50k rows on large monorepos).
+    const fileCounts = this.stmt(
+      'SELECT file, COUNT(*) AS n FROM symbols GROUP BY file',
+    ).all() as Array<{ file: string; n: number }>;
 
-    // Build per-package aggregates
     const pkgNodes = new Map<string, GraphNode>();
     const fileToPkg = new Map<string, string>();
-    const symbolToPkg = new Map<number, string>();
 
-    for (const s of symbols) {
-      const pkg = IndexStore.derivePackage(s.file) ?? '(root)';
-      fileToPkg.set(s.file, pkg);
-      symbolToPkg.set(s.id, pkg);
+    for (const { file, n } of fileCounts) {
+      const pkg = IndexStore.derivePackage(file) ?? '(root)';
+      fileToPkg.set(file, pkg);
       const node = pkgNodes.get(pkg);
       if (node) {
-        node.symbolCount = (node.symbolCount ?? 0) + 1;
+        node.symbolCount = (node.symbolCount ?? 0) + n;
       } else {
         pkgNodes.set(pkg, {
           id: `pkg:${pkg}`,
           label: pkg,
           kind: 'package' as const,
           package: pkg,
-          symbolCount: 1,
+          symbolCount: n,
           fileCount: 0,
         });
       }
     }
 
     // File counts per package
-    const files = this.db.prepare('SELECT DISTINCT file FROM files').all() as { file: string }[];
+    const files = this.stmt('SELECT DISTINCT file FROM files').all() as { file: string }[];
     for (const { file } of files) {
       const pkg = IndexStore.derivePackage(file) ?? '(root)';
+      fileToPkg.set(file, pkg);
       const node = pkgNodes.get(pkg);
       if (node) node.fileCount = (node.fileCount ?? 0) + 1;
+      else {
+        pkgNodes.set(pkg, {
+          id: `pkg:${pkg}`,
+          label: pkg,
+          kind: 'package' as const,
+          package: pkg,
+          symbolCount: 0,
+          fileCount: 1,
+        });
+      }
     }
 
-    // Cross-package edges from resolved refs
-    const refRows = this.db
-      .prepare(
-        `SELECT r.from_id, r.to_id, r.call_type
+    // Cross-package edges: resolve packages via JOIN instead of a full
+    // symbol-id → package map in JS.
+    const refRows = this.stmt(
+      `SELECT r.call_type, sf.file AS from_file, st.file AS to_file
        FROM refs r
-       WHERE r.to_id IS NOT NULL`,
-      )
-      .all() as { from_id: number; to_id: number; call_type: string }[];
+       JOIN symbols sf ON sf.id = r.from_id
+       JOIN symbols st ON st.id = r.to_id
+       WHERE r.to_id IS NOT NULL AND r.call_type != 'import'`,
+    ).all() as Array<{ call_type: string; from_file: string; to_file: string }>;
 
     const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
     for (const r of refRows) {
-      if (r.call_type === 'import') continue;
-      const fromPkg = symbolToPkg.get(r.from_id);
-      const toPkg = symbolToPkg.get(r.to_id);
-      if (!fromPkg || !toPkg || fromPkg === toPkg) continue;
+      const fromPkg = fileToPkg.get(r.from_file) ?? IndexStore.derivePackage(r.from_file) ?? '(root)';
+      const toPkg = fileToPkg.get(r.to_file) ?? IndexStore.derivePackage(r.to_file) ?? '(root)';
+      if (fromPkg === toPkg) continue;
       const key = `${fromPkg}\u0000${toPkg}`;
       let e = edgeMap.get(key);
       if (!e) {
@@ -1468,15 +1696,14 @@ export class IndexStore {
     // Module imports are path/package references, not symbol names. They must
     // bypass symbol resolution or aliases/barrels leave the architecture with
     // isolated boxes even though source imports are explicit.
-    const importRows = this.db
-      .prepare(
-        `SELECT r.from_id, r.to_name
+    const importRows = this.stmt(
+      `SELECT r.to_name, s.file AS from_file
        FROM refs r
+       JOIN symbols s ON s.id = r.from_id
        WHERE r.call_type = 'import'`,
-      )
-      .all() as { from_id: number; to_name: string }[];
+    ).all() as Array<{ to_name: string; from_file: string }>;
     for (const r of importRows) {
-      const fromPkg = symbolToPkg.get(r.from_id);
+      const fromPkg = fileToPkg.get(r.from_file) ?? IndexStore.derivePackage(r.from_file) ?? '(root)';
       const toPkg = IndexStore.packageFromImport(r.to_name);
       if (!fromPkg || !toPkg || fromPkg === toPkg || !pkgNodes.has(toPkg)) continue;
       const key = `${fromPkg}\u0000${toPkg}`;
@@ -1529,8 +1756,7 @@ export class IndexStore {
     // Phase 1: Discover which files belong to the target package. Instead of
     // loading every symbol row (5500+) and filtering in JS, scan just the
     // distinct file paths — a much smaller result set.
-    const allFiles = this.db
-      .prepare('SELECT DISTINCT file FROM symbols')
+    const allFiles = this.stmt('SELECT DISTINCT file FROM symbols')
       .all() as { file: string }[];
     const pkgFilePaths = allFiles
       .filter((f) => (IndexStore.derivePackage(f.file) ?? '(root)') === packageFilter)
@@ -1540,8 +1766,7 @@ export class IndexStore {
 
     // Phase 2: Query symbols only for files in this package.
     const filePlaceholders = [...localFiles].map(() => '?').join(',');
-    const pkgSyms = this.db
-      .prepare(
+    const pkgSyms = this.stmt(
         `SELECT file, id, name, kind, lang, line FROM symbols WHERE file IN (${filePlaceholders}) ORDER BY id`,
       )
       .all(...pkgFilePaths) as SymRow[];
@@ -1582,8 +1807,7 @@ export class IndexStore {
 
     // Phase 3: Restrict refs to those involving the target package's symbols
     // instead of scanning every ref row in the project.
-    const refRows = this.db
-      .prepare(
+    const refRows = this.stmt(
         `SELECT r.from_id, r.to_id, r.call_type
        FROM refs r
        WHERE (r.from_id IN (SELECT id FROM symbols WHERE file IN (${filePlaceholders}))
@@ -1605,8 +1829,7 @@ export class IndexStore {
     }
     if (crossRefIds.size > 0) {
       const crossPlaceholders = [...crossRefIds].map(() => '?').join(',');
-      const extras = this.db
-        .prepare(
+      const extras = this.stmt(
           `SELECT id, file FROM symbols WHERE id IN (${crossPlaceholders})`,
         )
         .all(...crossRefIds) as { id: number; file: string }[];
@@ -1637,8 +1860,7 @@ export class IndexStore {
       e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
     }
 
-    const importRows = this.db
-      .prepare(
+    const importRows = this.stmt(
         `SELECT r.from_id, r.to_name
        FROM refs r
        WHERE r.call_type = 'import'
@@ -1702,8 +1924,7 @@ export class IndexStore {
     // Query ONLY symbols from the target file — avoids loading the entire
     // project's symbol table (5500+ rows) just to render one file's graph.
     // Cross-file symbols referenced via refs are fetched lazily below.
-    const syms = this.db
-      .prepare(
+    const syms = this.stmt(
         'SELECT id, name, kind, lang, file, line, signature, scope FROM symbols WHERE file = ? ORDER BY line, id',
       )
       .all(fileFilter) as SymRow[];
@@ -1747,8 +1968,7 @@ export class IndexStore {
     // the dedup tuple without changing correctness. If a non-PK column is
     // ever added to the projection, revisit this comment — it can re-introduce
     // real duplicates that UNION would silently drop.
-    const refRows = this.db
-      .prepare(
+    const refRows = this.stmt(
         `SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
        FROM refs r
        JOIN symbols s ON s.id = r.from_id
@@ -1810,8 +2030,7 @@ export class IndexStore {
     const missingIds = [...relatedIds].filter((id) => !loadedIds.has(id));
     if (missingIds.length > 0) {
       const placeholders = missingIds.map(() => '?').join(',');
-      const extras = this.db
-        .prepare(
+      const extras = this.stmt(
           `SELECT id, name, kind, lang, file, line, signature, scope FROM symbols WHERE id IN (${placeholders})`,
         )
         .all(...missingIds) as SymRow[];

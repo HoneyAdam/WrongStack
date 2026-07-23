@@ -45,14 +45,26 @@ afterEach(() => {
 });
 
 describe('isIndexableFile', () => {
-  it('accepts known source extensions', () => {
-    for (const f of ['a.ts', 'b.tsx', 'c.js', 'd.jsx', 'e.go', 'f.py', 'g.rs']) {
+  it('accepts known source extensions and extended languages', () => {
+    for (const f of [
+      'a.ts',
+      'b.tsx',
+      'c.js',
+      'd.jsx',
+      'e.go',
+      'f.py',
+      'g.rs',
+      'h.java',
+      'i.md',
+      'Makefile',
+      'mod.mjs',
+    ]) {
       expect(isIndexableFile(`/proj/${f}`)).toBe(true);
     }
   });
 
-  it('rejects non-source files', () => {
-    for (const f of ['README.md', 'notes.txt', 'image.png', 'Makefile']) {
+  it('rejects non-source binary/plain assets', () => {
+    for (const f of ['notes.txt', 'image.png', 'photo.jpg', 'data.bin']) {
       expect(isIndexableFile(`/proj/${f}`)).toBe(false);
     }
   });
@@ -90,9 +102,18 @@ describe('enqueueReindex (debounce)', () => {
 
   it('drops non-indexable files before scheduling', async () => {
     vi.useFakeTimers();
-    enqueueReindex({ projectRoot: '/proj', files: ['/proj/README.md'], debounceMs: 20 });
+    // plain assets are still filtered; markdown/source-like files are indexable
+    enqueueReindex({ projectRoot: '/proj', files: ['/proj/photo.png', '/proj/notes.txt'], debounceMs: 20 });
     await vi.advanceTimersByTimeAsync(30);
     expect(runIndexerMock).not.toHaveBeenCalled();
+  });
+
+  it('schedules extended languages such as markdown', async () => {
+    vi.useFakeTimers();
+    enqueueReindex({ projectRoot: '/proj', files: ['/proj/README.md'], debounceMs: 20 });
+    await vi.advanceTimersByTimeAsync(30);
+    expect(runIndexerMock).toHaveBeenCalledTimes(1);
+    expect(runIndexerMock.mock.calls[0]?.[1]).toMatchObject({ files: ['/proj/README.md'] });
   });
 
   it('routes reindex failures to onError, never throwing', async () => {

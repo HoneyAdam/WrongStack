@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
+import { withSpawnGate } from './spawn-gate.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -24,7 +25,8 @@ export async function parseSymbols(opts: {
   const { file, content, lang } = opts;
 
   try {
-    const parsed = await syncGoParse(file, content, lang);
+    // Serialize go child processes process-wide (same gate as Python).
+    const parsed = await withSpawnGate(() => syncGoParse(file, content, lang));
     if (parsed.symbols.length > 0) {
       return parsed;
     }
@@ -35,7 +37,7 @@ export async function parseSymbols(opts: {
   }
 }
 
-export { detectLang } from './ts-parser.js';
+export { detectLang } from './languages.js';
 
 // ─── Lightweight fallback parser ────────────────────────────────────────────
 

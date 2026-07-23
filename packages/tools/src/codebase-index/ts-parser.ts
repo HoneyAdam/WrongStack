@@ -48,21 +48,8 @@ function kindOf(node: ts.Node): SymbolKind | null {
   return KIND_MAP[node.kind] ?? null;
 }
 
-function extToLang(ext: string): SymbolLang | null {
-  switch (ext) {
-    case '.ts':   return 'ts';
-    case '.tsx':  return 'tsx';
-    case '.js':   return 'js';
-    case '.jsx':  return 'jsx';
-    case '.go':   return 'go';
-    case '.py':   return 'py';
-    case '.rs':   return 'rs';
-    case '.json': return 'json';
-    case '.yaml': return 'yaml';
-    case '.yml':  return 'yaml';
-    default:      return null;
-  }
-}
+// Extension → language lives in languages.ts (single source of truth for
+// discovery + first-class + generic coverage).
 
 function getSignature(printer: ts.Printer, node: ts.Declaration, sourceFile: ts.SourceFile): string {
   const raw = printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
@@ -272,9 +259,5 @@ function deduplicateRefs(refs: Ref[]): Ref[] {
   });
 }
 
-/** Detect SymbolLang from a file path extension. */
-export function detectLang(file: string): SymbolLang | null {
-  const idx = file.lastIndexOf('.');
-  if (idx < 0) return null;
-  return extToLang(file.slice(idx));
-}
+/** Detect SymbolLang from a file path — re-exported from the central map. */
+export { detectLang } from './languages.js';

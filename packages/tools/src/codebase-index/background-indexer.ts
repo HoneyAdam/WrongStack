@@ -38,7 +38,7 @@ import {
 } from './circuit-breaker.js';
 import { indexService, searchService, statsService } from './index-service.js';
 import type { IndexResult, IndexStats } from './schema.js';
-import { detectLang } from './ts-parser.js';
+import { isIndexablePath } from './languages.js';
 import { indexStorePool } from './writer.js';
 import type {
   HostToWorker,
@@ -494,7 +494,7 @@ function addReadyReindex(opts: {
 
 /** True when the file's extension maps to a language the indexer can parse. */
 export function isIndexableFile(filePath: string): boolean {
-  return detectLang(filePath) !== null;
+  return isIndexablePath(filePath);
 }
 
 /**

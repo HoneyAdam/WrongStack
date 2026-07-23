@@ -15,28 +15,28 @@ import * as path from 'node:path';
 import { availableParallelism } from 'node:os';
 import type { Dirent, Stats } from 'node:fs';
 import type { Context } from '@wrongstack/core/agent';
-import { compileGlob } from '@wrongstack/core/utils';
+import { indexParallelBatchSize, isFrugalPerf } from '@wrongstack/core/utils';
 import type { FileMeta, IndexResult, Ref, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 import { IndexStore } from './writer.js';
-import { parseSymbols as parseTs, detectLang } from './ts-parser.js';
+import { parseSymbols as parseTs } from './ts-parser.js';
+import { detectLang, INDEXABLE_EXTENSIONS } from './languages.js';
 import { parseSymbols as parseGo } from './go-parser.js';
 import { parseSymbols as parsePy } from './py-parser.js';
 import { parseSymbols as parseRs } from './rs-parser.js';
 import { parseSymbols as parseJson } from './json-parser.js';
 import { parseSymbols as parseYaml } from './yaml-parser.js';
+import { parseSymbols as parseGeneric } from './generic-parser.js';
 import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
 /** Yield the event loop every N files so the main thread stays responsive. */
 const YIELD_EVERY_N = 50;
+
 /**
- * Number of files to process in parallel during the stat+read+parse phase.
- * Auto-tuned to available CPU cores — each parse is CPU-bound (TypeScript
- * compiler, AST walking), so more cores benefit from a wider batch. The * 4
- * multiplier accounts for the I/O wait between stat/read/parse for each file;
- * on NVMe + many cores the full batch may complete before the event loop
- * yields. Capped at 40 to avoid overwhelming the GC on high-core-count
- * machines (128+ thread EPYC/Ryzen).
+ * Parallel parse batch size — see {@link indexParallelBatchSize}.
+ * Re-resolved at the start of each index run so env profile changes apply.
  */
-const PARALLEL_BATCH = Math.min(availableParallelism() * 4, 40);
+export function resolveParallelBatch(): number {
+  return indexParallelBatchSize(availableParallelism());
+}
 
 function yieldEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -120,19 +120,9 @@ async function findSourceFiles(
   const errors: string[] = [];
   let complete = true;
   const ignoreSet = new Set([...DEFAULT_IGNORE, ...ignore]);
-  // compileGlob does not support brace expansion — use one pattern per extension
-  const globs = [
-    { ext: '.ts', pat: compileGlob('**/*.ts') },
-    { ext: '.tsx', pat: compileGlob('**/*.tsx') },
-    { ext: '.js', pat: compileGlob('**/*.js') },
-    { ext: '.jsx', pat: compileGlob('**/*.jsx') },
-    { ext: '.go', pat: compileGlob('**/*.go') },
-    { ext: '.py', pat: compileGlob('**/*.py') },
-    { ext: '.rs', pat: compileGlob('**/*.rs') },
-    { ext: '.json', pat: compileGlob('**/*.json') },
-    { ext: '.yaml', pat: compileGlob('**/*.yaml') },
-    { ext: '.yml', pat: compileGlob('**/*.yml') },
-  ];
+  // Extension allow-list from languages.ts — every mapped language is discovered.
+  // Special filenames (Makefile, Dockerfile, …) are accepted via detectLang.
+  const indexableExts = new Set(INDEXABLE_EXTENSIONS);
 
   let dirCount = 0;
 
@@ -170,11 +160,9 @@ async function findSourceFiles(
       } else if (e.isFile()) {
         if (DEFAULT_IGNORE_FILES.has(e.name) || isGitIgnored(rel, false)) continue;
         const ext = path.extname(e.name).toLowerCase();
-        for (const { ext: extName, pat } of globs) {
-          if (ext === extName && (pat.test(rel) || pat.test(e.name))) {
-            results.push(full);
-            break;
-          }
+        // Fast path: known extension. Slow path: special basenames (Makefile…).
+        if (indexableExts.has(ext) || detectLang(full) !== null) {
+          results.push(full);
         }
       }
     }
@@ -184,18 +172,25 @@ async function findSourceFiles(
   return { files: results, complete, errors };
 }
 
-/** Dispatch to the correct parser based on language. */
+/**
+ * Dispatch to the best available parser for `lang`.
+ *
+ * First-class AST/toolchain parsers run when available; every other language
+ * (and native failures) land in the generic regex extractor so files always
+ * contribute searchable symbols when they contain structure.
+ */
 async function parseFile(
   file: string,
   content: string,
   lang: string,
 ): Promise<ReturnType<typeof parseTs>> {
-  switch (lang) {
+  const symbolLang = lang as SymbolLang;
+  switch (symbolLang) {
     case 'ts':
     case 'tsx':
     case 'js':
     case 'jsx':
-      return parseTs({ file, content, lang: lang as 'ts' | 'tsx' | 'js' | 'jsx' });
+      return parseTs({ file, content, lang: symbolLang });
     case 'go':
       return parseGo({ file, content, lang: 'go' });
     case 'py':
@@ -207,7 +202,8 @@ async function parseFile(
     case 'yaml':
       return parseYaml({ file, content, lang: 'yaml' });
     default:
-      return { file, lang: lang as 'ts' | 'tsx' | 'js' | 'jsx', symbols: [], mtimeMs: Date.now() };
+      // c, cpp, java, csharp, ruby, shell, md, … and 'other'
+      return parseGeneric({ file, content, lang: symbolLang });
   }
 }
 
@@ -315,9 +311,11 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
   // Process files in batches for parallel I/O and parsing.
   // SQLite writes remain sequential (they're synchronous and CPU-bound).
+  // Batch width follows WRONGSTACK_PERF_PROFILE (frugal ≤4, balanced cores×4).
+  const parallelBatch = resolveParallelBatch();
   let filesSinceLastYield = 0;
-  for (let batchStart = 0; batchStart < files.length; batchStart += PARALLEL_BATCH) {
-    const batchEnd = Math.min(batchStart + PARALLEL_BATCH, files.length);
+  for (let batchStart = 0; batchStart < files.length; batchStart += parallelBatch) {
+    const batchEnd = Math.min(batchStart + parallelBatch, files.length);
     const batchFiles = files.slice(batchStart, batchEnd);
 
     // Report progress to the caller so UIs can show indexing status.
@@ -327,14 +325,18 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
     // (TUI rendering, input handling, etc.) during large index builds.
     // Uses a running counter instead of batchStart % YIELD_EVERY_N which
     // only works when the batch size divides YIELD_EVERY_N evenly — with
-    // dynamic batch sizes (os.availableParallelism * 4) that invariant no
-    // longer holds and the yield would fire far less often than intended.
+    // dynamic batch sizes that invariant no longer holds and the yield would
+    // fire far less often than intended.
     // Also check for cancellation — the tool executor's timeout or a
     // session abort propagates through `signal`.
     filesSinceLastYield += batchFiles.length;
     if (filesSinceLastYield >= YIELD_EVERY_N) {
       filesSinceLastYield = 0;
       await yieldEventLoop();
+      // Frugal: brief pause so sustained reindex doesn't pin a core.
+      if (isFrugalPerf()) {
+        await new Promise<void>((r) => setTimeout(r, 8));
+      }
       throwIfAborted(signal);
     }
 
@@ -482,12 +484,9 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       }
 
       // Empty symbol files still need their file row updated so future runs
-      // know the mtime. They don't contribute any symbols or refs, so we
-      // upsert directly without scheduling them for the batch.
+      // know the mtime. Single transaction clears stale rows + upserts meta.
       if (parsed.symbols.length === 0) {
-        store.deleteRefsForFile(file);
-        store.deleteSymbolsForFile(file);
-        store.upsertFile({
+        store.replaceEmptyFile({
           file,
           lang: lang as SymbolLang,
           mtimeMs: Math.floor(stat.mtimeMs),
@@ -570,6 +569,8 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
   // older indexes can contain unresolved refs from a previous interrupted run.
   store.resolveRefs();
   store.setMetadata('relation_graph_version', relationGraphVersion);
+  // Refresh query planner stats after bulk writes (best-effort, free on small DBs).
+  store.optimize();
 
   const durationMs = Date.now() - startMs;
   store.setLastIndexed(Date.now());

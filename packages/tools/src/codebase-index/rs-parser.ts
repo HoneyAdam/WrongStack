@@ -13,6 +13,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
+import { withSpawnGate } from './spawn-gate.js';
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function parseSymbols(opts: {
@@ -25,14 +26,14 @@ export async function parseSymbols(opts: {
   // Try native parser first, fall back to regex
   const nativeAvailable = await checkNativeParser();
   if (nativeAvailable) {
-    const result = await tryNativeParse(file, content);
+    const result = await withSpawnGate(() => tryNativeParse(file, content));
     if (result) return result;
   }
 
   return regexParse({ file, content, lang });
 }
 
-export { detectLang } from './ts-parser.js';
+export { detectLang } from './languages.js';
 
 // ─── Native parser (syn) ─────────────────────────────────────────────────────
 

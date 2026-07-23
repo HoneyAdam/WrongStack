@@ -13,21 +13,37 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
+import { parseGeneric } from './generic-parser.js';
+import { withSpawnGate } from './spawn-gate.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export async function parseSymbols(opts: { file: string; content: string; lang: SymbolLang }): Promise<FileSymbols> {
+/**
+ * Prefer Python's `ast` when a runtime is available. When Python is missing
+ * or the spawn fails, fall back to the generic regex extractor so `.py` files
+ * still enter the index instead of being silently empty.
+ *
+ * Syntax errors from a working Python still return zero symbols (ast cannot
+ * recover) — that is intentional correctness, not a gap in coverage.
+ */
+export async function parseSymbols(opts: {
+  file: string;
+  content: string;
+  lang: SymbolLang;
+}): Promise<FileSymbols> {
   const { file, content, lang } = opts;
 
   try {
-    return await syncPyParse(file, content, lang);
+    // Serialize python child processes process-wide (CPU/spawn cimriliği).
+    const native = await withSpawnGate(() => syncPyParse(file, content, lang));
+    if (native !== null) return native;
   } catch {
-    /* v8 ignore next -- syncPyParse has its own catch; this outer guard is defensive. */
-    return { file, lang, symbols: [], mtimeMs: Date.now() };
+    /* fall through to generic */
   }
+  return parseGeneric({ file, content, lang: lang === 'py' ? 'py' : lang });
 }
 
-export { detectLang } from './ts-parser.js';
+export { detectLang } from './languages.js';
 
 // ─── Inline Python parser script ────────────────────────────────────────────
 
@@ -351,7 +367,16 @@ function spawnPyParser(
 let _cachedScriptPath: string | null = null;
 let cachedPyBinary: Promise<string | null> | undefined;
 
-async function syncPyParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
+/**
+ * Run the real Python AST parser.
+ * - `null` → Python unavailable / spawn failed → caller should use generic fallback
+ * - `FileSymbols` → Python ran (even if the file was invalid → empty symbols)
+ */
+async function syncPyParse(
+	filePath: string,
+	content: string,
+	lang: SymbolLang,
+): Promise<FileSymbols | null> {
 	try {
 		// Write the parser script once per process — not per file.
 		// Passing the whole 200-line program via `python -c "..."` breaks
@@ -367,7 +392,7 @@ async function syncPyParse(filePath: string, content: string, lang: SymbolLang):
 		// Resolve Python binary once (expensive: walks PATH on Windows).
 		cachedPyBinary ??= resolvePython();
 		const pyBinary = await cachedPyBinary;
-		if (!pyBinary) return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+		if (!pyBinary) return null;
 
 		// argv-array form: no shell, so a hostile filename cannot inject commands.
 		// Content is piped via stdin — avoids a second file read in the child.
@@ -379,6 +404,7 @@ async function syncPyParse(filePath: string, content: string, lang: SymbolLang):
 		);
 
 		if (code !== 0 || !stdout.trim()) {
+			// Python ran but AST parse failed (syntax error) — empty, not fallback.
 			return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
 		}
 
@@ -405,6 +431,7 @@ async function syncPyParse(filePath: string, content: string, lang: SymbolLang):
 		}));
 		return { file: filePath, lang, symbols, mtimeMs: Date.now() };
 	} catch {
-		return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+		// Spawn/IO failure → generic fallback.
+		return null;
 	}
 }

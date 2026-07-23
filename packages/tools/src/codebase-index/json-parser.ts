@@ -31,7 +31,7 @@ export function parseSymbols(opts: {
   }
 }
 
-export { detectLang } from './ts-parser.js';
+export { detectLang } from './languages.js';
 
 // ─── Regex parser ───────────────────────────────────────────────────────────
 
