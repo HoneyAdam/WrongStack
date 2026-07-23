@@ -9,7 +9,7 @@
  * independently.
  *
  */
-import { Check, ListChecks, Loader2, RefreshCw } from 'lucide-react';
+import { Check, ListChecks, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { usePagination } from '@/hooks/usePagination';
@@ -197,7 +197,14 @@ export function ProviderModelsPanel({
     () => selectModelList(state, savedModels),
     [state, savedModels],
   );
-  const modelPage = usePagination(modelList, 12, providerId);
+  const [modelSearch, setModelSearch] = useState('');
+  const filteredList = useMemo(
+    () => (modelSearch
+      ? modelList.filter((id) => id.toLowerCase().includes(modelSearch.toLowerCase()))
+      : modelList),
+    [modelList, modelSearch],
+  );
+  const modelPage = usePagination(filteredList, 12, providerId);
   const formatted = useMemo(() => formatProbeResult(state), [state]);
   const offerClear = useMemo(
     () => shouldOfferClear(savedModels),
@@ -271,6 +278,19 @@ export function ProviderModelsPanel({
 
       {modelList.length > 0 && (
         <div className="relative mt-3">
+          {/* Search/filter input for dense model lists */}
+          {hasDenseModelList && (
+            <div className="relative mb-2">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+              <input
+                type="text"
+                value={modelSearch}
+                onChange={(e) => { setModelSearch(e.target.value); modelPage.setPage(1); }}
+                placeholder={t('activity:providerModels.searchPlaceholder')}
+                className="h-8 w-full rounded-md border border-border/70 bg-background/60 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          )}
           <ul
             className={cn(
               'flex flex-wrap gap-1.5 pr-1 [scrollbar-gutter:stable]',

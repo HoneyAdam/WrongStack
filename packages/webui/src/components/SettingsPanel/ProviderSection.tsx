@@ -18,6 +18,7 @@ import { toast } from '@/components/Toaster';
 import { cn } from '@/lib/utils';
 import type { WrongStackWebSocketClient } from '@/lib/ws-client';
 import type { WSServerMessage } from '@/types';
+import { ApiKeyDisplay } from '../ui/api-key-display';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useFieldKeyboardNav } from '@/hooks/useFieldKeyboardNav';
@@ -718,8 +719,8 @@ export function ProviderSection({
                                     </span>
                                   )}
                                 </div>
-                                <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                                  {key.maskedKey}
+                                <div className="mt-0.5">
+                                  <ApiKeyDisplay maskedKey={key.maskedKey} />
                                 </div>
                               </div>
                             </div>

@@ -605,6 +605,7 @@
     "refresh": "Actualiser depuis le serveur",
     "refreshAria": "Actualiser la liste des modèles pour {{provider}}",
     "probing": "Vérification…",
+    "searchPlaceholder": "Rechercher des modèles…",
     "use": "Utiliser",
     "useModelAria": "Utiliser le modèle {{model}} pour {{provider}}",
     "differsHint": "La liste vérifiée diffère de la liste enregistrée — relancez {{command}} pour persister."

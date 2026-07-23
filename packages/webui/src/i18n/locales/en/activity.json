@@ -605,6 +605,7 @@
     "refresh": "Refresh from server",
     "refreshAria": "Refresh model list for {{provider}}",
     "probing": "Probing…",
+    "searchPlaceholder": "Search models…",
     "use": "Use",
     "useModelAria": "Use model {{model}} for {{provider}}",
     "differsHint": "Probed list differs from the saved allowlist — re-run {{command}} to persist."
@@ -1243,6 +1244,8 @@
     "dOpenPanel": "Open side panel (Session, Agents, History, Files, Changes, Mailbox, Skills, Office Map)",
     "dDesignStudio": "Open Design Studio side panel",
     "dWorktrees": "Open Worktrees side panel",
+    "dSettings": "Open Settings",
+    "dMemory": "Open Memory",
     "dFocusInput": "Focus the message input",
     "dSessionPanel": "Session panel",
     "dFleetOverlay": "Fleet monitor overlay",

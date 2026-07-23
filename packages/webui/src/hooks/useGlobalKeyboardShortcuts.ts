@@ -3,7 +3,7 @@ import { expectDefined } from '@wrongstack/core/utils/expect-defined';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useUIStore } from '@/stores';
-import { ACTIVITY_SHORTCUT_BY_KEY, navigateToView, openPanel, showPanel } from '@/components/activity-bar/nav';
+import { ACTIVITY_SHORTCUT_BY_KEY, navigateToView, openMainView, openPanel, showPanel } from '@/components/activity-bar/nav';
 import { downloadChatAsMarkdown } from '@/components/CommandPalette';
 
 export interface UseGlobalKeyboardShortcutsOptions {
@@ -72,6 +72,12 @@ export function useGlobalKeyboardShortcuts(options: UseGlobalKeyboardShortcutsOp
           }
           return;
         }
+      }
+      // Ctrl+9 — jump to Settings (standalone main view, not a side panel)
+      if (mod && e.key === '9' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        openMainView('settings');
+        return;
       }
       if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w') {
         e.preventDefault();
@@ -202,6 +208,12 @@ export function useGlobalKeyboardShortcuts(options: UseGlobalKeyboardShortcutsOp
       if (mod && e.shiftKey && e.key.toLowerCase() === 'g') {
         e.preventDefault();
         navigateToView('debug');
+      }
+      // Ctrl+Shift+K — open Memory (K for Knowledge)
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openMainView('memory');
+        return;
       }
       // Escape — collapse the inspector panel when it's open (DevTools
       // habit). Runs only when the inspector is visible so it doesn't steal

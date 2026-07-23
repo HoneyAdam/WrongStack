@@ -605,6 +605,7 @@
     "refresh": "Aggiorna dal server",
     "refreshAria": "Aggiorna l'elenco modelli per {{provider}}",
     "probing": "Verifica…",
+    "searchPlaceholder": "Cerca modelli…",
     "use": "Usa",
     "useModelAria": "Usa il modello {{model}} per {{provider}}",
     "differsHint": "L'elenco verificato differisce dall'allowlist salvata — riesegui {{command}} per rendere permanente."
