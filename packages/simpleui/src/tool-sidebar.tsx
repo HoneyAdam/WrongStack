@@ -10,7 +10,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   PlanStatus,
   TaskStatus,
@@ -82,12 +82,20 @@ export function ToolSidebar({
   const subscribe = worklists?.subscribe ?? (() => () => undefined);
   const getSnapshot = worklists?.getSnapshot ?? (() => EMPTY_WORKLISTS);
   const worklistSnapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  const runningCount = calls.filter((call) => call.status === 'running').length;
-  const worklistCounts: Record<WorklistView, number> = {
-    todos: worklistSnapshot.todos.filter((item) => item.status !== 'completed').length,
-    tasks: worklistSnapshot.tasks.filter((item) => item.status !== 'completed').length,
-    plan: worklistSnapshot.planItems.filter((item) => item.status !== 'done').length,
-  };
+  // Derive counts/splits only when their inputs change — this component
+  // re-renders on every parent stream delta, and these are ~6 full-array passes.
+  const runningCount = useMemo(
+    () => calls.filter((call) => call.status === 'running').length,
+    [calls],
+  );
+  const worklistCounts: Record<WorklistView, number> = useMemo(
+    () => ({
+      todos: worklistSnapshot.todos.filter((item) => item.status !== 'completed').length,
+      tasks: worklistSnapshot.tasks.filter((item) => item.status !== 'completed').length,
+      plan: worklistSnapshot.planItems.filter((item) => item.status !== 'done').length,
+    }),
+    [worklistSnapshot],
+  );
   const open = view !== null;
 
   const selectView = (next: SidebarView) => {
@@ -123,8 +131,13 @@ export function ToolSidebar({
   const ActiveIcon = view ? viewMeta[view].icon : Wrench;
 
   // Split calls: meta tools (compact) vs regular tools (expandable)
-  const metaCalls = calls.filter((c) => META_TOOLS.has(c.name) || c.status === 'running');
-  const regularCalls = calls.filter((c) => !META_TOOLS.has(c.name) && c.status !== 'running');
+  const { metaCalls, regularCalls } = useMemo(
+    () => ({
+      metaCalls: calls.filter((c) => META_TOOLS.has(c.name) || c.status === 'running'),
+      regularCalls: calls.filter((c) => !META_TOOLS.has(c.name) && c.status !== 'running'),
+    }),
+    [calls],
+  );
 
   return (
     <>

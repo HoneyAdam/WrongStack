@@ -47,10 +47,17 @@ const MessageItem = memo(function MessageItem({
   onCopyMessage,
   onSelectNextStep,
 }: MessageItemProps) {
-  const projection =
-    message.role === 'assistant'
-      ? projectAssistantMessage(message.text)
-      : { text: message.text, nextSteps: [] };
+  // projectAssistantMessage runs two global-regex passes + parseNextSteps over
+  // the whole message text. Memoize on the text so it re-runs only when the text
+  // actually changes, not on every re-render from an unrelated prop (theme,
+  // copiedMessageId).
+  const projection = useMemo(
+    () =>
+      message.role === 'assistant'
+        ? projectAssistantMessage(message.text)
+        : { text: message.text, nextSteps: [] },
+    [message.role, message.text],
+  );
   const nextSteps = isLatestAssistant && !message.streaming ? projection.nextSteps : [];
 
   return (

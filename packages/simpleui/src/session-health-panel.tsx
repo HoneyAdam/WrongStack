@@ -31,11 +31,7 @@ export function SessionHealthPanel({ context, messages, sessionStart }: SessionH
     return () => { document.removeEventListener('keydown', onKey); clearInterval(timer); };
   }, [open]);
 
-  const uptime = sessionStart ? now - sessionStart : 0;
   const ctxPct = context.maxContext > 0 ? Math.round((context.tokens / context.maxContext) * 100) : 0;
-  const userMsgs = messages.filter((m) => m.role === 'user').length;
-  const assistantMsgs = messages.filter((m) => m.role === 'assistant').length;
-  const thinkingMsgs = messages.filter((m) => m.role === 'thinking').length;
 
   if (!open) {
     return (
@@ -45,6 +41,20 @@ export function SessionHealthPanel({ context, messages, sessionStart }: SessionH
         <span className="health-pct">{ctxPct}%</span>
       </button>
     );
+  }
+
+  // These scan the full message array — only needed once the panel is open, so
+  // they must stay below the collapsed-state early return. The parent re-renders
+  // on every stream delta; computing them above the guard did 3 O(n) scans per
+  // token while the panel was closed.
+  const uptime = sessionStart ? now - sessionStart : 0;
+  let userMsgs = 0;
+  let assistantMsgs = 0;
+  let thinkingMsgs = 0;
+  for (const m of messages) {
+    if (m.role === 'user') userMsgs++;
+    else if (m.role === 'assistant') assistantMsgs++;
+    else if (m.role === 'thinking') thinkingMsgs++;
   }
 
   return (
