@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildRefinerContextSections,
-  enhanceUserPrompt,
+  completeRefinerPass,
   ENHANCER_SYSTEM_PROMPT,
+  enhanceUserPrompt,
   gatedEnhancerReasoning,
+  isValidEnglishRefinement,
   normalizedEqual,
+  parseBilingualEnhancement,
   recentTextTurns,
   shouldEnhance,
 } from '../../src/execution/prompt-enhancer.js';
@@ -129,33 +132,220 @@ describe('normalizedEqual', () => {
   });
 });
 
-describe('enhanceUserPrompt', () => {
-  it('returns a single English version for both fields (no "---")', async () => {
-    const provider = makeProvider(async () =>
-      textResponse('Fix the null-deref in auth.ts login() when the token is missing.'),
-    );
-    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug' });
-    expect(out).toEqual({
-      refined: 'Fix the null-deref in auth.ts login() when the token is missing.',
-      english: 'Fix the null-deref in auth.ts login() when the token is missing.',
+describe('bilingual enhancement parsing', () => {
+  it('validates English while rejecting Turkish text and dotted/dotless I variants', () => {
+    expect(isValidEnglishRefinement('Fix the parser error in auth.ts.')).toBe(true);
+    expect(isValidEnglishRefinement('Resolve the race condition.')).toBe(true);
+    expect(isValidEnglishRefinement('auth.ts login()')).toBe(false);
+    expect(isValidEnglishRefinement('auth.ts içindeki ayrıştırıcı hatasını düzelt.')).toBe(false);
+    expect(isValidEnglishRefinement('İçindeki parser hatasını düzelt.')).toBe(false);
+    expect(isValidEnglishRefinement('Içindeki parser hatasını düzelt.')).toBe(false);
+  });
+
+  it('allows a language-neutral first version for non-English input', () => {
+    expect(
+      parseBilingualEnhancement(
+        'auth.ts login()\n---\nFix auth.ts login().',
+        'auth.ts içindeki login hatasını düzelt',
+      ),
+    ).toEqual({ refined: 'auth.ts login()', english: 'Fix auth.ts login().' });
+  });
+
+  it('rejects an English first version for non-English input', () => {
+    expect(
+      parseBilingualEnhancement(
+        'Fix the login error in auth.ts.\n---\nFix the login error in auth.ts.',
+        'auth.ts içindeki login hatasını düzelt',
+      ),
+    ).toBeNull();
+  });
+
+  it('rejects an unclassifiable first version for unclassifiable input', () => {
+    expect(
+      parseBilingualEnhancement(
+        'auth login widget\n---\nFix the auth login widget.',
+        'auth login widget',
+      ),
+    ).toBeNull();
+  });
+
+  it('does not reject valid English refinements that use unknown vocabulary', () => {
+    expect(
+      parseBilingualEnhancement(
+        'Investigate intermittent deadlocks, checkout.ts.\n---\nFix the race condition in checkout.ts.',
+        'Fix intermittent deadlocks in checkout.ts.',
+      ),
+    ).toEqual({
+      refined: 'Investigate intermittent deadlocks, checkout.ts.',
+      english: 'Fix the race condition in checkout.ts.',
     });
   });
 
-  it('does NOT report an error for a single-version (English) response', async () => {
+  it('tolerates CRLF and visually blank separator padding', () => {
+    const expected = {
+      refined: 'auth.ts içindeki null hatasını düzelt.',
+      english: 'Fix the null error in auth.ts.',
+    };
+    expect(
+      parseBilingualEnhancement(
+        'auth.ts içindeki null hatasını düzelt.\r\n  ---  \r\nFix the null error in auth.ts.',
+        'auth.ts içindeki null hatasını düzelt',
+      ),
+    ).toEqual(expected);
+    expect(
+      parseBilingualEnhancement(
+        'auth.ts içindeki null hatasını düzelt.\n\u00a0\u200d---\ufeff\nFix the null error in auth.ts.',
+        'auth.ts içindeki null hatasını düzelt',
+      ),
+    ).toEqual(expected);
+  });
+
+  it('rejects a missing separator, extra separators, and a non-English second version', () => {
+    const original = 'auth.ts içindeki hatayı düzelt';
+    expect(parseBilingualEnhancement('Yalnızca Türkçe yanıt.', original)).toBeNull();
+    expect(
+      parseBilingualEnhancement('Türkçe.\n---\nUse the English version.\n---\nExtra.', original),
+    ).toBeNull();
+    expect(
+      parseBilingualEnhancement('Türkçe sürüm.\n---\nİngilizce olmayan sürüm.', original),
+    ).toBeNull();
+  });
+});
+
+describe('completeRefinerPass', () => {
+  it('uses the direct provider with the supplied request and signal', async () => {
+    const complete = vi.fn(async () => textResponse('  Refined output.  '));
+    const provider = makeProvider(complete);
+    const signal = new AbortController().signal;
+    const request: Request = {
+      model: 'm',
+      messages: [],
+      maxTokens: 256,
+    };
+
+    await expect(
+      completeRefinerPass('raw prompt', {
+        provider,
+        request,
+        signal,
+        timeoutMs: 5000,
+      }),
+    ).resolves.toEqual({ text: 'Refined output.' });
+    expect(complete).toHaveBeenCalledWith(
+      { ...request, messages: [{ role: 'user', content: 'raw prompt' }] },
+      { signal },
+    );
+  });
+});
+
+describe('enhanceUserPrompt', () => {
+  it('accepts the strict two-version contract for English input', async () => {
+    const text = 'Fix the null-deref in auth.ts login() when the token is missing.';
+    const provider = makeProvider(async () => textResponse(`${text}\n---\n${text}`));
+    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the parser bug' });
+    expect(out).toEqual({ refined: text, english: text });
+  });
+
+  it('corrects a single English response to the required two-version contract', async () => {
+    const refined = 'Fix the null-deref in auth.ts login() when the token is missing.';
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse(refined))
+      .mockResolvedValueOnce(textResponse(`${refined}\n---\n${refined}`));
+    const provider = makeProvider(complete);
     const onError = vi.fn();
-    const provider = makeProvider(async () => textResponse('Refined English instruction.'));
     const out = await enhanceUserPrompt({
       provider,
       model: 'm',
-      text: 'refine this please',
+      text: 'Fix the parser bug in auth.ts.',
+      onError,
+    });
+    expect(out).toEqual({ refined, english: refined });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('corrects a single Turkish response with one retry', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse('auth.ts içindeki hatayı düzelt.'))
+      .mockResolvedValueOnce(
+        textResponse('auth.ts içindeki hatayı düzelt.\n---\nFix the error in auth.ts.'),
+      );
+    const provider = makeProvider(complete);
+    const onError = vi.fn();
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'auth.ts içindeki hatayı düzelt',
       onError,
     });
     expect(out).toEqual({
-      refined: 'Refined English instruction.',
-      english: 'Refined English instruction.',
+      refined: 'auth.ts içindeki hatayı düzelt.',
+      english: 'Fix the error in auth.ts.',
     });
-    // A single version is now the legitimate English fast path, not a format error.
+    expect(complete).toHaveBeenCalledTimes(2);
+    const correction = complete.mock.calls[1]![0] as Request;
+    expect(correction.messages[0]!.content).toContain('required bilingual output contract');
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('retries when the English half contains no English instruction vocabulary', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse('auth.ts içindeki hatayı düzelt.\n---\nauth.ts login()'))
+      .mockResolvedValueOnce(
+        textResponse('auth.ts içindeki hatayı düzelt.\n---\nFix the login error in auth.ts.'),
+      );
+    const provider = makeProvider(complete);
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'auth.ts içindeki hatayı düzelt',
+    });
+    expect(out?.english).toBe('Fix the login error in auth.ts.');
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the orchestrator for both the malformed response and corrective retry', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ text: 'auth.ts içindeki hatayı düzelt.' })
+      .mockResolvedValueOnce({
+        text: 'auth.ts içindeki hatayı düzelt.\n---\nFix the error in auth.ts.',
+      });
+    const provider = makeProvider(async () => {
+      throw new Error('direct provider should not run');
+    });
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'auth.ts içindeki hatayı düzelt',
+      oneShotOrchestrator: { call } as never,
+    });
+    expect(out).toEqual({
+      refined: 'auth.ts içindeki hatayı düzelt.',
+      english: 'Fix the error in auth.ts.',
+    });
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(call.mock.calls[1]![0].messages[0].content).toContain(
+      'required bilingual output contract',
+    );
+  });
+
+  it('reports empty after exactly one unsuccessful corrective retry', async () => {
+    const complete = vi.fn(async () => textResponse('Yalnızca Türkçe yanıt.'));
+    const provider = makeProvider(complete);
+    const onError = vi.fn();
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'auth.ts içindeki hatayı düzelt',
+      onError,
+    });
+    expect(out).toBeNull();
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('corrective retry'), 'empty');
   });
 
   it('splits two "---"-separated versions into distinct refined/english', async () => {
@@ -171,19 +361,29 @@ describe('enhanceUserPrompt', () => {
     });
   });
 
-  it('keeps a "---" that appears inside the English version (splits on the first only)', async () => {
-    const provider = makeProvider(async () =>
-      textResponse('Türkçe sürüm.\n---\nEnglish version.\n---\nstill English.'),
+  it('rejects additional separator lines after one corrective retry', async () => {
+    const complete = vi.fn(async () =>
+      textResponse('Türkçe sürüm.\n---\nUse the English version.\n---\nExtra English text.'),
     );
-    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'bir şey yap' });
-    expect(out).toEqual({
-      refined: 'Türkçe sürüm.',
-      english: 'English version.\n---\nstill English.',
+    const provider = makeProvider(complete);
+    const onError = vi.fn();
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'bir şey yap',
+      onError,
     });
+    expect(out).toBeNull();
+    expect(complete).toHaveBeenCalledTimes(2);
+    const correction = complete.mock.calls[1]![0] as Request;
+    expect(correction.messages[0]!.content).toContain('required bilingual output contract');
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('corrective retry'), 'empty');
   });
 
   it('sends the enhancer system prompt and the raw text as a user message', async () => {
-    const complete = vi.fn(async () => textResponse('refined'));
+    const complete = vi.fn(async () =>
+      textResponse('Refine the request.\n---\nRefine the request.'),
+    );
     const provider = makeProvider(complete);
     await enhanceUserPrompt({ provider, model: 'gpt-x', text: 'do the thing properly' });
     const req = complete.mock.calls[0]![0] as Request;
@@ -193,7 +393,9 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('embeds conversation history as context in a single user message', async () => {
-    const complete = vi.fn(async () => textResponse('refined'));
+    const complete = vi.fn(async () =>
+      textResponse('Refine the request.\n---\nRefine the request.'),
+    );
     const provider = makeProvider(complete);
     await enhanceUserPrompt({
       provider,
@@ -217,7 +419,9 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('embeds project/session context and retry context in the same user message', async () => {
-    const complete = vi.fn(async () => textResponse('refined'));
+    const complete = vi.fn(async () =>
+      textResponse('Refine the request.\n---\nRefine the request.'),
+    );
     const provider = makeProvider(complete);
     await enhanceUserPrompt({
       provider,
@@ -246,7 +450,9 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('forwards a reasoning directive when supplied', async () => {
-    const complete = vi.fn(async () => textResponse('refined'));
+    const complete = vi.fn(async () =>
+      textResponse('Refine the request.\n---\nRefine the request.'),
+    );
     const provider = makeProvider(complete);
     await enhanceUserPrompt({
       provider,
@@ -259,7 +465,9 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('sends no reasoning field when none is supplied (default behavior)', async () => {
-    const complete = vi.fn(async () => textResponse('refined'));
+    const complete = vi.fn(async () =>
+      textResponse('Refine the request.\n---\nRefine the request.'),
+    );
     const provider = makeProvider(complete);
     await enhanceUserPrompt({ provider, model: 'm', text: 'do the thing properly' });
     const req = complete.mock.calls[0]![0] as Request;
@@ -271,17 +479,68 @@ describe('enhanceUserPrompt', () => {
       throw new Error('boom');
     });
     const onError = vi.fn();
-    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug here', onError });
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'fix the bug here',
+      onError,
+    });
     expect(out).toBeNull();
     expect(onError).toHaveBeenCalledWith(expect.any(String), 'provider_error');
   });
 
-  it('returns null when the provider yields empty text', async () => {
-    const provider = makeProvider(async () => textResponse('   '));
+  it('returns null when both provider attempts yield empty text', async () => {
+    const complete = vi.fn(async () => textResponse('   '));
+    const provider = makeProvider(complete);
     const onError = vi.fn();
-    const out = await enhanceUserPrompt({ provider, model: 'm', text: 'fix the bug here', onError });
+    const out = await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'fix the bug here',
+      onError,
+    });
     expect(out).toBeNull();
+    expect(complete).toHaveBeenCalledTimes(2);
     expect(onError).toHaveBeenCalledWith(expect.any(String), 'empty');
+  });
+
+  it('gives the corrective pass a fresh timeout window', async () => {
+    vi.useFakeTimers();
+    try {
+      const complete = vi
+        .fn()
+        .mockImplementationOnce(
+          async () =>
+            await new Promise<Response>((resolve) => {
+              setTimeout(() => resolve(textResponse('malformed output')), 15);
+            }),
+        )
+        .mockImplementationOnce(
+          async () =>
+            await new Promise<Response>((resolve) => {
+              setTimeout(
+                () => resolve(textResponse('Refine the request.\n---\nRefine the request.')),
+                15,
+              );
+            }),
+        );
+      const provider = makeProvider(complete);
+      const result = enhanceUserPrompt({
+        provider,
+        model: 'm',
+        text: 'refine the request properly',
+        timeoutMs: 20,
+      });
+      await vi.advanceTimersByTimeAsync(15);
+      await vi.advanceTimersByTimeAsync(15);
+      await expect(result).resolves.toEqual({
+        refined: 'Refine the request.',
+        english: 'Refine the request.',
+      });
+      expect(complete).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns null on timeout and reports the timeout kind', async () => {

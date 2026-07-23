@@ -185,7 +185,9 @@ export {
   enhanceUserPrompt,
   gatedEnhancerReasoning,
   type EnhanceFailureKind,
+  isValidEnglishRefinement,
   normalizedEqual,
+  parseBilingualEnhancement,
   recentTextTurns,
   shouldEnhance,
 } from './prompt-enhancer.js';

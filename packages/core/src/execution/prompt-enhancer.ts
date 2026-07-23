@@ -110,6 +110,209 @@ export function normalizedEqual(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+// Deliberately narrow prompt-domain lexicons, not a general language detector.
+// Unknown text is rejected so the model gets one corrective pass rather than
+// allowing an unverified English label through.
+const ENGLISH_PROMPT_WORDS = new Set([
+  'a',
+  'add',
+  'analyze',
+  'and',
+  'api',
+  'as',
+  'build',
+  'change',
+  'check',
+  'code',
+  'configure',
+  'create',
+  'delete',
+  'document',
+  'ensure',
+  'error',
+  'explain',
+  'failure',
+  'feature',
+  'file',
+  'fix',
+  'for',
+  'from',
+  'function',
+  'implement',
+  'improve',
+  'in',
+  'into',
+  'is',
+  'issue',
+  'it',
+  'keep',
+  'make',
+  'model',
+  'of',
+  'only',
+  'output',
+  'parser',
+  'preserve',
+  'prompt',
+  'race',
+  'refactor',
+  'remove',
+  'request',
+  'resolve',
+  'response',
+  'return',
+  'run',
+  'should',
+  'test',
+  'that',
+  'the',
+  'this',
+  'to',
+  'translate',
+  'update',
+  'use',
+  'validate',
+  'version',
+  'when',
+  'with',
+  'write',
+  'condition',
+]);
+
+const NON_ENGLISH_PROMPT_WORDS = new Set([
+  // Turkish
+  'ama',
+  'bir',
+  'bu',
+  'de',
+  'düzelt',
+  'et',
+  'hata',
+  'hatasını',
+  'hatayı',
+  'için',
+  'ile',
+  'olarak',
+  'sadece',
+  've',
+  'yap',
+  'şu',
+  // Spanish / Portuguese
+  'con',
+  'corrige',
+  'debe',
+  'el',
+  'en',
+  'erro',
+  'la',
+  'para',
+  'que',
+  'sin',
+  'una',
+  // French
+  'avec',
+  'dans',
+  'des',
+  'doit',
+  'erreur',
+  'et',
+  'le',
+  'les',
+  'pour',
+  'sans',
+  'une',
+  // German
+  'das',
+  'den',
+  'der',
+  'die',
+  'ein',
+  'fehler',
+  'für',
+  'mit',
+  'ohne',
+  'und',
+]);
+
+function languageWords(text: string): string[] {
+  // Normalize Turkish capital dotted İ before lowercasing; generic/English
+  // locale lowercasing otherwise leaves a combining dot that splits words.
+  return (
+    text
+      .replaceAll('İ', 'i')
+      .toLowerCase()
+      .match(/\p{L}+/gu) ?? []
+  );
+}
+
+function hasNonLatinScript(text: string): boolean {
+  return /[\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(
+    text,
+  );
+}
+
+function languageScores(text: string): { english: number; nonEnglish: number; words: string[] } {
+  const words = languageWords(text);
+  let english = 0;
+  let nonEnglish = 0;
+  for (const word of words) {
+    if (ENGLISH_PROMPT_WORDS.has(word)) english++;
+    if (NON_ENGLISH_PROMPT_WORDS.has(word)) nonEnglish++;
+  }
+  // Inspect the original text before languageWords() normalizes dotted İ;
+  // these Turkish-specific characters are meaningful non-English evidence.
+  if (/[çğıöşüİı]/u.test(text)) nonEnglish += 2;
+  if (hasNonLatinScript(text)) nonEnglish += 3;
+  return { english, nonEnglish, words };
+}
+
+/**
+ * Conservative validation for the English half of a bilingual refinement.
+ * It requires explicit English instruction vocabulary and rejects every known
+ * non-English marker; identifiers and file paths alone are not language proof.
+ */
+export function isValidEnglishRefinement(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const scores = languageScores(trimmed);
+  return scores.nonEnglish === 0 && scores.english > 0;
+}
+
+type LatestMessageLanguage = 'english' | 'non_english' | 'unknown';
+
+function latestMessageLanguage(text: string): LatestMessageLanguage {
+  const scores = languageScores(text);
+  if (scores.nonEnglish > scores.english) return 'non_english';
+  if (scores.english > scores.nonEnglish) return 'english';
+  return 'unknown';
+}
+
+/**
+ * Parse and validate the two-version wire format emitted by the refiner.
+ * Visually blank separator padding (ASCII/non-breaking/zero-width whitespace)
+ * and CRLF are tolerated, but exactly one separator and two non-empty versions
+ * are required. The second version must be English.
+ */
+export function parseBilingualEnhancement(raw: string, original: string): EnhanceResult | null {
+  const separator = /^[\t \u00a0\u200b-\u200d\ufeff]*---[\t \u00a0\u200b-\u200d\ufeff]*\r?$/gm;
+  const matches = [...raw.matchAll(separator)];
+  if (matches.length !== 1) return null;
+  const [match] = matches;
+  if (!match) return null;
+  const refined = raw.slice(0, match.index).trim();
+  const english = raw.slice(match.index + match[0].length).trim();
+  if (!refined || !english || !isValidEnglishRefinement(english)) return null;
+
+  // Reject a clearly English first half when the original was non-English.
+  // For lexically ambiguous input, require the model to make the first half
+  // classifiable; otherwise two unchecked halves could bypass correction.
+  const inputLanguage = latestMessageLanguage(original);
+  const refinedLanguage = latestMessageLanguage(refined);
+  if (inputLanguage === 'non_english' && refinedLanguage === 'english') return null;
+  if (inputLanguage === 'unknown' && refinedLanguage === 'unknown') return null;
+  return { refined, english };
+}
+
 /** A single text-only conversation turn used as refiner context. */
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -138,9 +341,8 @@ export interface RefinerSessionContextLike {
 
 /**
  * Result of a successful prompt refinement. Carries the original-language and
- * English versions so the UI can offer both. When the input was already in
- * English the refiner emits a single version and both fields hold the same
- * text (the UI then offers two identical choices, which is correct).
+ * validated English versions so the UI can offer both. English input still
+ * uses the two-part wire contract; both fields may contain identical text.
  */
 export interface EnhanceResult {
   /** Refined in the user's original language. */
@@ -431,6 +633,42 @@ export async function buildRefinerContextSections(opts: {
  * aborted, or returned nothing useful). NEVER throws — refinement is a
  * best-effort convenience and must never block the user from sending.
  */
+export interface RefinerCompletionOptions {
+  provider: Provider;
+  oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  request: Request;
+  signal: AbortSignal;
+  timeoutMs: number;
+}
+
+/** Execute one refiner pass through either the orchestrator or direct provider. */
+export async function completeRefinerPass(
+  input: string,
+  opts: RefinerCompletionOptions,
+): Promise<{ text: string; error?: string | undefined }> {
+  if (opts.oneShotOrchestrator) {
+    const result = await opts.oneShotOrchestrator.call({
+      system: ENHANCER_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: input }],
+      maxTokens: opts.request.maxTokens,
+      timeoutMs: opts.timeoutMs,
+      signal: opts.signal,
+    });
+    return result.error ? { text: '', error: result.error } : { text: result.text.trim() };
+  }
+  const response = await opts.provider.complete(
+    { ...opts.request, messages: [{ role: 'user', content: input }] },
+    { signal: opts.signal },
+  );
+  return {
+    text: response.content
+      .filter(isTextBlock)
+      .map((block) => block.text)
+      .join('\n')
+      .trim(),
+  };
+}
+
 export async function enhanceUserPrompt(
   opts: EnhanceUserPromptOptions,
 ): Promise<EnhanceResult | null> {
@@ -467,72 +705,73 @@ export async function enhanceUserPrompt(
     ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
   };
 
-  // Link a local timeout to the parent signal so a stuck provider call can't
-  // hang the submit path. AbortSignal.any keeps both cancellation sources.
-  const timer = new AbortController();
-  const to = setTimeout(() => timer.abort(new Error('enhancer timeout')), timeoutMs);
-  const signal = opts.signal ? AbortSignal.any([opts.signal, timer.signal]) : timer.signal;
+  let timedOut = false;
+  const runPass = async (input: string): Promise<{ text: string; error?: string | undefined }> => {
+    // Each model pass receives the full configured window. The parent signal
+    // still cancels both passes immediately, while a slow first pass cannot
+    // consume the corrective retry's entire timeout budget.
+    const timer = new AbortController();
+    const timeout = setTimeout(() => timer.abort(new Error('enhancer timeout')), timeoutMs);
+    const signal = opts.signal ? AbortSignal.any([opts.signal, timer.signal]) : timer.signal;
+    try {
+      return await completeRefinerPass(input, {
+        provider,
+        oneShotOrchestrator: opts.oneShotOrchestrator,
+        request: req,
+        signal,
+        timeoutMs,
+      });
+    } catch (error) {
+      if (timer.signal.aborted && !opts.signal?.aborted) timedOut = true;
+      throw error;
+    } finally {
+      timer.abort();
+      clearTimeout(timeout);
+    }
+  };
 
   try {
-    let raw: string;
-    if (opts.oneShotOrchestrator) {
-      const result = await opts.oneShotOrchestrator.call({
-        system: ENHANCER_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: refinerInput }],
-        maxTokens,
-        timeoutMs,
-        signal: opts.signal,
-      });
-      if (result.error) {
-        opts.onError?.(result.error, 'provider_error');
-        return null;
-      }
-      raw = result.text;
-    } else {
-      const res = await provider.complete(req, { signal });
-      raw = res.content
-        .filter(isTextBlock)
-        .map((b) => b.text)
-        .join('\n')
-        .trim();
-    }
-    if (!raw) {
-      opts.onError?.('model returned no text', 'empty');
+    const first = await runPass(refinerInput);
+    if (first.error) {
+      opts.onError?.(first.error, 'provider_error');
       return null;
     }
+    const parsed = parseBilingualEnhancement(first.text, text);
+    if (parsed) return parsed;
 
-    // English input → ONE version (no "---"); other languages → two versions
-    // separated by a line with only "---". Split on the first occurrence so the
-    // delimiter can still appear inside the second version's text.
-    const sepIdx = raw.indexOf('\n---\n');
-    if (sepIdx === -1) {
-      // Single version: the input was already English (or the model chose not
-      // to translate). Use it for both fields — the UI offers identical
-      // "refined" / "english" options, which is correct and saves the model
-      // from generating a redundant second copy. NOT an error.
-      return { refined: raw, english: raw };
-    }
-    const refined = raw.slice(0, sepIdx).trim();
-    const english = raw.slice(sepIdx + 5).trim(); // skip "\n---\n"
-    if (!refined || !english) {
-      opts.onError?.('one or both versions empty', 'empty');
+    // The output contract is deliberately validated outside the model. Give a
+    // malformed response one corrective pass, with the failure and exact wire
+    // format made explicit, instead of silently treating non-English text as
+    // the English option.
+    const correctionInput = [
+      'Your previous response did not satisfy the required bilingual output contract.',
+      'Return exactly two non-empty versions separated by one line containing only "---".',
+      'The first version must match the language of the latest message. The second version must be English.',
+      'Do not add labels, headings, fences, commentary, or additional separators.',
+      '',
+      `Latest message to refine:\n${text}`,
+      '',
+      `Invalid previous response:\n${compactText(first.text || '(empty response)', 1800)}`,
+    ].join('\n');
+    const corrected = await runPass(correctionInput);
+    if (corrected.error) {
+      opts.onError?.(corrected.error, 'provider_error');
       return null;
     }
-    return { refined, english };
+    const correctedParsed = parseBilingualEnhancement(corrected.text, text);
+    if (correctedParsed) return correctedParsed;
+
+    opts.onError?.('model returned malformed bilingual output after one corrective retry', 'empty');
+    return null;
   } catch (err) {
     // User-initiated cancel → stay silent (they chose to send the original).
     if (opts.signal?.aborted) return null;
-    if (timer.signal.aborted) {
+    if (timedOut) {
       opts.onError?.(`timed out after ${Math.round(timeoutMs / 1000)}s`, 'timeout');
       return null;
     }
     opts.onError?.(toErrorMessage(err), 'provider_error');
     return null;
-  } finally {
-    // Idempotent — abort() after signal already fired is a no-op, so this is
-    // always safe regardless of whether the timeout fired first.
-    timer.abort();
-    clearTimeout(to);
   }
 }
 
