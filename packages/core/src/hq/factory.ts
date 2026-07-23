@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { hostname } from 'node:os';
 import { basename } from 'node:path';
+import { readProjectIdentitySync } from '../utils/project-identity.js';
 import { GlobalMailbox } from '../coordination/global-mailbox.js';
 import type { EventBus } from '../kernel/events.js';
 import type { HqClientConfig } from '../types/config.js';
@@ -165,7 +166,12 @@ function stableMachineId(): string {
 }
 
 export function deriveHqProjectId(projectRoot: string, projectAlias?: string): string {
+  const projectIdentity = readProjectIdentitySync(projectRoot);
+  if (projectIdentity) return projectIdentity.projectId;
   const alias = projectAlias?.trim();
+  if (!alias && projectRoot.startsWith('alias:')) {
+    throw new Error('projectRoot must not use the reserved "alias:" HQ identity prefix');
+  }
   const identity = alias ? `alias:${alias}` : projectRoot;
   return createHash('sha256').update(identity).digest('hex').slice(0, 12);
 }
@@ -182,6 +188,8 @@ export interface CreateHqPublisherOptions {
   redactionPolicy?: Partial<HqRedactionPolicy>;
   /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
   capabilities?: readonly HqClientCapability[];
+  /** Bound offline telemetry retained by this client. */
+  maxQueuedMessages?: number;
   /** Forwarded to the HqPublisher constructor (Phase 4 control plane). */
   onCommand?: HqPublisherCommandHandler;
   /** Receives the latest merged Kanban snapshot from HQ. */
@@ -235,6 +243,9 @@ export function createHqPublisherFromEnv(options: CreateHqPublisherOptions): HqP
     ...(options.socketFactory ? { socketFactory: options.socketFactory } : {}),
     ...(redactionPolicy !== undefined ? { redactionPolicy } : {}),
     ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
+    ...(options.maxQueuedMessages !== undefined
+      ? { maxQueuedMessages: options.maxQueuedMessages }
+      : {}),
     ...(options.onCommand !== undefined ? { onCommand: options.onCommand } : {}),
     ...(options.onKanbanSnapshot !== undefined
       ? { onKanbanSnapshot: options.onKanbanSnapshot }

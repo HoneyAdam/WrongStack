@@ -955,6 +955,12 @@ export interface AutonomyConfig {
    */
   showModelReasoning?: boolean | undefined;
   /**
+   * Show the always-visible AGENT SWARM and todo mission queue panel below
+   * the TUI statusline. The detailed F2 Fleet, F3 Agents, and F6 Todos
+   * monitor overlays remain available independently. Default: true.
+   */
+  showAgentSwarmPanel?: boolean | undefined;
+  /**
    * Persist the TUI prompt input history to disk per project so Up/Down
    * navigation recalls prompts across sessions. Secrets are scrubbed before
    * they reach disk. Default: enabled, 100 entries.

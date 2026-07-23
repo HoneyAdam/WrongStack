@@ -12,6 +12,11 @@ import { writeErr } from './utils/term.js';
 import { toErrorMessage } from './utils/error.js';
 import { atomicWrite } from './utils/atomic-write.js';
 import {
+  ensureProjectGitignore,
+  ensureProjectIdentity,
+  readProjectIdentity,
+} from './utils/project-identity.js';
+import {
   canonicalProjectRoot,
   type WstackPaths,
   resolveWstackPaths,
@@ -106,15 +111,22 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await fs.mkdir(wpaths.profilesDir, { recursive: true });
   await fs.mkdir(wpaths.projectDir, { recursive: true });
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
-  await writeProjectMeta(wpaths, projectIdentityRoot);
-  // Also register/update the project in ~/.wrongstack/projects.json
+  let registeredProjectId: string | undefined;
+  try {
+    registeredProjectId = (await readProjectIdentity(projectRoot))?.projectId;
+  } catch {
+    // Malformed identity is reported by the HQ publisher; boot registration
+    // still falls back to its historical path-scoped metadata.
+  }
+  await writeProjectMeta(wpaths, projectIdentityRoot, registeredProjectId);
   await registerProjectInManifest(
     wpaths,
     projectIdentityRoot,
     undefined,
     cwd !== projectIdentityRoot ? cwd : undefined,
+    registeredProjectId,
   );
-  await ensureGitignore(projectRoot);
+  await ensureProjectGitignore(projectRoot).catch(() => undefined);
 
   // ═════════════════════════════════════════════════════════════════════
   // Legacy config migration: move ~/.wrongstack/config.json content into
@@ -223,6 +235,38 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
     if (syncConfig) {
       config = Object.freeze({ ...config, sync: syncConfig }) as Config;
     }
+  }
+
+  // A committed project identity lets independent clones and worktrees join
+  // the same HQ project. Existing alias-based installations keep their legacy
+  // identity until they explicitly initialize/rekey the repository.
+  if (!config.hq?.projectAlias) {
+    try {
+      await ensureProjectIdentity(projectRoot);
+    } catch (error) {
+      bootLogger.warn?.('Could not initialize .wrongstack/project.json', {
+        event: 'project.identity_init_failed',
+        error: toErrorMessage(error),
+      });
+    }
+  }
+
+  let committedProjectId: string | undefined;
+  try {
+    committedProjectId = (await readProjectIdentity(projectRoot))?.projectId;
+  } catch {
+    // The HQ publisher reports malformed identity files when it tries to use
+    // them. Local boot state remains available so the user can repair/rekey.
+  }
+  if (committedProjectId !== registeredProjectId) {
+    await writeProjectMeta(wpaths, projectIdentityRoot, committedProjectId);
+    await registerProjectInManifest(
+      wpaths,
+      projectIdentityRoot,
+      undefined,
+      cwd !== projectIdentityRoot ? cwd : undefined,
+      committedProjectId,
+    );
   }
 
   const logger = new DefaultLogger({ level: config.log?.level ?? 'info', file: wpaths.logFile });
@@ -543,13 +587,18 @@ export function assertProjectRootOutsideStateDir(projectRoot: string, globalRoot
   );
 }
 
-async function writeProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {
+async function writeProjectMeta(
+  paths: WstackPaths,
+  projectRoot: string,
+  projectId?: string,
+): Promise<void> {
   try {
     await fs.mkdir(paths.projectDir, { recursive: true });
     const meta = {
       hash: paths.projectHash,
       slug: paths.projectSlug,
       root: projectRoot,
+      ...(projectId ? { projectId } : {}),
       lastSeen: new Date().toISOString(),
     };
     await fs.writeFile(paths.projectMeta, JSON.stringify(meta, null, 2));
@@ -568,6 +617,8 @@ async function registerProjectInManifest(
   events?: EventBus,
   /** Working directory when it differs from projectRoot (e.g. subdirectory launch). */
   workingDir?: string,
+  /** Stable repo-committed identity shared by clones and worktrees. */
+  projectId?: string,
 ): Promise<void> {
   const manifestPath = path.join(paths.globalRoot, 'projects.json');
 
@@ -601,7 +652,7 @@ async function registerProjectInManifest(
 
   // Write updated manifest
   try {
-    let manifest: { projects: Array<{ name: string; root: string; slug: string; lastSeen?: string; createdAt?: string; lastWorkingDir?: string }> };
+    let manifest: { projects: Array<{ name: string; root: string; slug: string; projectId?: string; lastSeen?: string; createdAt?: string; lastWorkingDir?: string }> };
     try {
       const raw = await fs.readFile(manifestPath, 'utf8');
       manifest = JSON.parse(raw);
@@ -613,11 +664,12 @@ async function registerProjectInManifest(
     const existing = manifest.projects.find((p) => p.root === projectRoot);
     if (existing) {
       existing.lastSeen = now;
+      if (projectId) existing.projectId = projectId;
       if (workingDir) existing.lastWorkingDir = workingDir;
     } else {
       const slug = paths.projectSlug;
       const name = path.basename(projectRoot);
-      const entry: Record<string, string | undefined> = { name, root: projectRoot, slug, lastSeen: now, createdAt: now };
+      const entry: Record<string, string | undefined> = { name, root: projectRoot, slug, projectId, lastSeen: now, createdAt: now };
       if (workingDir) entry.lastWorkingDir = workingDir;
       manifest.projects.push(entry as typeof manifest.projects[0]);
     }
@@ -641,35 +693,6 @@ async function registerProjectInManifest(
       error: toErrorMessage(err),
       recoverable: false,
     });
-    // best-effort — never blocks boot
-  }
-}
-
-const GITIGNORE_ENTRY = '.wrongstack/\n';
-
-/**
- * Ensure `.gitignore` exists in the project root and contains `.wrongstack/`.
- * Idempotent — skips if the entry is already present. Best-effort — failures
- * are silently ignored so boot never blocks on gitignore maintenance.
- */
-async function ensureGitignore(projectRoot: string): Promise<void> {
-  const gitignorePath = path.join(projectRoot, '.gitignore');
-  try {
-    let content = '';
-    try {
-      content = await fs.readFile(gitignorePath, 'utf8');
-    } catch {
-      // file doesn't exist — that's fine, we'll create it
-    }
-    if (!content.includes('.wrongstack')) {
-      const updated = content
-        ? content.endsWith('\n')
-          ? content + GITIGNORE_ENTRY
-          : content + '\n' + GITIGNORE_ENTRY
-        : GITIGNORE_ENTRY;
-      await fs.writeFile(gitignorePath, updated, 'utf8');
-    }
-  } catch {
     // best-effort — never blocks boot
   }
 }

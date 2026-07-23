@@ -74,11 +74,14 @@ const MODEL_FAMILY_RATIO: Record<string, number> = {
 };
 
 /**
- * Cache of computed estimates keyed by the stringified input — not the
- * input object itself. Previously the cache was keyed by the input object
- * via WeakMap, but JSON.stringify() produces a new object reference each
- * call so the cache never hit. Now we use a Map with string keys so that
- * repeated stringifications of the same structure share a single entry.
+ * Cache of computed estimates keyed by a compact HASH of the stringified input —
+ * NOT the stringified input itself. The estimator is called per tool_use and per
+ * tool_result on every context-window check, and the source strings are full tool
+ * payloads (file reads, command output). Keying the Map by those strings meant the
+ * cache retained up to 50 000 full payloads — hundreds of MB — for a value that is
+ * a single number. We now key by `"<len>:<djb2>"` (≈15 chars) and never retain the
+ * payload. A hash collision (same length AND djb2) at worst returns a slightly-off
+ * heuristic token estimate, which only nudges compaction timing — never correctness.
  */
 const ESTIMATE_CACHE = new Map<string, number>();
 /** Insertion-order queue for O(1) LRU eviction: shift from front on overcapacity. */
@@ -86,7 +89,17 @@ const _estimateCacheOrder: string[] = [];
 
 const ESTIMATE_CACHE_MAX_SIZE = 50_000;
 
-function getCachedEstimate(key: string, compute: (key: string) => number): number {
+/** Compact collision-resistant key: length prefix + 32-bit DJB2 of the source. */
+function estimateCacheKey(source: string): string {
+  let h = 5381;
+  for (let i = 0; i < source.length; i++) {
+    h = ((h << 5) + h + source.charCodeAt(i)) | 0;
+  }
+  return `${source.length}:${h >>> 0}`;
+}
+
+function getCachedEstimate(source: string, compute: (source: string) => number): number {
+  const key = estimateCacheKey(source);
   const existing = ESTIMATE_CACHE.get(key);
   if (existing !== undefined) return existing;
   if (ESTIMATE_CACHE.size >= ESTIMATE_CACHE_MAX_SIZE) {
@@ -97,7 +110,8 @@ function getCachedEstimate(key: string, compute: (key: string) => number): numbe
       if (oldest !== undefined) ESTIMATE_CACHE.delete(oldest);
     }
   }
-  const estimate = compute(key);
+  // Compute on the full source (never retained); only the hash key + number stay.
+  const estimate = compute(source);
   ESTIMATE_CACHE.set(key, estimate);
   _estimateCacheOrder.push(key);
   return estimate;

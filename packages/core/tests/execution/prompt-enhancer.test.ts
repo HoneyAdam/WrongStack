@@ -214,7 +214,7 @@ describe('bilingual enhancement parsing', () => {
 
 describe('completeRefinerPass', () => {
   it('uses the direct provider with the supplied request and signal', async () => {
-    const complete = vi.fn(async () => textResponse('  Refined output.  '));
+    const complete = vi.fn(async (_req: Request) => textResponse('  Refined output.  '));
     const provider = makeProvider(complete);
     const signal = new AbortController().signal;
     const request: Request = {
@@ -334,7 +334,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('reports empty after exactly one unsuccessful corrective retry', async () => {
-    const complete = vi.fn(async () => textResponse('Yalnızca Türkçe yanıt.'));
+    const complete = vi.fn(async (_req: Request) => textResponse('Yalnızca Türkçe yanıt.'));
     const provider = makeProvider(complete);
     const onError = vi.fn();
     const out = await enhanceUserPrompt({
@@ -362,7 +362,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('rejects additional separator lines after one corrective retry', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Türkçe sürüm.\n---\nUse the English version.\n---\nExtra English text.'),
     );
     const provider = makeProvider(complete);
@@ -381,7 +381,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('sends the enhancer system prompt and the raw text as a user message', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Refine the request.\n---\nRefine the request.'),
     );
     const provider = makeProvider(complete);
@@ -393,7 +393,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('embeds conversation history as context in a single user message', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Refine the request.\n---\nRefine the request.'),
     );
     const provider = makeProvider(complete);
@@ -419,7 +419,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('embeds project/session context and retry context in the same user message', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Refine the request.\n---\nRefine the request.'),
     );
     const provider = makeProvider(complete);
@@ -450,7 +450,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('forwards a reasoning directive when supplied', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Refine the request.\n---\nRefine the request.'),
     );
     const provider = makeProvider(complete);
@@ -465,7 +465,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('sends no reasoning field when none is supplied (default behavior)', async () => {
-    const complete = vi.fn(async () =>
+    const complete = vi.fn(async (_req: Request) =>
       textResponse('Refine the request.\n---\nRefine the request.'),
     );
     const provider = makeProvider(complete);
@@ -490,7 +490,7 @@ describe('enhanceUserPrompt', () => {
   });
 
   it('returns null when both provider attempts yield empty text', async () => {
-    const complete = vi.fn(async () => textResponse('   '));
+    const complete = vi.fn(async (_req: Request) => textResponse('   '));
     const provider = makeProvider(complete);
     const onError = vi.fn();
     const out = await enhanceUserPrompt({

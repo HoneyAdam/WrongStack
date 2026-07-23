@@ -121,6 +121,26 @@ export interface SubagentConfig {
    */
   fallbackProfile?: string | undefined;
 
+  /** Closed provider/model policy applied by a project roster role. */
+  modelPolicy?:
+    | {
+        allowed: Array<{ provider: string; model: string }>;
+        fallbacks?: Array<{ provider: string; model: string }> | undefined;
+        strict?: boolean | undefined;
+      }
+    | undefined;
+
+  /** Optional working-hours policy; built-in system roles treat it as advisory. */
+  availability?:
+    | {
+        timezone: string;
+        days: number[];
+        start: string;
+        end: string;
+        mode?: 'advisory' | 'enforce' | undefined;
+      }
+    | undefined;
+
   /**
    * Runtime request overrides for THIS subagent. When present, these are merged
    * over the leader's `Config.modelRuntime` before the subagent request pipeline
@@ -151,26 +171,36 @@ export interface SubagentConfig {
    */
   skillNames?: string[] | undefined;
 
+  /** Optional smart-dispatch metadata for dynamically created project roles. */
+  dispatch?:
+    | {
+        summary: string;
+        keywords: string[];
+      }
+    | undefined;
+
   /**
    * Project-level identity customization for this agent role.
    * When set, the runtime loads project-specific overrides and learned
    * wisdom files from `.wrongstack/agents/<role>/` and merges them
    * on top of the base catalog definition.
    */
-  projectIdentity?: {
-    /** Path to the project root (defaults to the factory's projectRoot). */
-    projectRoot?: string | undefined;
-    /**
-     * When true, the agent may update its own `learned.md` file after a
-     * task to pass project-specific patterns to future invocations.
-     */
-    canLearn?: boolean | undefined;
-    /**
-     * Static identity appendix overrides the identity.md file when set.
-     * Useful for programmatic overrides from CI or orchestration flows.
-     */
-    identityOverride?: string | undefined;
-  } | undefined;
+  projectIdentity?:
+    | {
+        /** Path to the project root (defaults to the factory's projectRoot). */
+        projectRoot?: string | undefined;
+        /**
+         * When true, the agent may update its own `learned.md` file after a
+         * task to pass project-specific patterns to future invocations.
+         */
+        canLearn?: boolean | undefined;
+        /**
+         * Static identity appendix overrides the identity.md file when set.
+         * Useful for programmatic overrides from CI or orchestration flows.
+         */
+        identityOverride?: string | undefined;
+      }
+    | undefined;
 
   /**
    * Domain-specific knowledge injected into the subagent's system prompt after

@@ -11,6 +11,7 @@ import {
   writeHqAuthFile,
   writeHqRuntimeFile,
 } from '../../src/hq/index.js';
+import { ensureProjectIdentity } from '../../src/utils/project-identity.js';
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-factory-'));
@@ -273,6 +274,9 @@ describe('HQ publisher factory env config', () => {
       deriveHqProjectId('/copy/b', 'shared-project'),
     );
     expect(deriveHqProjectId('/copy/a')).not.toBe(deriveHqProjectId('/copy/b'));
+    expect(() => deriveHqProjectId('alias:shared-project')).toThrow(
+      'projectRoot must not use the reserved "alias:" HQ identity prefix',
+    );
 
     const publisher = createHqPublisherFromEnv({
       clientKind: 'cli',
@@ -286,6 +290,40 @@ describe('HQ publisher factory env config', () => {
     });
     expect(publisher?.project.projectName).toBe('shared-project');
     publisher?.close();
+  });
+
+  it('prefers the committed project id across clones and keeps alias as display metadata', async () => {
+    await withTempDir(async (dir) => {
+      const first = path.join(dir, 'first');
+      const second = path.join(dir, 'second');
+      await fs.mkdir(first, { recursive: true });
+      await fs.mkdir(second, { recursive: true });
+      const created = await ensureProjectIdentity(
+        first,
+        () => 'proj_01J00000000000000000000000',
+      );
+      await fs.mkdir(path.join(second, '.wrongstack'), { recursive: true });
+      await fs.copyFile(
+        path.join(first, '.wrongstack', 'project.json'),
+        path.join(second, '.wrongstack', 'project.json'),
+      );
+
+      expect(deriveHqProjectId(first, 'display-a')).toBe(created.identity.projectId);
+      expect(deriveHqProjectId(second, 'display-b')).toBe(created.identity.projectId);
+
+      const publisher = createHqPublisherFromEnv({
+        clientKind: 'cli',
+        projectRoot: second,
+        config: {
+          enabled: true,
+          url: 'http://127.0.0.1:3499',
+          projectAlias: 'Readable project name',
+        },
+      });
+      expect(publisher?.project.projectId).toBe(created.identity.projectId);
+      expect(publisher?.project.projectName).toBe('Readable project name');
+      publisher?.close();
+    });
   });
 
   it('honors config hq.rawContent + hq.projectAlias in discovery mode', async () => {

@@ -166,6 +166,7 @@ export const CONFIG_BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     enhanceLanguage: 'original',
     statuslineMode: 'detailed',
     thinkingWord: DEFAULT_TUI_THINKING_WORD,
+    showAgentSwarmPanel: true,
   },
   circuitBreaker: { ...DEFAULT_CIRCUIT_BREAKER_CONFIG },
   modelRuntime: {

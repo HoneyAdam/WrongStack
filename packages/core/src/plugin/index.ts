@@ -20,8 +20,11 @@ export {
 } from './loader.js';
 export type { PluginAPI } from '../types/plugin.js';
 export {
+  buildReviewerModelPool,
   createAutoReviewPlugin,
   DEFAULT_REVIEW_FALLBACK_MODELS,
+  type ReviewerModelAssignment,
+  selectRoundRobinReviewerAssignment,
 } from '../plugins/auto-review-plugin.js';
 export {
   type CascadeAgentKind,

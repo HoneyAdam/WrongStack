@@ -135,6 +135,34 @@ describe('HookRunner.postToolUse', () => {
     const r = await runner.postToolUse('bash', {}, { content: 'out', isError: false }, env);
     expect(r.additionalContext).toBe('a\nb');
   });
+
+  it('serializes background hooks and coalesces a burst to the latest payload', async () => {
+    const reg = new HookRegistry();
+    const started: string[] = [];
+    const releases: Array<() => void> = [];
+    const hook = vi.fn(async (input: { toolInput?: unknown }) => {
+      started.push((input.toolInput as { path: string }).path);
+      await new Promise<void>((resolve) => releases.push(resolve));
+    });
+    reg.registerInProcess('PostToolUse', '*', hook, 'scanner', {
+      background: true,
+      timeoutMs: 1_000,
+    });
+    const runner = new HookRunner({ registry: reg });
+    const result = { content: 'ok', isError: false };
+
+    await runner.postToolUse('write', { path: 'first.ts' }, result, env);
+    await vi.waitFor(() => expect(started).toEqual(['first.ts']));
+
+    await runner.postToolUse('write', { path: 'obsolete.ts' }, result, env);
+    await runner.postToolUse('write', { path: 'latest.ts' }, result, env);
+    expect(started).toEqual(['first.ts']);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(started).toEqual(['first.ts', 'latest.ts']));
+    expect(hook).toHaveBeenCalledTimes(2);
+    releases.shift()?.();
+  });
 });
 
 describe('HookRunner.userPromptSubmit', () => {

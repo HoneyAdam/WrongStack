@@ -709,8 +709,11 @@ export {
 } from './plugin/loader.js';
 // Built-in plugins
 export {
+  buildReviewerModelPool,
   createAutoReviewPlugin,
   DEFAULT_REVIEW_FALLBACK_MODELS,
+  type ReviewerModelAssignment,
+  selectRoundRobinReviewerAssignment,
 } from './plugins/auto-review-plugin.js';
 export type {
   CascadeAgentKind,

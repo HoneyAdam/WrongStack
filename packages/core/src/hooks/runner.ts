@@ -93,6 +93,15 @@ export interface PromptResult {
  */
 export class HookRunner {
   private readonly registry: HookRegistry;
+  /**
+   * Background hooks are advisory and must never form an unbounded work queue.
+   * Keep at most one invocation running plus the latest pending payload for
+   * each registered hook.
+   */
+  private readonly backgroundRuns = new Map<
+    HookEntry,
+    { pending: { payload: HookInput; env: HookRunEnv } | null }
+  >();
 
   constructor(private readonly opts: HookRunnerOptions) {
     this.registry = opts.registry;
@@ -183,8 +192,7 @@ export class HookRunner {
     const foreground: HookEntry[] = [];
     for (const entry of entries) {
       if (entry.background) {
-        // Fire-and-forget: invoke without await, swallow errors.
-        this.invoke(entry, payload, env).catch(() => {});
+        this.scheduleBackground(entry, payload, env);
       } else {
         foreground.push(entry);
       }
@@ -247,6 +255,32 @@ export class HookRunner {
 
   private matching(event: HookEvent, toolName: string | undefined): readonly HookEntry[] {
     return this.registry.list(event).filter((e) => hookMatcherMatches(e.matcher, toolName));
+  }
+
+  private scheduleBackground(entry: HookEntry, payload: HookInput, env: HookRunEnv): void {
+    const running = this.backgroundRuns.get(entry);
+    if (running !== undefined) {
+      // Intermediate advisory scans are obsolete once a newer write arrives.
+      running.pending = { payload, env };
+      return;
+    }
+
+    const state = { pending: null as { payload: HookInput; env: HookRunEnv } | null };
+    this.backgroundRuns.set(entry, state);
+    void (async () => {
+      let next: { payload: HookInput; env: HookRunEnv } | null = { payload, env };
+      while (next !== null) {
+        try {
+          await this.invoke(entry, next.payload, next.env);
+        } catch {
+          // Background hooks are explicitly fail-open.
+        }
+        next = state.pending;
+        state.pending = null;
+      }
+    })().finally(() => {
+      this.backgroundRuns.delete(entry);
+    });
   }
 
   private async invoke(
