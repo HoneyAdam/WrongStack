@@ -84,6 +84,7 @@
     "filterAll": "Todos",
     "filterRunning": "En ejecución",
     "filterDone": "Completados",
+    "filterCompleted": "Completados",
     "filterFailed": "Fallidos",
     "clearFinished": "Limpiar",
     "clearFinishedTitle": "Eliminar agentes finalizados",

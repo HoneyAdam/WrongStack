@@ -84,6 +84,7 @@
     "filterAll": "Tümü",
     "filterRunning": "Çalışan",
     "filterDone": "Tamamlanan",
+    "filterCompleted": "Tamamlanan",
     "filterFailed": "Başarısız",
     "clearFinished": "Temizle",
     "clearFinishedTitle": "Tamamlanan aracıları kaldır",
