@@ -173,6 +173,17 @@ function wsTokenCookie(token: string): string {
   return `ws_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600`;
 }
 
+function setAuthCookieHeaders(res: http.ServerResponse, token: string): void {
+  res.setHeader('Set-Cookie', wsTokenCookie(token));
+  res.setHeader('Cache-Control', 'no-store');
+}
+
+function setStaticSecurityHeaders(res: http.ServerResponse): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+}
+
 function requestToken(req: http.IncomingMessage, url: URL): string | undefined {
   return (
     url.searchParams.get('token') ??
@@ -199,15 +210,15 @@ function cspSourceFromUrl(rawUrl: string): string | undefined {
  * Extra `script-src` sources beyond `'self'`.
  *
  * The WrongStack frontend is a Vite build that ships **zero** inline scripts —
- * every script is an external `.js` file covered by `'self'`. So `script-src`
- * stays strict: no `'unsafe-inline'`, and no per-extension `'sha256-…'` hashes.
+ * every script is an external `.js` file covered by `'self'`. The app itself
+ * needs no `'unsafe-inline'`.
  *
- * Browser extensions (password managers, dark-mode readers, dev helpers) that
- * page-inject an inline bootstrap will trip a CSP violation in the console
- * (reported from `content.js:…` with a sha256 of the extension's bytes). That
- * noise is harmless: it blocks only the extension's own injection, never our
- * app, and the hashes are per-extension + change on every extension update — so
- * we deliberately do NOT chase them here.
+ * `'unsafe-inline'` is added only to suppress browser-extension console noise:
+ * extensions (password managers, dark-mode readers, dev helpers) page-inject
+ * inline bootstrap code, which would otherwise trip per-extension CSP
+ * violations (`content.js:…` with a sha256 of the extension's bytes). Adding
+ * `'unsafe-inline'` once is simpler than chasing per-extension sha256 hashes
+ * that change on every update.
  *
  * `'wasm-unsafe-eval'` is required for `shiki` (used by `rehype-pretty-code`
  * for code-block syntax highlighting in chat messages) — its oniguruma
@@ -252,7 +263,7 @@ export function buildCspHeader(
     // This is NOT about ephemeral-port binds (listen(0)) — createHttpServer
     // resolves the real port from server.address() and passes it here.
     if (p > 0 && p <= 65535) {
-      for (const h of ['127.0.0.1', 'localhost']) {
+      for (const h of ['127.0.0.1', 'localhost', '[::1]']) {
         connect.add(`ws://${h}:${p}`);
         connect.add(`wss://${h}:${p}`);
       }
@@ -305,6 +316,23 @@ export function decodeSessionId(segment: string): string {
     return decodeURIComponent(segment);
   } catch {
     return segment;
+  }
+}
+
+/**
+ * Decode a URI-encoded path segment and return 400 on failure.
+ * Use this when the caller should not silently accept malformed input.
+ */
+function strictDecodeParam(
+  segment: string,
+  res: http.ServerResponse,
+): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid URI encoding in path parameter' }));
+    return null;
   }
 }
 
@@ -366,13 +394,8 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
         // (Strict blocks cross-site), and is scoped to this origin only.
         // No `Secure` flag: the dev server is plain HTTP on loopback,
         // and a Secure cookie over HTTP would not be sent by the browser.
-        res.writeHead(200, {
-          'Content-Type': 'text/plain',
-          'Set-Cookie': wsTokenCookie(opts.apiToken),
-          // Belt-and-braces: tell any caches the cookie response itself
-          // is sensitive.
-          'Cache-Control': 'no-store',
-        });
+        setAuthCookieHeaders(res, opts.apiToken);
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('ok');
         return;
       }
@@ -387,8 +410,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
       }
 
       if (shouldSetAuthCookie && opts.apiToken) {
-        res.setHeader('Set-Cookie', wsTokenCookie(opts.apiToken));
-        res.setHeader('Cache-Control', 'no-store');
+        setAuthCookieHeaders(res, opts.apiToken);
       }
 
       // /api/fleet/ping — push-on-write nudge from a same-project TUI/REPL.
@@ -654,26 +676,34 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           }
           const cancelMatch = /^\/api\/techstack\/jobs\/([^/]+)\/cancel$/.exec(url.pathname);
           if (cancelMatch && req.method === 'POST') {
-            handleTechStackCancel(res, deps, decodeURIComponent(cancelMatch[1]!));
+            const id = strictDecodeParam(cancelMatch[1]!, res);
+            if (id === null) return;
+            handleTechStackCancel(res, deps, id);
             return;
           }
           const jobMatch = /^\/api\/techstack\/jobs\/([^/]+)$/.exec(url.pathname);
           if (jobMatch && req.method === 'GET') {
-            handleTechStackJobStatus(res, deps, decodeURIComponent(jobMatch[1]!));
+            const id = strictDecodeParam(jobMatch[1]!, res);
+            if (id === null) return;
+            handleTechStackJobStatus(res, deps, id);
             return;
           }
           const reportMatch = /^\/api\/techstack\/reports\/([^/]+)$/.exec(url.pathname);
           if (reportMatch && req.method === 'GET') {
+            const id = strictDecodeParam(reportMatch[1]!, res);
+            if (id === null) return;
             const fmt = url.searchParams.get('format') === 'json' ? 'json' : 'md';
-            handleTechStackReport(res, deps, decodeURIComponent(reportMatch[1]!), fmt);
+            handleTechStackReport(res, deps, id, fmt);
             return;
           }
           const researchMatch = /^\/api\/techstack\/deps\/([^/]+)\/research$/.exec(url.pathname);
           if (researchMatch && req.method === 'POST') {
+            const pkg = strictDecodeParam(researchMatch[1]!, res);
+            if (pkg === null) return;
             await handleTechStackDependencyResearch(
               res,
               deps,
-              decodeURIComponent(researchMatch[1]!),
+              pkg,
             );
             return;
           }
@@ -743,12 +773,8 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
 
       if (url.pathname === '/' || url.pathname === '') {
         filePath = path.join(distDir, 'index.html');
-      } else if (url.pathname.startsWith('/assets/')) {
-        filePath = path.join(distDir, url.pathname);
-      } else if (url.pathname.startsWith('/')) {
-        filePath = path.join(distDir, url.pathname);
       } else {
-        filePath = path.join(distDir, 'index.html');
+        filePath = path.join(distDir, url.pathname);
       }
 
       // Path traversal guard: the resolved path must stay inside distDir.
@@ -767,9 +793,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
       const ext = path.extname(resolvedPath);
       const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('X-Frame-Options', 'DENY');
-      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      setStaticSecurityHeaders(res);
 
       if (ext === '.html') {
         if (!shouldSetAuthCookie) res.setHeader('Cache-Control', 'no-cache');
@@ -798,11 +822,9 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
         // SPA fallback: serve index.html so client-side routing still works.
         try {
           const html = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
+          setStaticSecurityHeaders(res);
           res.writeHead(200, {
             'Content-Type': 'text/html',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Content-Security-Policy': buildCspHeader(opts.publicWsUrl, opts.host, port),
           });
           res.end(injectWsConfig(html, { publicWsUrl: opts.publicWsUrl }));
@@ -811,6 +833,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           res.end('Not found');
         }
       } else {
+        console.error({ url: req.url, err });
         res.writeHead(500);
         res.end('Server error');
       }
