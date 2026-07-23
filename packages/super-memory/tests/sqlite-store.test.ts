@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteSuperMemoryStore } from '../src/sqlite-store.js';
-import { SuperMemoryStore } from '../src/store.js';
 
 let tempDir: string;
 
@@ -26,6 +25,56 @@ afterEach(async () => {
 function trackStore(store: SqliteSuperMemoryStore): SqliteSuperMemoryStore {
   activeStores.push(store);
   return store;
+}
+
+/**
+ * Write legacy JSONL artifacts directly to disk so the auto-migration path can
+ * be exercised without the deleted JSONL store. Mirrors the on-disk layout the
+ * migration reader expects: memories.jsonl, candidates.jsonl, graph/edges.jsonl,
+ * audit.jsonl under `<projectRoot>/.wrongstack/memories`.
+ */
+async function seedLegacyJsonl(files: {
+  memories?: object[];
+  candidates?: object[];
+  edges?: object[];
+  audits?: object[];
+}): Promise<void> {
+  const root = path.join(tempDir, '.wrongstack', 'memories');
+  await fs.promises.mkdir(path.join(root, 'graph'), { recursive: true });
+  const write = (file: string, rows?: object[]): Promise<void> =>
+    rows && rows.length
+      ? fs.promises.writeFile(file, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`, 'utf8')
+      : Promise.resolve();
+  await write(path.join(root, 'memories.jsonl'), files.memories);
+  await write(path.join(root, 'candidates.jsonl'), files.candidates);
+  await write(path.join(root, 'graph', 'edges.jsonl'), files.edges);
+  await write(path.join(root, 'audit.jsonl'), files.audits);
+}
+
+/** Build a legacy `recordType:'memory'` JSONL row for the migration fixtures. */
+function legacyMemoryRow(id: string, kind: string, text: string): object {
+  const now = new Date().toISOString();
+  return {
+    recordType: 'memory',
+    schemaVersion: 1,
+    op: 'add',
+    memory: {
+      id,
+      revision: 1,
+      status: 'active',
+      kind,
+      scope: 'project',
+      text,
+      importance: 0.8,
+      confidence: 0.8,
+      freshness: 1,
+      tags: [],
+      anchors: [],
+      sources: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
 }
 
 describe('SqliteSuperMemoryStore', () => {
@@ -538,13 +587,37 @@ describe('SqliteSuperMemoryStore', () => {
 
   describe('JSONL → SQLite migration', () => {
     it('auto-migrates existing JSONL records on first open', async () => {
-      // First, write every legacy artifact via the JSONL store.
-      const jsonlStore = new SuperMemoryStore({ projectRoot: tempDir });
-      await jsonlStore.initialize();
-      const first = await jsonlStore.rememberSuper({ text: 'JSONL memory one', kind: 'fact' });
-      const second = await jsonlStore.rememberSuper({ text: 'JSONL memory two', kind: 'decision' });
-      await jsonlStore.createCandidate({ text: 'JSONL candidate', kind: 'fact' });
-      await jsonlStore.addGraphEdge(`mem:${first.id}`, `mem:${second.id}`, 'related_to', 0.8);
+      // Write every legacy artifact directly to disk (the JSONL store that used
+      // to produce them was removed in the SQLite migration).
+      const now = new Date().toISOString();
+      await seedLegacyJsonl({
+        memories: [
+          legacyMemoryRow('mem_one', 'fact', 'JSONL memory one'),
+          legacyMemoryRow('mem_two', 'decision', 'JSONL memory two'),
+        ],
+        candidates: [
+          {
+            id: 'cand_one',
+            status: 'pending',
+            kind: 'fact',
+            text: 'JSONL candidate',
+            tags: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        edges: [
+          {
+            id: 'edge_one',
+            from: 'mem:mem_one',
+            to: 'mem:mem_two',
+            relation: 'related_to',
+            weight: 0.8,
+            createdAt: now,
+          },
+        ],
+        audits: [{ event: 'memory.remembered', at: now }],
+      });
 
       // Now open with SQLite store — should auto-migrate
       const sqliteStore = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
@@ -598,10 +671,8 @@ describe('SqliteSuperMemoryStore', () => {
     });
 
     it('does not re-migrate if SQLite db already has data', async () => {
-      // Seed JSONL
-      const jsonlStore = new SuperMemoryStore({ projectRoot: tempDir });
-      await jsonlStore.initialize();
-      await jsonlStore.rememberSuper({ text: 'JSONL original', kind: 'fact' });
+      // Seed a legacy memories.jsonl directly (no live JSONL store any more).
+      await seedLegacyJsonl({ memories: [legacyMemoryRow('mem_orig', 'fact', 'JSONL original')] });
 
       // First SQLite open — migrates
       const store1 = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));

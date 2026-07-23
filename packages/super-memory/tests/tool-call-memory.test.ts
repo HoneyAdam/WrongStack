@@ -2,23 +2,57 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
+import {
+  createSuperMemoryToolCallMiddleware,
+  type SuperMemoryRetrieverLike,
+} from '../src/middleware/tool-call-memory.js';
 import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
 import { EventBus } from '@wrongstack/core/kernel';
-import { SuperMemoryStore } from '../src/store.js';
+import { SqliteSuperMemoryStore } from '../src/sqlite-store.js';
 
 let tmpDir: string;
+let openStores: SqliteSuperMemoryStore[] = [];
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'super-memory-tcm-'));
+  openStores = [];
 });
 
 afterEach(async () => {
+  for (const store of openStores) {
+    try {
+      store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  // Give Windows a tick to release WAL file handles before removing the dir.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-function makeStore() {
-  return new SuperMemoryStore({ projectRoot: tmpDir });
+/**
+ * The SQLite store exposes retrieveForPath(paths[]); the middleware consumes the
+ * host-facing retriever surface (retrieveForPath({ path })). Production bridges
+ * the two through SqliteMemoryPort's retrieval capability — this adapter mirrors
+ * that while still exposing rememberSuper so tests can seed memories.
+ */
+type TestMemory = SuperMemoryRetrieverLike & {
+  rememberSuper: SqliteSuperMemoryStore['rememberSuper'];
+};
+
+function makeStore(): TestMemory {
+  const store = new SqliteSuperMemoryStore({ projectRoot: tmpDir });
+  openStores.push(store);
+  return {
+    rememberSuper: (input) => store.rememberSuper(input),
+    retrieveForPath: (opts) => store.retrieveForPath([opts.path], opts),
+    searchSuper: (query, opts) => store.searchSuper(query, opts),
+    findRelatedSuper: (memoryIds, opts) => store.findRelatedSuper(memoryIds, opts),
+    recordInjection: (memoryIds, trigger, sessionId) =>
+      store.recordInjection(memoryIds, trigger, sessionId),
+    recordUse: (memoryIds, source, sessionId) => store.recordUse(memoryIds, source, sessionId),
+  };
 }
 
 async function storeWithFileMemory(file: string) {

@@ -189,6 +189,36 @@ describe('applyTaskPatch field handlers', () => {
     applyTaskPatch(board, task, { dueDate: null });
     expect(task.dueDate).toBeUndefined();
   });
+
+  it('sets atomic, expectedFileChanges, and verificationReport', () => {
+    const { board, task } = taskOnBoard();
+    applyTaskPatch(board, task, {
+      atomic: true,
+      expectedFileChanges: [{ path: 'src/main.ts', operation: 'modify' }],
+      verificationReport: {
+        taskId: task.id,
+        taskTitle: task.title,
+        boardId: board.id,
+        startedAt: '2026-01-01T00:00:00Z',
+        completedAt: '2026-01-01T00:01:00Z',
+        verdict: 'passed',
+        checks: [],
+        markdownSummary: 'All checks passed.',
+        attachments: [],
+      },
+    });
+    expect(task.atomic).toBe(true);
+    expect(task.expectedFileChanges).toHaveLength(1);
+    expect(task.expectedFileChanges![0]!.path).toBe('src/main.ts');
+    expect(task.verificationReport).toBeDefined();
+    expect(task.verificationReport!.verdict).toBe('passed');
+
+    // Clear with null
+    applyTaskPatch(board, task, { atomic: null, expectedFileChanges: null, verificationReport: null });
+    expect(task.atomic).toBeUndefined();
+    expect(task.expectedFileChanges).toBeUndefined();
+    expect(task.verificationReport).toBeUndefined();
+  });
 });
 
 // ── buildAssignment ──────────────────────────────────────────────────
@@ -249,12 +279,26 @@ describe('cloneTaskForBoard field cloning', () => {
       costCeilingUsd: 2,
       description: 'desc',
       dueDate: '2026-08-01',
+      atomic: true,
+      expectedFileChanges: [{ path: 'src/main.ts', operation: 'modify' }],
     });
     // createTaskObject doesn't accept lifecycle, so set it directly on the source.
     source.lifecycle = {
       currentStage: 'backlog',
       stageEnteredAt: nowIso(),
       history: [{ to: 'backlog', at: nowIso(), actor: 'a' }],
+    };
+    // verificationReport is set after creation to test clone propagation
+    source.verificationReport = {
+      taskId: source.id,
+      taskTitle: source.title,
+      boardId: board.id,
+      startedAt: '2026-01-01T00:00:00Z',
+      completedAt: '2026-01-01T00:01:00Z',
+      verdict: 'passed',
+      checks: [],
+      markdownSummary: 'All checks passed.',
+      attachments: [],
     };
     const cloned = cloneTaskForBoard(board, source, {
       preserveAssignment: true,
@@ -272,6 +316,12 @@ describe('cloneTaskForBoard field cloning', () => {
     expect(cloned.estimatedHours).toBe(3);
     expect(cloned.labels).toEqual(['x']);
     expect(cloned.id).not.toBe(source.id);
+    // New verification fields propagate
+    expect(cloned.atomic).toBe(true);
+    expect(cloned.expectedFileChanges).toHaveLength(1);
+    expect(cloned.expectedFileChanges![0]!.path).toBe('src/main.ts');
+    expect(cloned.verificationReport).toBeDefined();
+    expect(cloned.verificationReport!.verdict).toBe('passed');
   });
 
   it('preserves assignment when requested', () => {

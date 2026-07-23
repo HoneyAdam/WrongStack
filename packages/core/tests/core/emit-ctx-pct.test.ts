@@ -185,7 +185,7 @@ describe('B5 — emitContextPct elision on idle loops', () => {
     events.on('ctx.pct', (payload) => {
       ctxPctEvents.push({
         load: payload.load,
-        rawLoad: payload.rawLoad,
+        ...(payload.rawLoad !== undefined ? { rawLoad: payload.rawLoad } : {}),
         tokens: payload.tokens,
         maxContext: payload.maxContext,
       });

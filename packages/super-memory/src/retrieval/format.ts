@@ -1,4 +1,4 @@
-import type { SuperMemory } from '../types.js';
+import { DEFAULT_PERSISTENCE, type SuperMemory } from '../types.js';
 
 export interface FormatMemoryHintsOptions {
   heading?: string | undefined;
@@ -30,7 +30,7 @@ export function formatMemoryHintsDetailed(
   const memoryIds: string[] = [];
 
   for (const memory of memories) {
-    const persistence = memory.persistence ?? 'long_lived';
+    const persistence = memory.persistence ?? DEFAULT_PERSISTENCE;
     const labels = [
       memory.kind,
       persistence === 'permanent' ? 'permanent' : undefined,

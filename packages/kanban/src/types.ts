@@ -56,9 +56,16 @@ export interface KanbanBoundaryPolicy {
   deny?: KanbanBoundarySelector[] | undefined;
 }
 
-export type KanbanCheckType = 'manual' | 'auto' | 'agent' | 'test' | 'review';
+export type KanbanCheckType = 'manual' | 'auto' | 'agent' | 'test' | 'review' | 'command' | 'file_exists' | 'file_matches' | 'git_diff' | 'metric' | 'council';
 
 export type KanbanCheckStatus = 'pending' | 'passed' | 'failed' | 'skipped';
+/**
+ * Post-execution check result status.
+ * Unlike `KanbanCheckStatus`, 'pending' is inapplicable because this
+ * always represents a completed verification run, and 'error' captures
+ * runtime failures that did not produce a deterministic outcome.
+ */
+export type KanbanCheckReportStatus = 'passed' | 'failed' | 'skipped' | 'error';
 
 export type KanbanLinkType =
   | 'issue'
@@ -218,6 +225,9 @@ export interface KanbanAgentAssignment {
   error?: string | undefined;
 }
 
+/** Escalation mode for a single check that cannot be deterministically verified. */
+export type KanbanCheckEscalationMode = 'none' | 'agent' | 'council';
+
 export interface KanbanCheck {
   id: string;
   description: string;
@@ -226,6 +236,12 @@ export interface KanbanCheck {
   checkedBy?: string | undefined;
   checkedAt?: string | undefined;
   notes?: string | undefined;
+  /**
+   * Escalation mode for this check. 'none' (default) means this check's
+   * type must have a deterministic verifier. 'agent' or 'council' delegates
+   * to an LLM-based verifier that must still produce concrete evidence.
+   */
+  escalation?: KanbanCheckEscalationMode | undefined;
 }
 
 export interface KanbanLink {
@@ -398,6 +414,112 @@ export interface KanbanTask {
   lifecycle?: KanbanTaskLifecycle | undefined;
   /** Additional task-level boundary; always evaluated together with the board boundary. */
   boundary?: KanbanBoundaryPolicy | undefined;
+  /**
+   * Verification: when true, this task requires atomic decomposition into child
+   * tasks with explicit success criteria, formal verification before completion,
+   * and blocks review→done until verifyTaskCompletion() passes.
+   * Default false. Only set explicitly via split_atomic or update_task.
+   */
+  atomic?: boolean | undefined;
+  /**
+   * Expected file changes for this task. When set, the verifier checks that
+   * the actual git diff between start and completion matches these expectations.
+   * Each entry declares a path and what operation is expected.
+   */
+  expectedFileChanges?: KanbanExpectedFileChange[] | undefined;
+  /**
+   * Immutable verification report written by verifyTaskCompletion().
+   * Persisted atomically with the board mutation so it is never partially written.
+   * Once populated, it is the single source of truth for this task's verification.
+   */
+  verificationReport?: KanbanVerificationReport | undefined;
+}
+
+/** Expected file operation for a task's verification scope. */
+export interface KanbanExpectedFileChange {
+  path: string;
+  operation: 'create' | 'modify' | 'delete';
+  /** Optional: human-readable note about why this change is expected. */
+  note?: string | undefined;
+}
+
+/**
+ * Immutable snapshot of a completed verification run.
+ * Written atomically into the board JSON inside the board mutation lock.
+ */
+export interface KanbanVerificationReport {
+  taskId: string;
+  taskTitle: string;
+  boardId: string;
+  startedAt: string;
+  completedAt: string;
+  /** Overall verdict. */
+  verdict: 'passed' | 'failed' | 'needs_human' | 'incomplete';
+  /** Every check evaluated, in order. */
+  checks: KanbanVerificationCheckResult[];
+  /** File-scope analysis. */
+  fileScope?: KanbanVerificationFileScope | undefined;
+  /** Sub-task aggregation (only when task.atomic === true). */
+  subtasks?: KanbanVerificationSubtasks | undefined;
+  /** Human-readable Markdown summary. */
+  markdownSummary: string;
+  /** Raw evidence attachments. */
+  attachments: KanbanVerificationAttachment[];
+}
+
+export interface KanbanBackingRef {
+  kind: 'file' | 'test' | 'command' | 'diff';
+  path: string;
+  summary: string;
+}
+
+export interface KanbanVerificationCheckResult {
+  checkId: string;
+  description: string;
+  type: KanbanCheckType;
+  /**
+   * Post-execution snapshot status. Unlike `KanbanCheckStatus` (which includes
+   * 'pending'), this report is always the result of a completed verification
+   * run so 'pending' is inapplicable and 'error' captures runtime failures.
+   */
+  status: 'passed' | 'failed' | 'skipped' | 'error';
+  /** Structured evidence payload (depends on check type). */
+  evidence: Record<string, unknown>;
+  error?: string | undefined;
+  /** For agent/council checks: concrete proof references. */
+  backingRefs?: KanbanBackingRef[] | undefined;
+}
+
+export interface KanbanVerificationFileScope {
+  expectedChanges: number;
+  actualChanges: number;
+  scopeMatches: boolean;
+  files: Array<{
+    path: string;
+    operation: 'create' | 'modify' | 'delete';
+    expected: boolean;
+    linesChanged: number;
+  }>;
+}
+
+export interface KanbanVerificationSubtasks {
+  total: number;
+  completed: number;
+  failed: number;
+  children: Array<{
+    taskId: string;
+    title: string;
+    verdict: 'passed' | 'failed' | 'needs_human' | 'incomplete';
+  }>;
+}
+
+export interface KanbanVerificationAttachment {
+  kind: 'file' | 'test_output' | 'command_output' | 'diff';
+  label: string;
+  /** Truncated content or path reference. */
+  content: string;
+  /** Full path when the attachment references a file on disk. */
+  path?: string | undefined;
 }
 
 export interface KanbanColumn {
@@ -566,6 +688,9 @@ export interface CreateKanbanTaskInput {
   notes?: KanbanNote[] | undefined;
   lifecycle?: KanbanTaskLifecycle | undefined;
   boundary?: KanbanBoundaryPolicy | undefined;
+  atomic?: boolean | undefined;
+  expectedFileChanges?: KanbanExpectedFileChange[] | undefined;
+  verificationReport?: KanbanVerificationReport | undefined;
 }
 
 export interface UpdateKanbanTaskInput {
@@ -597,6 +722,9 @@ export interface UpdateKanbanTaskInput {
   links?: KanbanLink[] | undefined;
   lifecycle?: KanbanTaskLifecycle | null | undefined;
   boundary?: KanbanBoundaryPolicy | null | undefined;
+  atomic?: boolean | null | undefined;
+  expectedFileChanges?: KanbanExpectedFileChange[] | null | undefined;
+  verificationReport?: KanbanVerificationReport | null | undefined;
 }
 
 export interface KanbanTaskTransitionInput {
@@ -669,6 +797,8 @@ export interface SplitKanbanTaskInput {
   inheritDependencies?: boolean | undefined;
   chainChildren?: boolean | undefined;
   rewireDependents?: boolean | undefined;
+  /** When true, set `parent.atomic = true` atomically inside the split mutation. */
+  atomic?: boolean | undefined;
 }
 
 export interface MergeKanbanTasksInput {

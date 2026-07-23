@@ -15,7 +15,7 @@
       "relativeImports": 44
     },
     "packages/cli/src/execution.ts": {
-      "lines": 2216,
+      "lines": 2271,
       "relativeImports": 26
     },
     "packages/cli/src/fleet/host.ts": {
@@ -167,8 +167,12 @@
       "relativeImports": 9
     },
     "packages/core/src/index.ts": {
-      "lines": 932,
+      "lines": 935,
       "relativeImports": 142
+    },
+    "packages/core/src/plugins/auto-review-plugin.ts": {
+      "lines": 883,
+      "relativeImports": 9
     },
     "packages/core/src/security/permission-policy.ts": {
       "lines": 833,
@@ -203,11 +207,11 @@
       "relativeImports": 3
     },
     "packages/kanban/src/manager/_internal.ts": {
-      "lines": 1314,
+      "lines": 1340,
       "relativeImports": 8
     },
     "packages/kanban/src/types.ts": {
-      "lines": 847,
+      "lines": 977,
       "relativeImports": 0
     },
     "packages/mcp/src/authorization.ts": {
@@ -235,16 +239,12 @@
       "relativeImports": 44
     },
     "packages/super-memory/src/middleware/tool-call-memory.ts": {
-      "lines": 891,
-      "relativeImports": 6
+      "lines": 892,
+      "relativeImports": 7
     },
     "packages/super-memory/src/sqlite-store.ts": {
-      "lines": 2927,
-      "relativeImports": 5
-    },
-    "packages/super-memory/src/store.ts": {
-      "lines": 3793,
-      "relativeImports": 7
+      "lines": 3075,
+      "relativeImports": 8
     },
     "packages/telegram/src/bot.ts": {
       "lines": 801,
@@ -255,7 +255,7 @@
       "relativeImports": 5
     },
     "packages/tools/src/kanban.ts": {
-      "lines": 1421,
+      "lines": 1502,
       "relativeImports": 1
     },
     "packages/tools/src/session-kanban.ts": {
@@ -323,8 +323,8 @@
       "relativeImports": 18
     },
     "packages/webui/src/App.tsx": {
-      "lines": 846,
-      "relativeImports": 44
+      "lines": 872,
+      "relativeImports": 45
     },
     "packages/webui/src/components/AgentOfficeView.tsx": {
       "lines": 1545,
@@ -387,8 +387,8 @@
       "relativeImports": 7
     },
     "packages/webui/src/components/SettingsPanel/ProviderSection.tsx": {
-      "lines": 820,
-      "relativeImports": 5
+      "lines": 821,
+      "relativeImports": 6
     },
     "packages/webui/src/components/SetupScreen.tsx": {
       "lines": 1366,
@@ -399,8 +399,8 @@
       "relativeImports": 0
     },
     "packages/webui/src/components/SkillDetailView.tsx": {
-      "lines": 927,
-      "relativeImports": 2
+      "lines": 915,
+      "relativeImports": 3
     },
     "packages/webui/src/hooks/ws-handlers/session-handlers.ts": {
       "lines": 938,

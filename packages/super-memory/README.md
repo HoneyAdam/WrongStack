@@ -7,15 +7,13 @@ concrete store.
 ## Supported composition
 
 - `createSqliteMemoryPort(...)` is the production default.
-- `createJsonlCompatibilityMemoryPort(...)` keeps the JSONL backend available
-  during the compatibility window.
 - `LegacyMemoryPortAdapter` wraps third-party or historical `MemoryStore`
   implementations.
 - Optional retrieval and administration features are obtained with
   `getSuperMemoryRetrieval(...)`, `getSuperMemoryService(...)`, or
   `getSuperMemorySurface(...)`.
 
-The concrete `SuperMemoryStore` and `SqliteSuperMemoryStore` exports remain for
+The concrete `SqliteSuperMemoryStore` export remains for
 source compatibility only. New production callers are prohibited by the Core
 architecture test. Backend-specific signature conversion belongs in
 `memory-port.ts`, never in a host.

@@ -7,7 +7,6 @@ import {
   getSuperMemoryRetrieval,
   getSuperMemoryService,
   getSuperMemorySurface,
-  JsonlMemoryPort,
   LegacyMemoryPortAdapter,
   SqliteMemoryPort,
 } from '../src/memory-port.js';
@@ -57,7 +56,6 @@ describe('MemoryPort conformance', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-memory-port-'));
     ports = [
-      new JsonlMemoryPort({ projectRoot: path.join(tempDir, 'jsonl') }),
       new LegacyMemoryPortAdapter(legacyStore()),
     ];
     if (isSqliteAvailable()) {
@@ -84,13 +82,25 @@ describe('MemoryPort conformance', () => {
   });
 
   it('exposes optional behavior only through a typed capability', () => {
-    expect(getSuperMemoryService(ports[0]!)).toBe(ports[0]);
-    expect(getSuperMemorySurface(ports[0]!)).toBe(ports[0]);
-    expect(getSuperMemoryRetrieval(ports[0]!)).toBe(ports[0]);
-    expect(getSuperMemoryService(ports[1]!)).toBeUndefined();
-    expect(getSuperMemorySurface(ports[1]!)).toBeUndefined();
-    expect(getSuperMemoryRetrieval(ports[1]!)).toBeUndefined();
-    if (ports[2]) expect(getSuperMemoryService(ports[2])).toBeUndefined();
+    // The legacy adapter wraps a plain MemoryStore and exposes no Super Memory
+    // capability.
+    const legacy = ports.find((port) => port instanceof LegacyMemoryPortAdapter)!;
+    expect(getSuperMemoryService(legacy)).toBeUndefined();
+    expect(getSuperMemorySurface(legacy)).toBeUndefined();
+    expect(getSuperMemoryRetrieval(legacy)).toBeUndefined();
+
+    // The SQLite port deliberately does NOT claim the full SuperMemoryServiceLike
+    // contract (it presents as a legacy-compatible MemoryStore, so the host
+    // registers the safe legacy memory tools — see runtime sqlite-remember
+    // integration). It still exposes the surface and retrieval capabilities as
+    // dedicated objects; the retrieval capability adapts the store's array-form
+    // retrieveForPath to the host-facing `{ path }` form.
+    const sqlite = ports.find((port) => port instanceof SqliteMemoryPort);
+    if (sqlite) {
+      expect(getSuperMemoryService(sqlite)).toBeUndefined();
+      expect(getSuperMemorySurface(sqlite)).toBeDefined();
+      expect(getSuperMemoryRetrieval(sqlite)).toBeDefined();
+    }
   });
 
   it('normalizes canonical path retrieval for every Super Memory backend', async () => {

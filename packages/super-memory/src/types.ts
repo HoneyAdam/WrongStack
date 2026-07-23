@@ -429,7 +429,7 @@ export interface SuperMemoryAuditRecord {
   reason?: string | undefined;
   at: string;
   traceId?: string | undefined;
-  details?: Record<string, unknown> | undefined;
+  details?: unknown;
 }
 
 export interface SuperMemoryManifest {

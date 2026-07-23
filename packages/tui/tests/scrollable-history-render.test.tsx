@@ -2,7 +2,6 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { ScrollableHistory } from '../src/components/scrollable-history.js';
 import {
-  ASSISTANT_TAIL_HEIGHT,
   type HistoryEntry,
   toolStreamBoxHeight,
 } from '../src/components/history.js';
@@ -26,7 +25,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={[banner]}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={1}
@@ -44,7 +42,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const history = (scrollOffset: number) => (
       <ScrollableHistory
         entries={entries}
-        streamingText=""
         toolStream={null}
         scrollOffset={scrollOffset}
         viewportRows={8}
@@ -70,7 +67,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={entries}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={8}
@@ -85,53 +81,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     view.unmount();
   });
 
-  it('keeps the transcript virtualized while assistant text is streaming', () => {
-    const view = render(
-      <ScrollableHistory
-        entries={entries}
-        streamingText="live assistant output"
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={20}
-        onMeasure={() => {}}
-      />,
-    );
-
-    const frame = view.lastFrame() ?? '';
-    expect(frame).toContain('live assistant output');
-    expect(frame).toContain('history-entry-50');
-    expect(frame).not.toContain('history-entry-01');
-    view.unmount();
-  });
-
-  it('adds and removes the fixed assistant tail from the measured virtual scroll range', () => {
-    const measurements: number[] = [];
-    const history = (streamingText: string) => (
-      <ScrollableHistory
-        entries={entries}
-        streamingText={streamingText}
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={20}
-        onMeasure={(lines) => {
-          measurements.push(lines);
-        }}
-      />
-    );
-
-    const view = render(history(''));
-    view.rerender(history(''));
-    const entryLines = measurements.at(-1) ?? 0;
-    expect(entryLines).toBeGreaterThan(0);
-
-    view.rerender(history('live assistant output'));
-    expect(measurements.at(-1)).toBe(entryLines + ASSISTANT_TAIL_HEIGHT);
-
-    view.rerender(history(''));
-    expect(measurements.at(-1)).toBe(entryLines);
-    view.unmount();
-  });
-
   it('reserves the scrollbar columns when sizing assistant content', () => {
     const assistant: HistoryEntry = {
       id: 1,
@@ -141,7 +90,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={[assistant]}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={8}
@@ -173,7 +121,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={replaceEntries}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={60}
@@ -206,7 +153,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={editEntries}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={60}
@@ -220,31 +166,11 @@ describe('<ScrollableHistory /> content navigation', () => {
     view.unmount();
   });
 
-  it('includes the fixed streaming tail in the shared scroll range', () => {
-    let measured = -1;
-    const view = render(
-      <ScrollableHistory
-        entries={[]}
-        streamingText="live assistant output"
-        toolStream={null}
-        scrollOffset={0}
-        viewportRows={20}
-        onMeasure={(lines) => {
-          measured = lines;
-        }}
-      />,
-    );
-
-    expect(measured).toBe(ASSISTANT_TAIL_HEIGHT);
-    view.unmount();
-  });
-
   it('keeps the fixed tool tail in the shared range while scrolled up', () => {
     const measurements: number[] = [];
     const history = (toolText: string, scrollOffset: number) => (
       <ScrollableHistory
         entries={entries}
-        streamingText=""
         toolStream={
           toolText
             ? { toolUseId: 'read-1', name: 'read', text: toolText, startedAt: Date.now() }
@@ -281,7 +207,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={readEntries}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={12}
@@ -310,7 +235,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const view = render(
       <ScrollableHistory
         entries={toolEntries}
-        streamingText=""
         toolStream={null}
         scrollOffset={0}
         viewportRows={8}
@@ -338,7 +262,6 @@ describe('<ScrollableHistory /> content navigation', () => {
     const history = (scrollOffset: number) => (
       <ScrollableHistory
         entries={toolEntries}
-        streamingText=""
         toolStream={null}
         scrollOffset={scrollOffset}
         viewportRows={8}

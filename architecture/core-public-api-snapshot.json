@@ -97,9 +97,9 @@
         "export { buildMailboxBlock, buildMailboxBtwAwarenessBlock, createMailboxChecker, injectPendingMailboxMessages, type MailboxDeliveryMode, type MailboxLoopOptions, } from './core/mailbox-loop.js';",
         "export { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate, peekQueuedMessages, setQueuedMessagesSnapshot, } from './core/queued-messages.js';",
         "export { buildRefinerContextSections, type ConversationTurn, DEFAULT_REFINER_RETRY_FEEDBACK, ENHANCER_SYSTEM_PROMPT, type EnhanceFailureKind, type EnhanceResult, type EnhanceUserPromptOptions, enhanceUserPrompt, gatedEnhancerReasoning, normalizedEqual, type RefinerContextSection, type RefinerSessionContextLike, recentTextTurns, shouldEnhance, } from './execution/prompt-enhancer.js';",
+        "export { buildReviewerModelPool, createAutoReviewPlugin, DEFAULT_REVIEW_FALLBACK_MODELS, type ReviewerModelAssignment, selectRoundRobinReviewerAssignment, } from './plugins/auto-review-plugin.js';",
         "export { compactLog, type FileAuthorEntry, type FileAuthorLog, type FileAuthorTrackerOptions, getFileHistory, getFilesByAgent, getFullLog, getLastAuthor, recordFileAction, } from './coordination/file-author-tracker.js';",
         "export { countShellHooks, HookRegistry, type HookRunEnv, HookRunner, type HookRunnerOptions, hookMatcherMatches, type PreToolUseResult, type PromptResult, runShellHook, type ShellHookSpec, shellHooksEqual, } from './hooks/index.js';",
-        "export { createAutoReviewPlugin, DEFAULT_REVIEW_FALLBACK_MODELS, } from './plugins/auto-review-plugin.js';",
         "export { createFallbackModelExtension, effectiveFallbackChain, type FallbackModelDeps, fallbackProfileChain, formatModelRef, normalizeModelRef, parseModelRef, smartDefaultFallbackChain, } from './core/fallback-model.js';",
         "export { createMcpControlTool, type MCPRegistryHandle } from './tools/mcp-control.js';",
         "export { createMcpUseTool } from './tools/mcp-use.js';",
@@ -600,7 +600,7 @@
         "export type { PluginAPI } from '../types/plugin.js';",
         "export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './api.js';",
         "export { KERNEL_API_VERSION, loadPlugins, type LoadPluginsOptions, type PluginHostHandle, type PluginLoadFailure, unloadPlugins, } from './loader.js';",
-        "export { createAutoReviewPlugin, DEFAULT_REVIEW_FALLBACK_MODELS, } from '../plugins/auto-review-plugin.js';",
+        "export { buildReviewerModelPool, createAutoReviewPlugin, DEFAULT_REVIEW_FALLBACK_MODELS, type ReviewerModelAssignment, selectRoundRobinReviewerAssignment, } from '../plugins/auto-review-plugin.js';",
         "export { createPromptsPlugin } from '../plugins/prompts-plugin.js';",
         "export { createSkillsPlugin } from '../plugins/skills-plugin.js';",
         "export { createSyncPlugin } from '../plugins/sync-plugin.js';",
@@ -981,7 +981,7 @@
       "classification": "concrete runtime default",
       "intendedOwner": "Runtime pilot candidate after R2/R3",
       "sourceFiles": 43,
-      "sourceLines": 16286
+      "sourceLines": 16353
     },
     {
       "directory": "extension",
@@ -1058,14 +1058,14 @@
       "classification": "agent-domain contract",
       "intendedOwner": "Core plugin API",
       "sourceFiles": 4,
-      "sourceLines": 1512
+      "sourceLines": 1515
     },
     {
       "directory": "plugins",
       "classification": "product feature",
       "intendedOwner": "@wrongstack/plugins",
       "sourceFiles": 8,
-      "sourceLines": 3420
+      "sourceLines": 3509
     },
     {
       "directory": "prompts",

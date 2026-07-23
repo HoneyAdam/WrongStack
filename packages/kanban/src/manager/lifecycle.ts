@@ -353,6 +353,21 @@ function validateDoneEvidence(
       message: 'Done requires reviewer action text and a persisted review attachment.',
     });
   }
+  // Atomic tasks must have a completed verification report before Done.
+  if (task.atomic && !task.verificationReport) {
+    issues.push({
+      code: 'review-evidence-missing',
+      field: 'verificationReport',
+      message: 'Atomic tasks require a completed verification report (run verify_completion) before Done.',
+    });
+  }
+  if (task.atomic && task.verificationReport?.verdict !== 'passed') {
+    issues.push({
+      code: 'acceptance-criteria-incomplete',
+      field: 'verificationReport',
+      message: `Atomic task verification verdict is "${task.verificationReport?.verdict ?? 'missing'}". Only "passed" allows Done.`,
+    });
+  }
 }
 
 /**

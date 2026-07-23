@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { AssistantTail, ASSISTANT_TAIL_HEIGHT, assistantTailRows } from '../src/components/history.js';
 
 // Regression: AssistantTail must always render at exactly ASSISTANT_TAIL_HEIGHT
-// rows so the layout reservation at history/index.tsx:160 and
-// scrollable-history.tsx:273 remains in sync. If this test fails, update the
-// constant OR the component layout — both must match.
+// rows. NOTE: As of the assistant-tail removal, this component is no longer
+// wired into the ScrollableHistory or History rendering pipelines — committed
+// assistant entries now render as normal history entries. The constant and
+// component are kept for reference; these tests verify the component's
+// contract remains intact if a future consumer re-integrates it.
 describe('ASSISTANT_TAIL_HEIGHT constant', () => {
   it('renders at exactly ASSISTANT_TAIL_HEIGHT rows', () => {
     const { lastFrame, unmount } = render(

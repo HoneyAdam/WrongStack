@@ -1,16 +1,17 @@
 /**
- * Pure helper functions extracted from store.ts for reuse by SqliteSuperMemoryStore.
+ * Pure helper functions shared across store implementations.
  * These functions have no side effects and no dependency on the store instance.
  */
 
 import { normalizeProjectPath, normalizeSlashes } from './paths.js';
-import type {
-  MemoryAnchor,
-  MemoryAudienceSelector,
-  RememberSuperMemoryInput,
-  SuperMemory,
-  SuperMemoryKind,
-  SuperMemoryScope,
+import {
+  DEFAULT_PERSISTENCE,
+  type MemoryAnchor,
+  type MemoryAudienceSelector,
+  type RememberSuperMemoryInput,
+  type SuperMemory,
+  type SuperMemoryKind,
+  type SuperMemoryScope,
 } from './types.js';
 
 const MAX_MEMORY_TEXT_CHARS = 20_000;
@@ -75,6 +76,16 @@ export function tokenize(text: string): string[] {
 /** Canonical text key for memory deduplication and comparison. */
 export function normalizeTextKey(text: string): string {
   return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Canonical dedup key for session consolidation and hygiene.
+ * Strips trailing sentence-ending punctuation so "Use pnpm." and
+ * "Use pnpm" produce the same key, while preserving internal
+ * punctuation in identifiers (`C++`, `foo.bar`).
+ */
+export function canonicalMemoryText(text: string): string {
+  return normalizeTextKey(text).replace(/[.!?,;:]+$/u, '');
 }
 
 export function normalizeTags(tags: string[] | undefined): string[] {
@@ -178,7 +189,7 @@ export function scoreMemoryRelationship(
   }
 
   if (relation <= 0) return 0;
-  const persistence = candidate.persistence ?? 'long_lived';
+  const persistence = candidate.persistence ?? DEFAULT_PERSISTENCE;
   const persistenceBonus = persistence === 'permanent' ? 2 : persistence === 'long_lived' ? 1 : -1;
   const durableKindBonus = [
     'fact',
@@ -323,7 +334,7 @@ function normalizeSelectorValue(value: string): string {
 
 /**
  * Check whether `text` looks like a secret or credential.
- * Used by both SuperMemoryStore and SqliteSuperMemoryStore to reject
+ * Used by both legacy and current store implementations to reject
  * unsafe candidate proposals before they reach the ReviewQueue.
  */
 export function looksLikeSecret(text: string): boolean {
@@ -349,4 +360,18 @@ export function collectStringValues(value: unknown, out: string[] = []): string[
       collectStringValues(item, out);
   }
   return out;
+}
+
+/**
+ * Clamp a number into the [0, 1] range. Non-finite inputs collapse to 0,
+ * which is the safe default for score-like values (a missing or NaN
+ * score should not auto-accept or auto-reject in any non-trivial way).
+ *
+ * Shared across `SqliteSuperMemoryStore`, the
+ * memory-graph helpers, and `shared/session-consolidation` so every
+ * score normalisation agrees on the same edge-case behaviour.
+ */
+export function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }

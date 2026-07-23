@@ -5,8 +5,25 @@ import { EventBus } from '@wrongstack/core/kernel';
 import { describe, expect, it } from 'vitest';
 import { createSuperMemoryContextMonitorMiddleware } from '../src/middleware/context-monitor.js';
 import { InjectionTracker } from '../src/middleware/injection-tracker.js';
-import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
-import { SuperMemoryStore } from '../src/store.js';
+import {
+  createSuperMemoryToolCallMiddleware,
+  type SuperMemoryRetrieverLike,
+} from '../src/middleware/tool-call-memory.js';
+import { SqliteSuperMemoryStore as SuperMemoryStore } from '../src/sqlite-store.js';
+
+// The SQLite store exposes retrieveForPath(paths[]); the middleware consumes the
+// host-facing retriever surface (retrieveForPath({ path })). Production wires the
+// two through SqliteMemoryPort's retrieval capability — this mirrors that adapter.
+function asRetriever(store: SuperMemoryStore): SuperMemoryRetrieverLike {
+  return {
+    retrieveForPath: (opts) => store.retrieveForPath([opts.path], opts),
+    searchSuper: (query, opts) => store.searchSuper(query, opts),
+    findRelatedSuper: (memoryIds, opts) => store.findRelatedSuper(memoryIds, opts),
+    recordInjection: (memoryIds, trigger, sessionId) =>
+      store.recordInjection(memoryIds, trigger, sessionId),
+    recordUse: (memoryIds, source, sessionId) => store.recordUse(memoryIds, source, sessionId),
+  };
+}
 
 describe('Super Memory provider-context monitor', () => {
   it('emits the exact active/entered/exited memory ids around provider requests', async () => {
@@ -74,10 +91,11 @@ describe('Super Memory provider-context monitor', () => {
 
   it('confirms a tool-result injection in the next provider-bound request', async () => {
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'super-memory-context-flow-'));
+    let store: SuperMemoryStore | undefined;
     try {
       const events = new EventBus();
       const tracker = new InjectionTracker();
-      const store = new SuperMemoryStore({ projectRoot });
+      store = new SuperMemoryStore({ projectRoot });
       const memory = await store.rememberSuper({
         text: 'Statusline context counts come from provider request snapshots.',
         kind: 'convention',
@@ -86,7 +104,7 @@ describe('Super Memory provider-context monitor', () => {
         anchors: [{ type: 'file', path: 'src/statusline.ts' }],
       });
       const toolMiddleware = createSuperMemoryToolCallMiddleware({
-        memory: store,
+        memory: asRetriever(store),
         tracker,
         events,
         repeatCooldownMs: 0,
@@ -135,6 +153,9 @@ describe('Super Memory provider-context monitor', () => {
 
       expect(snapshots.at(-1)?.activeMemoryIds).toEqual([memory.id]);
     } finally {
+      store?.close();
+      // Give Windows a tick to release SQLite WAL file handles before removal.
+      await new Promise((resolve) => setTimeout(resolve, 10));
       await fs.rm(projectRoot, { recursive: true, force: true });
     }
   });

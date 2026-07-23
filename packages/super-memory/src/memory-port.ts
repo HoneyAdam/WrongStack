@@ -9,7 +9,6 @@ import type { SuperMemoryRetrieverLike } from './middleware/tool-call-memory.js'
 import type { SuperMemoryServiceLike, SuperMemorySurface } from './service-contract.js';
 import { isSuperMemoryService } from './service-guard.js';
 import { SqliteSuperMemoryStore } from './sqlite-store.js';
-import { SuperMemoryStore } from './store.js';
 import type { SuperMemoryStoreOptions } from './types.js';
 
 export const SUPER_MEMORY_SERVICE_CAPABILITY = defineMemoryCapability<SuperMemoryServiceLike>(
@@ -80,6 +79,8 @@ export class SqliteMemoryPort extends SqliteSuperMemoryStore implements MemoryPo
       super.retrieveForAudience(context, limit === undefined ? undefined : { limit }),
     hygiene: (options) => super.hygiene(options),
     listCandidates: (includeResolved) => super.listCandidates(includeResolved),
+    graphFor: (query, maxDepth, limit) => super.graphFor(query, maxDepth, limit),
+    verify: (memoryId, signal) => super.verify(memoryId, signal),
   };
 
   override withTraceId(traceId: string): this {
@@ -118,39 +119,6 @@ export class SqliteMemoryPort extends SqliteSuperMemoryStore implements MemoryPo
   }
 }
 
-/** JSONL compatibility backend, retained only behind an explicit port. */
-export class JsonlMemoryPort extends SuperMemoryStore implements MemoryPort {
-  override withTraceId(traceId: string): this {
-    super.withTraceId(traceId);
-    return this;
-  }
-
-  getCapability<T>(capability: MemoryCapability<T>): T | undefined {
-    if (capability.id === SUPER_MEMORY_RETRIEVAL_CAPABILITY.id) return this as unknown as T;
-    if (capability.id === SUPER_MEMORY_SURFACE_CAPABILITY.id) return this as unknown as T;
-    if (capability.id === SUPER_MEMORY_SERVICE_CAPABILITY.id && isSuperMemoryService(this)) {
-      return this as unknown as T;
-    }
-    return undefined;
-  }
-
-  async health(): Promise<MemoryHealth> {
-    try {
-      await this.initialize();
-      return { status: 'ready', backend: 'jsonl-compatibility' };
-    } catch (error) {
-      return {
-        status: 'unavailable',
-        backend: 'jsonl-compatibility',
-        details: { error: error instanceof Error ? error.message : String(error) },
-      };
-    }
-  }
-
-  async dispose(): Promise<void> {
-    await this.flushPendingCounters();
-  }
-}
 
 /**
  * Compatibility wrapper for third-party implementations of the legacy Core
@@ -229,11 +197,7 @@ export class LegacyMemoryPortAdapter implements MemoryPort {
 
   async dispose(): Promise<void> {}
 }
-
 export function createSqliteMemoryPort(options: SuperMemoryStoreOptions): MemoryPort {
   return new SqliteMemoryPort(options);
 }
 
-export function createJsonlCompatibilityMemoryPort(options: SuperMemoryStoreOptions): MemoryPort {
-  return new JsonlMemoryPort(options);
-}

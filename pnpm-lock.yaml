@@ -500,6 +500,9 @@ importers:
       '@wrongstack/kanban':
         specifier: workspace:*
         version: link:../kanban
+      '@wrongstack/persistence':
+        specifier: workspace:*
+        version: link:../persistence
       '@wrongstack/runtime':
         specifier: workspace:*
         version: link:../runtime

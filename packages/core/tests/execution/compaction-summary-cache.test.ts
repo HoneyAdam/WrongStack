@@ -129,15 +129,15 @@ describe('CompactionSummaryCache', () => {
     const baseBlock = { type: 'tool_use' as const, id: 'call-1', name: 'read' };
     const a: Message[] = [{
       role: 'assistant',
-      content: [{ ...baseBlock, input: { path: 'src/a.ts' }, _estTokens: 10 }],
+      content: [{ ...baseBlock, input: { path: 'src/a.ts' }, providerMeta: { 'google.thoughtSignature': 'sig-a' } }],
     }];
     const b: Message[] = [{
       role: 'assistant',
-      content: [{ ...baseBlock, input: { path: 'src/a.ts' }, _estTokens: 999 }],
+      content: [{ ...baseBlock, input: { path: 'src/a.ts' }, providerMeta: { 'google.thoughtSignature': 'sig-b' } }],
     }];
     const changed: Message[] = [{
       role: 'assistant',
-      content: [{ ...baseBlock, input: { path: 'src/b.ts' }, _estTokens: 10 }],
+      content: [{ ...baseBlock, input: { path: 'src/b.ts' }, providerMeta: { 'google.thoughtSignature': 'sig-a' } }],
     }];
 
     expect(compactionSummaryKey('m', 'p', a)).toBe(compactionSummaryKey('m', 'p', b));

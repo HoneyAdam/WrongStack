@@ -129,7 +129,6 @@ describe('Issue 005 — resumed history rendering', () => {
       React.createElement(History, {
         entries,
         generation: 0,
-        streamingText: '',
         toolStream: null,
         setSuggestions: vi.fn(),
         autonomyMode: 'off',
@@ -164,7 +163,6 @@ describe('Issue 005 — resumed history rendering', () => {
       React.createElement(History, {
         entries,
         generation: 1,
-        streamingText: '',
         toolStream: null,
         setSuggestions: vi.fn(),
         autonomyMode: 'off',
@@ -202,7 +200,6 @@ describe('Issue 005 — resumed history rendering', () => {
       React.createElement(History, {
         entries,
         generation: 1,
-        streamingText: '',
         toolStream: null,
         setSuggestions: vi.fn(),
         autonomyMode: 'off',

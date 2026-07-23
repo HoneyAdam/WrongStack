@@ -121,6 +121,7 @@ export async function splitTask(
     ]);
     const now = nowIso();
     parent.updatedAt = now;
+    if (input.atomic === true) parent.atomic = true;
     if (input.rewireDependents !== false) {
       rewireDependents(
         board,

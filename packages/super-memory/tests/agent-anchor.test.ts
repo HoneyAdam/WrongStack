@@ -4,28 +4,45 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { verifyMemoryAnchors } from '../src/anchors/verify.js';
 import { isSqliteAvailable, SqliteSuperMemoryStore } from '../src/sqlite-store.js';
-import { SuperMemoryStore } from '../src/store.js';
+import { SqliteSuperMemoryStore as SuperMemoryStore } from '../src/sqlite-store.js';
 
 describe('Super Memory agent relationships', () => {
   let projectRoot = '';
+  let stores: SqliteSuperMemoryStore[] = [];
+
+  function makeStore(): SqliteSuperMemoryStore {
+    const store = new SuperMemoryStore({ projectRoot });
+    stores.push(store);
+    return store;
+  }
 
   beforeEach(() => {
     projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wrongstack-agent-anchor-'));
+    stores = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const store of stores) {
+      try {
+        store.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    // Give Windows a tick to release SQLite WAL file handles before removal.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
   it('materializes an about_agent edge in the canonical graph', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = makeStore();
     const memory = await store.rememberSuper({
       text: 'The reviewer must verify rollback behavior for database migrations.',
       anchors: [{ type: 'agent', role: 'Reviewer' }],
     });
 
     expect(memory.anchors).toEqual([{ type: 'agent', role: 'reviewer' }]);
-    expect(await store.graphFor('agent:reviewer')).toEqual(
+    expect(await store.traverseGraph(['agent:reviewer'])).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           from: `mem:${memory.id}`,
@@ -37,7 +54,7 @@ describe('Super Memory agent relationships', () => {
   });
 
   it('rejects malformed agent role anchors', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = makeStore();
     await expect(
       store.rememberSuper({
         text: 'This invalid role must never become a graph node.',
@@ -47,7 +64,7 @@ describe('Super Memory agent relationships', () => {
   });
 
   it('treats traversal-shaped legacy agent anchors as stale during verification', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = makeStore();
     const memory = await store.rememberSuper({
       text: 'A valid memory used to exercise legacy anchor verification.',
       anchors: [{ type: 'agent', role: 'reviewer' }],

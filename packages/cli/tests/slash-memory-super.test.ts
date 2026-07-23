@@ -1,26 +1,44 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { JsonlMemoryPort } from '@wrongstack/super-memory';
+import { SqliteMemoryPort } from '@wrongstack/super-memory';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildMemoryCommand } from '../src/slash-commands/memory.js';
 
 let root: string;
+let openStores: SqliteMemoryPort[] = [];
+
+/** Track each store so its SQLite handle is closed before the temp dir is removed. */
+function newPort(opts: { projectRoot: string }): SqliteMemoryPort {
+  const store = new SqliteMemoryPort(opts);
+  openStores.push(store);
+  return store;
+}
 
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-slash-memory-'));
+  openStores = [];
 });
 
 afterEach(async () => {
+  for (const store of openStores) {
+    try {
+      store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  // Give Windows a tick to release SQLite WAL file handles before removal.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   await fs.rm(root, { recursive: true, force: true });
 });
 
-function command(store: JsonlMemoryPort) {
+function command(store: SqliteMemoryPort) {
   return buildMemoryCommand({ memoryStore: store, projectRoot: root, cwd: root } as never);
 }
 
 /** Build a /memory command with a stubbed LLM provider for `compact`. */
-function commandWithLlm(store: JsonlMemoryPort, opsJson: unknown) {
+function commandWithLlm(store: SqliteMemoryPort, opsJson: unknown) {
   const provider = {
     async complete() {
       return { content: [{ type: 'text', text: JSON.stringify(opsJson) }] };
@@ -38,7 +56,7 @@ function commandWithLlm(store: JsonlMemoryPort, opsJson: unknown) {
 describe('/memory Super Memory commands', () => {
   it('searches, traverses graph, verifies, runs hygiene, and reports stats', async () => {
     await fs.writeFile(path.join(root, 'source.ts'), 'export const stableSymbol = true;\n');
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const memory = await store.rememberSuper({
       text: 'stableSymbol is part of the public contract.',
       kind: 'decision',
@@ -56,7 +74,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('remembers with structured flags, then updates and deletes by id', async () => {
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const cmd = command(store);
 
     // remember with full structured args
@@ -90,7 +108,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('rejects an invalid --kind with a helpful message', async () => {
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const cmd = command(store);
     const out = await cmd.run('remember something --kind bogus');
     expect(out?.message).toContain('--kind must be one of');
@@ -98,7 +116,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('compact operates on real super ids (merge + delete), not the broken legacy parse', async () => {
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const a = await store.rememberSuper({
       text: 'Project uses pnpm workspaces.',
       kind: 'convention',
@@ -132,7 +150,7 @@ describe('/memory Super Memory commands', () => {
   });
 
   it('lists and resolves candidates', async () => {
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const candidate = await store.createCandidate({ text: 'Candidate invariant.' });
     const cmd = command(store);
     expect((await cmd.run('candidates'))?.message).toContain(candidate.id);
@@ -142,7 +160,7 @@ describe('/memory Super Memory commands', () => {
 
   describe('/memory audience', () => {
     it('remembers, lists, searches, and clears audience-scoped memories', async () => {
-      const store = new JsonlMemoryPort({ projectRoot: root });
+      const store = newPort({ projectRoot: root });
       const cmd = command(store);
 
       await store.rememberSuper({
@@ -188,7 +206,7 @@ describe('/memory Super Memory commands', () => {
     });
 
     it('remember requires at least one selector', async () => {
-      const store = new JsonlMemoryPort({ projectRoot: root });
+      const store = newPort({ projectRoot: root });
       const cmd = command(store);
       const out = await cmd.run('audience remember some text');
       expect(out?.message).toContain('At least one of --role');

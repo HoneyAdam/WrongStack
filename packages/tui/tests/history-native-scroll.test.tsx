@@ -9,14 +9,7 @@ function count(haystack: string, needle: string): number {
 }
 
 function view(entries: HistoryEntry[], generation = 0) {
-  return (
-    <History
-      entries={entries}
-      generation={generation}
-      streamingText=""
-      toolStream={null}
-    />
-  );
+  return <History entries={entries} generation={generation} toolStream={null} />;
 }
 
 class TestOutput extends EventEmitter {
@@ -147,37 +140,43 @@ describe('<History /> native scrollback commits', () => {
     screen.unmount();
   });
 
-  it('does not serialize committed history again during live-tail redraws', () => {
-    const entries: HistoryEntry[] = Array.from({ length: 400 }, (_, index) => ({
+  it('does not re-emit committed history across many entry-appending rerenders', () => {
+    const baseEntries: HistoryEntry[] = Array.from({ length: 400 }, (_, index) => ({
       id: index + 1,
       kind: 'info',
       text: `committed-history-${index + 1}`,
     }));
-    const screen = render(view(entries));
+    const screen = render(view(baseEntries));
+    const initialOutput = screen.frames.join('\n');
+    expect(initialOutput).toContain('committed-history-1');
+    expect(initialOutput).toContain('committed-history-400');
     screen.frames.length = 0;
 
+    // Append one new entry per rerender so the entries prop reference changes
+    // each iteration — History is React.memo-wrapped with shallow comparison,
+    // so mutating the same array with .push() would short-circuit and never
+    // reach the emission-dedup logic.
+    let currentEntries = baseEntries;
     for (let index = 0; index < 250; index += 1) {
-      screen.rerender(
-        <History
-          entries={entries}
-          generation={0}
-          streamingText={`live-tail-${index}`}
-          toolStream={null}
-        />,
-      );
+      const newId = baseEntries.length + index + 1;
+      currentEntries = [
+        ...currentEntries,
+        { id: newId, kind: 'info', text: `appended-entry-${newId}` },
+      ];
+      screen.rerender(<History entries={currentEntries} generation={0} toolStream={null} />);
     }
 
-    const redrawOutput = screen.frames.join('\n');
-    expect(redrawOutput).toContain('live-tail-249');
-    expect(redrawOutput).not.toContain('committed-history-1');
-    expect(redrawOutput).not.toContain('committed-history-400');
+    const output = screen.frames.join('\n');
+    // Original committed entries (ids 1–400) must not be re-emitted
+    expect(output).not.toContain('committed-history-1');
+    expect(output).not.toContain('committed-history-400');
+    // Each appended entry should appear exactly once
+    expect(count(output, 'appended-entry-')).toBe(250);
     screen.unmount();
   });
 
-  it('replays committed history when terminal width changes', async () => {
-    const screen = render(
-      view([{ id: 1, kind: 'info', text: 'native-resize-history-marker' }]),
-    );
+  it('replays committed history when terminal width changes', { timeout: 5000 }, async () => {
+    const screen = render(view([{ id: 1, kind: 'info', text: 'native-resize-history-marker' }]));
     screen.frames.length = 0;
     screen.stdout.columns = 72;
 

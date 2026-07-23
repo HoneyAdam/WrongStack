@@ -161,6 +161,13 @@ export function createTaskObject(board: KanbanBoard, input: CreateKanbanTaskInpu
     ...(input.boundary !== undefined
       ? { boundary: normalizeKanbanBoundaryPolicy(input.boundary) }
       : {}),
+    ...(input.atomic !== undefined ? { atomic: input.atomic } : {}),
+    ...(input.expectedFileChanges !== undefined
+      ? { expectedFileChanges: input.expectedFileChanges }
+      : {}),
+    ...(input.verificationReport !== undefined
+      ? { verificationReport: input.verificationReport }
+      : {}),
     // Sprint 3: mirror policy fields from assignment to durable task level.
     ...(input.retryPolicy === undefined && input.assignment?.retryPolicy !== undefined
       ? { retryPolicy: input.assignment.retryPolicy }
@@ -255,6 +262,13 @@ export function cloneTaskForBoard(
       : {}),
     ...(source.boundary !== undefined
       ? { boundary: normalizeKanbanBoundaryPolicy(source.boundary) }
+      : {}),
+    ...(source.atomic !== undefined ? { atomic: source.atomic } : {}),
+    ...(source.expectedFileChanges !== undefined
+      ? { expectedFileChanges: [...source.expectedFileChanges] }
+      : {}),
+    ...(source.verificationReport !== undefined
+      ? { verificationReport: { ...source.verificationReport } }
       : {}),
   };
   if (source.completedAt !== undefined && task.status === 'completed') {
@@ -377,6 +391,18 @@ export function applyTaskPatch(
   if (input.boundary !== undefined) {
     if (input.boundary === null) delete task.boundary;
     else task.boundary = normalizeKanbanBoundaryPolicy(input.boundary);
+  }
+  if (input.atomic !== undefined) {
+    if (input.atomic === null) delete task.atomic;
+    else task.atomic = input.atomic;
+  }
+  if (input.expectedFileChanges !== undefined) {
+    if (input.expectedFileChanges === null) delete task.expectedFileChanges;
+    else task.expectedFileChanges = input.expectedFileChanges;
+  }
+  if (input.verificationReport !== undefined) {
+    if (input.verificationReport === null) delete task.verificationReport;
+    else task.verificationReport = { ...input.verificationReport };
   }
   if (shouldReorder) {
     if (previousColumnId !== task.columnId) normalizeColumnTaskOrders(board, previousColumnId);

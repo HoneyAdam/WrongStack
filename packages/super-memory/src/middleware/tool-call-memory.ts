@@ -4,6 +4,7 @@ import type { EventBus, Middleware } from '@wrongstack/core/kernel';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance, memoryStructuralRelevance } from '../retrieval/relevance.js';
 import { normalizeTextKey } from '../store-helpers.js';
+import { DEFAULT_PERSISTENCE } from '../types.js';
 import type { SuperMemory } from '../types.js';
 import type { InjectionTracker } from './injection-tracker.js';
 import { MemoryInjectorAgent } from './memory-injector-agent.js';
@@ -427,7 +428,7 @@ function toTraceMemory(
     importance: Number(item.memory.importance.toFixed(3)),
     confidence: Number(item.memory.confidence.toFixed(3)),
     freshness: Number(item.memory.freshness.toFixed(3)),
-    persistence: item.memory.persistence ?? 'long_lived',
+    persistence: item.memory.persistence ?? DEFAULT_PERSISTENCE,
   };
 }
 
@@ -598,7 +599,7 @@ function normalizedInjectionScore(memory: SuperMemory): number {
 
 function contextualInjectionScore(memory: SuperMemory, relationStrength: number): number {
   const metadata = normalizedInjectionScore(memory);
-  const persistence = memory.persistence ?? 'long_lived';
+  const persistence = memory.persistence ?? DEFAULT_PERSISTENCE;
   const persistenceBoost =
     persistence === 'permanent' ? 0.08 : persistence === 'long_lived' ? 0.04 : -0.08;
   const durableKindBoost = durableMemoryKind(memory.kind) ? 0.04 : 0;

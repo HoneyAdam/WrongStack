@@ -2,21 +2,39 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SuperMemoryStore } from '../src/store.js';
+import { SqliteSuperMemoryStore as SuperMemoryStore } from '../src/sqlite-store.js';
 
 let projectRoot: string;
+let stores: SuperMemoryStore[] = [];
+
+/** Track every store so its SQLite handle is closed before the temp dir is removed. */
+function openStore(): SuperMemoryStore {
+  const store = new SuperMemoryStore({ projectRoot });
+  stores.push(store);
+  return store;
+}
 
 beforeEach(async () => {
   projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-audience-memory-'));
+  stores = [];
 });
 
 afterEach(async () => {
+  for (const store of stores) {
+    try {
+      store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  // Give Windows a tick to release SQLite WAL file handles before removal.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   await fs.rm(projectRoot, { recursive: true, force: true });
 });
 
 describe('project agent memory audiences', () => {
   it('matches stable roles across independent store instances', async () => {
-    const writer = new SuperMemoryStore({ projectRoot });
+    const writer = openStore();
     const created = await writer.rememberSuper({
       text: 'Review public API compatibility before approving changes.',
       kind: 'workflow',
@@ -24,7 +42,7 @@ describe('project agent memory audiences', () => {
       audience: { roles: [' Reviewer ', 'reviewer'] },
     });
 
-    const reader = new SuperMemoryStore({ projectRoot });
+    const reader = openStore();
     const reviewer = await reader.retrieveForAudience({ role: 'REVIEWER' });
     const refactorPlanner = await reader.retrieveForAudience({ role: 'refactor-planner' });
 
@@ -34,7 +52,7 @@ describe('project agent memory audiences', () => {
   });
 
   it('uses OR within a selector dimension and AND across dimensions', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = openStore();
     await store.rememberSuper({
       text: 'For review-mode refactors, inspect ownership boundaries first.',
       scope: 'project',
@@ -59,7 +77,7 @@ describe('project agent memory audiences', () => {
   });
 
   it('keeps scoped policy out of ordinary automatic retrieval while explicit search remains complete', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = openStore();
     await store.rememberSuper({
       text: 'Review database migrations for reversible rollbacks.',
       scope: 'project',
@@ -76,7 +94,7 @@ describe('project agent memory audiences', () => {
     const automatic = await store.searchSuper('database migrations', {
       includeAudienceScoped: false,
     });
-    const automaticPath = await store.retrieveForPath({
+    const automaticPath = await store.retrieveForPath(['packages/core/src/index.ts'], {
       path: 'packages/core/src/index.ts',
       includeAudienceScoped: false,
     });
@@ -91,7 +109,7 @@ describe('project agent memory audiences', () => {
   });
 
   it('does not merge identical text belonging to different roles', async () => {
-    const store = new SuperMemoryStore({ projectRoot });
+    const store = openStore();
     const reviewer = await store.rememberSuper({
       text: 'Check the package boundary.',
       audience: { roles: ['reviewer'] },

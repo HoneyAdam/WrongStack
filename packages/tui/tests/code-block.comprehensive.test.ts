@@ -63,17 +63,17 @@ describe('summarizeMultiFileDiffs', () => {
 
 describe('formatMultiDiffSummary', () => {
   it('returns null when threshold is 0', () => {
-    const summary = { fileCount: 5, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0 };
+    const summary = { fileCount: 5, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0, omittedFiles: 0 };
     expect(formatMultiDiffSummary(summary, 0)).toBeNull();
   });
 
   it('returns null when fileCount below effective threshold', () => {
-    const summary = { fileCount: 3, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0 };
+    const summary = { fileCount: 3, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0, omittedFiles: 0 };
     expect(formatMultiDiffSummary(summary, MULTI_DIFF_SUMMARY_THRESHOLD)).toBeNull();
   });
 
   it('renders summary with hidden stats when fileCount >= threshold', () => {
-    const summary = { fileCount: 7, added: 10, removed: 5, hiddenAdded: 2, hiddenRemoved: 1, truncatedFiles: 1 };
+    const summary = { fileCount: 7, added: 10, removed: 5, hiddenAdded: 2, hiddenRemoved: 1, truncatedFiles: 1, omittedFiles: 0 };
     const result = formatMultiDiffSummary(summary, 3);
     expect(result).toContain('7 files');
     expect(result).toContain('+10');
@@ -81,7 +81,7 @@ describe('formatMultiDiffSummary', () => {
   });
 
   it('returns default threshold when passed negative value', () => {
-    const summary = { fileCount: 7, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0 };
+    const summary = { fileCount: 7, added: 10, removed: 5, hiddenAdded: 0, hiddenRemoved: 0, truncatedFiles: 0, omittedFiles: 0 };
     const result = formatMultiDiffSummary(summary, -1);
     // -1 triggers the default threshold (5), so 7 >= 5 → renders
     expect(result).not.toBeNull();

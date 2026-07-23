@@ -3,14 +3,11 @@ export {
   HashingEmbeddingProvider,
   type HashingEmbeddingProviderOptions,
 } from './embeddings/hashing.js';
-export { SuperMemoryGraph } from './graph/graph.js';
 export {
-  createJsonlCompatibilityMemoryPort,
   createSqliteMemoryPort,
   getSuperMemoryRetrieval,
   getSuperMemoryService,
   getSuperMemorySurface,
-  JsonlMemoryPort,
   LegacyMemoryPortAdapter,
   SqliteMemoryPort,
   SUPER_MEMORY_RETRIEVAL_CAPABILITY,
@@ -65,7 +62,6 @@ export {
 export type { SuperMemoryServiceLike, SuperMemorySurface } from './service-contract.js';
 export { isSuperMemoryService } from './service-guard.js';
 export { isSqliteAvailable, SqliteSuperMemoryStore } from './sqlite-store.js';
-export { SuperMemoryStore } from './store.js';
 export { normalizeTextKey, tokenize } from './store-helpers.js';
 export { createSuperMemoryTools } from './tools/memory-tools.js';
 export type { UpdateSuperMemoryInput } from './types.js';

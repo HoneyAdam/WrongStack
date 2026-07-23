@@ -19,11 +19,17 @@ import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core/types';
 import { ensureDir, superMemoryCachePragmas, ulid, withFileLock } from '@wrongstack/core/utils';
-import { readJsonl } from './jsonl.js';
-import { normalizeSlashes, resolveSuperMemoryPaths } from './paths.js';
+
+import { verifyMemoryAnchors } from './anchors/verify.js';
 import {
-  collectStringValues,
-  looksLikeSecret,
+  ancestorPaths,
+  normalizeProjectPath,
+  normalizeSlashes,
+  resolveSuperMemoryPaths,
+} from './paths.js';
+import {
+  canonicalMemoryText,
+  clamp01,
   normalizeAnchors,
   normalizeAudience,
   normalizeSources,
@@ -45,6 +51,7 @@ import type {
   MemoryCandidateResolution,
   MemoryGraphEdge,
   MemoryGraphRelation,
+  MemoryVerificationResult,
   RememberSuperMemoryInput,
   SessionConsolidationInput,
   SessionConsolidationResult,
@@ -69,51 +76,29 @@ import {
   superToLegacyScope,
   toLegacyEntry,
 } from './types.js';
+import { computeResolution, rejectIfUnsafeInput, resolveTargetId } from './shared/candidate-lifecycle.js';
+import { consolidateSession as sharedConsolidateSession } from './shared/session-consolidation.js';
+import {
+  VALID_MEMORY_STATUSES,
+  DEFAULT_PAGE_STATUSES,
+  clampPageLimit,
+  encodePageCursor,
+} from './shared/pagination.js';
 
 // ─── Pagination helpers (mirror SuperMemoryStore.listSuperPage semantics) ──
-
-const SQLITE_VALID_STATUSES = new Set<SuperMemoryStatus>([
-  'active',
-  'stale',
-  'superseded',
-  'contradicted',
-  'archived',
-  'deleted',
-]);
-/** Statuses shown by default in the paginated listing (everything except the soft-delete audit trail). */
-const SQLITE_DEFAULT_PAGE_STATUSES: SuperMemoryStatus[] = [
-  'active',
-  'stale',
-  'superseded',
-  'contradicted',
-  'archived',
-];
-const SQLITE_MAX_PAGE_LIMIT = 500;
-const SQLITE_DEFAULT_PAGE_LIMIT = 50;
-
-/** Clamp a requested page size into [1, SQLITE_MAX_PAGE_LIMIT]. */
-function clampSqlitePageLimit(limit: number | undefined): number {
-  if (typeof limit !== 'number' || !Number.isFinite(limit)) return SQLITE_DEFAULT_PAGE_LIMIT;
-  return Math.max(1, Math.min(SQLITE_MAX_PAGE_LIMIT, Math.floor(limit)));
-}
 
 /** Escape `%`, `_`, and `\` so a user query is treated literally inside LIKE (ESCAPE '\\'). */
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
-interface SqlitePageCursor {
+interface PageCursor {
   updatedAt: string;
   id: string;
 }
 
-/** Encode the last item of a page into an opaque base64url cursor token. */
-function encodeSqlitePageCursor(updatedAt: string, id: string): string {
-  return Buffer.from(JSON.stringify({ u: updatedAt, i: id }), 'utf8').toString('base64url');
-}
-
 /** Decode an opaque cursor token; returns undefined for missing/malformed input. */
-function decodeSqlitePageCursor(cursor: string | undefined): SqlitePageCursor | undefined {
+function decodePageCursor(cursor: string | undefined): PageCursor | undefined {
   if (!cursor) return undefined;
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
@@ -582,12 +567,24 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       .get(LEGACY_JSONL_MIGRATION_KEY);
     if (alreadyMigrated) return;
 
-    const readLegacy = <T>(filePath: string): Promise<T[]> =>
-      readJsonl<T>(filePath, (line) => {
-        throw new Error(
-          `Cannot migrate corrupt legacy Super Memory JSONL: ${line.filePath}:${line.lineNumber}: ${line.error}`,
-        );
-      });
+    const readLegacy = async <T>(filePath: string): Promise<T[]> => {
+      let raw: string;
+      try {
+        raw = await fs.promises.readFile(filePath, 'utf8');
+      } catch {
+        // Legacy file doesn't exist or can't be read — treat as empty.
+        return [];
+      }
+      const result: T[] = [];
+      const lines = raw.split('\n');
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const trimmed = lines[lineIndex]!.trim();
+        if (!trimmed) continue;
+        try { result.push(JSON.parse(trimmed) as T); }
+        catch { throw new Error(`Corrupt legacy JSONL in ${filePath} at line ${lineIndex + 1}`); }
+      }
+      return result;
+    };
 
     const [memoryRows, candidateRows, edgeRows, auditRows] = await Promise.all([
       readLegacy<unknown>(this.paths.memoriesLog),
@@ -729,6 +726,23 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     return `${SqliteSuperMemoryStore.NODE_ID_PREFIX}${memoryId}`;
   }
 
+  /**
+   * Reconstruct the human-readable structural evidence (`<anchorType>:<path>`)
+   * for an `about_*` anchor edge from its relation and target node. The JSONL
+   * store stored evidence on each edge; the SQLite edges table doesn't carry it,
+   * so we derive it on read for the host-facing graph surface.
+   */
+  private static edgeEvidence(
+    relation: string,
+    toNode: string,
+  ): { evidence: string[] } | undefined {
+    const match = /^about_(\w+)$/.exec(relation);
+    if (!match) return undefined;
+    const anchorType = match[1];
+    const anchorPath = toNode.replace(/^(file|dir|symbol):/, '');
+    return { evidence: [`${anchorType}:${anchorPath}`] };
+  }
+
   /** SQL GLOB matching every graph node id owned by a memory. */
   private static readonly MEMORY_NODE_GLOB = `${SqliteSuperMemoryStore.NODE_ID_PREFIX}*`;
 
@@ -798,7 +812,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     validateRememberInput(input);
     const normalizedText = normalizeText(input.text);
     if (!normalizedText) throw new Error('Super Memory text must not be empty.');
-    this.rejectIfUnsafeInput(input);
+    rejectIfUnsafeInput(input);
     await this.initialize();
 
     // Default to project scope when neither `scope` (SuperMemoryScope) nor
@@ -826,12 +840,19 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       // normalizeTextKey(text) so dedup is a single indexed lookup instead
       // of an O(N) full-table scan.
       const canonical = normalizeTextKey(normalizedText);
+      // Audience-scoped memories dedupe only within their own audience: same
+      // text + scope but different roles/tasks are distinct records. Mirrors the
+      // JSONL store's memoryIdentity, which folds audienceIdentity into the key.
+      // The stored `audience` column is JSON.stringify(normalizeAudience(...)),
+      // matching this key exactly (both run through normalizeAudience).
+      const audienceKey = audience ? JSON.stringify(audience) : null;
       const row = this.stmt(
           `SELECT data FROM memories
            WHERE status IN ('active','stale') AND scope = ? AND canonical_text = ?
+             AND audience IS ?
            LIMIT 1`,
         )
-        .get(scope, canonical) as { data: string } | undefined;
+        .get(scope, canonical, audienceKey) as { data: string } | undefined;
 
       if (row) {
         const existing = this.rowToMemory(row);
@@ -1213,6 +1234,31 @@ export class SqliteSuperMemoryStore implements MemoryStore {
         const createdAt = createdAtByEdge.get(`${target}\0${relation}`) ?? this.nowIso();
         insert.run(from, target, relation, memory.confidence, createdAt);
       }
+
+      // Structural hierarchy edges (symbol→file, file→dir, dir→dir ancestors).
+      // These mirror the JSONL store's addAutomaticEdges so `graph <path>` can
+      // walk from a bare path to symbol-anchored memories and stats report the
+      // full anchor subgraph, not just the single about_* edge. They are code
+      // structure (shared across memories, not memory-scoped), so they are NOT
+      // cleared by the about_* DELETE above and are idempotent via ON CONFLICT.
+      if (!anchor.path) continue;
+      const anchoredPath = normalizeSlashes(anchor.path);
+      const isDirectory = anchor.type === 'directory' || anchor.type === 'package';
+      const fileNode = `file:${anchoredPath}`;
+      const directoryPath = isDirectory
+        ? anchoredPath
+        : normalizeSlashes(path.posix.dirname(anchoredPath));
+      const now = this.nowIso();
+      if (anchor.type === 'symbol' && anchor.symbol) {
+        insert.run(`symbol:${anchoredPath}#${anchor.symbol}`, fileNode, 'related_to', memory.confidence, now);
+      }
+      if (!isDirectory) {
+        insert.run(fileNode, `dir:${directoryPath}`, 'related_to', 1, now);
+      }
+      const directories = ancestorPaths(directoryPath);
+      for (let i = 0; i < directories.length - 1; i++) {
+        insert.run(`dir:${directories[i]}`, `dir:${directories[i + 1]}`, 'related_to', 1, now);
+      }
     }
   }
 
@@ -1345,6 +1391,12 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const scopeFilter = opts?.scope;
     const scopeClause = scopeFilter ? ' AND scope = ?' : '';
     const scopeParams = scopeFilter ? [scopeFilter] : [];
+    // Automatic context retrieval (includeAudienceScoped:false) must exclude
+    // role/task-scoped memories; explicit search (default true) returns them.
+    // Mirrors retrieveForPath / findRelatedSuper and the legacy JSONL store.
+    const includeAudienceScoped = opts?.includeAudienceScoped !== false;
+    const audienceFilter = (memory: SuperMemory): boolean =>
+      includeAudienceScoped || !memory.audience;
     // When includeStatuses is not explicitly provided (automatic context
     // retrieval), exclude memories marked contextPolicy='never' — mirrors
     // the canonical SuperMemoryStore.searchSuper (store.ts:1992).
@@ -1363,27 +1415,36 @@ export class SqliteSuperMemoryStore implements MemoryStore {
            LIMIT ?`,
         )
         .all(...statusFilter, ...scopeParams, limit) as Array<{ data: string }>;
-      return rows.map((r) => this.rowToMemory(r));
+      return rows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
     }
 
     // Try FTS5 first
     try {
       const placeholders = statusFilter.map(() => '?').join(',');
-      const ftsQuery = query
+      const terms = query
         .split(/\s+/)
         .filter(Boolean)
-        .map((t) => `"${t.replace(/"/g, '""')}"*`)
-        .join(' ');
-      const rows = this.stmt(
-          `SELECT m.data FROM memories m
-           JOIN memories_fts f ON m.rowid = f.rowid
-           WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}${neverInjectClause}
-           AND memories_fts MATCH ?
-           ORDER BY bm25(memories_fts) DESC, m.importance DESC
-           LIMIT ?`,
-        )
-        .all(...statusFilter, ...scopeParams, ftsQuery, limit) as Array<{ data: string }>;
-      return rows.map((r) => this.rowToMemory(r));
+        .map((t) => `"${t.replace(/"/g, '""')}"*`);
+      const runFts = (ftsQuery: string): Array<{ data: string }> =>
+        this.stmt(
+            `SELECT m.data FROM memories m
+             JOIN memories_fts f ON m.rowid = f.rowid
+             WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}${neverInjectClause}
+             AND memories_fts MATCH ?
+             ORDER BY bm25(memories_fts) DESC, m.importance DESC
+             LIMIT ?`,
+          )
+          .all(...statusFilter, ...scopeParams, ftsQuery, limit) as Array<{ data: string }>;
+      // AND first (space-joined) keeps precise multi-term queries precise. If
+      // that matches nothing, fall back to OR so a noisy multi-word query (a
+      // task description, a shell command line) still surfaces a memory that
+      // shares only some terms — the JSONL store ranked by token overlap and
+      // kept anything scoring > 0. Precise queries never reach the fallback.
+      let rows = runFts(terms.join(' '));
+      if (rows.length === 0 && terms.length > 1) {
+        rows = runFts(terms.join(' OR '));
+      }
+      return rows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
     } catch {
       // FTS5 unavailable — LIKE fallback
     }
@@ -1399,7 +1460,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
          LIMIT ?`,
       )
       .all(...statusFilter, ...scopeParams, likePattern, limit) as Array<{ data: string }>;
-    return rows.map((r) => this.rowToMemory(r));
+    return rows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
   }
 
   async retrieveForPath(paths: string[], opts?: SuperMemoryForPathOptions): Promise<SuperMemory[]> {
@@ -1409,12 +1470,34 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
     if (paths.length === 0) return [];
 
+    // Anchors are stored project-relative (normalizeAnchors runs on write), so
+    // query paths must be relativized against the project root before matching —
+    // callers such as the tool-call middleware pass absolute paths. Paths that
+    // fall outside the project root cannot map to any stored anchor and are
+    // dropped. Mirrors the legacy JSONL store's normalizeProjectPath step.
+    const relPaths: string[] = [];
+    for (const p of paths) {
+      try {
+        relPaths.push(normalizeProjectPath(this.projectRoot, p));
+      } catch {
+        /* path outside the project root — no stored anchor can match it */
+      }
+    }
+    if (relPaths.length === 0) return [];
+
+    // Automatic tool-result injection passes includeAudienceScoped:false so that
+    // role/task-scoped memories stay out of ordinary retrieval — they surface
+    // only through the explicit retrieveForAudience path. Mirrors searchSuper /
+    // findRelatedSuper and the legacy JSONL store.
+    const includeAudienceScoped = opts?.includeAudienceScoped !== false;
+    const audienceFilter = (memory: SuperMemory): boolean =>
+      includeAudienceScoped || !memory.audience;
+
     // Primary path: use the typed anchor edge index (about_file / about_directory /
     // about_symbol / …) instead of a full-table LIKE over the JSON blob.
     const targets = new Set<string>();
     const symbolGlobs: string[] = [];
-    for (const p of paths) {
-      const normalized = normalizeSlashes(p);
+    for (const normalized of relPaths) {
       targets.add(`file:${normalized}`);
       symbolGlobs.push(`symbol:${normalized}#*`);
       if (includeAncestors) {
@@ -1448,14 +1531,13 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     ).all(...targetList, ...symbolGlobs, limit) as Array<{ data: string }>;
 
     if (edgeRows.length > 0) {
-      return edgeRows.map((r) => this.rowToMemory(r));
+      return edgeRows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
     }
 
     // Fallback: legacy rows / anchors not yet reflected as graph edges.
     const conditions: string[] = [];
     const params: (string | number)[] = ['active', 'stale'];
-    for (const p of paths) {
-      const normalized = normalizeSlashes(p);
+    for (const normalized of relPaths) {
       params.push(`%"path":"${normalized.replace(/[%_\\]/g, '\\$&')}"%`);
       conditions.push("LOWER(data) LIKE ? ESCAPE '\\'");
       if (includeAncestors) {
@@ -1474,7 +1556,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
        ORDER BY importance DESC, updated_at DESC
        LIMIT ?`,
     ).all(...params, limit) as Array<{ data: string }>;
-    return rows.map((r) => this.rowToMemory(r));
+    return rows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
   }
 
   /**
@@ -1737,12 +1819,12 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     // Resolve status filter (default: all except 'deleted').
     const requested =
       options.statuses && options.statuses.length > 0
-        ? options.statuses.filter((s) => SQLITE_VALID_STATUSES.has(s))
-        : SQLITE_DEFAULT_PAGE_STATUSES;
-    const statuses = requested.length > 0 ? requested : SQLITE_DEFAULT_PAGE_STATUSES;
+        ? options.statuses.filter((s) => VALID_MEMORY_STATUSES.has(s))
+        : DEFAULT_PAGE_STATUSES;
+    const statuses = requested.length > 0 ? requested : DEFAULT_PAGE_STATUSES;
     const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
     const query = options.query?.trim().toLowerCase();
-    const limit = clampSqlitePageLimit(options.limit);
+    const limit = clampPageLimit(options.limit);
 
     const where: string[] = [];
     const params: unknown[] = [];
@@ -1766,7 +1848,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const total = totalRow.n;
 
     // Cursor: keyset pagination on the DESC ordering.
-    const cursor = decodeSqlitePageCursor(options.cursor);
+    const cursor = decodePageCursor(options.cursor);
     const pageParams = [...params];
     let cursorClause = '';
     if (cursor) {
@@ -1792,7 +1874,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     const memories = pageRows.map((r) => this.rowToMemory({ data: r.data }));
     const lastRow = pageRows[pageRows.length - 1];
     const nextCursor =
-      hasMore && lastRow ? encodeSqlitePageCursor(lastRow.updated_at, lastRow.id) : null;
+      hasMore && lastRow ? encodePageCursor({ updatedAt: lastRow.updated_at, id: lastRow.id }) : null;
 
     return { memories, nextCursor, total, statusCounts };
   }
@@ -1888,6 +1970,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
             weight: r.weight,
             createdAt: this.nowIso(),
             schemaVersion: 1,
+            ...(SqliteSuperMemoryStore.edgeEvidence(r.relation, r.to_node) ?? {}),
           });
           const next =
             frontierSet.has(r.from_node) && !frontierSet.has(r.to_node)
@@ -1917,6 +2000,129 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     return result;
   }
 
+  /**
+   * Resolve a free-form graph query (a node id, a bare memory id, a project
+   * path, or arbitrary text) into start nodes, then traverse. Restores the
+   * host-facing `graphFor` surface the legacy JSONL store exposed and that the
+   * `/memory graph` command and the webui graph handler still call.
+   */
+  async graphFor(query: string, maxDepth = 2, limit = 100): Promise<MemoryGraphEdge[]> {
+    await this.initialize();
+    const starts = new Set<string>();
+    const trimmed = query.trim();
+    if (/^(mem|file|dir|symbol|command|session|tool|agent):/.test(trimmed)) {
+      starts.add(normalizeSlashes(trimmed));
+    } else if (/^[A-Za-z0-9_]+$/.test(trimmed)) {
+      // A bare id (ULID or legacy mem_… form) — try it as a memory node.
+      starts.add(SqliteSuperMemoryStore.toNodeId(trimmed));
+    }
+    try {
+      const normalizedPath = normalizeProjectPath(this.projectRoot, query);
+      starts.add(`file:${normalizedPath}`);
+      starts.add(`dir:${normalizedPath}`);
+      // Symbol anchors live under `symbol:<path>#<name>` — seed every symbol
+      // node owned by this path so `graph <path>` also surfaces memories that
+      // are anchored to a symbol within the file rather than the file itself.
+      const symbolNodes = this.stmt(
+        'SELECT DISTINCT to_node FROM edges WHERE to_node GLOB ?',
+      ).all(`symbol:${normalizedPath}#*`) as Array<{ to_node: string }>;
+      for (const row of symbolNodes) starts.add(row.to_node);
+    } catch {
+      /* query is not a project-relative path — skip path-based starts */
+    }
+    for (const memory of await this.searchSuper(query, { limit: 20 })) {
+      starts.add(SqliteSuperMemoryStore.toNodeId(memory.id));
+    }
+    // Seed each seed-memory's own anchor nodes so a single-memory query reaches
+    // its anchor-siblings within one hop (they share the anchor node), matching
+    // the JSONL store where shared-anchor memories were directly connected.
+    // Batch all candidate memory ids into a single query to avoid N+1.
+    const memIds: string[] = [];
+    for (const start of starts) {
+      if (start.startsWith(SqliteSuperMemoryStore.NODE_ID_PREFIX)) {
+        memIds.push(start.slice(SqliteSuperMemoryStore.NODE_ID_PREFIX.length));
+      }
+    }
+    if (memIds.length > 0) {
+      const placeholders = memIds.map(() => '?').join(',');
+      const batchRows = this.stmt(
+        `SELECT data FROM memories WHERE id IN (${placeholders})`,
+      ).all(...memIds) as Array<{ data: string }>;
+      const memAnchorMap = batchRows.map((r) => this.rowToMemory(r));
+      for (const memory of memAnchorMap) {
+        if (!memory) continue;
+        for (const anchor of memory.anchors) {
+          const node = sqliteAnchorNode(anchor);
+          if (node) starts.add(node);
+        }
+      }
+    }
+    if (starts.size === 0) return [];
+    return this.traverseGraph([...starts], { maxDepth, limit });
+  }
+
+  /**
+   * Re-check the filesystem anchors of one memory (or every non-deleted memory)
+   * and reconcile status: a memory whose anchors have vanished flips
+   * active→stale; a stale memory whose anchors reappear flips back to active.
+   * Restores the standalone `verify` surface the JSONL store exposed and that
+   * `/memory verify` still calls. The SQLite hygiene pass runs the same probe
+   * inline, but the host-facing surface needs it as a discrete operation.
+   */
+  async verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]> {
+    signal?.throwIfAborted();
+    await this.initialize();
+    const rows = (
+      memoryId
+        ? this.stmt("SELECT data FROM memories WHERE id = ? AND status != 'deleted'").all(memoryId)
+        : this.stmt("SELECT data FROM memories WHERE status != 'deleted'").all()
+    ) as Array<{ data: string }>;
+    const memories = rows.map((r) => this.rowToMemory(r));
+
+    const results: MemoryVerificationResult[] = [];
+    const updates: SuperMemory[] = [];
+    const verificationRunAt = this.nowIso();
+    for (const memory of memories) {
+      signal?.throwIfAborted();
+      const result = await verifyMemoryAnchors(this.projectRoot, memory, verificationRunAt, signal);
+      results.push(result);
+      if (result.status === 'stale' && memory.status === 'active') {
+        // Active memory whose anchors vanished → stale
+        updates.push({ ...memory, status: 'stale', lastVerifiedAt: result.checkedAt });
+      } else if (result.status === 'verified') {
+        // Only flip stale → active. Superseded, archived, contradicted,
+        // and deleted are terminal regardless of anchor state.
+        switch (memory.status) {
+          case 'stale':
+            updates.push({ ...memory, status: 'active', lastVerifiedAt: result.checkedAt, freshness: 1 });
+            break;
+          case 'active':
+            updates.push({ ...memory, lastVerifiedAt: result.checkedAt, freshness: 1 });
+            break;
+          default:
+            // Terminal statuses (superseded, archived, contradicted, deleted):
+            // update lastVerifiedAt for audit trail but preserve the status.
+            if (memory.anchors.length > 0) {
+              updates.push({ ...memory, lastVerifiedAt: result.checkedAt });
+            }
+            break;
+        }
+      } else if (memory.anchors.length > 0 && memory.lastVerifiedAt !== result.checkedAt) {
+        // Anchorless memories are not verifiable — don't churn a revision.
+        updates.push({ ...memory, lastVerifiedAt: result.checkedAt });
+      }
+    }
+    if (updates.length > 0) {
+      await this.runMutation(() => {
+        for (const memory of updates) {
+          this.upsertMemory(memory);
+          this.syncAnchorEdges(memory);
+        }
+      });
+    }
+    return results;
+  }
+
   // ─── Audit ──────────────────────────────────────────────────────────
 
   private audit(event: string, data?: Record<string, unknown>): void {
@@ -1926,23 +2132,6 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
   private eventPayload<T extends object>(payload: T): T & { traceId?: string | undefined } {
     return this.traceId ? { ...payload, traceId: this.traceId } : payload;
-  }
-
-  /**
-   * Reject input that looks like a secret or credential. Mirrors
-   * `SuperMemoryStore.rejectIfUnsafeInput` so every SQLite persistence path,
-   * including direct memories and review candidates, shares the same guard.
-   */
-  private rejectIfUnsafeInput(
-    input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
-  ): void {
-    for (const value of collectStringValues(input)) {
-      if (looksLikeSecret(value)) {
-        throw new Error(
-          'Super Memory refused to store text that looks like a secret or credential.',
-        );
-      }
-    }
   }
 
   // ─── Hygiene ────────────────────────────────────────────────────────
@@ -2232,11 +2421,8 @@ export class SqliteSuperMemoryStore implements MemoryStore {
    */
   async createCandidate(input: CreateCandidateInput): Promise<MemoryCandidate> {
     validateRememberInput(input);
-    // Reject secrets/credentials before any store operation. Mirrors
-    // SuperMemoryStore.rejectIfUnsafeInput so candidate proposals filed
-    // through the SQLite store are subject to the same unsafe-content guard
-    // before they reach the ReviewQueue.
-    this.rejectIfUnsafeInput(input);
+    // Reject secrets/credentials before any store operation.
+    rejectIfUnsafeInput(input);
     await this.initialize();
     const text = normalizeText(input.text);
     if (!text) throw new Error('Super Memory candidate text must not be empty.');
@@ -2451,19 +2637,24 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       if (!any) return undefined;
       return { candidateId, decision, applied: false, alreadyResolved: true };
     }
-    const targetId =
-      snapshot.targetMemoryId ??
-      snapshot.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length);
-    const resolutionNote =
-      reason ?? (decision === 'keep' ? 'Reviewed: keep' : `Reviewed: ${decision}`);
+    const targetId = resolveTargetId(snapshot);
+    const target: SuperMemory | null = targetId
+      ? await this.runMutation(() => {
+          const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(targetId) as
+            | { data: string }
+            | undefined;
+          return row ? (JSON.parse(row.data) as SuperMemory) : null;
+        })
+      : null;
+    const policy = computeResolution(snapshot, decision, reason, target ?? null);
     // Atomic claim: only the caller that flips pending → terminal state owns
     // this resolution. Interleaved decisions see `alreadyResolved` instead of
     // double-applying memory mutations.
     const claimed = await this.runMutation(() => {
       const updated: MemoryCandidate = {
         ...snapshot,
-        status: decision === 'keep' ? 'rejected' : 'accepted',
-        reason: normalizeText(resolutionNote),
+        status: policy.candidateStatus,
+        reason: policy.reason,
         updatedAt: this.nowIso(),
       };
       const result = this.stmt(
@@ -2476,36 +2667,35 @@ export class SqliteSuperMemoryStore implements MemoryStore {
       return { candidateId, decision, applied: false, alreadyResolved: true };
     }
     let applied = false;
-    if (decision !== 'keep' && targetId) {
-      const target = await this.runMutation(() => {
-        const row = this.stmt('SELECT data FROM memories WHERE id = ?').get(targetId) as
-          | { data: string }
-          | undefined;
-        return row ? (JSON.parse(row.data) as SuperMemory) : undefined;
-      });
-      // Permanent memories refuse deletion (matches SuperMemoryStore.resolveCandidate
-      // and deleteSuperMemory's force guard). Explicit archival is still permitted —
-      // permanence protects against destructive removal, not lifecycle archival.
-      const isPermanent = target && (target.persistence ?? DEFAULT_PERSISTENCE) === 'permanent';
-      if (target && (decision === 'archive' || !isPermanent)) {
-        try {
-          await this.updateSuper(targetId, {
-            status: decision === 'delete' ? 'deleted' : 'archived',
-          });
-          applied = true;
-        } catch {
-          applied = false; // Target vanished between read and write.
-        }
+    if (policy.mutation.kind === 'delete_memory' && policy.mutation.targetId) {
+      try {
+        await this.updateSuper(policy.mutation.targetId, { status: 'deleted' });
+        applied = true;
+      } catch (err) {
+        // Row may have been deleted between read and update (concurrent access),
+        // so applied:false is legitimate. Log the cause for debugging.
+        console.warn('[sqlite-store] delete_memory mutation failed for candidate', candidateId, err);
+        applied = false;
+      }
+    } else if (policy.mutation.kind === 'archive_memory' && policy.mutation.targetId) {
+      try {
+        await this.updateSuper(policy.mutation.targetId, { status: 'archived' });
+        applied = true;
+      } catch (err) {
+        // Row may have been deleted between read and update (concurrent access),
+        // so applied:false is legitimate. Log the cause for debugging.
+        console.warn('[sqlite-store] archive_memory mutation failed for candidate', candidateId, err);
+        applied = false;
       }
     } else if (decision === 'keep') {
-      applied = true; // Nothing to mutate — the memory is kept as-is.
+      applied = true;
     }
     this.audit('memory.candidate_resolved', {
-      ...(targetId ? { memoryId: targetId } : {}),
-      reason: resolutionNote,
+      ...(policy.mutation.targetId ? { memoryId: policy.mutation.targetId } : {}),
+      reason: policy.reason,
       details: { candidateId, decision, applied },
     });
-    return { candidateId, decision, ...(targetId ? { targetMemoryId: targetId } : {}), applied };
+    return { candidateId, decision, ...(policy.mutation.targetId ? { targetMemoryId: policy.mutation.targetId } : {}), applied };
   }
 
   // ─── Legacy compat ──────────────────────────────────────────────────
@@ -2530,58 +2720,26 @@ export class SqliteSuperMemoryStore implements MemoryStore {
 
   async consolidateSession(input: SessionConsolidationInput): Promise<SessionConsolidationResult> {
     await this.initialize();
-    const result: SessionConsolidationResult = {
-      candidates: 0,
-      accepted: 0,
-      rejected: 0,
-      duplicate: 0,
-    };
-    // Build dedup set from existing active/stale project memories
-    const existing = new Set<string>();
+    const dedupSet = new Set<string>();
     const memories = this.stmt(
         "SELECT data FROM memories WHERE json_extract(data, '$.status') IN ('active', 'stale') AND json_extract(data, '$.scope') = 'project'",
       )
       .all() as Array<{ data: string }>;
     for (const row of memories) {
       const memory = JSON.parse(row.data) as SuperMemory;
-      existing.add(canonicalMemoryText(memory.text));
+      dedupSet.add(canonicalMemoryText(memory.text));
     }
-    // Also dedup against pending candidates
     for (const candidate of await this.listCandidates()) {
-      if (candidate.scope === 'project') existing.add(canonicalMemoryText(candidate.text));
+      if (candidate.scope === 'project') dedupSet.add(canonicalMemoryText(candidate.text));
     }
-    const threshold = clamp01(input.autoAcceptThreshold ?? 0.85);
-    for (const fact of input.facts) {
-      const text = normalizeText(fact.text);
-      const key = canonicalMemoryText(text);
-      if (!text || existing.has(key)) {
-        result.duplicate++;
-        continue;
-      }
-      let candidate: MemoryCandidate;
-      try {
-        candidate = await this.createCandidate({
-          text,
-          kind: fact.kind,
-          confidence: fact.confidence,
-          importance: fact.importance,
-          tags: fact.tags,
-          anchors: fact.anchors,
-          sources: [{ type: 'session', sessionId: input.sessionId }],
-        });
-      } catch {
-        result.rejected++;
-        continue;
-      }
-      result.candidates++;
-      existing.add(key);
-      const policyScore = candidate.confidence * 0.55 + candidate.importance * 0.45;
-      if (policyScore >= threshold) {
-        await this.acceptCandidate(candidate.id);
-        result.accepted++;
-      }
-    }
-    return result;
+    // Note: sharedConsolidateSession defensively copies `dedupSet` internally
+    // (new Set(initialDedupSet)), so the original set is not mutated by the
+    // shared loop — the copy is for isolation, not for load-bearing semantics.
+    return sharedConsolidateSession(
+      { createCandidate: (i) => this.createCandidate(i), acceptCandidate: (id) => this.acceptCandidate(id) },
+      dedupSet,
+      input,
+    );
   }
 
   // ─── Alias methods matching SuperMemoryStore's public API ──────────
@@ -2600,7 +2758,7 @@ export class SqliteSuperMemoryStore implements MemoryStore {
     if (statuses && statuses.length > 0) {
       // Validate against the known set so unknown statuses raise instead of
       // silently returning an empty result (mirrors listSuperPage at line 848).
-      const valid = statuses.filter((s) => SQLITE_VALID_STATUSES.has(s));
+      const valid = statuses.filter((s) => VALID_MEMORY_STATUSES.has(s));
       if (valid.length === 0) return [];
       const placeholders = valid.map(() => '?').join(',');
       const rows = this.stmt(
@@ -2843,11 +3001,6 @@ function matchesLegacyForget(memory: SuperMemory, normalizedQuery: string): bool
   return searchable.includes(normalizedQuery);
 }
 
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(1, Math.max(0, value));
-}
-
 function isMigratableMemoryRecord(value: unknown): value is SuperMemoryRecord {
   if (!value || typeof value !== 'object') return false;
   const record = value as Partial<SuperMemoryRecord>;
@@ -2918,9 +3071,4 @@ function isMigratableAuditRecord(value: unknown): value is SuperMemoryAuditRecor
  * Canonical text key for deduplication. Mirrors SuperMemoryStore's
  * internal helper so both stores produce identical dedup keys.
  */
-function canonicalMemoryText(text: string): string {
-  return normalizeText(text)
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[.!?,;:]+$/g, '');
-}
+// canonicalMemoryText moved to store-helpers.ts

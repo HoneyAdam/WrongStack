@@ -26,7 +26,6 @@ export interface HistoryProps {
    * whenever the new array is shorter than what it already printed.
    */
   generation?: number | undefined;
-  streamingText?: string | undefined;
   /**
    * Optional live tail of the currently streaming tool. Rendered below the
    * assistant tail so the user sees both at once: model thinking and tool

@@ -74,9 +74,9 @@
       "runtimeOrMixed": 36
     },
     "@wrongstack/core/kernel": {
-      "files": 155,
+      "files": 152,
       "typeOnly": 77,
-      "runtimeOrMixed": 94
+      "runtimeOrMixed": 91
     },
     "@wrongstack/core/kernel/events.js": {
       "files": 6,
@@ -139,8 +139,8 @@
       "runtimeOrMixed": 3
     },
     "@wrongstack/core/types": {
-      "files": 704,
-      "typeOnly": 688,
+      "files": 703,
+      "typeOnly": 687,
       "runtimeOrMixed": 189
     },
     "@wrongstack/core/types/multi-agent.js": {
@@ -159,9 +159,9 @@
       "runtimeOrMixed": 1
     },
     "@wrongstack/core/utils": {
-      "files": 395,
+      "files": 392,
       "typeOnly": 36,
-      "runtimeOrMixed": 427
+      "runtimeOrMixed": 424
     },
     "@wrongstack/core/utils/error": {
       "files": 4,
@@ -4005,24 +4005,6 @@
     {
       "specifier": "@wrongstack/core/kernel",
       "file": "packages/super-memory/tests/context-monitor.test.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/tests/deep-cover.test.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/tests/store-extra.test.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/kernel",
-      "file": "packages/super-memory/tests/store.test.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
     },
@@ -9176,12 +9158,6 @@
     },
     {
       "specifier": "@wrongstack/core/types",
-      "file": "packages/super-memory/src/store.ts",
-      "typeOnly": 1,
-      "runtimeOrMixed": 0
-    },
-    {
-      "specifier": "@wrongstack/core/types",
       "file": "packages/super-memory/src/tools/memory-candidates-tool.ts",
       "typeOnly": 1,
       "runtimeOrMixed": 0
@@ -12374,25 +12350,7 @@
     },
     {
       "specifier": "@wrongstack/core/utils",
-      "file": "packages/super-memory/src/graph/graph.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/super-memory/src/jsonl.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
       "file": "packages/super-memory/src/sqlite-store.ts",
-      "typeOnly": 0,
-      "runtimeOrMixed": 1
-    },
-    {
-      "specifier": "@wrongstack/core/utils",
-      "file": "packages/super-memory/src/store.ts",
       "typeOnly": 0,
       "runtimeOrMixed": 1
     },

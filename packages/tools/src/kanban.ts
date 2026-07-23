@@ -20,6 +20,7 @@ import type {
   KanbanTaskPriority,
   KanbanTaskStatus,
   KanbanTaskType,
+  KanbanVerificationReport,
 } from '@wrongstack/kanban';
 import {
   addCheckToTask,
@@ -68,6 +69,7 @@ import {
   updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
+  verifyTaskCompletion,
 } from '@wrongstack/kanban';
 import { taskFileToSerializedGraph } from './session-kanban.js';
 
@@ -116,7 +118,9 @@ type KanbanAction =
   | 'add_check'
   | 'update_check'
   | 'add_note'
-  | 'add_link';
+  | 'add_link'
+  | 'verify_completion'
+  | 'split_atomic';
 
 interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   action: KanbanAction;
@@ -230,6 +234,7 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
 
 interface KanbanToolOutput {
   ok: boolean;
+  verdict?: KanbanVerificationReport['verdict'] | undefined;
   message: string;
   board?: KanbanBoard | undefined;
   boards?: KanbanBoardSummary[] | undefined;
@@ -249,9 +254,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
   name: 'kanban',
   category: 'Project',
   description:
-    'Manage and audit project-scoped multi-kanban boards stored under .wrongstack/kanbans. Managed cards enforce fully specified details and adjacent Backlog → Todo → Running → Review → Done transitions with persistent comments and evidence. Successful board access records live agent/session presence.',
+    'Manage and audit project-scoped multi-kanban boards stored under .wrongstack/kanbans. Managed cards enforce fully specified details and adjacent Backlog → Todo → Running → Review → Done transitions with persistent comments and evidence. Successful board access records live agent/session presence. Use verify_completion to validate a task against its success criteria and persist the verification report. Use split_atomic to split a task into child tasks with parent.atomic=true in a single atomic board mutation, enforcing subtree verification before the parent can complete.',
   usageHint:
-    'Use this for durable project kanban state. Reassess with get_board whenever evidence changes; agents may add, update, split, merge, reprioritize, or remove tasks so the board remains a live plan. Presence includes active/last-seen session and agent metadata. For managed boards, fully fill card details, use transition_task after every material step, attach truthful evidence, and never use update_task/move_task to bypass lifecycle guards. Worker completion enters Review; only passed acceptance criteria plus review evidence allow Done.',
+    'Use this for durable project kanban state. Reassess with get_board whenever evidence changes; agents may add, update, split, merge, reprioritize, or remove tasks so the board remains a live plan. Presence includes active/last-seen session and agent metadata. For managed boards, fully fill card details, use transition_task after every material step, attach truthful evidence, and never use update_task/move_task to bypass lifecycle guards. Worker completion enters Review; only passed acceptance criteria plus review evidence allow Done. Use verify_completion to generate a verification report (persisted automatically) and split_atomic to atomically create child subtasks with the atomic flag pre-set.',
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],
@@ -308,6 +313,8 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           'update_check',
           'add_note',
           'add_link',
+          'verify_completion',
+          'split_atomic',
         ],
       },
       boardId: { type: 'string' },
@@ -362,6 +369,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       runTaskId: { type: 'string' },
       lastResult: { type: 'string' },
       error: { type: 'string' },
+      expectedLeaseId: { type: 'string' },
       assignmentStatus: {
         type: 'string',
         enum: ['assigned', 'queued', 'running', 'completed', 'failed', 'cancelled'],
@@ -396,6 +404,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       lastFailureKind: { type: 'string' },
       dependsOn: { type: 'array', items: { type: 'string' } },
       estimatedHours: { type: 'number' },
+      actualHours: { type: 'number' },
       taskGraph: { type: 'object' },
       graphId: { type: 'string' },
       specId: { type: 'string' },
@@ -735,36 +744,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           if (!input.boardId || !input.taskId || !input.childTitles?.length) {
             return fail('split_task requires boardId, taskId, and childTitles.');
           }
-          const result = await splitTask(projectRoot, input.boardId, input.taskId, {
-            titles: input.childTitles,
-            ...(input.targetColumnId !== undefined ? { columnId: input.targetColumnId } : {}),
-            ...(input.inheritAssignment !== undefined
-              ? { inheritAssignment: input.inheritAssignment }
-              : {}),
-            ...(input.inheritLabels !== undefined ? { inheritLabels: input.inheritLabels } : {}),
-            ...(input.inheritSuccessCriteria !== undefined
-              ? { inheritSuccessCriteria: input.inheritSuccessCriteria }
-              : {}),
-            ...(input.inheritGoalMetrics !== undefined
-              ? { inheritGoalMetrics: input.inheritGoalMetrics }
-              : {}),
-            ...(input.inheritDependencies !== undefined
-              ? { inheritDependencies: input.inheritDependencies }
-              : {}),
-            ...(input.chainChildren !== undefined ? { chainChildren: input.chainChildren } : {}),
-            ...(input.rewireDependents !== undefined
-              ? { rewireDependents: input.rewireDependents }
-              : {}),
-          });
-          return result
-            ? {
-                ok: true,
-                message: `${result.children.length} child task(s) created.`,
-                board: result.board,
-                task: result.parent,
-                children: result.children,
-              }
-            : fail('Task not found.');
+          return handleSplitTask(projectRoot, input, {});
         }
         case 'merge_tasks': {
           if (!input.boardId || !input.taskIds?.length || !input.title) {
@@ -1195,6 +1175,53 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           });
           return board ? okBoard(board, 'Link added.') : fail('Task not found.');
         }
+        case 'verify_completion': {
+          if (!input.boardId || !input.taskId) {
+            return fail('verify_completion requires boardId and taskId.');
+          }
+          const verResult = await verifyTaskCompletion(projectRoot, input.boardId, input.taskId);
+          // Persist verificationReport AND updated successCriteria atomically
+          // in a single board mutation so there is no window where the report
+          // exists but criteria are stale. Always persist both — the verifier
+          // may have updated individual criterion status/checkedBy/checkedAt
+          // on the in-memory task, and the comparison would always be false
+          // because both references point to the same updated object.
+          const persistedBoard = await updateTask(projectRoot, input.boardId, input.taskId, {
+            verificationReport: verResult.report,
+            successCriteria: verResult.task.successCriteria,
+          });
+          if (!persistedBoard) {
+            // Return structured failure so callers can inspect the
+            // verification verdict and report without re-running.
+            return {
+              ok: false,
+              verdict: verResult.report.verdict,
+              message:
+                `Verification succeeded but persist failed: ${verResult.report.markdownSummary}. ` +
+                `Board may be stale — re-run verify_completion.`,
+              board: verResult.board,
+            };
+          }
+          const freshTask = persistedBoard.tasks?.find((t: KanbanTask) => t.id === input.taskId);
+          // ok is true whenever the verifier produced a deterministic verdict
+          // (passed/failed/needs_human/incomplete). Callers should inspect the
+          // `verdict` field to distinguish success from human-review-needed;
+          // ok: false is reserved for thrown errors that never produced a report.
+          const deterministicVerdicts = ['passed', 'failed', 'needs_human', 'incomplete'] as const;
+          return {
+            ok: deterministicVerdicts.includes(verResult.report.verdict as typeof deterministicVerdicts[number]),
+            verdict: verResult.report.verdict,
+            message: verResult.report.markdownSummary,
+            board: persistedBoard,
+            task: freshTask ?? verResult.task,
+          };
+        }
+        case 'split_atomic': {
+          if (!input.boardId || !input.taskId || !input.childTitles?.length) {
+            return fail('split_atomic requires boardId, taskId, and childTitles (at least one).');
+          }
+          return handleSplitTask(projectRoot, input, { atomic: true });
+        }
         default:
           return fail(`Unknown kanban action: ${(input as { action: string }).action}`);
         }
@@ -1216,6 +1243,59 @@ function okBoard(board: KanbanBoard, message = 'Board loaded.'): KanbanToolOutpu
 
 function okTask(board: KanbanBoard, task: KanbanTask, message: string): KanbanToolOutput {
   return { ok: true, message, board, task };
+}
+
+/** Shared split handler used by both split_task and split_atomic. */
+async function handleSplitTask(
+  projectRoot: string,
+  input: KanbanToolInput,
+  extraSplitOptions: Record<string, unknown>,
+): Promise<KanbanToolOutput> {
+  const boardId = input.boardId;
+  const taskId = input.taskId;
+  const childTitles = input.childTitles;
+  if (!boardId || !taskId || !childTitles?.length) {
+    return fail('split requires boardId, taskId, and at least one childTitles.');
+  }
+  // Destructure the optional SplitKanbanTaskInput fields from the tool input.
+  // childTitles→titles and targetColumnId→columnId are the only renames.
+  const {
+    targetColumnId,
+    inheritAssignment,
+    inheritLabels,
+    inheritSuccessCriteria,
+    inheritGoalMetrics,
+    inheritDependencies,
+    chainChildren,
+    rewireDependents,
+  } = input;
+  const result = await splitTask(projectRoot, boardId, taskId, {
+    titles: childTitles,
+    ...extraSplitOptions,
+    ...(targetColumnId !== undefined ? { columnId: targetColumnId } : {}),
+    ...(inheritAssignment !== undefined ? { inheritAssignment } : {}),
+    ...(inheritLabels !== undefined ? { inheritLabels } : {}),
+    ...(inheritSuccessCriteria !== undefined ? { inheritSuccessCriteria } : {}),
+    ...(inheritGoalMetrics !== undefined ? { inheritGoalMetrics } : {}),
+    ...(inheritDependencies !== undefined ? { inheritDependencies } : {}),
+    ...(chainChildren !== undefined ? { chainChildren } : {}),
+    ...(rewireDependents !== undefined ? { rewireDependents } : {}),
+  });
+  if (!result) return fail('Task not found.');
+  const freshParent = result.board.tasks?.find((t: KanbanTask) => t.id === taskId);
+  if (!freshParent) {
+    return fail(
+      `Split succeeded but parent ${taskId} not found in returned board. ` +
+      `Children: [${result.children.map((c) => c.id).join(', ')}].`,
+    );
+  }
+  return {
+    ok: true,
+    message: `${result.children.length} child task(s) created.`,
+    board: result.board,
+    task: freshParent,
+    children: result.children,
+  };
 }
 
 async function requireBoard(
@@ -1341,6 +1421,7 @@ function taskPatch(input: KanbanToolInput) {
     assignedAgent: input.agentId,
     ...(mergedDependsOn(input) ? { dependsOn: mergedDependsOn(input) } : {}),
     ...(input.estimatedHours !== undefined ? { estimatedHours: input.estimatedHours } : {}),
+    ...(input.actualHours !== undefined ? { actualHours: input.actualHours } : {}),
   };
 }
 

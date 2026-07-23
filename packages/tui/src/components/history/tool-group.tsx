@@ -124,9 +124,12 @@ export function estimateRenderGroupRows(group: RenderGroup, contentWidth: number
     default:
       return entry.kind === 'banner' ? 12 : 4;
   }
+  // marginBottom on the wrapper Box in scrollable-history.tsx adds 1 row
+  // for turn-summary entries, so the estimate must match.
+  const marginAdjustment = entry.kind === 'turn-summary' ? 1 : 0;
   return Math.min(
-    MAX_TEXT_ESTIMATE_ROWS + 2,
-    estimateTextRows(text, contentWidth - 4, MAX_TEXT_ESTIMATE_ROWS) + 2,
+    MAX_TEXT_ESTIMATE_ROWS + 2 + marginAdjustment,
+    estimateTextRows(text, contentWidth - 4, MAX_TEXT_ESTIMATE_ROWS) + 2 + marginAdjustment,
   );
 }
 

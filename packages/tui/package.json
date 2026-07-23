@@ -36,6 +36,7 @@
   "dependencies": {
     "@wrongstack/core": "workspace:*",
     "@wrongstack/kanban": "workspace:*",
+    "@wrongstack/persistence": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
     "@wrongstack/super-memory": "workspace:*",

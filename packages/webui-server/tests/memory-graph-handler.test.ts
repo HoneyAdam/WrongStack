@@ -1,18 +1,36 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { JsonlMemoryPort } from '@wrongstack/super-memory';
+import { SqliteMemoryPort } from '@wrongstack/super-memory';
 import { handleSuperMemoryGraph } from '@wrongstack/webui-server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 
 let root: string;
+let openStores: SqliteMemoryPort[] = [];
+
+/** Track each store so its SQLite handle is closed before the temp dir is removed. */
+function newPort(opts: { projectRoot: string }): SqliteMemoryPort {
+  const store = new SqliteMemoryPort(opts);
+  openStores.push(store);
+  return store;
+}
 
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-memory-graph-handler-'));
+  openStores = [];
 });
 
 afterEach(async () => {
+  for (const store of openStores) {
+    try {
+      store.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  // Give Windows a tick to release SQLite WAL file handles before removal.
+  await new Promise((resolve) => setTimeout(resolve, 10));
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -28,7 +46,7 @@ function mockSocket(): WebSocket & { sent: unknown[] } {
 
 describe('handleSuperMemoryGraph', () => {
   it('returns persisted edges, evidence, and referenced memory records', async () => {
-    const store = new JsonlMemoryPort({ projectRoot: root });
+    const store = newPort({ projectRoot: root });
     const first = await store.rememberSuper({
       text: 'The auth package owns session state.',
       kind: 'file_note',
