@@ -40,6 +40,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  wstack models list           List all custom models',
     '  wstack mcp [list]            List MCP servers',
     '  wstack plugin [list|report|menu|official|install|toggle|remove|enable|disable]  Manage plugins',
+    '  wstack project id|init|rekey  Manage the committed repository identity',
     '  wstack projects              List tracked projects',
     '  wstack diag                  Full diagnostics',
     '  wstack doctor                Health checks',

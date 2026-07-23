@@ -345,14 +345,26 @@ export function handleClient(
       if (event.type === 'kanban.snapshot') {
         const payload = event.payload as HqKanbanSnapshotPayload;
         if (payload.projectId !== client.projectId || persistence === undefined) return;
-        void persistence.kanban.merge(payload).then((merged) => {
-          const message = JSON.stringify({ type: 'hq.kanban_snapshot', payload: merged });
-          for (const peer of clients.values()) {
-            if (peer.projectId === client.projectId && peer.ws.readyState === WebSocket.OPEN) {
-              peer.ws.send(message);
+        void persistence.kanban
+          .merge(payload)
+          .then((merged) => {
+            const message = JSON.stringify({ type: 'hq.kanban_snapshot', payload: merged });
+            for (const peer of clients.values()) {
+              if (peer.projectId === client.projectId && peer.ws.readyState === WebSocket.OPEN) {
+                peer.ws.send(message);
+              }
             }
-          }
-        });
+          })
+          .catch((error: unknown) => {
+            console.warn(
+              JSON.stringify({
+                level: 'warn',
+                event: 'hq.kanban_merge_failed',
+                message: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString(),
+              }),
+            );
+          });
         persistEvent(event);
         broadcastEvent(event, browsers);
         return;

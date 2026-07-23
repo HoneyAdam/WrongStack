@@ -12,15 +12,14 @@ export class TerminalRenderer implements Renderer {
   private readonly out: NodeJS.WriteStream;
   private readonly err: NodeJS.WriteStream;
   private lineStart = true;
-  /**
-   * When true, every stdout-bound method is a no-op. This is the only
-   * safe state to be in while Ink owns the terminal (TUI mode):
-   * raw writes to stdout interleave with Ink's cursor math and cause
-   * the input + status bar to be reprinted as scrollback junk.
-   * Stderr-bound methods (writeInfo/Warning/Error) still flow — they
-   * go to a different stream Ink does not manage.
-   */
+  /** When true, stdout-bound rendering is disabled (for non-terminal UI surfaces). */
   private silent = false;
+  /**
+   * When true, Ink exclusively owns the terminal. Both stdout and stderr
+   * rendering must be disabled: either stream can interleave with Ink's
+   * cursor updates and make the TUI flicker or leave stray debug notes.
+   */
+  private tuiActive = false;
   /**
    * Per-tool on-screen result render mode. Defaults to `'extend'` so
    * existing callers without `setResultRenderMode` see full content.
@@ -32,6 +31,8 @@ export class TerminalRenderer implements Renderer {
   private renderModes = new Map<string, ToolResultRenderMode>();
   /** Mode applied when no entry is set for a given tool name. */
   private static readonly DEFAULT_RENDER_MODE: ToolResultRenderMode = 'extend';
+  /** Maximum number of one-shot hints retained when callers abandon a result. */
+  private static readonly MAX_RENDER_MODES = 256;
   /** Lines kept per tool family in `extend` mode. */
   private static readonly EXTEND_PREVIEW_LINES = 10;
 
@@ -41,9 +42,8 @@ export class TerminalRenderer implements Renderer {
   }
 
   /**
-   * Toggle stdout suppression. Call `setSilent(true)` right before
-   * handing the terminal to Ink, and `setSilent(false)` after Ink
-   * exits. Idempotent.
+   * Toggle stdout suppression for non-terminal UI surfaces such as WebUI.
+   * Diagnostics continue to flow to stderr. Idempotent.
    */
   setSilent(silent: boolean): void {
     this.silent = silent;
@@ -53,8 +53,42 @@ export class TerminalRenderer implements Renderer {
     return this.silent;
   }
 
+  /**
+   * Toggle exclusive TUI ownership of both terminal streams. Unlike
+   * {@link setSilent}, TUI mode suppresses stderr as well as stdout and clears
+   * any CLI-only result mode staged before Ink took ownership. While active,
+   * new result-mode hints are ignored. The two flags compose with OR semantics
+   * for stdout suppression only; TUI ownership adds the other behaviors.
+   * Enable immediately before starting Ink and disable in the paired
+   * `finally`, only after the TUI has fully exited.
+   */
+  setTuiActive(active: boolean): void {
+    // Drop any CLI-only hint staged before Ink took ownership. While active,
+    // setResultRenderMode is suppressed and matching result writes consume
+    // defensively, so no one-shot mode can survive the TUI boundary.
+    if (active) this.renderModes.clear();
+    this.tuiActive = active;
+  }
+
+  isTuiActive(): boolean {
+    return this.tuiActive;
+  }
+
+  private suppressStdout(): boolean {
+    return this.silent || this.tuiActive;
+  }
+
   setResultRenderMode(name: string, mode: ToolResultRenderMode): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
+    // Refreshing an existing hint must not evict an unrelated one.
+    if (this.renderModes.delete(name)) {
+      this.renderModes.set(name, mode);
+      return;
+    }
+    if (this.renderModes.size >= TerminalRenderer.MAX_RENDER_MODES) {
+      const oldestName = this.renderModes.keys().next().value;
+      if (oldestName !== undefined) this.renderModes.delete(oldestName);
+    }
     this.renderModes.set(name, mode);
   }
 
@@ -67,7 +101,7 @@ export class TerminalRenderer implements Renderer {
   }
 
   write(input: string | TextBlock): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     const text = typeof input === 'string' ? input : input.text;
     if (!text) return;
     const rendered = renderMarkdown(text);
@@ -76,7 +110,7 @@ export class TerminalRenderer implements Renderer {
   }
 
   writeLine(text = ''): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     if (!this.lineStart) this.out.write('\n');
     if (text) this.out.write(`${text}\n`);
     else this.out.write('\n');
@@ -84,20 +118,22 @@ export class TerminalRenderer implements Renderer {
   }
 
   writeBlock(block: ContentBlock): void {
-    if (this.silent) return;
+    if (block.type === 'tool_result') {
+      const text =
+        typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+      this.writeToolResult(block.name ?? 'result', text, !!block.is_error);
+      return;
+    }
+    if (this.suppressStdout()) return;
     if (block.type === 'text') {
       this.write(block);
     } else if (block.type === 'tool_use') {
       this.writeToolCall(block.name, block.input);
-    } else if (block.type === 'tool_result') {
-      const text =
-        typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
-      this.writeToolResult('result', text, !!block.is_error);
     }
   }
 
   writeToolCall(name: string, input: unknown): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     if (!this.lineStart) this.out.write('\n');
     const arrow = theme.primary('→');
     const display = formatInputSummary(input);
@@ -106,7 +142,13 @@ export class TerminalRenderer implements Renderer {
   }
 
   writeToolResult(name: string, content: unknown, isError: boolean): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) {
+      // TUI/WebUI rendering happens elsewhere, but this call still represents
+      // the one result that consumes a staged per-tool mode. Dropping the write
+      // without clearing would leak the override into the next CLI result.
+      this.clearRenderMode(name);
+      return;
+    }
     const txt = typeof content === 'string' ? content : safeStringify(content);
     const prefix = isError ? theme.error('✘') : theme.success('✓');
     const renderMode = this.getRenderMode(name);
@@ -182,24 +224,27 @@ export class TerminalRenderer implements Renderer {
   }
 
   writeDiff(diff: string): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     if (!this.lineStart) this.out.write('\n');
     this.out.write(`${renderDiff(diff)}\n`);
     this.lineStart = true;
   }
 
   writeWarning(text: string): void {
+    if (this.tuiActive) return;
     this.err.write(`${theme.warn('⚠')} ${text}\n`);
   }
   writeError(text: string): void {
+    if (this.tuiActive) return;
     this.err.write(`${theme.error('✘')} ${text}\n`);
   }
   writeInfo(text: string): void {
+    if (this.tuiActive) return;
     this.err.write(`${theme.info('ℹ')} ${text}\n`);
   }
 
   clear(): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     this.out.write('\x1b[2J\x1b[H');
     this.lineStart = true;
   }
@@ -214,7 +259,7 @@ export class TerminalRenderer implements Renderer {
    * └─────────────────────────────────────┘
    */
   writeAgentSummary(summary: string, ok: boolean): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     if (!this.lineStart) this.out.write('\n');
 
     const lines = summary.split('\n');
@@ -264,7 +309,7 @@ export class TerminalRenderer implements Renderer {
     delegateSummaries?: Array<{ summary: string | undefined; ok: boolean }>;
     messages?: Array<unknown> | undefined;
   }): void {
-    if (this.silent) return;
+    if (this.suppressStdout()) return;
     // Prefer the structured field from delegate tool.
     if (result.delegateSummaries) {
       for (const { summary, ok } of result.delegateSummaries) {

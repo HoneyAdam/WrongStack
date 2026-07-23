@@ -694,7 +694,9 @@ describe('runRepl', () => {
       expect(allTexts.some((t) => t.includes('Run the focused check'))).toBe(true);
       // Indexed check: the suggestion must be the SECOND turn's feed, not
       // swallowed silently. (First turn is the user's "hello".)
-      const secondTurnBlocks = run.mock.calls[1]?.[0] as Array<{ text?: string }> | undefined;
+      const secondTurnBlocks = (
+        run.mock.calls as unknown as Array<[Array<{ text?: string }>]>
+      )[1]?.[0];
       expect(secondTurnBlocks?.[0]?.text).toContain('Run the focused check');
     });
 
@@ -1017,7 +1019,9 @@ describe('runRepl', () => {
       // One todo-grounded automatic turn. The identical second attempt is
       // stopped by the repetition guard before the exit input is read.
       expect(run.mock.calls.length).toBe(1);
-      const autoPrompt = (run.mock.calls[0]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? '';
+      const autoPrompt = (
+        run.mock.calls as unknown as Array<[Array<{ text?: string }>]>
+      )[0]?.[0]?.[0]?.text ?? '';
       expect(autoPrompt).toContain('finish refactor');
       // The halt is surfaced, not silent: the user sees why auto-proceed stopped.
       const warns = (renderer.writeWarning as ReturnType<typeof vi.fn>).mock.calls.map((c) =>

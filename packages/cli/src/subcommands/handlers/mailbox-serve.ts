@@ -283,6 +283,9 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const finalized = await finalize(projectDir, tentative, boundPort);
   hqConnection = startCliHqConnection({
     clientKind: 'mailbox',
+    // Mailbox telemetry is best-effort; keep a disconnected bridge from
+    // retaining thousands of snapshots/events in the CLI process.
+    maxQueuedMessages: 250,
     projectRoot: deps.projectRoot,
     projectName: path.basename(deps.projectRoot),
     appConfig: deps.config,

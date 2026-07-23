@@ -4,7 +4,14 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { Context } from '@wrongstack/core/agent';
 import type { SlashCommand } from '@wrongstack/core/types';
-import { color } from '@wrongstack/core/utils';
+import {
+  color,
+  ensureProjectGitignore,
+  ensureProjectIdentity,
+  projectIdentityPath,
+  readProjectIdentity,
+  rekeyProjectIdentity,
+} from '@wrongstack/core/utils';
 import { runProjectPicker } from '../project-picker.js';
 import type { SlashCommandContext } from './command-context.js';
 import {
@@ -45,6 +52,9 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
       'Usage:',
       '  /project                          Open interactive project picker (arrow keys)',
       '  /project ls|list                  List all known projects (text)',
+      '  /project id                       Show this repository identity',
+      '  /project init                     Create the committed project identity',
+      '  /project rekey [--yes|-y]         Give an independent fork a new identity',
       '  /project add <path> [name]        Register a new project',
       '  /project rename <slug> <name>     Rename a project',
       '  /project remove <slug>            Remove a project from the list',
@@ -70,6 +80,20 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
 
       if (lower === 'ls' || lower === 'list') {
         return listProjectsCommand(opts, ctx);
+      }
+
+      if (lower === 'id') {
+        return projectIdentityCommand(opts, ctx, 'show', false);
+      }
+
+      if (lower === 'init') {
+        return projectIdentityCommand(opts, ctx, 'init', false);
+      }
+
+      const [subcommand, ...subcommandArgs] = lower.split(/\s+/);
+      if (subcommand === 'rekey') {
+        const confirmed = subcommandArgs.some((arg) => arg === '--yes' || arg === '-y');
+        return projectIdentityCommand(opts, ctx, 'rekey', confirmed);
       }
 
       if (lower.startsWith('add ') || lower === 'add') {
@@ -135,10 +159,66 @@ export function buildProjectCommand(opts: SlashCommandContext): SlashCommand {
       return {
         message: [
           `Unknown: "${trimmed}".`,
-          'Usage: /project [ls|list|add|rename|remove|switch]',
+          'Usage: /project [ls|list|id|init|rekey|add|rename|remove|switch]',
         ].join('\n'),
       };
     },
+  };
+}
+
+async function projectIdentityCommand(
+  opts: SlashCommandContext,
+  ctx: Context | undefined,
+  action: 'show' | 'init' | 'rekey',
+  confirmed: boolean,
+): Promise<{ message: string }> {
+  const root = ctx?.projectRoot ?? opts.projectRoot ?? process.cwd();
+  const filePath = projectIdentityPath(root);
+
+  if (action === 'show') {
+    const identity = await readProjectIdentity(root);
+    return identity
+      ? {
+          message: `${color.bold('Project ID:')} ${color.cyan(identity.projectId)}\n${color.dim(filePath)}`,
+        }
+      : { message: `No committed project identity. Run ${color.cyan('/project init')}.` };
+  }
+
+  if (action === 'init') {
+    const result = await ensureProjectIdentity(root);
+    await ensureProjectGitignore(root);
+    return {
+      message: result.created
+        ? `${color.green('Created')} ${filePath}\n${color.cyan(result.identity.projectId)}\n${color.dim('Commit this file so every clone and machine shares the same HQ project.')}`
+        : `${color.dim('Project identity already exists:')} ${color.cyan(result.identity.projectId)}`,
+    };
+  }
+
+  if (!confirmed && opts.confirm) {
+    const promptConfirmed = await opts.confirm(
+      'Rekey this repository? Existing HQ/Kanban history will remain under the previous project ID.',
+      false,
+    );
+    if (promptConfirmed !== true) {
+      return { message: 'Rekey cancelled.' };
+    }
+    confirmed = true;
+  }
+  if (!confirmed) {
+    return { message: `Rekey requires confirmation. Pass ${color.cyan('--yes')} or ${color.cyan('-y')}.` };
+  }
+
+  const result = await rekeyProjectIdentity(root);
+  await ensureProjectGitignore(root);
+  return {
+    message: [
+      result.previous
+        ? color.dim(`Previous: ${result.previous.projectId}`)
+        : color.dim('Previous: none'),
+      `${color.green('New project ID:')} ${color.cyan(result.identity.projectId)}`,
+      color.dim(`Commit ${filePath} to make this fork independent on every machine.`),
+      color.dim('Restart WrongStack before publishing HQ or Kanban updates under the new ID.'),
+    ].join('\n'),
   };
 }
 

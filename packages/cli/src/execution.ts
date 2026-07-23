@@ -42,11 +42,13 @@ import {
 import { type CoordinatorEvent, isMailboxLeader } from '@wrongstack/core/coordination';
 import {
   type CascadeAgentKind,
+  buildReviewerModelPool,
   CHIMERA_REVIEW_PROMPT,
   type ChimeraCascadeNeededPayload,
   type ChimeraReviewCompletePayload,
   type ChimeraReviewNeededPayload,
   DEFAULT_REVIEW_FALLBACK_MODELS,
+  selectRoundRobinReviewerAssignment,
 } from '@wrongstack/core/plugin';
 import { WIDE_SUBAGENT_CAPABILITIES } from '@wrongstack/core/security';
 import { attachTodosCheckpoint } from '@wrongstack/core/storage';
@@ -131,6 +133,76 @@ export function resolveReviewerFallbackModels(
 }
 
 /**
+ * Process-local round-robin cursor for Chimera reviewer model assignment.
+ * Advances on every successful assignment so concurrent/successive reviewers
+ * start on different providers and share rate-limit budget across the pool.
+ */
+let reviewerRoundRobinCursor = 0;
+
+/** Test hook — reset the process-local reviewer round-robin cursor. */
+export function __resetReviewerRoundRobinCursor(value = 0): void {
+  reviewerRoundRobinCursor = value;
+}
+
+/**
+ * Assign provider/model/fallbackModels for a Chimera reviewer spawn.
+ *
+ * Builds the pool from the configured primary + fallback chain, then picks
+ * the next entry via round-robin. When the pool has ≤1 usable entry the
+ * original primary/fallbacks are returned unchanged.
+ */
+export function assignReviewerModelsRoundRobin(
+  provider: string,
+  model: string,
+  fallbackModels: readonly string[],
+): { provider: string; model: string; fallbackModels: string[] } {
+  const pool = buildReviewerModelPool(provider, model, fallbackModels);
+  if (pool.length <= 1) {
+    return {
+      provider,
+      model,
+      fallbackModels: [...fallbackModels],
+    };
+  }
+  const assignment = selectRoundRobinReviewerAssignment(
+    pool,
+    reviewerRoundRobinCursor,
+    provider,
+    model,
+  );
+  reviewerRoundRobinCursor = assignment.nextCursor;
+  return {
+    provider: assignment.provider,
+    model: assignment.model,
+    fallbackModels: assignment.fallbackModels,
+  };
+}
+
+/**
+ * Chimera reviewers only inspect code and return a report. They never repair
+ * files themselves; bug-hunter/security-scanner/fix agents own all mutations.
+ */
+export const CHIMERA_REVIEW_READ_ONLY_TOOLS = Object.freeze([
+  'read',
+  'grep',
+  'glob',
+  'tree',
+  'codebase-search',
+  'codebase-stats',
+] as const);
+
+export function applyChimeraReviewerReadOnlyPolicy(config: SubagentConfig): SubagentConfig {
+  return {
+    ...config,
+    // A security boundary, not an additive default: discard any inherited
+    // mutation tools/capabilities so Chimera reviewers cannot repair files.
+    tools: [...CHIMERA_REVIEW_READ_ONLY_TOOLS],
+    allowedCapabilities: ['fs.read'],
+    worktree: 'off',
+  };
+}
+
+/**
  * Settings payload shared by `saveSettings` (persist) and `applyLiveSettings`
  * (apply to the running session). Mirrors the fields the TUI `/settings` picker
  * cycles with ←/→.
@@ -194,6 +266,8 @@ export interface LiveSettingsInput {
   cacheTtl?: 'default' | '5m' | '1h' | undefined;
   /** Show "Model Reasoning" blocks in chat history. Default: true. */
   showModelReasoning?: boolean | undefined;
+  /** Optionally show the persistent AGENT SWARM and todo mission queue panel; defaults to true at the storage layer. */
+  showAgentSwarmPanel?: boolean | undefined;
 }
 
 export type {
@@ -525,21 +599,26 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           ? p.config.provider?.trim() || undefined
           : tProvider;
         const rawModel = p.reviewFallbackModels ? p.config.model?.trim() || undefined : tModel;
-        const effectiveProvider = rawProvider || tProvider;
-        const effectiveModel = rawModel || tModel;
-        const cfg: SubagentConfig = {
+        const baseProvider = rawProvider || tProvider || config.provider;
+        const baseModel = rawModel || tModel || config.model;
+        // Full rotation pool: configured primary + fallback chain. Round-robin
+        // so concurrent chimera reviewers do not all open on the same model and
+        // stampede one provider's rate limit.
+        const baseFallbacks = p.reviewFallbackModels
+          ? [...p.reviewFallbackModels]
+          : resolveReviewerFallbackModels(undefined);
+        const assigned = assignReviewerModelsRoundRobin(baseProvider, baseModel, baseFallbacks);
+        const cfg = applyChimeraReviewerReadOnlyPolicy({
           name: 'chimera-review',
           role: 'reviewer',
           systemPromptOverride: CHIMERA_REVIEW_PROMPT,
           maxIterations: 50,
           maxToolCalls: 250,
           timeoutMs: 900_000,
-          provider: effectiveProvider,
-          model: effectiveModel,
-          ...(p.reviewFallbackModels
-            ? { fallbackModels: p.reviewFallbackModels }
-            : { fallbackModels: resolveReviewerFallbackModels(undefined) }),
-        };
+          provider: assigned.provider,
+          model: assigned.model,
+          fallbackModels: assigned.fallbackModels,
+        });
 
         const subagentId = await dir.spawn(cfg);
         const taskId = randomUUID();
@@ -1387,7 +1466,6 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       // the input deadlocked. After this call, tool.confirm_needed events
       // fire instead, which the TUI's ConfirmPrompt component handles.
       agent.disableInteractiveConfirmation();
-      renderer.setSilent(true);
 
       // Shared mutable runtime state for extracted TUI sub-modules.
       // Phase B modules (coordinator setup, project switch) mutate these
@@ -1500,6 +1578,9 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         switchProjectInPlace,
       };
 
+      // Claim both renderer streams after setup and before Ink starts. runTui()
+      // suppresses direct console/stderr output synchronously when called.
+      renderer.setTuiActive(true);
       try {
         code = await runTuiDispatch({
           agent,
@@ -1888,7 +1969,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         });
         if (spawnResult !== null) return spawnResult;
       } finally {
-        renderer.setSilent(false);
+        renderer.setTuiActive(false);
         // Cleanup: stop Director lifecycle listener so the coordinator no-op guard fires.
         offDirectorSpawned();
       }

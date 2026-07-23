@@ -1,13 +1,30 @@
 import { join } from 'node:path';
-import { type BrainAutoRisk, type BrainRuntime, createBrainRuntime, resolveBrainConfigDefaults } from '@wrongstack/core/execution';
-import { BrainDecisionLedger, BrainDecisionQueue, BrainMonitor, EscalationRoutingBrainArbiter, ObservableBrainArbiter, terminalPolicyDecision } from '@wrongstack/core/coordination';
-import { type BrainEscalationMode, createDelegateTool } from '@wrongstack/core/coordination';
-import { type Config, type Provider, type SecretVault, type SessionWriter } from '@wrongstack/core/types';
-import { BrainTraceRecorder } from '@wrongstack/core/coordination';
-import { createMcpControlTool, createMcpUseTool } from '@wrongstack/core/tools';
-import { FLEET_ROSTER } from '@wrongstack/core/coordination';
+import {
+  BrainDecisionLedger,
+  BrainDecisionQueue,
+  type BrainEscalationMode,
+  BrainMonitor,
+  BrainTraceRecorder,
+  createDelegateTool,
+  EscalationRoutingBrainArbiter,
+  ObservableBrainArbiter,
+  terminalPolicyDecision,
+} from '@wrongstack/core/coordination';
+import {
+  type BrainAutoRisk,
+  type BrainRuntime,
+  createBrainRuntime,
+  resolveBrainConfigDefaults,
+} from '@wrongstack/core/execution';
 import { TOKENS } from '@wrongstack/core/kernel';
 import { type ToolRegistry } from '@wrongstack/core/registry';
+import { createMcpControlTool, createMcpUseTool } from '@wrongstack/core/tools';
+import {
+  type Config,
+  type Provider,
+  type SecretVault,
+  type SessionWriter,
+} from '@wrongstack/core/types';
 import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
 import { MultiAgentHost } from '../multi-agent.js';
 import { activeProfileConfigPath } from '../profile-config-path.js';
@@ -398,7 +415,7 @@ export function setupBrainAndOrchestration(deps: BrainOrchestrationDeps): BrainO
   toolRegistry.register(
     createDelegateTool({
       host: multiAgentHost,
-      roster: FLEET_ROSTER,
+      roster: multiAgentHost.getRoster(),
       sessionsRoot: subagentSessionsRoot,
       directorRunId: session.id,
       events,

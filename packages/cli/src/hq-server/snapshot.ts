@@ -12,6 +12,14 @@ import { hqMachineKey } from './utils.js';
 // ── Broadcast debounce ─────────────────────────────────────────────────────
 
 export const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 100;
+/**
+ * Minimum spacing between disk checkpoints of snapshot.json. Browser broadcasts
+ * stay at the 100ms debounce, but the on-disk checkpoint (only used to re-seed a
+ * restarted HQ) does not need to be rewritten at broadcast rate. Throttling it
+ * stops an idle HQ — running behind active local TUIs/REPLs with nobody viewing
+ * the dashboard — from doing a full rebuild + atomic disk write at up to 10 Hz.
+ */
+export const HQ_SNAPSHOT_PERSIST_MIN_INTERVAL_MS = 3_000;
 
 // ── buildSnapshot ──────────────────────────────────────────────────────────
 
@@ -328,6 +336,16 @@ export function createSnapshotBroadcaster(
   let dirty = true;
   let timer: NodeJS.Timeout | null = null;
   let closed = false;
+  let lastPersistAt = 0;
+
+  const persistCheckpoint = (snapshot: HqSnapshot): void => {
+    if (persistence === undefined) return;
+    const now = Date.now();
+    if (now - lastPersistAt < HQ_SNAPSHOT_PERSIST_MIN_INTERVAL_MS) return;
+    lastPersistAt = now;
+    // Best-effort, fire-and-forget so a restarted HQ can re-seed from disk.
+    persistence.snapshotStore.save(snapshot);
+  };
 
   const serialize = (): string => {
     if (!dirty && cached.length > 0) return cached;
@@ -335,16 +353,21 @@ export function createSnapshotBroadcaster(
     const msg: HqBrowserMessage = { type: 'hq.snapshot', snapshot };
     cached = JSON.stringify(msg);
     dirty = false;
-    // Persist the snapshot checkpoint (best-effort, fire-and-forget) so a
-    // restarted HQ can re-seed its in-memory state from disk.
-    if (persistence !== undefined) persistence.snapshotStore.save(snapshot);
+    persistCheckpoint(snapshot);
     return cached;
   };
 
   const flush = (): void => {
     timer = null;
-    // Always serialize: this also overwrites the persisted checkpoint when the
-    // final client disappears, even if no browser is currently connected.
+    if (browsers.size === 0) {
+      // No dashboard viewer: skip the browser (de)serialize entirely — the
+      // expensive full-tree JSON.stringify is wasted with no recipient. Keep the
+      // on-disk checkpoint fresh only on the slow throttled cadence.
+      if (persistence !== undefined && Date.now() - lastPersistAt >= HQ_SNAPSHOT_PERSIST_MIN_INTERVAL_MS) {
+        persistCheckpoint(buildSnapshot(clients));
+      }
+      return;
+    }
     const data = serialize();
     for (const ws of browsers) {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);

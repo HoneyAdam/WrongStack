@@ -114,6 +114,21 @@ describe('TerminalRenderer', () => {
     expect(out).toContain('done');
   });
 
+  it('writeBlock applies the render mode for a named tool result', () => {
+    const r = mkRenderer();
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.writeBlock({
+      type: 'tool_result',
+      tool_use_id: '1',
+      name: 'read',
+      content: JSON.stringify({ path: '/p/foo.ts', total_lines: 2, text: 'first\nsecond' }),
+    });
+
+    expect(r.out()).toContain('/p/foo.ts');
+    expect(r.out()).not.toContain('first');
+    expect(r.out()).not.toContain('second');
+  });
+
   it('clear emits ANSI clear sequence', () => {
     const r = mkRenderer();
     r.renderer.clear();
@@ -185,6 +200,58 @@ describe('TerminalRenderer.setSilent', () => {
     r.renderer.write('visible');
     expect(r.out()).not.toContain('hidden');
     expect(r.out()).toContain('visible');
+  });
+});
+
+describe('TerminalRenderer.setTuiActive', () => {
+  it('suppresses both stdout rendering and stderr diagnostics while active', () => {
+    const r = mkRenderer();
+    r.renderer.setTuiActive(true);
+
+    expect(r.renderer.isTuiActive()).toBe(true);
+    r.renderer.write('hidden output');
+    r.renderer.writeInfo('hidden info');
+    r.renderer.writeWarning('hidden warning');
+    r.renderer.writeError('hidden error');
+
+    expect(r.out()).toBe('');
+    expect(r.err()).toBe('');
+  });
+
+  it('restores both streams after the TUI releases terminal ownership', () => {
+    const r = mkRenderer();
+    r.renderer.setTuiActive(true);
+    r.renderer.setTuiActive(false);
+
+    r.renderer.write('visible output');
+    r.renderer.writeInfo('visible info');
+
+    expect(r.out()).toContain('visible output');
+    expect(r.err()).toContain('visible info');
+  });
+
+  it('keeps generic silent mode stderr-compatible for WebUI callers', () => {
+    const r = mkRenderer();
+    r.renderer.setSilent(true);
+    r.renderer.writeInfo('still visible');
+
+    expect(r.out()).toBe('');
+    expect(r.err()).toContain('still visible');
+  });
+
+  it('keeps TUI and generic silent flags independent', () => {
+    const r = mkRenderer();
+    r.renderer.setSilent(true);
+    r.renderer.setTuiActive(true);
+    r.renderer.writeInfo('hidden while TUI owns stderr');
+
+    r.renderer.setTuiActive(false);
+    r.renderer.write('stdout remains hidden');
+    r.renderer.writeInfo('stderr belongs to the WebUI host again');
+
+    expect(r.out()).toBe('');
+    expect(r.err()).not.toContain('hidden while TUI owns stderr');
+    expect(r.err()).toContain('stderr belongs to the WebUI host again');
   });
 });
 
@@ -260,6 +327,112 @@ describe('TerminalRenderer.setResultRenderMode', () => {
     const out = r.out();
     // Both writes happened, second one shows content.
     expect(out).toContain('line-1');
+  });
+
+  it('does not stage a mode while the TUI suppresses stdout', () => {
+    const r = mkRenderer();
+    const payload = JSON.stringify({
+      path: '/p/foo.ts',
+      total_lines: 5,
+      text: 'a\nb\nc\nd\ne',
+    });
+
+    r.renderer.setTuiActive(true);
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.setTuiActive(false);
+    r.renderer.writeToolResult('read', payload, false);
+
+    expect(r.out()).toContain('a');
+    expect(r.out()).toContain('b');
+  });
+
+  it('clears a mode staged before the TUI takes ownership', () => {
+    const r = mkRenderer();
+    const payload = JSON.stringify({
+      path: '/p/foo.ts',
+      total_lines: 5,
+      text: 'a\nb\nc\nd\ne',
+    });
+
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.setTuiActive(true);
+    r.renderer.setTuiActive(false);
+    r.renderer.writeToolResult('read', payload, false);
+
+    expect(r.out()).toContain('a');
+    expect(r.out()).toContain('b');
+  });
+
+  it('consumes a staged mode when the TUI suppresses the matching result', () => {
+    const r = mkRenderer();
+    const payload = JSON.stringify({
+      path: '/p/foo.ts',
+      total_lines: 5,
+      text: 'a\nb\nc\nd\ne',
+    });
+
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.setTuiActive(true);
+    r.renderer.writeToolResult('read', payload, false);
+    r.renderer.setTuiActive(false);
+    r.renderer.writeToolResult('read', payload, false);
+
+    expect(r.out()).toContain('a');
+    expect(r.out()).toContain('b');
+  });
+
+  it('consumes a staged mode when silent mode suppresses the matching result', () => {
+    const r = mkRenderer();
+    const payload = JSON.stringify({
+      path: '/p/foo.ts',
+      total_lines: 5,
+      text: 'a\nb\nc\nd\ne',
+    });
+
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.setSilent(true);
+    r.renderer.writeToolResult('read', payload, false);
+    r.renderer.setSilent(false);
+    r.renderer.writeToolResult('read', payload, false);
+
+    expect(r.out()).toContain('a');
+    expect(r.out()).toContain('b');
+  });
+
+  it('consumes a staged mode through a suppressed named tool-result block', () => {
+    const r = mkRenderer();
+    const payload = JSON.stringify({
+      path: '/p/foo.ts',
+      total_lines: 5,
+      text: 'a\nb\nc\nd\ne',
+    });
+
+    r.renderer.setResultRenderMode('read', 'simple');
+    r.renderer.setSilent(true);
+    r.renderer.writeBlock({
+      type: 'tool_result',
+      tool_use_id: '1',
+      name: 'read',
+      content: payload,
+    });
+    r.renderer.setSilent(false);
+    r.renderer.writeToolResult('read', payload, false);
+
+    expect(r.out()).toContain('a');
+    expect(r.out()).toContain('b');
+  });
+
+  it('bounds abandoned render-mode hints by evicting the oldest name', () => {
+    const r = mkRenderer();
+    for (let i = 0; i <= 256; i++) {
+      r.renderer.setResultRenderMode(`tool-${i}`, 'simple');
+    }
+
+    r.renderer.writeToolResult('tool-0', 'old-first\nold-second', false);
+    r.renderer.writeToolResult('tool-256', 'new-first\nnew-second', false);
+
+    expect(r.out()).toContain('old-second');
+    expect(r.out()).not.toContain('new-second');
   });
 
   it('simple: applies to grep/glob when content is structured (count meta)', () => {

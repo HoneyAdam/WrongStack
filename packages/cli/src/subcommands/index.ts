@@ -1,32 +1,5 @@
-import type { Config, ModelsRegistry, SecretVault, SkillLoader } from '@wrongstack/core/types';
-import type { WstackPaths } from '@wrongstack/core/utils';
-import type { SessionStore } from '@wrongstack/core/types';
-import type { ToolRegistry } from '@wrongstack/core/registry';
-import type { ReadlineInputReader } from '../input-reader.js';
-import type { TerminalRenderer } from '../renderer.js';
-
-export type SubcommandHandler = (args: string[], deps: SubcommandDeps) => Promise<number>;
-
-export interface SubcommandDeps {
-  config: Config;
-  renderer: TerminalRenderer;
-  reader: ReadlineInputReader;
-  sessionStore?: SessionStore | undefined;
-  skillLoader?: SkillLoader | undefined;
-  toolRegistry?: ToolRegistry | undefined;
-  modelsRegistry: ModelsRegistry;
-  paths: WstackPaths;
-  vault: SecretVault;
-  cwd: string;
-  projectRoot: string;
-  userHome: string;
-  /**
-   * Parsed top-level CLI flags (e.g. `--yolo`, `--tools`). The dispatcher
-   * strips flags from the positional args, so handlers that need them (e.g.
-   * `mcp serve --yolo`) read them here.
-   */
-  flags?: Record<string, string | boolean>;
-}
+import type { SubcommandHandler } from './contracts.js';
+export type { SubcommandDeps, SubcommandHandler } from './contracts.js';
 
 import { acpCmd } from './handlers/acp.js';
 import { auditCmd } from './handlers/audit.js';
@@ -41,6 +14,8 @@ import { mailboxServeCmd } from './handlers/mailbox-serve.js';
 import { mcpCmd } from './handlers/mcp.js';
 import { modeldiagCmd } from './handlers/modeldiag.js';
 import { pluginCmd, usageCmd } from './handlers/plugin-usage.js';
+import { permissionsCmd } from './handlers/permissions.js';
+import { projectCmd } from './handlers/project.js';
 import { projectsCmd } from './handlers/projects.js';
 import { modelsCmd, providersCmd } from './handlers/providers-models.js';
 import { quickCmd } from './handlers/quick.js';
@@ -81,4 +56,6 @@ export const subcommands: Record<string, SubcommandHandler> = {
   chronicle: chronicleCmd,
   hq: hqCmd,
   mailbox: mailboxServeCmd,
+  permissions: permissionsCmd,
+  project: projectCmd,
 };

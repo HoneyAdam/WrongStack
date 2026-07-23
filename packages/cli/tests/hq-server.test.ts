@@ -1305,7 +1305,10 @@ describe('HQ server Kanban synchronization', () => {
       `http://127.0.0.1:${handle.port}/api/projects/project-kanban/kanban`,
     );
     expect(response.status).toBe(200);
-    expect((await response.json()).boards[0].board.title).toBe('Central board');
+    const kanbanPayload = (await response.json()) as {
+      boards: Array<{ board: { title: string } }>;
+    };
+    expect(kanbanPayload.boards[0]?.board.title).toBe('Central board');
 
     first.close();
     const second = await connect('kanban-client-2');

@@ -64,7 +64,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           if (rest.length === 0) {
             return {
               message:
-                'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
+                'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--agent <role>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
             };
           }
           if (!superMemory) {
@@ -108,7 +108,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           if (!id)
             return {
               message:
-                'Usage: /memory update <memory-id> [--text <t>] [--kind <k>] [--tag a,b] [--anchor <path>] [--importance 0..1] [--status active|stale|archived|deleted] [--supersedes id,id]',
+                'Usage: /memory update <memory-id> [--text <t>] [--kind <k>] [--tag a,b] [--anchor <path>] [--agent <role>] [--importance 0..1] [--status active|stale|archived|deleted] [--supersedes id,id]',
             };
           const parsed = parseMemoryFlags(rest.slice(1));
           if (parsed.errors.length > 0)
@@ -558,6 +558,13 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
       case 'command':
         if (value) anchors.push({ type: 'command', command: value });
         else errors.push('--command needs a value.');
+        break;
+      case 'agent':
+        if (value) anchors.push({ type: 'agent', role: value });
+        else
+          errors.push(
+            '--agent needs a role id (fleet roster member or .wrongstack/agents/<role> directory).',
+          );
         break;
       case 'importance':
         out.importance = num('--importance', value);

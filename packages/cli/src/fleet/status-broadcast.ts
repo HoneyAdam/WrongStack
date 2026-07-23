@@ -202,6 +202,16 @@ export function createFleetStatusBroadcaster(opts: FleetStatusBroadcasterOptions
             priority: 'low',
           });
         }),
+        // A retired subagent's id will never be seen again, so its one-shot dedup
+        // guards and throttle timestamp are dead weight. Prune them so a long-lived
+        // fleet that spawns thousands of subagents does not leak one entry each.
+        opts.events.on('subagent.removed', (e) => {
+          announcedSpawn.delete(e.subagentId);
+          lastSentAt.delete(e.subagentId);
+          for (const key of announcedBudget) {
+            if (key.startsWith(`${e.subagentId}|`)) announcedBudget.delete(key);
+          }
+        }),
       );
     },
     stop(): void {

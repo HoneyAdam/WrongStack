@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import type * as http from 'node:http';
 import { WebSocket } from 'ws';
 import type { TrustBoundary } from '@wrongstack/core/security';
-import { buildTranscriptFromEvents, createHqPersistence, DEFAULT_HQ_REDACTION_POLICY, hashHqPassword, isLoopbackHost, mintHqCookieSecret, mutateHqAuthFile, resolveHqDataDir, tokenHasCapability, validateHqCommand, verifyHqPassword } from '@wrongstack/core/hq';
+import { buildTranscriptFromEvents, createHqPersistence, DEFAULT_HQ_REDACTION_POLICY, deriveHqProjectId, hashHqPassword, isLoopbackHost, mintHqCookieSecret, mutateHqAuthFile, resolveHqDataDir, tokenHasCapability, validateHqCommand, verifyHqPassword } from '@wrongstack/core/hq';
 import { type HqSnapshot, HqAlertEngine, type HqAlertRuleConfig, type HqCommand, type HqCommandAuditEntry, HqCommandAuditLog, type HqEventEnvelope, type HqQueuedCommand, type HqRedactionPolicy, type HqTimeseriesSample, type HqToken, type HqTranscriptEntry } from '@wrongstack/core/hq';
 import { createMailboxHttpRouter } from '@wrongstack/core/coordination';
 import { GlobalMailbox, type MailboxHttpAccessDecision, MailboxHttpRateLimiter, resolveProjectDir } from '@wrongstack/core/coordination';
@@ -1362,9 +1362,18 @@ function resolveHqProjectRoot(
       if (typeof ids.projectId === 'string') {
         const { createHash } = await import('node:crypto');
         const all = await registry.list().catch(() => []);
+        const projectIds = new Map<string, string>();
+        const projectIdForRoot = (projectRoot: string): string => {
+          const cached = projectIds.get(projectRoot);
+          if (cached !== undefined) return cached;
+          const derived = deriveHqProjectId(projectRoot);
+          projectIds.set(projectRoot, derived);
+          return derived;
+        };
         const match = all.find(
           (e: { projectSlug?: string; projectRoot: string }) =>
             e.projectSlug === ids.projectId ||
+            projectIdForRoot(e.projectRoot) === ids.projectId ||
             createHash('sha256').update(e.projectRoot).digest('hex').slice(0, 12) === ids.projectId,
         );
         if (match) return match.projectRoot;

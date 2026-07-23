@@ -151,6 +151,17 @@ describe('parseArgs', () => {
     expect(r.flags.verbose).toBe(true);
   });
 
+  it('parses project rekey confirmation flags in any argv position', () => {
+    expect(parseArgs(['project', 'rekey', '--yes'])).toEqual({
+      flags: { yes: true },
+      positional: ['project', 'rekey'],
+    });
+    expect(parseArgs(['project', '-y', 'rekey'])).toEqual({
+      flags: { yes: true },
+      positional: ['project', 'rekey'],
+    });
+  });
+
   it('treats unknown -X short flags as the literal letter', () => {
     const r = parseArgs(['-x']);
     expect(r.flags.x).toBe(true);

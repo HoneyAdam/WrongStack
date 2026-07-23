@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { ConfigError } from '@wrongstack/core/types';
-import { withFileLock, wstackGlobalRoot } from '@wrongstack/core/utils';
+import { readProjectIdentity, withFileLock, wstackGlobalRoot } from '@wrongstack/core/utils';
 
 // Shared project-manifest types and persistence.
 
@@ -13,6 +13,8 @@ export interface ProjectEntry {
   root: string;
   /** Stable unique slug (dirname-hash) for per-project data storage. */
   slug: string;
+  /** Repo-committed identity shared by clones, worktrees, and machines. */
+  projectId?: string | undefined;
   /** ISO timestamp of last use. */
   lastSeen?: string | undefined;
   /** ISO timestamp of when the project was first registered. */
@@ -129,6 +131,7 @@ export async function touchProjectInManifest(opts: {
   name?: string | undefined;
 }): Promise<ProjectEntry> {
   const root = path.resolve(opts.projectRoot);
+  const projectId = (await readProjectIdentity(root).catch(() => undefined))?.projectId;
   const file = projectsJsonPath(opts.globalConfigPath);
   let entry: ProjectEntry | undefined;
   await withFileLock(file, async () => {
@@ -137,12 +140,14 @@ export async function touchProjectInManifest(opts: {
     entry = manifest.projects.find((p) => path.resolve(p.root) === root);
     if (entry) {
       entry.lastSeen = now;
+      if (projectId) entry.projectId = projectId;
       if (opts.workingDir) entry.lastWorkingDir = path.resolve(opts.workingDir);
     } else {
       entry = {
         name: opts.name ?? path.basename(root),
         root,
         slug: generateSlug(root),
+        projectId,
         createdAt: now,
         lastSeen: now,
         lastWorkingDir: opts.workingDir ? path.resolve(opts.workingDir) : undefined,

@@ -15,13 +15,21 @@ vi.mock('@wrongstack/providers', () => ({
   capabilitiesFor: vi.fn(async () => ({ maxContext: 128_000 })),
 }));
 
-import { type Config, type SessionWriter, type SubagentConfig, type SystemPromptBuilder, type TokenCounter, type Tool } from '@wrongstack/core/types';
-import { type ConfigStore } from '@wrongstack/core/types';
-import { Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { createProjectAgent } from '@wrongstack/core/coordination';
 import { DefaultErrorHandler, DefaultRetryPolicy } from '@wrongstack/core/execution';
 import { DefaultLogger } from '@wrongstack/core/infrastructure';
-import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import { Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
 import { ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import { DefaultSecretScrubber } from '@wrongstack/core/security';
+import {
+  type Config,
+  type ConfigStore,
+  type SessionWriter,
+  type SubagentConfig,
+  type SystemPromptBuilder,
+  type TokenCounter,
+  type Tool,
+} from '@wrongstack/core/types';
 import { capabilitiesFor } from '@wrongstack/providers';
 import { type MultiAgentDeps, MultiAgentHost } from '../src/multi-agent.js';
 
@@ -96,6 +104,51 @@ function makeDeps(): MultiAgentDeps {
 }
 
 describe('MultiAgentHost', () => {
+  it('accepts a project-created generic role through spawn_subagent', async () => {
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const fs = await import('node:fs/promises');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-custom-agent-'));
+    try {
+      const deps = makeDeps();
+      deps.projectRoot = projectRoot;
+      deps.cwd = projectRoot;
+      const host = new MultiAgentHost(deps);
+      const director = await host.ensureDirector();
+      const spawnTool = director
+        ?.tools(host.getRoster())
+        .find((tool) => tool.name === 'spawn_subagent');
+
+      // Create the role after both host and tool construction. The roster
+      // overlay must discover it live without rebuilding the Director.
+      createProjectAgent(
+        {
+          name: 'ABC',
+          purpose: 'Own X, Y and Z workflows for this project.',
+          taskTypes: ['X workflow', 'Y analysis', 'Z verification'],
+        },
+        projectRoot,
+      );
+
+      expect(Object.keys(host.getRoster())).toContain('abc');
+      const executeSpawn = (input: Record<string, unknown>) =>
+        spawnTool?.execute(input, {} as never, { signal: new AbortController().signal });
+      await expect(executeSpawn({ role: 'abc' })).resolves.toEqual(
+        expect.objectContaining({
+          subagentId: expect.any(String),
+          role: 'abc',
+          name: 'ABC',
+        }),
+      );
+      await expect(
+        executeSpawn({ description: 'Run the Z verification workflow for this change.' }),
+      ).resolves.toEqual(expect.objectContaining({ role: 'abc', name: 'ABC' }));
+      await host.stopAll();
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('status() before any spawn reports "No subagents"', () => {
     const host = new MultiAgentHost(makeDeps());
     const s = host.status();
@@ -685,7 +738,13 @@ describe('MultiAgentHost', () => {
         const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-promote-manifest-'));
         const fleetRoot = path.join(tmpRoot, 'session-1');
 
-        const host = new MultiAgentHost(makeDeps(), { fleetRoot });
+        // Keep the worker alive past task completion so the manifest still
+        // records it: with auto-retirement (the default), the subagent is
+        // removed on completion and FleetManager prunes its manifest entry.
+        const host = new MultiAgentHost(makeDeps(), {
+          fleetRoot,
+          retireSubagentOnTaskComplete: false,
+        });
         await host.promoteToDirector();
         // manifest() should return null before any spawn (no director yet
         // in the simple path, but we just promoted, so it should work).
@@ -748,7 +807,13 @@ describe('MultiAgentHost', () => {
         const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-promote-route-'));
         const fleetRoot = path.join(tmpRoot, 'session-3');
 
-        const host = new MultiAgentHost(makeDeps(), { fleetRoot });
+        // Keep the worker alive past task completion so the manifest still
+        // records it: with auto-retirement (the default), the subagent is
+        // removed on completion and FleetManager prunes its manifest entry.
+        const host = new MultiAgentHost(makeDeps(), {
+          fleetRoot,
+          retireSubagentOnTaskComplete: false,
+        });
         await host.promoteToDirector();
         const result = await host.spawnAndWait('routed', {
           name: 'router',

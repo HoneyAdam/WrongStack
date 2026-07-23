@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 /**
  * L1-E: Multi-agent CLI integration. The coordinator + per-task agent
@@ -11,29 +12,85 @@ import {
   findAgentDescriptor,
   makeACPSubagentRunner,
 } from '@wrongstack/acp';
-import type { BrainArbiter } from '@wrongstack/core/coordination';
-import type { SubagentRunner, TextBlock } from '@wrongstack/core/types';
-import { AdaptiveConcurrencyController, type AgentFactory, DEFAULT_MAX_FLEET_SPAWNS, DEFAULT_SUBAGENT_BASELINE, type DefaultMultiAgentCoordinator, Director, type DirectorSessionFactory, dispatchAgent, FleetManager, FleetSupervisor, type FleetWorktreePolicy, formatSubagentStructuredReport, GlobalMailbox, HARD_MAX_SPAWN_DEPTH, mailboxSessionTag, makeDirectorSessionFactory, makeFleetEmitTool, makeSubagentResultTool, resolveProjectDir, resolveSubagentModelTarget } from '@wrongstack/core/coordination';
-import { Agent, Context, createDefaultPipelines, createFallbackModelExtension, type FallbackProfileManager } from '@wrongstack/core/agent';
-import { type TaskResult, type TaskSpec } from '@wrongstack/core/types';
-import { type TaskResultNotification } from '@wrongstack/core/coordination';
-import { AgentError, type Config, type ModelsRegistry, type Provider, type ReasoningConfig, type Request, type SessionWriter, type SkillLoader, type SubagentConfig, type SystemPromptBuilder, type TokenCounter, type Tool, ToolValidationError } from '@wrongstack/core/types';
-import { AutoApprovePermissionPolicy, ToolCapabilities, WIDE_SUBAGENT_CAPABILITIES } from '@wrongstack/core/security';
-import { applyModelRuntime, installSubagentAutoCompaction, mergeModelRuntime } from '@wrongstack/core/execution';
-import { type ConfigStore } from '@wrongstack/core/types';
-import { type Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
-import { FLEET_ROSTER } from '@wrongstack/core/coordination';
-import { loadProjectAgentConfig, applyProjectAgentConfig, loadProjectAgentIdentity } from '@wrongstack/core/agent-catalog';
+import {
+  Agent,
+  Context,
+  createDefaultPipelines,
+  createFallbackModelExtension,
+  type FallbackProfileManager,
+} from '@wrongstack/core/agent';
+import {
+  applyProjectAgentConfig,
+  buildProjectContextualizedPrompt,
+  captureLearnedFromAgentOutputDetailed,
+  createProjectAgentRoster,
+  loadProjectAgentConfig,
+} from '@wrongstack/core/agent-catalog';
+import type { BrainArbiter, ProviderModelStatusTracker } from '@wrongstack/core/coordination';
+import {
+  AdaptiveConcurrencyController,
+  type AgentFactory,
+  DEFAULT_MAX_FLEET_SPAWNS,
+  DEFAULT_SUBAGENT_BASELINE,
+  type DefaultMultiAgentCoordinator,
+  Director,
+  type DirectorSessionFactory,
+  dispatchAgent,
+  FLEET_ROSTER,
+  FleetManager,
+  FleetSupervisor,
+  type FleetWorktreePolicy,
+  formatSubagentStructuredReport,
+  GlobalMailbox,
+  HARD_MAX_SPAWN_DEPTH,
+  mailboxSessionTag,
+  makeDirectorSessionFactory,
+  makeFleetEmitTool,
+  makeSubagentResultTool,
+  resolveProjectDir,
+  resolveSubagentModelTarget,
+  type TaskResultNotification,
+} from '@wrongstack/core/coordination';
 import { installDesignStudioMiddleware } from '@wrongstack/core/design';
-import { type ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
-import { WorktreeManager } from '@wrongstack/core/worktree';
-import { wstackGlobalRoot } from '@wrongstack/core/utils';
-import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
-import { ToolExecutor } from '@wrongstack/core/execution';
+import {
+  applyModelRuntime,
+  installSubagentAutoCompaction,
+  mergeModelRuntime,
+  ToolExecutor,
+} from '@wrongstack/core/execution';
 // PR-C1: DefaultTokenCounter moved off the root barrel — infrastructure/
 // symbols are imported from the published subpath (see commit 66c4eb68).
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import { type Container, EventBus, TOKENS } from '@wrongstack/core/kernel';
+import { type ProviderRegistry, ToolRegistry } from '@wrongstack/core/registry';
+import {
+  AutoApprovePermissionPolicy,
+  ToolCapabilities,
+  WIDE_SUBAGENT_CAPABILITIES,
+} from '@wrongstack/core/security';
+import type { SubagentRunner, TextBlock } from '@wrongstack/core/types';
+import {
+  AgentError,
+  type Config,
+  type ConfigStore,
+  type ModelsRegistry,
+  type Provider,
+  type ReasoningConfig,
+  type Request,
+  type SessionWriter,
+  type SkillLoader,
+  type SubagentConfig,
+  type SystemPromptBuilder,
+  type TaskResult,
+  type TaskSpec,
+  type TokenCounter,
+  type Tool,
+  ToolValidationError,
+} from '@wrongstack/core/types';
+
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
+import { WorktreeManager } from '@wrongstack/core/worktree';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { makePreferSideConflictResolver } from '@wrongstack/sdd';
 import { getSuperMemoryRetrieval } from '@wrongstack/super-memory';
@@ -41,6 +98,46 @@ import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context
 import { buildRoutingRunner } from './routing.js';
 import { createFleetStatusBroadcaster } from './status-broadcast.js';
 import { setActiveFleetSupervisor } from './supervisor-registry.js';
+
+type AgentAvailability = NonNullable<SubagentConfig['availability']>;
+
+function isInsideDirectory(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function isAgentAvailable(
+  schedule: AgentAvailability,
+  at = new Date(),
+): { allowed: boolean; localTime: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: schedule.timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? 'Sun';
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
+  const current = hour * 60 + minute;
+  const parseTime = (value: string) => {
+    const [hours = '0', minutes = '0'] = value.split(':');
+    return Number(hours) * 60 + Number(minutes);
+  };
+  const start = parseTime(schedule.start);
+  const end = parseTime(schedule.end);
+  const inWindow =
+    start <= end
+      ? schedule.days.includes(day) && current >= start && current < end
+      : (schedule.days.includes(day) && current >= start) ||
+        (schedule.days.includes((day + 6) % 7) && current < end);
+  return {
+    allowed: inWindow,
+    localTime: `${weekday} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} ${schedule.timezone}`,
+  };
+}
 
 function buildShadowAgentTaskDescription(reason: string): string {
   return `Shadow Agent one-shot fleet monitor. Reason: ${reason}.
@@ -322,6 +419,13 @@ export class MultiAgentHost {
    *  pending promise so concurrent calls for the same subagentId share one spawn.
    *  Bounded to 20 entries with LRU eviction to prevent unbounded memory growth. */
   private readonly acpRunnerCache = new Map<string, Promise<SubagentRunner>>();
+  /** Runtime subagent id → stable roster role for task-end learning capture.
+   *  Bounded with LRU eviction (see LEARNING_ROLES_MAX) — every spawn adds
+   *  1–2 entries and a long session would otherwise grow this map without
+   *  limit, mirroring the acpRunnerCache pattern. */
+  private readonly subagentLearningRoles = new Map<string, string>();
+  private readonly subagentLearningRolesAccessOrder: string[] = [];
+  private static readonly LEARNING_ROLES_MAX = 256;
   private readonly acpRunnerAccessOrder: string[] = [];
   private static readonly ACP_CACHE_MAX = 20;
   /** Adaptive concurrency controller — created in buildDirector() when config has
@@ -353,12 +457,20 @@ export class MultiAgentHost {
    *  buildDirector() (when a BrainArbiter is available), stopped in
    *  dispose(). Also published to the supervisor registry for /supervisor. */
   private fleetSupervisor: FleetSupervisor | null = null;
+  /** Built-ins plus lazily-resolved project-created roles. */
+  private readonly roster: Record<string, SubagentConfig>;
 
   constructor(
     private readonly deps: MultiAgentDeps,
     opts: MultiAgentHostOptions = {},
   ) {
     this.opts = opts;
+    this.roster = createProjectAgentRoster(FLEET_ROSTER, deps.projectRoot);
+  }
+
+  /** Live roster surface shared by spawn_subagent and the blocking delegate tool. */
+  getRoster(): Record<string, SubagentConfig> {
+    return this.roster;
   }
 
   /**
@@ -474,7 +586,7 @@ export class MultiAgentHost {
       worktreeConflictResolver: makeFleetWorktreeConflictResolver(),
       fleetManager, // pass so director.fleetManager is never undefined
       brain: this.opts.brain,
-      roster: FLEET_ROSTER, // pass so spawn_subagent recognizes shadow-agent role
+      roster: this.roster,
       // Fire-and-forget report-back: when an assign_task completes with no
       // pending await, post the result to this session's leader via the
       // project mailbox (injected inline before the leader's next step).
@@ -490,6 +602,9 @@ export class MultiAgentHost {
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
+      // Capture before the shadow lifecycle early-return so every roster role
+      // follows the same quality-gated learning contract.
+      this.captureCompletedTaskLearning(result);
       const isShadowTask = this.shadowTaskIds.has(task.id);
       if (isShadowTask) {
         this.shadowOutstandingTaskIds.delete(task.id);
@@ -724,7 +839,7 @@ export class MultiAgentHost {
     };
     this.fleetEmitTool = makeFleetEmitTool(this.director);
     this.directorToolsByName = new Map(
-      this.director.tools(FLEET_ROSTER).map((tool) => [tool.name, tool] as const),
+      this.director.tools(this.roster).map((tool) => [tool.name, tool] as const),
     );
 
     // Adaptive Concurrency Controller — auto-adjusts maxConcurrent based on 429 rate-limit errors
@@ -957,27 +1072,111 @@ export class MultiAgentHost {
       // per-subagent model/provider always win.
       const liveConfig = this.deps.configStore.get();
       const mergedConfig = { ...liveConfig, ...config };
-      const matrixTarget = subCfg.model
+      const projectRoot = this.deps.projectRoot;
+      // `applyProjectAgentConfig` never overrides `role` (it only merges
+      // tools, skillNames, provider, model, allowedCapabilities, and budget
+      // fields), so we can read the role directly from `subCfg` and derive
+      // the project override in one shot — no bootstrap call needed. The
+      // guard returns the base by reference when `projectCfg` is absent,
+      // so `effectiveCfg` is set unconditionally below for downstream use.
+      const projectCfg = subCfg.role ? loadProjectAgentConfig(subCfg.role, projectRoot) : undefined;
+      const isSystemRole = Boolean(subCfg.role && Object.hasOwn(FLEET_ROSTER, subCfg.role));
+      const effectiveCfg: SubagentConfig = projectCfg
+        ? applyProjectAgentConfig(subCfg, projectCfg, {
+            protectSystemRole: isSystemRole,
+          })
+        : subCfg;
+      const matrixTarget = effectiveCfg.model
         ? undefined
-        : resolveSubagentModelTarget(liveConfig, subCfg.role);
-      let effProvider = subCfg.provider ?? matrixTarget?.provider ?? liveConfig.provider;
-      let effModel = subCfg.model ?? matrixTarget?.model ?? liveConfig.model;
-      const fallbackProfile = subCfg.fallbackProfile ?? matrixTarget?.fallbackProfile;
-      const runtimeOverride = subCfg.modelRuntime ?? matrixTarget?.modelRuntime;
-      let provider: Provider;
-      try {
-        provider = await this.buildSubagentProvider(mergedConfig, effProvider, effModel);
-      } catch (err) {
-        if (effProvider === liveConfig.provider && effModel === liveConfig.model) throw err;
-        effProvider = liveConfig.provider;
-        effModel = liveConfig.model;
-        provider = await this.buildSubagentProvider(mergedConfig, effProvider, effModel);
+        : resolveSubagentModelTarget(liveConfig, effectiveCfg.role);
+      let effProvider = effectiveCfg.provider ?? matrixTarget?.provider ?? liveConfig.provider;
+      let effModel = effectiveCfg.model ?? matrixTarget?.model ?? liveConfig.model;
+      const modelPolicy = effectiveCfg.modelPolicy;
+      const closedModelPolicy = modelPolicy?.strict === true;
+      const allowedModels = modelPolicy?.allowed ?? [];
+      if (
+        modelPolicy &&
+        !allowedModels.some(
+          (target) => target.provider === effProvider && target.model === effModel,
+        )
+      ) {
+        const firstAllowed = allowedModels[0];
+        if (!firstAllowed) throw new Error(`Agent "${effectiveCfg.role}" has no allowed models.`);
+        effProvider = firstAllowed.provider;
+        effModel = firstAllowed.model;
       }
+      const fallbackProfile = modelPolicy
+        ? undefined
+        : (effectiveCfg.fallbackProfile ?? matrixTarget?.fallbackProfile);
+      const runtimeOverride = effectiveCfg.modelRuntime ?? matrixTarget?.modelRuntime;
+      let provider: Provider | undefined;
+      let providerError: unknown;
+      const startupTargets = modelPolicy
+        ? [
+            { provider: effProvider, model: effModel },
+            ...(modelPolicy.fallbacks ?? []),
+            ...(closedModelPolicy ||
+            (effProvider === liveConfig.provider && effModel === liveConfig.model)
+              ? []
+              : [{ provider: liveConfig.provider, model: liveConfig.model }]),
+          ]
+        : [
+            { provider: effProvider, model: effModel },
+            ...(effProvider === liveConfig.provider && effModel === liveConfig.model
+              ? []
+              : [{ provider: liveConfig.provider, model: liveConfig.model }]),
+          ];
+      const seenStartupTargets = new Set<string>();
+      for (const target of startupTargets) {
+        const key = `${target.provider}/${target.model}`;
+        if (seenStartupTargets.has(key)) continue;
+        seenStartupTargets.add(key);
+        try {
+          provider = await this.buildSubagentProvider(mergedConfig, target.provider, target.model);
+          effProvider = target.provider;
+          effModel = target.model;
+          break;
+        } catch (err) {
+          providerError = err;
+        }
+      }
+      if (!provider)
+        throw providerError ?? new Error('No permitted provider/model could be built.');
       let subReasoningConfig = await this.resolveSubagentReasoningConfig(effProvider, effModel);
+
+      let availabilityNotice: string | undefined;
+      if (effectiveCfg.availability) {
+        const status = isAgentAvailable(effectiveCfg.availability);
+        if (!status.allowed) {
+          const message = `Agent "${effectiveCfg.role ?? effectiveCfg.name}" is outside its working hours (${status.localTime}; ${effectiveCfg.availability.start}-${effectiveCfg.availability.end}).`;
+          if (effectiveCfg.availability.mode === 'enforce') throw new Error(message);
+          availabilityNotice = `${message} This protected system role may continue, but should minimize non-urgent work.`;
+        }
+      }
 
       // Per-subagent cwd (defaults to the factory cwd). Goal points this
       // at a phase's git worktree so isolated checkouts don't collide.
-      const subCwd = subCfg.cwd ?? this.deps.cwd;
+      const assignedCheckout =
+        subCfg.cwd && path.isAbsolute(subCfg.cwd) ? subCfg.cwd : this.deps.projectRoot;
+      let subCwd = projectCfg?.cwd
+        ? path.resolve(assignedCheckout, projectCfg.cwd)
+        : (effectiveCfg.cwd ?? this.deps.cwd);
+      if (projectCfg?.cwd && !isInsideDirectory(assignedCheckout, subCwd)) {
+        throw new Error(
+          `Agent "${effectiveCfg.role ?? effectiveCfg.name}" cwd escapes its assigned checkout.`,
+        );
+      }
+      if (
+        projectCfg?.cwd &&
+        (!existsSync(subCwd) || !statSync(subCwd, { throwIfNoEntry: false })?.isDirectory())
+      ) {
+        const message = `Agent "${effectiveCfg.role ?? effectiveCfg.name}" working directory does not exist: ${subCwd}.`;
+        if (!isSystemRole) throw new Error(message);
+        subCwd = assignedCheckout;
+        availabilityNotice = availabilityNotice
+          ? `${availabilityNotice}\n${message} Falling back to the assigned checkout.`
+          : `${message} Falling back to the assigned checkout.`;
+      }
 
       // Fetch online agents from the shared mailbox to include in subagent prompt.
       // NOTE: must use the RESOLVED project dir (~/.wrongstack/projects/<slug>)
@@ -994,7 +1193,7 @@ export class MultiAgentHost {
       const baseSystem: TextBlock[] = await this.deps.systemPromptBuilder.build({
         cwd: subCwd,
         projectRoot: this.deps.projectRoot,
-        tools: this.filterTools(subCfg.tools),
+        tools: this.filterTools(effectiveCfg.tools),
         model: effModel,
         provider: effProvider,
         // Tell the builder this is a subagent build — skips the host's
@@ -1010,8 +1209,9 @@ export class MultiAgentHost {
       // role in the hierarchy before absorbing the full identity block.
       // The builder already includes the identity + tools + skills layers.
       baseSystem.unshift({ type: 'text', text: DEFAULT_SUBAGENT_BASELINE });
+      if (availabilityNotice) baseSystem.push({ type: 'text', text: availabilityNotice });
 
-      const audienceMemory = await this.retrieveSubagentMemory(subCfg, task?.context);
+      const audienceMemory = await this.retrieveSubagentMemory(effectiveCfg, task?.context);
       if (audienceMemory.length > 0) {
         baseSystem.push({
           type: 'text',
@@ -1023,18 +1223,6 @@ export class MultiAgentHost {
       // the system prompt. This lets project `.wrongstack/agents/<role>/`
       // files customize the agent's tools, budget, identity and learned
       // wisdom on top of the base catalog definition.
-      const projectRoot = this.deps.projectRoot;
-      const projectCfg = loadProjectAgentConfig(subCfg.role ?? '', projectRoot);
-      const effectiveCfg = applyProjectAgentConfig(subCfg, projectCfg);
-      // If the caller explicitly set projectIdentity, use its identityOverride
-      // or fall back to the on-disk identity.md. When no explicit identity is
-      // set at all, the subagent still receives the catalog base prompt.
-      const identityText = subCfg.projectIdentity?.identityOverride
-        ?? loadProjectAgentIdentity(subCfg.role ?? '', projectRoot);
-      if (identityText && effectiveCfg.prompt) {
-        effectiveCfg.prompt = `${effectiveCfg.prompt}\n\n# Project custom identity\n\n${identityText}`;
-      }
-
       const roleSkillContent = await this.resolveSubagentSkillContent(effectiveCfg, task?.context);
       if (roleSkillContent) {
         // The shared builder may eagerly inject every discovered skill. A
@@ -1054,14 +1242,30 @@ export class MultiAgentHost {
       //   1. Explicit `systemPromptOverride` on the SubagentConfig (caller control)
       //   2. Roster lookup by `subCfg.role` — matches catalog agents (bug-hunter, etc.)
       //   3. Nothing — subagent runs with generic identity + bridge contract only
+      const rawRolePrompt =
+        effectiveCfg.systemPromptOverride ??
+        effectiveCfg.prompt ??
+        (effectiveCfg.role ? this.roster[effectiveCfg.role]?.prompt : undefined);
       const rolePrompt =
-        subCfg.systemPromptOverride ??
-        (subCfg.role ? FLEET_ROSTER[subCfg.role]?.prompt : undefined);
+        rawRolePrompt && effectiveCfg.role
+          ? buildProjectContextualizedPrompt(rawRolePrompt, effectiveCfg.role, projectRoot, {
+              identityOverride: effectiveCfg.projectIdentity?.identityOverride,
+            })
+          : rawRolePrompt;
       if (rolePrompt) {
         baseSystem.push({ type: 'text', text: rolePrompt });
       }
 
-      const subagentName = subCfg.id ?? subCfg.name ?? `sub_${randomUUID().slice(0, 8)}`;
+      const subagentName =
+        effectiveCfg.id ?? effectiveCfg.name ?? `sub_${randomUUID().slice(0, 8)}`;
+      if (effectiveCfg.role) {
+        this.recordLearningRole(subagentName, effectiveCfg.role);
+        // Avoid a redundant LRU re-insert when `id` is set — in that case
+        // `subagentName === effectiveCfg.id` and the first call already
+        // recorded the role under the same key. Recording again just
+        // performs an extra splice+shift and shifts the role's eviction
+        // position one step back in the LRU.
+      }
       let subSession: SessionWriter;
       if (this.sessionFactory) {
         subSession = await this.sessionFactory.createSubagentSession({
@@ -1101,7 +1305,7 @@ export class MultiAgentHost {
         } satisfies SessionWriter;
       }
 
-      const tools = subCfg.tools ? [...subCfg.tools] : undefined;
+      const tools = effectiveCfg.tools ? [...effectiveCfg.tools] : undefined;
       const subTokenCounter = new DefaultTokenCounter({
         registry: this.deps.modelsRegistry,
         providerId: effProvider,
@@ -1132,22 +1336,22 @@ export class MultiAgentHost {
         // to the host's 'leader' base id and they all collided in the shared
         // project mailbox registry (and consumed each other's read receipts).
         agentId: subagentName,
-        agentName: subCfg.name ?? subagentName,
+        agentName: effectiveCfg.name ?? subagentName,
       });
-      if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
-      const normalizedAgentName = (subCfg.name ?? subagentName).trim().toLowerCase();
+      if (effectiveCfg.role) ctx.meta['agentRole'] = effectiveCfg.role;
+      const normalizedAgentName = (effectiveCfg.name ?? subagentName).trim().toLowerCase();
       if (normalizedAgentName === 'chimera' || normalizedAgentName.startsWith('chimera-')) {
         ctx.meta['mailboxSendPolicy'] = 'leaders-only';
       }
       const leaderMode = this.opts.getLeaderMode?.();
       if (leaderMode) ctx.meta['mode'] = leaderMode;
-      if (subCfg.spawnLineage) ctx.meta['spawnLineage'] = subCfg.spawnLineage;
+      if (effectiveCfg.spawnLineage) ctx.meta['spawnLineage'] = effectiveCfg.spawnLineage;
 
       const baseRegistry = this.subagentToolRegistry(tools);
       // Per-spawn capability allowlist. The ToolExecutor and the Agent must
       // share the same policy semantics — resolve one allowlist and pass it to
       // both. See `resolveSubagentCapabilities` for the precedence rules.
-      const subAllowedCaps = this.resolveSubagentCapabilities(subCfg);
+      const subAllowedCaps = this.resolveSubagentCapabilities(effectiveCfg);
       const toolExecutor = new ToolExecutor(baseRegistry, {
         permissionPolicy: new AutoApprovePermissionPolicy(subAllowedCaps),
         secretScrubber: this.deps.secretScrubber,
@@ -1211,9 +1415,12 @@ export class MultiAgentHost {
         createFallbackModelExtension({
           getConfig: () => this.deps.configStore.get() as Config,
           fallbackProfileManager: this.deps.fallbackProfileManager,
-          getFallbackModels: () => subCfg.fallbackModels,
+          getFallbackModels: () => effectiveCfg.fallbackModels,
           getFallbackProfile: () => fallbackProfile,
-          buildProvider: (id, model) => this.buildSubagentProvider(config, id, model ?? effModel),
+          getPrimaryTarget: () => ({ providerId: effProvider, model: effModel }),
+          isClosedWorld: () => closedModelPolicy,
+          buildProvider: (id, model) =>
+            this.buildSubagentProvider(mergedConfig, id, model ?? effModel),
           onModelSwitch: async (id, model) => {
             subReasoningConfig = await this.resolveSubagentReasoningConfig(id, model);
           },
@@ -1244,7 +1451,7 @@ export class MultiAgentHost {
         hostEvents.emit('subagent.tool_started', {
           sessionId: this.deps.session.id,
           agentSessionId: e.sessionId,
-          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          subagentId: effectiveCfg.id ?? effectiveCfg.name ?? 'subagent',
           agentName: e.agentName ?? subCfg.name,
           traceId: e.traceId,
           id: e.id,
@@ -1269,7 +1476,7 @@ export class MultiAgentHost {
           at: Date.now(),
           sessionId: e.sessionId,
           traceId: e.traceId,
-          agentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          agentId: effectiveCfg.id ?? effectiveCfg.name ?? 'subagent',
           agentName: e.agentName ?? subCfg.name,
           toolUseId: e.id,
           toolName: e.name,
@@ -1287,7 +1494,7 @@ export class MultiAgentHost {
         hostEvents.emit('subagent.tool_executed', {
           sessionId: this.deps.session.id,
           agentSessionId: e.sessionId,
-          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          subagentId: effectiveCfg.id ?? effectiveCfg.name ?? 'subagent',
           agentName: e.agentName ?? subCfg.name,
           traceId: e.traceId,
           id: e.id,
@@ -1306,14 +1513,14 @@ export class MultiAgentHost {
         hostEvents.emit('subagent.iteration_summary', {
           ...e,
           sessionId: this.deps.session.id,
-          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          subagentId: effectiveCfg.id ?? effectiveCfg.name ?? 'subagent',
         });
       });
 
       const offCtxBridge = events.on('ctx.pct', (e) => {
         hostEvents.emit('subagent.ctx_pct', {
           sessionId: this.deps.session.id,
-          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          subagentId: effectiveCfg.id ?? effectiveCfg.name ?? 'subagent',
           load: e.load,
           tokens: e.tokens,
           maxContext: e.maxContext,
@@ -1341,7 +1548,7 @@ export class MultiAgentHost {
     subCfg: SubagentConfig,
     _taskContext?: Record<string, unknown>,
   ): Promise<string> {
-    const rosterSkillNames = subCfg.role ? FLEET_ROSTER[subCfg.role]?.skillNames : undefined;
+    const rosterSkillNames = subCfg.role ? this.roster[subCfg.role]?.skillNames : undefined;
     const skillNames = [...new Set(subCfg.skillNames ?? rosterSkillNames ?? [])];
     const directContent = subCfg.skillContent?.trim();
     if (skillNames.length === 0 || !this.deps.skillLoader) return directContent ?? '';
@@ -1686,7 +1893,7 @@ export class MultiAgentHost {
             const routed = await dispatchAgent(task?.description ?? reason, {
               classifier: director.dispatchClassifier,
             });
-            const template = FLEET_ROSTER[routed.role] ?? FLEET_ROSTER['executor'];
+            const template = this.roster[routed.role] ?? this.roster['executor'];
             const helperPrompt = [
               template?.prompt,
               `You are a helper worker spawned by the fleet supervisor to drain a task backlog (${reason}). Complete the assigned task efficiently and report a concise, evidence-backed result.`,
@@ -2000,6 +2207,46 @@ export class MultiAgentHost {
       error: result.error,
       finalText: typeof result.result === 'string' ? result.result : result.partial?.text,
     });
+  }
+
+  /** LRU-bounded insert into `subagentLearningRoles`. Mirrors the
+   *  acpRunnerCache eviction strategy so a long-lived session cannot
+   *  grow the map without limit. */
+  private recordLearningRole(subagentId: string, role: string): void {
+    const existingIdx = this.subagentLearningRolesAccessOrder.indexOf(subagentId);
+    if (existingIdx !== -1) this.subagentLearningRolesAccessOrder.splice(existingIdx, 1);
+    while (this.subagentLearningRolesAccessOrder.length >= MultiAgentHost.LEARNING_ROLES_MAX) {
+      const oldest = this.subagentLearningRolesAccessOrder.shift();
+      if (oldest) this.subagentLearningRoles.delete(oldest);
+    }
+    this.subagentLearningRoles.set(subagentId, role);
+    this.subagentLearningRolesAccessOrder.push(subagentId);
+  }
+
+  private captureCompletedTaskLearning(result: TaskResult): void {
+    if (result.status !== 'success') return;
+    const role = this.subagentLearningRoles.get(result.subagentId);
+    const finalText = typeof result.result === 'string' ? result.result : result.partial?.text;
+    if (!role || !finalText) return;
+    try {
+      const capture = captureLearnedFromAgentOutputDetailed(
+        finalText,
+        role,
+        this.deps.projectRoot,
+        false,
+      );
+      if (capture.captured > 0) {
+        this.deps.container
+          .safeResolve(TOKENS.Logger)
+          ?.debug(`agent learning captured ${capture.captured} item(s) for role "${role}"`);
+      }
+    } catch (error) {
+      this.deps.container
+        .safeResolve(TOKENS.Logger)
+        ?.warn(
+          `agent learning capture failed for role "${role}": ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
   }
 
   status(): {

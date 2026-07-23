@@ -85,15 +85,14 @@ describe('startStaticServe', () => {
 
     expect(handle).not.toBeNull();
     expect(createServer).toHaveBeenCalledTimes(1);
-    expect(createServer).toHaveBeenCalledWith({
-      host: '127.0.0.1',
-      distDir: '/resolved/dist',
-      globalRoot: '/tmp/.wrongstack',
-      onFleetPing: undefined,
-      publicWsUrl: undefined,
-      apiToken: undefined,
-      requireToken: undefined,
-    });
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: '127.0.0.1',
+        port: 3456,
+        distDir: '/resolved/dist',
+        globalRoot: '/tmp/.wrongstack',
+      }),
+    );
     // Binds the *http* port, not the ws port.
     expect(fake.listenCalls).toEqual([[3456, '127.0.0.1']]);
     // Returns the requested http port (see function doc).
@@ -130,15 +129,15 @@ describe('startStaticServe', () => {
     )) as StaticServeHandle;
 
     expect(handle).not.toBeNull();
-    expect(createServer).toHaveBeenCalledWith({
-      host: '127.0.0.1',
-      distDir: '/resolved/dist',
-      globalRoot: '/tmp/.wrongstack',
-      onFleetPing: undefined,
-      publicWsUrl: undefined,
-      apiToken: 'test-token-123',
-      requireToken: undefined,
-    });
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: '127.0.0.1',
+        port: 3456,
+        distDir: '/resolved/dist',
+        globalRoot: '/tmp/.wrongstack',
+        apiToken: 'test-token-123',
+      }),
+    );
   });
 
   it('passes public WS URL and requireToken to createHttpServer when provided', async () => {
@@ -158,15 +157,16 @@ describe('startStaticServe', () => {
     )) as StaticServeHandle;
 
     expect(handle).not.toBeNull();
-    expect(createServer).toHaveBeenCalledWith({
-      host: '127.0.0.1',
-      distDir: '/resolved/dist',
-      globalRoot: '/tmp/.wrongstack',
-      onFleetPing: undefined,
-      publicWsUrl: 'wss://wrongstack-ws.example.com',
-      apiToken: undefined,
-      requireToken: true,
-    });
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: '127.0.0.1',
+        port: 3456,
+        distDir: '/resolved/dist',
+        globalRoot: '/tmp/.wrongstack',
+        publicWsUrl: 'wss://wrongstack-ws.example.com',
+        requireToken: true,
+      }),
+    );
   });
 
   it('does not swallow a real createServer failure', async () => {

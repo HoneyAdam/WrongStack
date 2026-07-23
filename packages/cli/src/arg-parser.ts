@@ -14,6 +14,7 @@ export const BOOLEAN_FLAGS = new Set([
   'trace',
   'help',
   'version',
+  'yes',
   'no-banner',
   'no-features',
   'tui',
@@ -102,7 +103,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
     } else if (a.startsWith('-') && a.length === 2) {
       const short = a.slice(1);
-      const expand: Record<string, string> = { v: 'verbose' };
+      const expand: Record<string, string> = { v: 'verbose', y: 'yes' };
       flags[expand[short] ?? short] = true;
     } else {
       positional.push(a);

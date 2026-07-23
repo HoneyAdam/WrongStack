@@ -350,6 +350,9 @@ function startHqServerWithAuth(
       }
       if (changed) snapshotBroadcaster.broadcast();
     }, options.clientCleanupIntervalMs ?? CLIENT_CLEANUP_INTERVAL_MS);
+    // Match sibling timers (sessionCleanup/timeseriesFlush/browserHeartbeat): do
+    // not keep the Node event loop alive purely for the stale-client sweep.
+    cleanupTimer.unref?.();
 
     // ══════════════════════════════════════════════════════════════════════
     // HTTP server with extracted route handlers

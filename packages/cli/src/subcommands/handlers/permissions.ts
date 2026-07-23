@@ -2,7 +2,7 @@ import { DefaultPermissionPolicy } from '@wrongstack/core/security';
 import { type PermissionTrace } from '@wrongstack/core/types';
 import { resolveWstackPaths } from '@wrongstack/core/utils';
 import type { Context } from '@wrongstack/core/agent';
-import type { SubcommandHandler } from '../index.js';
+import type { SubcommandHandler } from '../contracts.js';
 
 /**
  * `wstack permissions explain <tool> --input '<json>' [--json]`
@@ -38,11 +38,15 @@ export const permissionsCmd: SubcommandHandler = async (args, deps) => {
 
   // Parse flags
   const inputIdx = args.indexOf('--input');
-  let rawInput: string | undefined;
-  if (inputIdx >= 0 && inputIdx + 1 < args.length) {
-    rawInput = args[inputIdx + 1];
-  }
-  const jsonOutput = args.includes('--json');
+  const flagInput = deps.flags?.['input'];
+  // Precedence: parsed top-level flags first, then positional --input/<value> as fallback.
+  const rawInput =
+    typeof flagInput === 'string'
+      ? flagInput
+      : inputIdx >= 0 && inputIdx + 1 < args.length
+        ? args[inputIdx + 1]
+        : undefined;
+  const jsonOutput = deps.flags?.['json'] === true || args.includes('--json');
 
   // Parse input JSON
   let input: unknown = {};

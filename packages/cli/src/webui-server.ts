@@ -42,6 +42,7 @@
  * message shapes. Everything else is internal to the run.
  */
 import { existsSync } from 'node:fs';
+import * as http from 'node:http';
 import { createRequire, findPackageJSON } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -687,6 +688,54 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     });
   }
 
+  // ── IPv6 loopback secondary listen ──────────────────────────────────────
+  // Chrome/Edge on Windows resolve `localhost` to [::1] BEFORE 127.0.0.1. A
+  // v4-only bind then makes the WebSocket upgrade to ws://localhost:PORT fail
+  // with ECONNREFUSED: the HTTP page still loads (browsers retry v4 for the
+  // navigation) but the WS does NOT retry, so SimpleUI/WebUI shows "WebSocket
+  // connection failed" and never comes up.
+  //
+  // A Node http.Server binds a single address — calling `.listen()` twice on
+  // the already-listening primary throws ERR_SERVER_ALREADY_LISTEN. So bring
+  // up the IPv6 loopback with a SECOND server that forwards its HTTP requests
+  // and WS upgrades onto the primary; the shared WebSocketServer (attached via
+  // {server: httpServer.server}) then serves both loopback families, so
+  // `localhost` AND `127.0.0.1` work. Best-effort: EAFNOSUPPORT/EADDRNOTAVAIL/
+  // EADDRINUSE (no usable IPv6 loopback, or already bound) must never take down
+  // the authoritative v4 listener.
+  let ipv6LoopbackServer: http.Server | null = null;
+  if (httpServer && host === '127.0.0.1') {
+    const primary = httpServer.server;
+    const v6 = http.createServer();
+    v6.on('request', (req, res) => primary.emit('request', req, res));
+    v6.on('upgrade', (req, socket, head) => primary.emit('upgrade', req, socket, head));
+    const logIpv6Error = (err: NodeJS.ErrnoException): void => {
+      if (err.code === 'EAFNOSUPPORT' || err.code === 'EADDRNOTAVAIL' || err.code === 'EADDRINUSE') {
+        consoleLogger.warn('ipv6_loopback_unavailable', { code: err.code, port: httpPort });
+        return; // no usable IPv6 loopback — the v4 listener stays authoritative
+      }
+      consoleLogger.error('http_server_error', { message: err.message, port: httpPort });
+    };
+    v6.on('error', logIpv6Error);
+    const ipv6Listening = await new Promise<boolean>((resolveListen) => {
+      const onListening = () => {
+        v6.off('error', onInitialError);
+        resolveListen(true);
+      };
+      const onInitialError = () => {
+        v6.off('listening', onListening);
+        resolveListen(false);
+      };
+      v6.once('listening', onListening);
+      v6.once('error', onInitialError);
+      v6.listen(httpPort, '::1');
+    });
+    if (ipv6Listening) {
+      ipv6LoopbackServer = v6;
+      console.log(`[WebUI] Also listening on http://[::1]:${httpPort}`);
+    }
+  }
+
   console.log(`[WebUI] WebSocket server starting on ws://${host}:${httpPort}`);
 
   if (httpServer) {
@@ -1104,11 +1153,23 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   });
 
   const stopped = new Promise<void>((resolve) => {
-    wss.on('listening', () => {
+    let listeningAnnounced = false;
+    const announceListening = () => {
+      if (listeningAnnounced) return;
+      listeningAnnounced = true;
       console.log(`[WebUI] WebSocket server running on ws://${host}:${httpPort}`);
-      setupEvents();
-      opts.onListening?.({ httpPort, wsPort, host, url: accessUrl });
-    });
+      try {
+        setupEvents();
+        opts.onListening?.({ httpPort, wsPort, host, url: accessUrl });
+      } catch (err) {
+        consoleLogger.error('setup_events_failed', { message: toErrorMessage(err) });
+      }
+    };
+    wss.on('listening', announceListening);
+    // SimpleUI deliberately binds the shared HTTP server before the rest of
+    // the route contexts are assembled. In that path the WebSocketServer's
+    // `listening` event may already have fired before this handler exists.
+    if (httpServer?.server.listening || wss.address()) queueMicrotask(announceListening);
 
     // WebSocket connection handler — per-tab error handling, auth, client
     // registration, rate limiting, message dispatch, close cleanup, and the
@@ -1194,6 +1255,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         clients.clear();
       },
       closeHttpServer: () => {
+        ipv6LoopbackServer?.close();
         httpServer?.server.close();
       },
       wss,
@@ -1220,6 +1282,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     kanbanRunMirror?.dispose();
     kanbanSupervisor?.dispose();
     unregisterWebuiClient();
+    ipv6LoopbackServer?.close();
     httpServer?.server.close();
     opts.onExit?.();
   }

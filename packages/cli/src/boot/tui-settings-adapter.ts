@@ -169,6 +169,7 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       breakerEnabled: cfg.circuitBreaker?.enabled === true,
       breakerAutoKillResetMs: cfg.circuitBreaker?.autoKillResetMs ?? 60_000,
       showModelReasoning: autonomy?.showModelReasoning ?? true,
+      showAgentSwarmPanel: autonomy?.showAgentSwarmPanel ?? true,
     };
   }
 
@@ -221,7 +222,8 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.cacheTtl !== undefined ||
         s.breakerEnabled !== undefined ||
         s.breakerAutoKillResetMs !== undefined ||
-        s.showModelReasoning !== undefined
+        s.showModelReasoning !== undefined ||
+        s.showAgentSwarmPanel !== undefined
       ) {
         const cfg = configStore.get();
         // Delegate path resolution to the canonical resolver. This keeps
@@ -274,6 +276,8 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           autonomy.thinkingWord = normalizeTuiThinkingWord(s.thinkingWord);
         if (s.animationStyle !== undefined) autonomy.animationStyle = s.animationStyle;
         if (s.showModelReasoning !== undefined) autonomy.showModelReasoning = s.showModelReasoning;
+        if (s.showAgentSwarmPanel !== undefined)
+          autonomy.showAgentSwarmPanel = s.showAgentSwarmPanel;
         if (s.autonomyNextPrompt !== undefined) autonomy.autonomyNextPrompt = s.autonomyNextPrompt;
         if (s.autoProceedMaxIterations !== undefined)
           autonomy.autoProceedMaxIterations = s.autoProceedMaxIterations;

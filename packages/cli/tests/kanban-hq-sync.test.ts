@@ -2,12 +2,39 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HqKanbanSnapshotPayload, HqPublisher } from '@wrongstack/core/hq';
 import { createBoardObject, readBoard, writeBoard } from '@wrongstack/kanban';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createKanbanHqSync } from '../src/kanban-hq-sync.js';
 
+const atomicWriteFs = vi.hoisted(() => ({
+  actualRename: undefined as typeof import('node:fs/promises').rename | undefined,
+  rename: vi.fn<typeof import('node:fs/promises').rename>(),
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  atomicWriteFs.actualRename = actual.rename;
+  return { ...actual, rename: atomicWriteFs.rename };
+});
+
 const roots: string[] = [];
+const realSetTimeout = globalThis.setTimeout;
+
+async function waitForCondition(condition: () => boolean, message: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!condition() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5));
+  }
+  expect(condition(), message).toBe(true);
+}
+
+beforeEach(() => {
+  if (atomicWriteFs.actualRename === undefined)
+    throw new Error('fs.rename mock was not initialized');
+  atomicWriteFs.rename.mockReset().mockImplementation(atomicWriteFs.actualRename);
+});
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
   vi.useRealTimers();
@@ -40,14 +67,194 @@ describe('CLI Kanban HQ synchronization', () => {
     sync.stop();
   });
 
+  it('chunks large local snapshots below the HQ websocket payload limit', async () => {
+    const root = await tempProject();
+    for (let index = 0; index < 40; index++) {
+      const board = createBoardObject({ title: `Board ${index}` });
+      board.description = `${index}:`.padEnd(20_000, 'x');
+      await writeBoard(root, board);
+    }
+    const publishEvent = vi.fn();
+    const sync = createKanbanHqSync(root, 'large-project');
+
+    await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+
+    const calls = publishEvent.mock.calls.map(
+      ([input]) => input as { payload: HqKanbanSnapshotPayload },
+    );
+    expect(calls.length).toBeGreaterThan(1);
+    const boardIds = calls.flatMap(({ payload }) => payload.boards.map((board) => board.boardId));
+    expect(boardIds).toHaveLength(40);
+    expect(new Set(boardIds)).toHaveProperty('size', 40);
+    for (const { payload } of calls) {
+      expect(payload.boards.length + payload.tombstones.length).toBeGreaterThan(0);
+      expect(Buffer.byteLength(JSON.stringify(payload), 'utf8')).toBeLessThanOrEqual(512 * 1024);
+    }
+    sync.stop();
+  });
+
+  it('warns when one board cannot fit below the snapshot chunk target', async () => {
+    const root = await tempProject();
+    const board = createBoardObject({ title: 'Oversized' });
+    board.description = 'x'.repeat(600_000);
+    await writeBoard(root, board);
+    const publishEvent = vi.fn();
+    const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+    const sync = createKanbanHqSync(root, 'oversized-project');
+
+    try {
+      await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining(board.id), {
+        code: 'WRONGSTACK_HQ_KANBAN_OVERSIZED_RECORD',
+      });
+      const event = publishEvent.mock.calls[0]?.[0] as
+        | { payload: HqKanbanSnapshotPayload }
+        | undefined;
+      if (event === undefined) throw new Error('expected oversized snapshot publish');
+      expect(Buffer.byteLength(JSON.stringify(event.payload), 'utf8')).toBeGreaterThan(512 * 1024);
+    } finally {
+      warning.mockRestore();
+      sync.stop();
+    }
+  });
+
+  it('prunes expired tombstones before replaying a full snapshot', async () => {
+    const root = await tempProject();
+    const stateDir = path.join(root, '.wrongstack', 'kanbans');
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(
+      path.join(stateDir, '.hq-sync.json'),
+      JSON.stringify({
+        boards: { deleted: { revision: 2, updatedAt: '2020-01-01T00:00:00.000Z' } },
+        tombstones: {
+          deleted: { boardId: 'deleted', revision: 3, deletedAt: '2020-01-01T00:00:00.000Z' },
+        },
+      }),
+    );
+    const publishEvent = vi.fn();
+    const sync = createKanbanHqSync(root, 'retention-project');
+
+    await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+
+    const event = publishEvent.mock.calls[0]?.[0] as
+      | { payload: HqKanbanSnapshotPayload }
+      | undefined;
+    if (event === undefined) throw new Error('expected retained snapshot publish');
+    expect(event.payload.tombstones).toEqual([]);
+    const state = JSON.parse(await fs.readFile(path.join(stateDir, '.hq-sync.json'), 'utf8')) as {
+      boards: Record<string, unknown>;
+      tombstones: Record<string, unknown>;
+    };
+    expect(state).toEqual({ boards: {}, tombstones: {} });
+    sync.stop();
+  });
+
+  it('publishes only changed boards after the initial snapshot', async () => {
+    const root = await tempProject();
+    const changed = createBoardObject({ title: 'Changed later' });
+    const untouched = createBoardObject({ title: 'Untouched' });
+    await writeBoard(root, changed);
+    await writeBoard(root, untouched);
+    const publishEvent = vi.fn();
+    const sync = createKanbanHqSync(root, 'delta-project');
+
+    await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+    publishEvent.mockClear();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    changed.revision = 1;
+    changed.updatedAt = '2026-07-23T08:00:00.000Z';
+    changed.title = 'Changed now';
+    await writeBoard(root, changed);
+    await waitForCondition(
+      () => vi.getTimerCount() > 0,
+      'expected filesystem event to schedule delta publish',
+    );
+    await vi.advanceTimersByTimeAsync(150);
+    await waitForCondition(
+      () => publishEvent.mock.calls.length > 0,
+      'expected delta publish after advancing the debounce timer',
+    );
+
+    expect(publishEvent.mock.calls.length).toBe(1);
+
+    const payloads = publishEvent.mock.calls.map(
+      ([input]) => (input as { payload: HqKanbanSnapshotPayload }).payload,
+    );
+    expect(payloads).toHaveLength(1);
+    expect(payloads.flatMap((payload) => payload.boards).map((board) => board.boardId)).toEqual([
+      changed.id,
+    ]);
+    expect(payloads.flatMap((payload) => payload.tombstones)).toEqual([]);
+    sync.stop();
+  });
+
+  it('keeps a one-board update bounded in a 1000-board project', async () => {
+    const root = await tempProject();
+    const kanbanDir = path.join(root, '.wrongstack', 'kanbans');
+    await fs.mkdir(kanbanDir, { recursive: true });
+    const boards = Array.from({ length: 1000 }, (_, index) => {
+      const board = createBoardObject({ title: `Scale board ${index}` });
+      board.description = `payload-${index}`.padEnd(2_000, 'x');
+      return board;
+    });
+    await Promise.all(
+      boards.map((board) =>
+        fs.writeFile(path.join(kanbanDir, `${board.id}.json`), JSON.stringify(board), 'utf8'),
+      ),
+    );
+    const publishEvent = vi.fn();
+    const sync = createKanbanHqSync(root, 'scale-project');
+
+    await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+    publishEvent.mockClear();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    const changed = boards[500]!;
+    changed.revision = 1;
+    changed.updatedAt = '2026-07-23T08:01:00.000Z';
+    changed.title = 'Only this board changed';
+    await fs.writeFile(path.join(kanbanDir, `${changed.id}.json`), JSON.stringify(changed), 'utf8');
+    await waitForCondition(
+      () => vi.getTimerCount() > 0,
+      'expected filesystem event to schedule bounded delta publish',
+    );
+    await vi.advanceTimersByTimeAsync(150);
+    await waitForCondition(
+      () => publishEvent.mock.calls.length > 0,
+      'expected bounded delta publish after advancing the debounce timer',
+    );
+
+    expect(publishEvent.mock.calls.length).toBe(1);
+
+    const payloads = publishEvent.mock.calls.map(
+      ([input]) => (input as { payload: HqKanbanSnapshotPayload }).payload,
+    );
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.boards.map((board) => board.boardId)).toEqual([changed.id]);
+    expect(Buffer.byteLength(JSON.stringify(payloads[0]), 'utf8')).toBeLessThan(10_000);
+    sync.stop();
+  });
+
   it('serializes simultaneous initial publish and remote snapshot state writes', async () => {
     const root = await tempProject();
     const publishEvent = vi.fn();
     const sync = createKanbanHqSync(root, 'shared-project');
+    const remoteBoard = createBoardObject({ title: 'Remote' });
+    remoteBoard.revision = 1;
+    remoteBoard.updatedAt = '2026-07-22T12:00:00Z';
     const remote: HqKanbanSnapshotPayload = {
       projectId: 'shared-project',
       generatedAt: '2026-07-22T12:00:00Z',
-      boards: [],
+      boards: [
+        {
+          boardId: remoteBoard.id,
+          revision: remoteBoard.revision,
+          updatedAt: remoteBoard.updatedAt,
+          board: { ...remoteBoard },
+        },
+      ],
       tombstones: [],
     };
 
@@ -56,11 +263,55 @@ describe('CLI Kanban HQ synchronization', () => {
       sync.handleRemote(remote),
     ]);
 
-    expect(publishEvent).toHaveBeenCalledTimes(1);
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ boards: [] }),
+      }),
+    );
+    expect((await readBoard(root, remoteBoard.id))?.title).toBe('Remote');
     await expect(
       fs.readFile(path.join(root, '.wrongstack', 'kanbans', '.hq-sync.json'), 'utf8'),
     ).resolves.toContain('"boards"');
     sync.stop();
+  });
+
+  it('retries a transient Windows lock while replacing sync state', async () => {
+    const root = await tempProject();
+    const sync = createKanbanHqSync(root, 'shared-project');
+    const publishEvent = vi.fn();
+    await sync.attachPublisher({ publishEvent } as unknown as HqPublisher);
+
+    const statePath = path.join(root, '.wrongstack', 'kanbans', '.hq-sync.json');
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    if (platform === undefined || atomicWriteFs.actualRename === undefined) {
+      throw new Error('Windows retry test could not initialize its filesystem seams');
+    }
+    const busy = Object.assign(new Error('Resource busy'), { code: 'EBUSY' });
+    atomicWriteFs.rename
+      .mockClear()
+      .mockRejectedValueOnce(busy)
+      .mockImplementation(atomicWriteFs.actualRename);
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+
+    try {
+      await expect(
+        sync.handleRemote({
+          projectId: 'shared-project',
+          generatedAt: '2026-07-22T12:00:00Z',
+          boards: [],
+          tombstones: [],
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(atomicWriteFs.rename).toHaveBeenCalledTimes(2);
+      await expect(fs.readFile(statePath, 'utf8')).resolves.toContain('"boards"');
+      await expect(fs.readdir(path.dirname(statePath))).resolves.not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/\.tmp$/)]),
+      );
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+      sync.stop();
+    }
   });
 
   it('applies newer HQ boards but preserves newer local revisions', async () => {

@@ -79,10 +79,10 @@ describe('interactive config backup recovery', () => {
       ),
       JSON.stringify(saved, null, 2),
     );
-    const renderer: Pick<TerminalRenderer, 'write' | 'writeWarning'> = {
+    const renderer = {
       write: vi.fn(),
       writeWarning: vi.fn(),
-    };
+    } as unknown as TerminalRenderer;
     const reader: Pick<ReadlineInputReader, 'readLine'> = { readLine: vi.fn().mockResolvedValue('') };
 
     const restored = await maybeRestoreDefaultProfileFromBackup({
@@ -115,7 +115,7 @@ describe('interactive config backup recovery', () => {
     const restored = await maybeRestoreDefaultProfileFromBackup({
       globalRoot,
       profilePath,
-      renderer: { write: vi.fn(), writeWarning: vi.fn() } as Pick<TerminalRenderer, 'write' | 'writeWarning'>,
+      renderer: { write: vi.fn(), writeWarning: vi.fn() } as unknown as TerminalRenderer,
       reader: reader as Pick<ReadlineInputReader, 'readLine'>,
     });
 

@@ -1005,47 +1005,13 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           );
         }
 
-        // Autonomy loop: after a successful run, if autonomy is active,
-        // ask the agent to suggest next steps and optionally auto-continue.
+        // Suggest mode asks for explicit next-step options after a successful
+        // turn. Auto mode is driven exclusively by the guarded queue at the
+        // top of the REPL loop; issuing another agent.run() here would bypass
+        // suggestion consumption and the repetition guard.
         if (result.status === 'done' && opts.getAutonomy) {
           const autonomy = opts.getAutonomy();
-          if (autonomy === 'auto') {
-            // Self-driving: ask the agent to continue with the next logical step.
-            const nextPrompt =
-              'Based on what you just did, what is the single most important next step? ' +
-              'Just do it — execute the next logical step without asking for confirmation. ' +
-              'If there is nothing meaningful left to do, say "DONE" and nothing else.';
-            opts.renderer.write(color.dim('\n  ↳ [autonomy] continuing…\n'));
-            const nextBlocks = [{ type: 'text' as const, text: nextPrompt }];
-            const nextCtrl = new AbortController();
-            activeCtrl = nextCtrl;
-            try {
-              const nextResult = await opts.agent.run(nextBlocks, { signal: nextCtrl.signal });
-              opts.onAgentIterationComplete?.(
-                estimateRequestTokensCalibrated(
-                  opts.agent.ctx.messages,
-                  opts.agent.ctx.systemPrompt,
-                  opts.agent.ctx.tools ?? [],
-                ).total,
-              );
-              if (nextResult.status === 'done' && nextResult.finalText?.trim() === 'DONE') {
-                opts.renderer.write(color.dim('\n  ↳ [autonomy] agent reports task complete.\n'));
-              }
-              // Loop continues — the for(;;) will read next input, but since
-              // we're in auto mode, we need to re-trigger. We use a flag.
-              if (opts.getAutonomy() === 'auto' && nextResult.status === 'done') {
-                // Re-trigger: the outer loop will continue and we'll hit this
-                // block again on the next iteration. But we need user input...
-                // Instead, we just continue the loop with the next prompt.
-              }
-            } catch (err) {
-              opts.renderer.writeError(
-                `[autonomy] ${toErrorMessage(err)}`,
-              );
-            } finally {
-              activeCtrl = undefined;
-            }
-          } else if (autonomy === 'suggest' && !hasOpenTodos(opts.agent.ctx.todos)) {
+          if (autonomy === 'suggest' && !hasOpenTodos(opts.agent.ctx.todos)) {
             // Suggest mode: ask the agent what to do next, show to user.
             const suggestPrompt =
               'Based on what you just did, suggest 3 exact prompt messages that can be submitted back to you through the TUI or WebUI. Each prompt must ask the agent to perform work; never assign a manual chore to the user. ' +
@@ -1339,6 +1305,7 @@ async function runAutoProceed(
     if (repetition.shouldHalt) {
       setSuggestions([]);
       setAutoSuggestions([]);
+      opts.onSuggestionsParsed?.(null);
       opts.renderer.writeWarning(
         `Auto-proceed halted: the same prompt was fed ${repetition.runLength} times in a row. ` +
           `Autonomy mode is still on, but no automatic next step will run until you provide input. ` +
@@ -1371,8 +1338,10 @@ async function runAutoProceed(
     // is passed through so we suppress <nextsteps> while the in-flight
     // todo loop is still in progress — finishing the open todos comes
     // before offering new prompt options.
-    if (runResult.status === 'done' && runResult.finalText && opts.onSuggestionsParsed) {
-      const parsed = parseSuggestionsFromOutput(runResult.finalText, opts.agent.ctx.todos);
+    if (runResult.status === 'done' && opts.onSuggestionsParsed) {
+      const parsed = runResult.finalText
+        ? parseSuggestionsFromOutput(runResult.finalText, opts.agent.ctx.todos)
+        : null;
       opts.onSuggestionsParsed(parsed);
     }
     return true;
