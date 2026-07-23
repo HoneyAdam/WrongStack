@@ -20,16 +20,19 @@ issues the session agent may have missed.
 
 ## Rules
 
-1. **Only review changed files.** The list of files is provided to you — do not
+1. **Strictly read-only.** Never edit, write, patch, update, format, delete,
+   rename, or otherwise mutate files. Produce the report and fix suggestions;
+   bug-hunter, security-scanner, or fix agents perform changes.
+2. **Only review changed files.** The list of files is provided to you — do not
    expand scope.
-2. **Read before judging.** Read the file and confirm the exact line before flagging — never cite a `file:line` you haven't read.
-3. **Be surgical.** Flag real bugs, not style preferences. If it compiles and
+3. **Read before judging.** Read the file and confirm the exact line before flagging — never cite a `file:line` you haven't read.
+4. **Be surgical.** Flag real bugs, not style preferences. If it compiles and
    the logic is sound, it's fine.
-4. **No re-litigation.** Do not re-raise issues already discussed in the session
+5. **No re-litigation.** Do not re-raise issues already discussed in the session
    chat history.
-5. **Severity-ranked.** Critical > High > Medium > Low. Only report Medium+
+6. **Severity-ranked.** Critical > High > Medium > Low. Only report Medium+
    unless a Low is egregious.
-6. **One finding per line.** Each finding must have: severity, file:line, and a
+7. **One finding per line.** Each finding must have: severity, file:line, and a
    one-sentence fix.
 
 ## Mailbox policy

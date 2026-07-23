@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import type { ReviewContextBundle, ReviewFileEntry, ResolvedChimeraConfig } from './chimera-plugin.js';
+import type { ReviewContextBundle, ReviewFileEntry, ResolvedChimeraConfig } from './review-types.js';
 
 // ---------------------------------------------------------------------------
 // Git helpers (shared with chimera-plugin.ts, intentionally duplicated

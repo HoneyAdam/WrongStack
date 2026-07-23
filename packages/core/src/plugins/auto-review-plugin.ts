@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
+import { parseModelRef } from '../core/model-ref.js';
+import type { Config } from '../types/config.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
-import type { Config } from '../types/config.js';
 import { toErrorMessage } from '../utils/error.js';
 import type {
   CascadeAgentKind,
@@ -12,8 +14,8 @@ import type {
   ChimeraReviewCompletePayload,
   ChimeraReviewNeededPayload,
 } from './chimera-plugin.js';
+import { emitReviewIfChanged } from './review-claim-registry.js';
 import { buildReviewContext } from './review-context-builder.js';
-import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 
 // ---------------------------------------------------------------------------
 // Auto-review configuration — read from config.extensions['wstack-auto-review']
@@ -85,6 +87,95 @@ export const DEFAULT_REVIEW_FALLBACK_MODELS: readonly string[] = [
   'anthropic-oauth/claude-opus-4-8',
   'openai-codex/gpt-5.3-codex-spark',
 ];
+
+/**
+ * Primary + fallback assignment for a single Chimera reviewer spawn.
+ * Produced by {@link selectRoundRobinReviewerAssignment} so concurrent
+ * reviewers start on different models and only share a provider after
+ * their own in-place retries are exhausted.
+ */
+export interface ReviewerModelAssignment {
+  provider: string;
+  model: string;
+  /** Remaining pool entries after the selected primary, wrap-around order. */
+  fallbackModels: string[];
+  /** Cursor to pass on the next spawn (`cursor + 1`). */
+  nextCursor: number;
+}
+
+/**
+ * Build the deduped provider/model pool a reviewer can start on.
+ *
+ * Order is stable: configured primary first, then the fallback chain.
+ * Entries must be `provider/model` (or parseable refs); bare blanks are dropped.
+ */
+export function buildReviewerModelPool(
+  provider: string,
+  model: string,
+  fallbackModels: readonly string[] = [],
+): string[] {
+  const primaryProvider = provider.trim();
+  const primaryModel = model.trim();
+  const primaryRef =
+    primaryProvider && primaryModel ? `${primaryProvider}/${primaryModel}` : '';
+  const seen = new Set<string>();
+  const pool: string[] = [];
+  for (const raw of [primaryRef, ...fallbackModels]) {
+    const ref = raw.trim();
+    if (!ref || seen.has(ref)) continue;
+    const parsed = parseModelRef(ref);
+    // Need a provider so the subagent never spawns with a bare model id that
+    // 401s as "Model is not supported" on multi-provider hosts.
+    if (!parsed.provider?.trim() || !parsed.model.trim()) continue;
+    const normalized = `${parsed.provider.trim()}/${parsed.model.trim()}`;
+    if (seen.has(normalized)) continue;
+    // Track both spellings: `ref` rejects exact repeats cheaply, while
+    // `normalized` collapses equivalent refs whose parsed whitespace differs.
+    seen.add(ref);
+    seen.add(normalized);
+    pool.push(normalized);
+  }
+  return pool;
+}
+
+/**
+ * Pick primary + fallback chain for the Nth concurrent reviewer via round-robin.
+ *
+ * Index `cursor % pool.length` becomes the primary; the rest of the pool is
+ * rotated so the former primary lands last (still available after rate limits).
+ * The pool must be pre-filtered by {@link buildReviewerModelPool} so every
+ * non-empty entry contains both a provider and a model.
+ * Pure: the caller owns the cursor (typically a process-local counter).
+ */
+export function selectRoundRobinReviewerAssignment(
+  pool: readonly string[],
+  cursor: number,
+  /** Used only when the selected ref is somehow unparseable — defensive. */
+  fallbackProvider = '',
+  fallbackModel = '',
+): ReviewerModelAssignment {
+  if (pool.length === 0) {
+    return {
+      provider: fallbackProvider,
+      model: fallbackModel,
+      fallbackModels: [],
+      nextCursor: cursor + 1,
+    };
+  }
+  const len = pool.length;
+  const idx = ((cursor % len) + len) % len;
+  const primaryRef = pool[idx]!;
+  const parsed = parseModelRef(primaryRef);
+  const provider = parsed.provider?.trim() || fallbackProvider;
+  const model = parsed.model.trim() || fallbackModel;
+  const fallbackModels = [...pool.slice(idx + 1), ...pool.slice(0, idx)];
+  return {
+    provider,
+    model,
+    fallbackModels,
+    nextCursor: (idx + 1) % len,
+  };
+}
 
 export function resolveAutoReviewConfig(
   cfg: AutoReviewConfig,
@@ -240,13 +331,14 @@ export function decideCascadeAgents(text: string, severities: ParsedSeverities):
   // Scan only the Critical and High sections for security keywords
   const lower = text.toLowerCase();
   const criticalHighRe = /###\s*(?:critical|high)[^\n]*\n([\s\S]*?)(?=###|$)/gi;
-  let section: RegExpExecArray | null;
-  while ((section = criticalHighRe.exec(lower)) !== null) {
+  let section = criticalHighRe.exec(lower);
+  while (section !== null) {
     const body = section[1] ?? '';
     if (SECURITY_KEYWORDS.some((kw) => body.includes(kw))) {
       agents.add('security-scanner');
       break;
     }
+    section = criticalHighRe.exec(lower);
   }
   return [...agents];
 }
@@ -457,7 +549,14 @@ export function createAutoReviewPlugin(): Plugin {
         return resolveAutoReviewConfig(raw, api.config);
       };
       let resolved = recompute();
-      let inFlight: InFlightReview[] = [];
+      const inFlight: InFlightReview[] = [];
+      const expireInFlight = (entry: InFlightReview): void => {
+        const timer = setTimeout(() => {
+          const idx = inFlight.indexOf(entry);
+          if (idx !== -1) inFlight.splice(idx, 1);
+        }, 5 * 60 * 1000);
+        timer.unref();
+      };
 
       api.onConfigChange(() => {
         const old = resolved;
@@ -567,14 +666,6 @@ export function createAutoReviewPlugin(): Plugin {
 
           reviewCounter++;
 
-          // Track in-flight
-          const inflightEntry: InFlightReview = {
-            files: filesWithContent.map((f) => f.path),
-            startedAt: now,
-            subagentType: 'review',
-          };
-          inFlight.push(inflightEntry);
-
           // ── Build enriched review context (diffs, siblings, commits) ──
           const bundle = await buildReviewContext({
             cwd,
@@ -606,9 +697,24 @@ export function createAutoReviewPlugin(): Plugin {
             `[auto-review] #${reviewCounter} emitting review_needed (${filesWithContent.length} files, provider=${cfg.provider} model=${cfg.model})`,
           );
 
-          api.emitCustom('chimera.review_needed', bundle);
+          const emittedBundle = emitReviewIfChanged(api, bundle);
+          if (!emittedBundle) {
+            api.log.info(
+              `[auto-review] #${reviewCounter} skipped — file content already has a review in progress`,
+            );
+            // The debounce clock is anchored to successful emissions only.
+            return;
+          }
+          const emittedPaths = new Set(emittedBundle.files.map((file) => file.path));
+          const inflightEntry: InFlightReview = {
+            files: [...emittedPaths],
+            startedAt: now,
+            subagentType: 'review',
+          };
+          inFlight.push(inflightEntry);
           lastReviewTs = now;
           for (const file of toReview) {
+            if (!emittedPaths.has(file.path)) continue;
             knownFingerprints.set(file.path, file.fingerprint);
             pendingFiles.delete(file.path);
           }
@@ -616,7 +722,7 @@ export function createAutoReviewPlugin(): Plugin {
           // silently skipped. If reviews don't appear, check that the session
           // runs with --director or enable Director in your config.
           api.log.info(
-            `[auto-review] #${reviewCounter} event emitted — requires Director (--director) for subagent spawning`,
+            `[auto-review] #${reviewCounter} event emitted — ${emittedBundle.files.length}/${filesWithContent.length} files; requires Director (--director) for subagent spawning`,
           );
 
           // ── Cascade: handled by the chimera.review_complete listener ──
@@ -627,11 +733,7 @@ export function createAutoReviewPlugin(): Plugin {
           // follow-up agents (security-scanner, bug-hunter).
 
           // Clean in-flight after a timeout (reviews complete asynchronously)
-          const inflightTimer = setTimeout(() => {
-            const idx = inFlight.indexOf(inflightEntry);
-            if (idx !== -1) inFlight.splice(idx, 1);
-          }, 5 * 60 * 1000);
-          inflightTimer.unref();
+          expireInFlight(inflightEntry);
 
         } catch (err) {
           api.log.warn(`[auto-review] iteration.completed handler failed: ${toErrorMessage(err)}`);
@@ -674,12 +776,6 @@ export function createAutoReviewPlugin(): Plugin {
             api.log.info(`[auto-review] session end — at max concurrent (${cfg.maxConcurrentReviews}), skipping final review`);
             return;
           }
-          const inflightEntry: InFlightReview = {
-            files: filesWithContent.map((f) => f.path),
-            startedAt: Date.now(),
-            subagentType: 'review',
-          };
-          inFlight.push(inflightEntry);
 
           // ── Build enriched review context (diffs, siblings, commits) ──
           const bundle = await buildReviewContext({
@@ -703,9 +799,20 @@ export function createAutoReviewPlugin(): Plugin {
             trackedChangedPaths.has(file.path),
           );
 
-          api.emitCustom('chimera.review_needed', bundle);
+          const emittedBundle = emitReviewIfChanged(api, bundle);
+          if (!emittedBundle) {
+            api.log.info('[auto-review] session end — unchanged files already have reviews in progress');
+            return;
+          }
+          const inflightEntry: InFlightReview = {
+            files: emittedBundle.files.map((file) => file.path),
+            startedAt: Date.now(),
+            subagentType: 'review',
+          };
+          inFlight.push(inflightEntry);
+          expireInFlight(inflightEntry);
 
-          api.log.info(`[auto-review] session end — final review (${filesWithContent.length} files)`);
+          api.log.info(`[auto-review] session end — final review (${emittedBundle.files.length} files)`);
         } catch (err) {
           api.log.warn(`[auto-review] session.ended handler failed: ${toErrorMessage(err)}`);
         }

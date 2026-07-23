@@ -12,9 +12,13 @@
  *
  * See: fix(auto-review) 623bd441a + refactor(auto-review) a93f3310a.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core/plugin';
-import { resolveReviewerFallbackModels } from '../src/execution.js';
+import {
+  __resetReviewerRoundRobinCursor,
+  assignReviewerModelsRoundRobin,
+  resolveReviewerFallbackModels,
+} from '../src/execution.js';
 
 describe('reviewer fallback-chain drift guard', () => {
   it('exposes a non-empty shared DEFAULT_REVIEW_FALLBACK_MODELS from @wrongstack/core', () => {
@@ -69,5 +73,40 @@ describe('reviewer fallback-chain drift guard', () => {
     // rather than the default — the other half of the spawn contract.
     const bundleChain = ['minimax-coding-plan/MiniMax-M3', 'zai-coding-plan/glm-5.2'];
     expect(resolveReviewerFallbackModels(bundleChain)).toEqual(bundleChain);
+  });
+});
+
+describe('assignReviewerModelsRoundRobin — concurrent chimera spawn', () => {
+  afterEach(() => {
+    __resetReviewerRoundRobinCursor(0);
+  });
+
+  it('rotates primary across primary+fallback pool on successive spawns', () => {
+    __resetReviewerRoundRobinCursor(0);
+    const fallbacks = ['alt/m1', 'alt/m2'];
+
+    const a = assignReviewerModelsRoundRobin('base', 'm0', fallbacks);
+    expect(a.provider).toBe('base');
+    expect(a.model).toBe('m0');
+    expect(a.fallbackModels).toEqual(['alt/m1', 'alt/m2']);
+
+    const b = assignReviewerModelsRoundRobin('base', 'm0', fallbacks);
+    expect(b.provider).toBe('alt');
+    expect(b.model).toBe('m1');
+    expect(b.fallbackModels).toEqual(['alt/m2', 'base/m0']);
+
+    const c = assignReviewerModelsRoundRobin('base', 'm0', fallbacks);
+    expect(c.provider).toBe('alt');
+    expect(c.model).toBe('m2');
+    expect(c.fallbackModels).toEqual(['base/m0', 'alt/m1']);
+  });
+
+  it('is a no-op when the pool has a single entry', () => {
+    __resetReviewerRoundRobinCursor(0);
+    const a = assignReviewerModelsRoundRobin('only', 'm', []);
+    expect(a).toEqual({ provider: 'only', model: 'm', fallbackModels: [] });
+    const b = assignReviewerModelsRoundRobin('only', 'm', ['only/m']);
+    expect(b.provider).toBe('only');
+    expect(b.model).toBe('m');
   });
 });

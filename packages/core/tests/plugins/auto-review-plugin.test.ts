@@ -4,11 +4,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChimeraReviewNeededPayload, SlashCommand } from '../../src/index.js';
+import { EventBus } from '../../src/kernel/events.js';
 import {
+  buildReviewerModelPool,
   createAutoReviewPlugin,
   type AutoReviewConfig,
   DEFAULT_REVIEW_FALLBACK_MODELS,
   resolveAutoReviewConfig,
+  selectRoundRobinReviewerAssignment,
 } from '../../src/plugins/auto-review-plugin.js';
 import type { Config } from '../../src/types/config.js';
 
@@ -28,8 +31,10 @@ function commitAll(dir: string, message: string): void {
 
 function makeApi(autoReviewConfig: Record<string, unknown> = {}) {
   const events: Record<string, (payload?: { ctx?: { todos?: never[] } }) => Promise<void>> = {};
+  const eventBus = new EventBus();
   const registered: SlashCommand[] = [];
   const emitCustom = vi.fn();
+  const onPattern = vi.fn();
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   const api = {
     config: {
@@ -45,11 +50,12 @@ function makeApi(autoReviewConfig: Record<string, unknown> = {}) {
         },
       },
     },
+    events: eventBus,
     onConfigChange: vi.fn(),
     onEvent: (type: string, handler: (payload?: { ctx?: { todos?: never[] } }) => Promise<void>) => {
       events[type] = handler;
     },
-    onPattern: vi.fn(),
+    onPattern,
     emitCustom,
     slashCommands: {
       register: (command: SlashCommand) => registered.push(command),
@@ -58,7 +64,7 @@ function makeApi(autoReviewConfig: Record<string, unknown> = {}) {
     log,
   } as never;
 
-  return { api, events, emitCustom, log, registered };
+  return { api, events, emitCustom, onPattern, log, registered };
 }
 
 function reviewPayloads(emitCustom: ReturnType<typeof vi.fn>): ChimeraReviewNeededPayload[] {
@@ -81,6 +87,14 @@ afterEach(async () => {
 });
 
 describe('auto-review change detection', () => {
+  it('leaves claim bookkeeping to Chimera while retaining cascade handling', () => {
+    const { api, onPattern } = makeApi();
+    createAutoReviewPlugin().setup!(api);
+
+    expect(onPattern).not.toHaveBeenCalledWith('chimera.review_needed', expect.any(Function));
+    expect(onPattern).toHaveBeenCalledWith('chimera.review_complete', expect.any(Function));
+  });
+
   it('reviews later content edits even when the porcelain status remains modified', async () => {
     const { api, events, emitCustom } = makeApi();
     createAutoReviewPlugin().setup!(api);
@@ -142,6 +156,58 @@ describe('auto-review change detection', () => {
     expect(payload?.files.map((file) => file.path)).toEqual(['tracked.ts']);
     expect(payload?.allChangedFiles?.map((file) => file.path)).not.toContain('.env.local');
     expect(JSON.stringify(payload)).not.toContain('PRIVATE_TOKEN');
+  });
+
+  it('does not repeat an unchanged mid-session review at session end', async () => {
+    const { api, events, emitCustom, log } = makeApi();
+    createAutoReviewPlugin().setup!(api);
+    await events['agent.run.started']!();
+
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 2;\n');
+    await events['iteration.completed']!();
+    await events['session.ended']!();
+
+    expect(reviewPayloads(emitCustom)).toHaveLength(1);
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining('unchanged files already have reviews in progress'),
+    );
+  });
+
+  it('reviews a file again at session end when its content changed after the mid-session claim', async () => {
+    const { api, events, emitCustom } = makeApi();
+    createAutoReviewPlugin().setup!(api);
+    await events['agent.run.started']!();
+
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 2;\n');
+    await events['iteration.completed']!();
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 3;\n');
+    await events['session.ended']!();
+
+    const payloads = reviewPayloads(emitCustom);
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]!.files[0]?.content).toBe('export const value = 3;\n');
+  });
+
+  it('expires a final-review in-flight entry after five minutes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const { api, events, registered } = makeApi({ maxConcurrentReviews: 1 });
+    createAutoReviewPlugin().setup!(api);
+
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 2;\n');
+    await events['session.ended']!();
+
+    const command = registered.find((candidate) => candidate.name === 'auto-review');
+    expect(command).toBeDefined();
+    await expect(command!.run('')).resolves.toMatchObject({
+      message: expect.stringContaining('In-flight:      1 review(s)'),
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+
+    await expect(command!.run('')).resolves.toMatchObject({
+      message: expect.stringContaining('In-flight:      0 review(s)'),
+    });
   });
 });
 
@@ -359,5 +425,88 @@ describe('resolveAutoReviewConfig — session last-resort fallback', () => {
         `[${label}] last fallback should be the session provider/model`,
       ).toBe(`${session.provider}/${session.model}`);
     }
+  });
+});
+
+describe('reviewer model round-robin', () => {
+  it('builds a deduped primary+fallback pool in stable order', () => {
+    const pool = buildReviewerModelPool('a', 'm1', [
+      'b/m2',
+      'a/m1', // primary duplicate
+      'b/m2', // fallback duplicate
+      'c/m3',
+      '', // blank dropped
+      'bare-no-provider', // unusable without provider
+    ]);
+    expect(pool).toEqual(['a/m1', 'b/m2', 'c/m3']);
+  });
+
+  it('rotates primary across the pool and wraps fallbacks', () => {
+    const pool = ['p0/m0', 'p1/m1', 'p2/m2'];
+
+    const a0 = selectRoundRobinReviewerAssignment(pool, 0);
+    expect(a0).toMatchObject({
+      provider: 'p0',
+      model: 'm0',
+      fallbackModels: ['p1/m1', 'p2/m2'],
+      nextCursor: 1,
+    });
+
+    const a1 = selectRoundRobinReviewerAssignment(pool, 1);
+    expect(a1).toMatchObject({
+      provider: 'p1',
+      model: 'm1',
+      fallbackModels: ['p2/m2', 'p0/m0'],
+      nextCursor: 2,
+    });
+
+    const a2 = selectRoundRobinReviewerAssignment(pool, 2);
+    expect(a2).toMatchObject({
+      provider: 'p2',
+      model: 'm2',
+      fallbackModels: ['p0/m0', 'p1/m1'],
+      nextCursor: 0,
+    });
+
+    // Wraps
+    const a3 = selectRoundRobinReviewerAssignment(pool, 3);
+    expect(a3.provider).toBe('p0');
+    expect(a3.model).toBe('m0');
+    expect(a3.nextCursor).toBe(1);
+  });
+
+  it('handles negative cursors via modular wrap', () => {
+    const pool = ['p0/m0', 'p1/m1'];
+    const a = selectRoundRobinReviewerAssignment(pool, -1);
+    expect(a.provider).toBe('p1');
+    expect(a.model).toBe('m1');
+    expect(a.fallbackModels).toEqual(['p0/m0']);
+  });
+
+  it('returns the defensive fallback when the pool is empty', () => {
+    const a = selectRoundRobinReviewerAssignment([], 5, 'session-p', 'session-m');
+    expect(a).toEqual({
+      provider: 'session-p',
+      model: 'session-m',
+      fallbackModels: [],
+      nextCursor: 6,
+    });
+  });
+
+  it('spreads successive assignments so concurrent reviewers do not share a primary', () => {
+    // Simulates N concurrent chimera spawns advancing a shared cursor.
+    const pool = buildReviewerModelPool('session-p', 'session-m', [
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+    ]);
+    expect(pool.length).toBeGreaterThan(1);
+
+    const primaries = new Set<string>();
+    let cursor = 0;
+    for (let i = 0; i < pool.length; i++) {
+      const a = selectRoundRobinReviewerAssignment(pool, cursor);
+      primaries.add(`${a.provider}/${a.model}`);
+      cursor = a.nextCursor;
+    }
+    expect(primaries.size).toBe(pool.length);
   });
 });

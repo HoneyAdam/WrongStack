@@ -8,6 +8,7 @@ import {
   createChimeraPlugin,
   resolveChimeraConfig,
 } from '../../src/plugins/chimera-plugin.js';
+import { EventBus } from '../../src/kernel/events.js';
 import type { SlashCommand } from '../../src/index.js';
 
 let tmp: string;
@@ -21,21 +22,30 @@ const commit = (dir: string, msg: string) => {
   execFileSync('git', ['commit', '-q', '-m', msg], { cwd: dir });
 };
 
-function makeApi(config: Record<string, unknown> = {}) {
+function makeApi(config: Record<string, unknown> = {}, sharedEventBus?: EventBus) {
   const events: Record<string, () => Promise<void>> = {};
+  const eventBus = sharedEventBus ?? new EventBus();
   const configChangeCbs: Array<() => void> = [];
   const registered: SlashCommand[] = [];
-  const emitCustom = vi.fn();
+  const emitCustom = vi.fn((event: string, payload: unknown) => {
+    eventBus.emitCustom(event, payload);
+  });
+  const onPattern = vi.fn(
+    (pattern: string, handler: (event: string, payload: unknown) => void) =>
+      eventBus.onPattern(pattern, handler),
+  );
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   const api = {
     config: { provider: 'anthropic', model: 'claude', cwd: tmp, ...config },
+    events: eventBus,
     onConfigChange: (cb: () => void) => configChangeCbs.push(cb),
     onEvent: (type: string, h: () => Promise<void>) => { events[type] = h; },
+    onPattern,
     emitCustom,
     slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() },
     log,
   } as never;
-  return { api, events, configChangeCbs, registered, emitCustom, log };
+  return { api, events, configChangeCbs, registered, emitCustom, onPattern, log };
 }
 
 beforeEach(async () => {
@@ -47,10 +57,16 @@ afterEach(async () => {
 });
 
 describe('resolveChimeraConfig', () => {
-  it('instructs Chimera to send mail only to leaders', () => {
-    expect(CHIMERA_REVIEW_PROMPT).toContain('to="leader"');
-    expect(CHIMERA_REVIEW_PROMPT).toContain('audience="leaders"');
-    expect(CHIMERA_REVIEW_PROMPT).toContain('Never address Chimera mail to a peer');
+  it('delegates all mailbox delivery to the runtime', () => {
+    expect(CHIMERA_REVIEW_PROMPT).toContain('MUST NOT use mailbox tools');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('runtime handles all mailbox delivery');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('Never send Chimera mail to a peer');
+  });
+
+  it('instructs Chimera to report findings without mutating files', () => {
+    expect(CHIMERA_REVIEW_PROMPT).toContain('strictly read-only');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('Never edit, write, patch, update');
+    expect(CHIMERA_REVIEW_PROMPT).toContain('fix agents perform');
   });
 
   it('applies defaults and honors overrides', () => {
@@ -92,11 +108,43 @@ describe('createChimeraPlugin lifecycle + command', () => {
     return plugin.health!().then((h) => expect(h).toMatchObject({ ok: true }));
   });
 
-  it('does not register the command when disabled by config', () => {
-    const { api, registered, log } = makeApi({ extensions: { 'wstack-chimera': { enabled: false } } });
+  it('keeps claim bookkeeping listeners registered when disabled by config', () => {
+    const { api, registered, onPattern, log } = makeApi({ extensions: { 'wstack-chimera': { enabled: false } } });
     createChimeraPlugin().setup!(api);
     expect(registered).toHaveLength(0);
+    expect(onPattern).toHaveBeenCalledWith('chimera.review_needed', expect.any(Function));
+    expect(onPattern).toHaveBeenCalledWith('chimera.review_complete', expect.any(Function));
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('disabled by config'));
+  });
+
+  it('releases shared review claims with mixed enabled state on one event bus', async () => {
+    gitInit(tmp);
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 1;');
+    commit(tmp, 'init');
+    await fs.writeFile(path.join(tmp, 'tracked.ts'), 'export const value = 2;');
+
+    const eventBus = new EventBus();
+    const disabled = makeApi(
+      { extensions: { 'wstack-chimera': { enabled: false } } },
+      eventBus,
+    );
+    const enabled = makeApi({}, eventBus);
+    createChimeraPlugin().setup!(disabled.api);
+    createChimeraPlugin().setup!(enabled.api);
+
+    await enabled.events['session.ended']!();
+    const firstBundle = enabled.emitCustom.mock.calls.find(
+      ([event]) => event === 'chimera.review_needed',
+    )?.[1];
+    expect(firstBundle).toBeDefined();
+
+    eventBus.emitCustom('chimera.review_complete', { bundle: firstBundle });
+    await enabled.events['session.ended']!();
+
+    const reviews = enabled.emitCustom.mock.calls.filter(
+      ([event]) => event === 'chimera.review_needed',
+    );
+    expect(reviews).toHaveLength(2);
   });
 
   it('command renders enabled and disabled status', async () => {
@@ -204,15 +252,23 @@ describe('session.ended review handler', () => {
     expect(emitCustom).not.toHaveBeenCalled();
   });
 
-  it('swallows a handler error and warns', async () => {
+  it('rolls back a failed emission so the next review can retry', async () => {
     gitInit(tmp);
     await fs.writeFile(path.join(tmp, 'seed.ts'), 'x');
     commit(tmp, 'init');
     await fs.writeFile(path.join(tmp, 'c.ts'), 'changed');
     const { api, events, emitCustom, log } = makeApi();
-    emitCustom.mockImplementation(() => { throw new Error('emit blew up'); });
+    emitCustom.mockImplementationOnce(() => { throw new Error('emit blew up'); });
     createChimeraPlugin().setup!(api);
+
     await events['session.ended']!();
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('session.ended handler failed'));
+
+    await events['session.ended']!();
+    expect(emitCustom).toHaveBeenCalledTimes(2);
+    expect(emitCustom).toHaveBeenLastCalledWith(
+      'chimera.review_needed',
+      expect.objectContaining({ files: expect.any(Array) }),
+    );
   });
 });

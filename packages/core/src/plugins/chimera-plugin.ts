@@ -4,9 +4,24 @@ import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
-import { buildReviewContext } from './review-context-builder.js';
 import { toErrorMessage } from '../utils/error.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
+import {
+  emitReviewIfChanged,
+  recordCompletedReview,
+  recordStartedReview,
+} from './review-claim-registry.js';
+import { buildReviewContext } from './review-context-builder.js';
+import type {
+  ResolvedChimeraConfig,
+  ReviewContextBundle,
+  ReviewFileEntry,
+} from './review-types.js';
+
+// Re-export the shared review types so existing importers keep resolving them
+// from './chimera-plugin.js' (and the package barrel). Their definitions live
+// in the leaf './review-types.js' module to keep the helper imports one-way.
+export type { ResolvedChimeraConfig, ReviewContextBundle, ReviewFileEntry } from './review-types.js';
 
 // ---------------------------------------------------------------------------
 // Chimera configuration — read from config.extensions['wstack-chimera']
@@ -45,16 +60,6 @@ interface ChimeraConfig {
   maxTokens?: unknown;
 }
 
-export interface ResolvedChimeraConfig {
-  enabled: boolean;
-  provider: string;
-  model: string;
-  maxFiles: number;
-  autoFix: 'off' | 'ask' | 'auto';
-  cascadeOn: 'off' | 'critical' | 'high';
-  maxCascadeDepth: number;
-}
-
 const DEFAULT_MAX_FILES = 15;
 const DEFAULT_CASCADE_ON = 'off' as const;
 const DEFAULT_MAX_CASCADE_DEPTH = 2;
@@ -78,124 +83,6 @@ export function resolveChimeraConfig(
 // ---------------------------------------------------------------------------
 // Event payload emitted on session.ended when chimera is enabled
 // ---------------------------------------------------------------------------
-
-/**
- * A single changed file with its content and, for modified files, a
- * unified diff against HEAD so the reviewer can focus on what changed.
- */
-export interface ReviewFileEntry {
-  path: string;
-  status: 'added' | 'modified';
-  content: string;
-  /**
-   * Unified diff against HEAD for modified files.
-   * For added files, this is undefined (content is the full file).
-   * Capped at a reasonable size to avoid bloating the subagent task.
-   */
-  diff?: string | undefined;
-}
-
-/**
- * Context bundle that enriches a review beyond "here are N files."
- * Collects the *story*: what task motivated the change, what else
- * changed alongside it, and what the recent commit history looks like.
- *
- * The review subagent receives this so it can:
- * - Focus on the diff (what changed) rather than re-reviewing unchanged code
- * - Understand the task intent (todos, narrative) to judge correctness
- * - See sibling changes for cross-file consistency
- * - Avoid re-reporting known issues (commit history context)
- */
-export interface ReviewContextBundle {
-  /** Resolved chimera config */
-  config: ResolvedChimeraConfig;
-  /** Project root for git operations */
-  cwd: string;
-  /** Changed files with their contents and diffs */
-  files: ReviewFileEntry[];
-  /**
-   * Auto-review-specific fallback chain, already resolved to provider/model refs.
-   * Absent for ordinary Chimera and manual review triggers.
-   */
-  reviewFallbackModels?: string[] | undefined;
-  /**
-   * Cascade severity threshold from the auto-review plugin config.
-   * When the review subagent finds findings at or above this level, a
-   * follow-up agent (security-scanner, bug-hunter) is spawned to
-   * investigate. Set by the auto-review plugin when it builds the
-   * bundle; absent for chimera-plugin and /review triggers (no cascade).
-   *
-   * `'off'` disables cascading; `'high'` cascades on High+; `'critical'`
-   * cascades only on Critical.
-   */
-  cascadeOn?: 'off' | 'critical' | 'high' | undefined;
-  /**
-   * Current cascade iteration depth (0 for the initial review, 1 after
-   * the first fix+re-review cycle, etc.). The cascade handler increments
-   * this on each re-review emission and stops when it reaches
-   * `maxCascadeDepth`. Absent (treated as 0) for non-cascade triggers.
-   */
-  cascadeDepth?: number | undefined;
-  /**
-   * Maximum cascade iterations before the self-correcting loop stops.
-   * Prevents infinite fix → re-review → fix cycles. Default 2. Set by
-   * the auto-review plugin; absent for non-cascade triggers.
-   */
-  maxCascadeDepth?: number | undefined;
-
-  // ── Sibling awareness ──
-  /**
-   * All files changed in the working tree, including ones not in the
-   * current review batch. Lets the reviewer understand the broader
-   * change set without expanding its review scope.
-   */
-  allChangedFiles?: Array<{ path: string; status: string }> | undefined;
-
-  // ── Commit history ──
-  /**
-   * Recent commit messages (oneline), newest first.
-   * Helps the reviewer understand what was already committed vs.
-   * what's still uncommitted working-tree changes.
-   */
-  recentCommits?: string[] | undefined;
-
-  // ── Task & intent context (P1) ──
-  /**
-   * Active todo items from the session Context at review-trigger time.
-   * Lets the reviewer understand what task motivated the file changes
-   * so it can judge correctness against intent, not just code shape.
-   */
-  activeTodos?: Array<{ id: string; content: string; status: string }> | undefined;
-
-  /**
-   * The active kanban card, if the session uses a kanban board.
-   * Provides title, description, and success criteria so the
-   * reviewer can verify the change satisfies the stated requirements.
-   */
-  kanbanCard?:
-    | {
-        id: string;
-        title: string;
-        description?: string | undefined;
-        successCriteria?: string[] | undefined;
-      }
-    | undefined;
-
-  /**
-   * File provenance from the Chronicle journal: which agent/session/task
-   * last touched each file and when. Helps the reviewer attribute
-   * changes and understand the broader edit chain.
-   */
-  fileProvenance?:
-    | Array<{
-        path: string;
-        agentId?: string | undefined;
-        taskId?: string | undefined;
-        eventType?: string | undefined;
-        observedAt?: string | undefined;
-      }>
-    | undefined;
-}
 
 /** Legacy alias — the payload type is the bundle type. */
 export type ChimeraReviewNeededPayload = ReviewContextBundle;
@@ -321,7 +208,7 @@ function buildChimeraCommand(
       '╔═══ Chimera ═══╗',
       '',
       'Post-session code quality guardian. Reviews files changed during',
-      'each session using a dedicated subagent with full tool access.',
+      'each session using a dedicated read-only subagent.',
       '',
       'Commands:',
       '  /chimera          Show current status',
@@ -417,6 +304,16 @@ export function createChimeraPlugin(): Plugin {
         }
       });
 
+      // Claim bookkeeping is cross-cutting session state, not Chimera feature
+      // work. Keep it registered while disabled so config changes and reviews
+      // emitted by other paths cannot leave stale in-flight claims behind.
+      api.onPattern('chimera.review_needed', (_event, payload) => {
+        recordStartedReview(api.events, payload);
+      });
+      api.onPattern('chimera.review_complete', (_event, payload) => {
+        recordCompletedReview(api.events, payload);
+      });
+
       if (!resolved.enabled) {
         api.log.info('[chimera] disabled by config');
         return;
@@ -474,7 +371,7 @@ export function createChimeraPlugin(): Plugin {
         }
 
         // ── Build enriched review context (diffs, siblings, commits) ──
-        const bundle = await buildReviewContext({
+        const bundle: ReviewContextBundle = await buildReviewContext({
           cwd,
           config: cfg,
           files: filesWithContent,
@@ -482,10 +379,15 @@ export function createChimeraPlugin(): Plugin {
           maxCascadeDepth: cfg.maxCascadeDepth,
         });
 
-        // Emit custom event — execution.ts picks this up and spawns the subagent
-        api.emitCustom('chimera.review_needed', bundle satisfies ReviewContextBundle);
+        // Atomically skip exact file content already claimed by a mid-session,
+        // manual, or competing post-session review.
+        const emittedBundle = emitReviewIfChanged(api, bundle);
+        if (!emittedBundle) {
+          api.log.info('[chimera] skipped — changed files already have reviews in progress');
+          return;
+        }
 
-        api.log.info(`[chimera] emitted review_needed event (${filesWithContent.length} files)`);
+        api.log.info(`[chimera] emitted review_needed event (${emittedBundle.files.length} files)`);
         } catch (err) {
           api.log.warn(`[chimera] session.ended handler failed: ${toErrorMessage(err)}`);
         }

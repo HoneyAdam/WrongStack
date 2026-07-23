@@ -27,9 +27,10 @@ import {
 import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
 import { FallbackProfileManager } from './fallback-profile-manager.js';
 import { evaluateModelCalendar, logicalCalendarTarget } from './model-availability-calendar.js';
+
+export type { ModelRef } from './model-ref.js';
 // Compatibility: the canonical leaf implementation lives in model-ref.ts.
 export { formatModelRef, normalizeModelRef, parseModelRef } from './model-ref.js';
-export type { ModelRef } from './model-ref.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -40,6 +41,10 @@ export interface FallbackModelDeps {
   getFallbackProfile?: (() => string | undefined) | undefined;
   /** Live task/role-specific chain. Explicit task fallbacks may return a stable list. */
   getFallbackModels?: (() => readonly string[] | undefined) | undefined;
+  /** Worker-local primary; prevents a subagent fallback from restoring the leader model. */
+  getPrimaryTarget?: (() => { providerId: string; model: string } | undefined) | undefined;
+  /** When true, only the explicitly supplied fallback chain may be attempted. */
+  isClosedWorld?: (() => boolean) | undefined;
   /**
    * Builds a credential-resolved Provider for a provider id (alias-resolved),
    * WITHOUT persisting anything to config/configStore. Supplied by the boot
@@ -160,20 +165,34 @@ function fallbackCandidates(
     fallbackModels?: readonly string[] | undefined;
     fallbackProfile?: string | undefined;
     sharedManager?: FallbackProfileManager | undefined;
+    primary?: { providerId: string; model: string } | undefined;
+    closedWorld?: boolean | undefined;
   } = {},
 ): FallbackChain {
   const mgr = opts.sharedManager ?? new FallbackProfileManager(config);
-  const configuredPrimary = primaryTarget(config);
+  const configuredPrimary = opts.primary ?? primaryTarget(config);
   const selectedChain = mgr.resolveEffective({
     fallbackModels: opts.fallbackModels ?? config.fallbackModels,
     fallbackProfile: opts.fallbackProfile,
-    // A role/profile override is an ordered preference, not a closed world.
-    // If every selected entry fails, keep deriving a route back to the known
-    // session/default model and other configured providers.
-    fallbackAuto: true,
+    fallbackAuto: !opts.closedWorld,
     exclude: current,
   });
   const candidates: FallbackChainEntry[] = [];
+
+  // A model allowlist is a permission boundary. Never append the session
+  // model, default profile, or auto-discovered providers outside that boundary.
+  if (opts.closedWorld) {
+    candidates.push(...selectedChain);
+    const seen = new Set<string>();
+    return Object.freeze(
+      candidates.filter((entry) => {
+        const key = `${entry.providerId}/${entry.model}`;
+        if (key === `${current.providerId}/${current.model}` || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    );
+  }
 
   if (opts.fallbackProfile !== 'default') {
     candidates.push(...mgr.resolve('default', { exclude: current }));
@@ -257,11 +276,12 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
   const cooldownBase = () => Math.max(0, deps.primaryCooldownMs ?? DEFAULT_PRIMARY_COOLDOWN_MS);
   const cooldownMax = () =>
     Math.max(cooldownBase(), deps.primaryCooldownMaxMs ?? DEFAULT_PRIMARY_COOLDOWN_MAX_MS);
+  const selectedPrimary = (cfg: Config) => deps.getPrimaryTarget?.() ?? primaryTarget(cfg);
   const primaryInCooldown = (cfg: Config) =>
-    sameTarget(blockedPrimary, primaryTarget(cfg)) && now() < primaryBlockedUntil;
+    sameTarget(blockedPrimary, selectedPrimary(cfg)) && now() < primaryBlockedUntil;
 
   const markPrimaryFailure = (cfg: Config) => {
-    const primary = primaryTarget(cfg);
+    const primary = selectedPrimary(cfg);
     primaryFailureStreak = sameTarget(blockedPrimary, primary) ? primaryFailureStreak + 1 : 1;
     blockedPrimary = primary;
     const base = cooldownBase();
@@ -274,7 +294,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
   };
 
   const resetPrimaryLadder = (cfg: Config) => {
-    if (!sameTarget(blockedPrimary, primaryTarget(cfg))) return;
+    if (!sameTarget(blockedPrimary, selectedPrimary(cfg))) return;
     primaryFailureStreak = 0;
     blockedPrimary = undefined;
     primaryBlockedUntil = 0;
@@ -286,23 +306,25 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
     beforeRun: async (ctx) => {
       if (!dirty) return;
       const cfg = deps.getConfig();
+      const primary = selectedPrimary(cfg);
       if (primaryInCooldown(cfg)) return;
       if (
-        !evaluateModelCalendar(cfg.modelAvailabilitySchedule, cfg.provider, cfg.model).allowed ||
-        (deps.statusTracker && !deps.statusTracker.isAvailable(cfg.provider, cfg.model))
+        !evaluateModelCalendar(cfg.modelAvailabilitySchedule, primary.providerId, primary.model)
+          .allowed ||
+        (deps.statusTracker && !deps.statusTracker.isAvailable(primary.providerId, primary.model))
       )
         return;
       try {
-        ctx.provider = await deps.buildProvider(cfg.provider, cfg.model);
-        ctx.model = cfg.model;
-        await deps.onModelSwitch?.(cfg.provider, cfg.model);
+        ctx.provider = await deps.buildProvider(primary.providerId, primary.model);
+        ctx.model = primary.model;
+        await deps.onModelSwitch?.(primary.providerId, primary.model);
         // The next provider call is the half-open primary probe. If it
         // succeeds, the wrapper resets the ladder; if it fails, the catch path
         // marks a longer cooldown and rotates back through the chain.
         primaryBlockedUntil = 0;
       } catch (err) {
         deps.logger?.warn(
-          `fallback-model: could not restore primary "${cfg.provider}/${cfg.model}": ${
+          `fallback-model: could not restore primary "${primary.providerId}/${primary.model}": ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
@@ -367,7 +389,8 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           agentId: ctx.agentId,
         });
         const cfg = deps.getConfig();
-        if (ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
+        const primary = selectedPrimary(cfg);
+        if (ctx.provider.id === primary.providerId && ctx.model === primary.model) {
           resetPrimaryLadder(cfg);
         }
         return response;
@@ -407,6 +430,8 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           fallbackModels: deps.getFallbackModels?.(),
           fallbackProfile: deps.getFallbackProfile?.(),
           sharedManager: deps.fallbackProfileManager,
+          primary: selectedPrimary(cfg),
+          closedWorld: deps.isClosedWorld?.() ?? false,
         });
 
         // Filter blocked entries from the chain via the tracker
@@ -417,8 +442,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
         if (
           !alreadyTracked &&
           shouldFallback(firstErr_) !== null &&
-          ctx_.provider.id === cfg.provider &&
-          ctx_.model === cfg.model
+          sameTarget(selectedPrimary(cfg), current)
         ) {
           markPrimaryFailure(cfg);
         }
@@ -468,8 +492,10 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           if (targetProviderId === ctx_.provider.id && targetModel === ctx_.model) continue;
           if (
             primaryInCooldown(cfg) &&
-            targetProviderId === cfg.provider &&
-            targetModel === cfg.model
+            sameTarget(selectedPrimary(cfg), {
+              providerId: targetProviderId,
+              model: targetModel,
+            })
           ) {
             continue;
           }

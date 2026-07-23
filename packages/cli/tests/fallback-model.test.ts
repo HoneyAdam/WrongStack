@@ -141,6 +141,70 @@ describe('createFallbackModelExtension', () => {
     expect(fired[0]?.providerSwitched).toBe(true);
   });
 
+  it('treats a closed worker policy as a hard boundary', async () => {
+    const buildProvider = vi.fn((id: string) => fakeProvider(id));
+    const ext = createFallbackModelExtension({
+      getConfig: () =>
+        cfg({
+          providers: {
+            anthropic: { type: 'anthropic', apiKey: 'x', models: ['opus', 'haiku'] },
+            openai: { type: 'openai', apiKey: 'x', models: ['worker', 'backup'] },
+          },
+        } as never),
+      getPrimaryTarget: () => ({ providerId: 'openai', model: 'worker' }),
+      getFallbackModels: () => ['openai/backup'],
+      isClosedWorld: () => true,
+      buildProvider,
+      events: new EventBus(),
+      logger,
+    });
+    const ctx = makeCtx('openai', 'worker');
+    const err = overload('openai');
+    await expect(
+      ext.wrapProviderRunner!(
+        ctx,
+        { model: 'worker' } as never,
+        (async () => {
+          throw err;
+        }) as never,
+      ),
+    ).rejects.toBe(err);
+
+    expect(buildProvider).toHaveBeenCalledTimes(1);
+    expect(buildProvider).toHaveBeenCalledWith('openai', 'backup');
+  });
+
+  it('restores the worker-local primary instead of the leader model', async () => {
+    const buildProvider = vi.fn((id: string) => fakeProvider(id));
+    const ext = createFallbackModelExtension({
+      getConfig: () => cfg({ provider: 'anthropic', model: 'leader' }),
+      getPrimaryTarget: () => ({ providerId: 'openai', model: 'worker' }),
+      getFallbackModels: () => ['openai/backup'],
+      isClosedWorld: () => true,
+      primaryCooldownMs: 0,
+      buildProvider,
+      events: new EventBus(),
+      logger,
+    });
+    const ctx = makeCtx('openai', 'worker');
+    let call = 0;
+    await ext.wrapProviderRunner!(
+      ctx,
+      { model: 'worker' } as never,
+      (async () => {
+        call++;
+        if (call === 1) throw overload('openai');
+        return { stopReason: 'end_turn', usage: { input: 0, output: 0 } } as never;
+      }) as never,
+    );
+    expect(ctx.model).toBe('backup');
+
+    await ext.beforeRun!(ctx, {} as never);
+    expect(ctx.provider.id).toBe('openai');
+    expect(ctx.model).toBe('worker');
+    expect(buildProvider).not.toHaveBeenCalledWith('anthropic', 'leader');
+  });
+
   it('passes the fallback target model to buildProvider', async () => {
     const buildProvider = vi.fn((id: string) => fakeProvider(id));
     const ext = createFallbackModelExtension({

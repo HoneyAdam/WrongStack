@@ -52,7 +52,7 @@ export function buildReviewCommand(opts: SlashCommandContext): SlashCommand {
       '╔═══ Chimera Review ═══╗',
       '',
       'Manually review files changed in this session using the',
-      'Chimera subagent with full tool access (read, grep, lint).',
+      'read-only Chimera subagent (read, grep, glob, tree, index search).',
       '',
       'Usage:',
       '  /review                    Review all changed files (up to 30)',
