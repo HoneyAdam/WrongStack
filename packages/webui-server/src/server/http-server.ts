@@ -252,9 +252,9 @@ export function buildCspHeader(
     // This is NOT about ephemeral-port binds (listen(0)) — createHttpServer
     // resolves the real port from server.address() and passes it here.
     if (p > 0 && p <= 65535) {
-      for (const h of ['127.0.0.1', 'localhost', '::1']) {
-        connect.add(`ws://${formatCspHostname(h)}:${p}`);
-        connect.add(`wss://${formatCspHostname(h)}:${p}`);
+      for (const h of ['127.0.0.1', 'localhost']) {
+        connect.add(`ws://${h}:${p}`);
+        connect.add(`wss://${h}:${p}`);
       }
     }
   }

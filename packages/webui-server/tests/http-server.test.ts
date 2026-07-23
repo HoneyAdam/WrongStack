@@ -118,20 +118,24 @@ describe('buildCspHeader', () => {
 });
 
 describe('buildCspHeader — loopback edge cases', () => {
-  it('adds explicit ws:// entries for ::1 loopback bind (IPv6)', () => {
+  it('still hits the loopback branch for ::1 bind but omits unsupported IPv6 CSP entries', () => {
     const csp = buildCspHeader(undefined, '::1', 3466);
-    expect(csp).toContain('ws://[::1]:3466');
-    expect(csp).toContain('wss://[::1]:3466');
+    // CSP host-source syntax does not support IPv6 addresses, so only IPv4
+    // and DNS loopback entries are emitted.
+    expect(csp).not.toContain('[::1]');
     expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
     expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
   });
 
-  it('adds explicit ws:// entries for [::1] bracketed IPv6 bind', () => {
+  it('still hits the loopback branch for [::1] bracketed bind', () => {
     const csp = buildCspHeader(undefined, '[::1]', 3466);
-    expect(csp).toContain('ws://[::1]:3466');
-    expect(csp).toContain('wss://[::1]:3466');
+    expect(csp).not.toContain('[::1]');
     expect(csp).toContain('ws://127.0.0.1:3466');
+    expect(csp).toContain('wss://127.0.0.1:3466');
     expect(csp).toContain('ws://localhost:3466');
+    expect(csp).toContain('wss://localhost:3466');
   });
 
   it('does not add ws:// entries for wildcard (0.0.0.0) bind', () => {
