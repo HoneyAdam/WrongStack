@@ -9,9 +9,10 @@
  * @see docs/specs/techstack-sdd.md §3.2, §4.1
  */
 
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { applySchema } from './schema.js';
 import type {
@@ -22,6 +23,89 @@ import type {
   TechStackJobStatus,
   TechStackJobProgress,
 } from '../types.js';
+
+// ── SQLite loader ─────────────────────────────────────────────────────────
+
+let DatabaseSyncCtor: typeof DatabaseSync | undefined;
+
+const SQLITE_EXPERIMENTAL_WARNING = 'SQLite is an experimental feature and might change at any time';
+
+/** Load SQLite lazily while suppressing only its module-load experimental warning. */
+function loadDatabaseSync(): typeof DatabaseSync {
+  if (DatabaseSyncCtor) return DatabaseSyncCtor;
+  const originalEmitWarning = process.emitWarning;
+  const forwardWarning = originalEmitWarning.bind(process) as (
+    warning: unknown,
+    ...rest: unknown[]
+  ) => void;
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]): void => {
+    const message =
+      typeof warning === 'string' ? warning : warning instanceof Error ? warning.message : '';
+    const typeOrOptions = rest[0];
+    const warningType =
+      typeof warning === 'string'
+        ? typeof typeOrOptions === 'string'
+          ? typeOrOptions
+          : typeof typeOrOptions === 'object' &&
+              typeOrOptions !== null &&
+              'type' in typeOrOptions &&
+              typeof typeOrOptions.type === 'string'
+            ? typeOrOptions.type
+            : ''
+        : warning instanceof Error
+          ? warning.name
+          : '';
+    const warningCode =
+      typeof warning === 'string'
+        ? typeof typeOrOptions === 'object' &&
+          typeOrOptions !== null &&
+          'code' in typeOrOptions &&
+          typeof typeOrOptions.code === 'string'
+          ? typeOrOptions.code
+          : typeof rest[1] === 'string'
+            ? rest[1]
+            : ''
+        : warning instanceof Error &&
+            'code' in warning &&
+            typeof warning.code === 'string'
+          ? warning.code
+          : '';
+
+    if (
+      message === SQLITE_EXPERIMENTAL_WARNING &&
+      (warningType === 'ExperimentalWarning' || warningCode === 'ExperimentalWarning')
+    ) {
+      return;
+    }
+    forwardWarning(warning, ...rest);
+  }) as typeof process.emitWarning;
+
+  try {
+    try {
+      const require = createRequire(import.meta.url);
+      const sqliteModule: unknown = require('node:sqlite');
+      if (
+        typeof sqliteModule !== 'object' ||
+        sqliteModule === null ||
+        !('DatabaseSync' in sqliteModule) ||
+        typeof sqliteModule.DatabaseSync !== 'function'
+      ) {
+        throw new Error('node:sqlite DatabaseSync unavailable');
+      }
+      DatabaseSyncCtor = sqliteModule.DatabaseSync as typeof DatabaseSync;
+      return DatabaseSyncCtor;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        "TechStack SQLite store needs Node's built-in SQLite (node:sqlite), available since Node 22.5. " +
+          `This runtime doesn't provide it: ${message}`,
+        { cause: error },
+      );
+    }
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -44,12 +128,13 @@ export class TechStackStore {
       join(wstackGlobalRoot(), 'projects', options.projectSlug, 'techstack', 'techstack.db');
 
     // Ensure parent directory exists
-    const dir = this.dbPath.slice(0, this.dbPath.lastIndexOf('\\'));
+    const dir = dirname(this.dbPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new DatabaseSync(this.dbPath);
+    const Database = loadDatabaseSync();
+    this.db = new Database(this.dbPath);
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec('PRAGMA foreign_keys = ON;');
     applySchema(this.db);
