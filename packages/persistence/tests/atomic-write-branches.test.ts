@@ -122,15 +122,22 @@ describe('persistence primitive edge branches', () => {
     expect(doubles.fs.rename).toHaveBeenCalledTimes(1);
   });
 
-  it('stops retrying Windows rename after the bounded transient attempts', async () => {
+  it('stops retrying Windows rename after the extended transient window', async () => {
     usePlatform('win32');
     const renameError = errorWithCode('EBUSY');
     doubles.fs.rename.mockRejectedValue(renameError);
+    const emitSpy = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
     const primitives = createPersistencePrimitives();
 
     await expect(primitives.atomicWrite('C:\\tmp\\value.txt', 'value')).rejects.toBe(renameError);
-    // 1 initial attempt + one retry per backoff step (~2s total on Windows).
-    expect(doubles.fs.rename).toHaveBeenCalledTimes(8);
+    // 1 initial attempt + one retry per backoff step (~4s total on Windows).
+    expect(doubles.fs.rename).toHaveBeenCalledTimes(9);
+    // A diagnostic warning is emitted before throwing.
+    expect(emitSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Windows rename retries exhausted'),
+      expect.objectContaining({ code: 'WRONGSTACK_WIN32_RENAME_EXHAUSTED' }),
+    );
+    emitSpy.mockRestore();
   });
 
   it('cleans a partially acquired lock and retries after a missing directory', async () => {

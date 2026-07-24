@@ -254,9 +254,13 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 
   // Windows readers (fs.open on the destination) can hold the file through
-  // several rename attempts; ~2s total gives concurrent-process readers time
-  // to release without failing the write.
-  const delays = [10, 25, 60, 120, 250, 500, 1000];
+  // several rename attempts; ~4s total gives concurrent-process readers and
+  // antivirus scanners time to release without failing the write. When all
+  // retries are exhausted, the caller receives the original error and self-
+  // heals on the next cycle — intentionally NOT falling back to copyFile,
+  // which would break the atomic-write contract (a concurrent reader could
+  // observe a torn destination during the copy).
+  const delays = [10, 25, 60, 120, 250, 500, 1000, 2000];
   let attempt = 0;
   for (;;) {
     try {
@@ -264,7 +268,18 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (!code || !TRANSIENT_RENAME_CODES.has(code) || attempt === delays.length) throw error;
+      if (!code || !TRANSIENT_RENAME_CODES.has(code) || attempt === delays.length) {
+        // All retries exhausted — emit a diagnostic warning so operators
+        // know the atomic write was skipped (the caller self-heals).
+        if (attempt === delays.length) {
+          process.emitWarning(
+            `Windows rename retries exhausted for '${from}' → '${to}' (code=${code}). ` +
+              'Write skipped — the caller will retry on the next cycle.',
+            { code: 'WRONGSTACK_WIN32_RENAME_EXHAUSTED' },
+          );
+        }
+        throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
       attempt++;
     }
