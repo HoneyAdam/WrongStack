@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { AGENTS_CATALOG } from './agents.catalog.js';
+import { treeKill } from '../tree-kill.js';
 import { buildWin32CmdShimInvocation } from '../win32-cmd.js';
 
 /** Vendor classification — used to filter the catalog by family. */
@@ -164,9 +165,18 @@ async function defaultProbe(
       if (settled) return;
       settled = true;
       try {
-        child.kill();
+        // On the timeout path the probe may still be running; on Windows the
+        // tracked child is the cmd.exe shim, so a bare kill() would orphan the
+        // real probe grandchild (npx→node, possibly mid package-resolution).
+        // treeKill tears down the whole tree. Skip when the child already
+        // exited (happy path) so we don't spawn a no-op taskkill per probe.
+        // A synchronous spawn() failure leaves `child` undefined, so the
+        // property access throws and is swallowed here.
+        if (child.exitCode === null && child.signalCode === null) {
+          treeKill(child);
+        }
       } catch {
-        // already dead
+        // already dead / never spawned
       }
       resolve(result);
     };
