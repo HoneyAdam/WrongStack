@@ -34,7 +34,34 @@ import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { Plugin } from '@wrongstack/core/types';
+import { buildWin32CmdShimInvocation, resolveWin32Command } from '@wrongstack/tools/win32';
 import { withinProject } from '../runtime/index.js';
+
+/**
+ * Resolve a (command, args) pair for execFile so Windows .cmd shims launch
+ * correctly. npx/npm/pnpm/vitest/etc. ship as .cmd wrappers on Windows, which
+ * execFile cannot launch without a shell (it ignores PATHEXT) — so a bare
+ * execFile('npx', …) fails ENOENT and the whole gate silently no-ops there.
+ *
+ * On non-Windows (or when the resolved binary is a real .exe) this is a
+ * passthrough. For a .cmd/.bat shim it routes through cmd.exe with per-argument
+ * quoting and a metacharacter guard (buildWin32CmdShimInvocation), so a dynamic
+ * test-file path cannot inject a second command — an unsafe argument makes the
+ * builder throw, which the callers turn into a skip rather than an injection.
+ */
+function resolveExec(
+  command: string,
+  args: readonly string[],
+): { cmd: string; args: string[]; windowsVerbatimArguments: boolean } {
+  const resolved = resolveWin32Command(command);
+  const needsShell =
+    process.platform === 'win32' && (resolved.endsWith('.cmd') || resolved.endsWith('.bat'));
+  if (needsShell) {
+    const shim = buildWin32CmdShimInvocation(resolved, args);
+    return { cmd: shim.command, args: shim.args, windowsVerbatimArguments: true };
+  }
+  return { cmd: resolved, args: [...args], windowsVerbatimArguments: false };
+}
 
 const API_VERSION = '^0.1.10';
 
@@ -308,10 +335,13 @@ async function detectRunner(requested: Runner): Promise<RunnerConfig | null> {
     if (!match) return null;
     try {
       await new Promise<void>((resolve, reject) => {
-        execFile('npx', [`${match.name}`, '--version'], {
+        const ex = resolveExec('npx', [`${match.name}`, '--version']);
+        execFile(ex.cmd, ex.args, {
           encoding: 'utf-8',
           timeout: 5_000,
           cwd: process.cwd(),
+          windowsHide: true,
+          ...(ex.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         }, (err) => (err ? reject(err) : resolve()));
       });
       return match;
@@ -324,10 +354,13 @@ async function detectRunner(requested: Runner): Promise<RunnerConfig | null> {
   for (const candidate of candidates) {
     try {
       await new Promise<void>((resolve, reject) => {
-        execFile('npx', [`${candidate.name}`, '--version'], {
+        const ex = resolveExec('npx', [`${candidate.name}`, '--version']);
+        execFile(ex.cmd, ex.args, {
           encoding: 'utf-8',
           timeout: 5_000,
           cwd: process.cwd(),
+          windowsHide: true,
+          ...(ex.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         }, (err) => (err ? reject(err) : resolve()));
       });
       return candidate;
@@ -420,7 +453,18 @@ async function runTests(
   try {
     const { stdout: out } = await new Promise<{ stdout: string; stderr: string }>(
       (resolve, reject) => {
-        execFile(cmd, fullArgs, { encoding: 'utf-8', timeout: timeoutMs, cwd: process.cwd() },
+        // resolveExec throws for a .cmd shim whose args carry a shell
+        // metacharacter (e.g. a hostile test-file name); that throw rejects
+        // the promise here and the catch below turns it into a skip, so the
+        // dynamic testFile can never inject a command through the Windows shim.
+        const ex = resolveExec(cmd, fullArgs);
+        execFile(ex.cmd, ex.args, {
+          encoding: 'utf-8',
+          timeout: timeoutMs,
+          cwd: process.cwd(),
+          windowsHide: true,
+          ...(ex.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+        },
           (err, out, stderr) => {
             if (err) reject(Object.assign(err, { stdout: out, stderr }));
             else resolve({ stdout: out, stderr });

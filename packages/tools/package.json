@@ -56,6 +56,10 @@
       "types": "./dist/auto-proceed-loop-guard.d.ts",
       "import": "./dist/auto-proceed-loop-guard.js"
     },
+    "./win32": {
+      "types": "./dist/win32.d.ts",
+      "import": "./dist/win32.js"
+    },
     "./read": {
       "types": "./dist/read.d.ts",
       "import": "./dist/read.js"
