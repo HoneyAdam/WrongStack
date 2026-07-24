@@ -175,6 +175,21 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  // Settle fns of the in-flight tree/content/save requests. A new request (or
+  // an unmount) cancels the previous one's subscription and 8s timeout so a
+  // stale timer can't later fire setState against fresh or unmounted state.
+  const pendingTreeRef = useRef<(() => void) | null>(null);
+  const pendingContentRef = useRef<(() => void) | null>(null);
+  const pendingSaveRef = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      pendingTreeRef.current?.();
+      pendingContentRef.current?.();
+      pendingSaveRef.current?.();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -199,6 +214,17 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
     const socket = socketRef.current;
     if (!socket) { setLoading(false); return; }
 
+    pendingTreeRef.current?.();
+    let settled = false;
+    let unsub: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      unsub?.();
+      if (pendingTreeRef.current === finish) pendingTreeRef.current = null;
+    };
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'files.tree') return;
       const payload = msg.payload as Record<string, unknown> | undefined;
@@ -208,11 +234,13 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
         setError('Failed to load file tree.');
       }
       setLoading(false);
+      finish();
     };
 
-    const unsub = socket.onMessage(handler);
+    unsub = socket.onMessage(handler);
+    pendingTreeRef.current = finish;
     socket.send('files.tree', {});
-    setTimeout(() => { unsub(); setLoading(false); }, 8000);
+    timer = setTimeout(() => { setLoading(false); finish(); }, 8000);
   }, [socketRef, loading]);
 
   const loadFileContent = useCallback((filePath: string) => {
@@ -226,6 +254,17 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
     const socket = socketRef.current;
     if (!socket) { setContentLoading(false); return; }
 
+    pendingContentRef.current?.();
+    let settled = false;
+    let unsub: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      unsub?.();
+      if (pendingContentRef.current === finish) pendingContentRef.current = null;
+    };
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'files.read') return;
       const payload = msg.payload as Record<string, unknown> | undefined;
@@ -241,11 +280,13 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
         setError(payload?.['error'] ? String(payload['error']) : 'Failed to read file.');
       }
       setContentLoading(false);
+      finish();
     };
 
-    const unsub = socket.onMessage(handler);
+    unsub = socket.onMessage(handler);
+    pendingContentRef.current = finish;
     socket.send('files.read', { filePath });
-    setTimeout(() => { unsub(); setContentLoading(false); }, 8000);
+    timer = setTimeout(() => { setContentLoading(false); finish(); }, 8000);
   }, [socketRef, contentLoading]);
 
   const handleSelectFile = useCallback((path: string) => {
@@ -263,6 +304,17 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
     const socket = socketRef.current;
     if (!socket) { setSaving(false); return; }
 
+    pendingSaveRef.current?.();
+    let settled = false;
+    let unsub: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      unsub?.();
+      if (pendingSaveRef.current === finish) pendingSaveRef.current = null;
+    };
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'files.written') return;
       const payload = msg.payload as Record<string, unknown> | undefined;
@@ -279,11 +331,13 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
         setError(payload?.['error'] ? String(payload['error']) : 'Failed to save file.');
       }
       setSaving(false);
+      finish();
     };
 
-    const unsub = socket.onMessage(handler);
+    unsub = socket.onMessage(handler);
+    pendingSaveRef.current = finish;
     socket.send('files.write', { filePath: selectedPath, content: editedContent });
-    setTimeout(() => { unsub(); setSaving(false); }, 8000);
+    timer = setTimeout(() => { setSaving(false); finish(); }, 8000);
   }, [selectedPath, editedContent, socketRef, saving]);
 
   const handleTreeReload = useCallback(() => {

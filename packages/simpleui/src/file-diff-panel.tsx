@@ -30,6 +30,9 @@ export function FileDiffPanel({ files, initialIndex = 0, socketRef, onClose }: F
   const [loadedContent, setLoadedContent] = useState<string | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // Holds the settle fn of the in-flight content load so a new load (or an
+  // unmount) can cancel the previous request's subscription and timeout.
+  const pendingLoadRef = useRef<(() => void) | null>(null);
   const activeFile = files[activeIndex];
   const parsed = activeFile?.diff ? diffLines(activeFile.diff) : [];
   const hasDiff = !!activeFile?.diff;
@@ -37,10 +40,23 @@ export function FileDiffPanel({ files, initialIndex = 0, socketRef, onClose }: F
   // Load file content when the active file has no diff
   const loadContent = useCallback((filePath: string) => {
     if (!socketRef?.current) return;
+    // Cancel any in-flight load first: otherwise its stale 8s timeout would
+    // later fire setContentLoading(false) and clobber this request's state.
+    pendingLoadRef.current?.();
     setContentLoading(true);
     setLoadedContent(null);
 
     const socket = socketRef.current;
+    let settled = false;
+    let unsub: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      unsub?.();
+      if (pendingLoadRef.current === finish) pendingLoadRef.current = null;
+    };
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'files.read') return;
       const payload = msg.payload as Record<string, unknown> | undefined;
@@ -50,12 +66,20 @@ export function FileDiffPanel({ files, initialIndex = 0, socketRef, onClose }: F
         setLoadedContent(payload['content']);
       }
       setContentLoading(false);
+      // Stop listening as soon as this file's response lands, instead of
+      // leaving the handler subscribed for the full timeout window.
+      finish();
     };
 
-    const unsub = socket.onMessage(handler);
+    unsub = socket.onMessage(handler);
+    pendingLoadRef.current = finish;
     socket.send('files.read', { filePath });
-    setTimeout(() => { unsub(); setContentLoading(false); }, 8000);
+    timer = setTimeout(() => { setContentLoading(false); finish(); }, 8000);
   }, [socketRef]);
+
+  // Cancel any in-flight load on unmount so its timeout can't fire against a
+  // dead component.
+  useEffect(() => () => pendingLoadRef.current?.(), []);
 
   // Reset and load on file change
   useEffect(() => {

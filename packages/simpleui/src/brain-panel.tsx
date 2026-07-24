@@ -30,6 +30,11 @@ export function BrainPanel({ socketRef }: BrainPanelProps) {
   const [thinking, setThinking] = useState(false);
   const [answer, setAnswer] = useState<BrainAnswer | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // Settle fn of the in-flight brain.status request so a repeat load (or an
+  // unmount) cancels the previous subscription and its 3s timeout.
+  const pendingStatusRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => pendingStatusRef.current?.(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +66,17 @@ export function BrainPanel({ socketRef }: BrainPanelProps) {
   const loadStatus = () => {
     const socket = socketRef.current;
     if (!socket) return;
+    pendingStatusRef.current?.();
+    let settled = false;
+    let unsub: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      unsub?.();
+      if (pendingStatusRef.current === finish) pendingStatusRef.current = null;
+    };
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'brain.status') return;
       const p = msg.payload as Record<string, unknown> | undefined;
@@ -69,10 +85,12 @@ export function BrainPanel({ socketRef }: BrainPanelProps) {
         maxAutoRisk: String(p.maxAutoRisk ?? 'medium'),
         log: Array.isArray(p.log) ? p.log as BrainLogEntry[] : [],
       });
+      finish();
     };
-    const unsub = socket.onMessage(handler);
+    unsub = socket.onMessage(handler);
+    pendingStatusRef.current = finish;
     socket.send('brain.status');
-    setTimeout(() => unsub(), 3000);
+    timer = setTimeout(() => finish(), 3000);
   };
 
   const askBrain = () => {
