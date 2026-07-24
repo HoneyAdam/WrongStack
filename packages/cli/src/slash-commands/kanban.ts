@@ -519,20 +519,24 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
               ),
               ...preview,
               '',
-              DIM(`Run /kanban prune ${positional[0] ?? days}${includeUnfinished ? ' --all' : ''} --yes to delete.`),
+              DIM(`Run /kanban prune ${positional[0] ?? days}${includeUnfinished ? ' --all' : ''} --yes (or -y) to delete.`),
             ].join('\n'),
           };
         }
 
         let removed = 0;
+        let failed = 0;
         for (const b of stale) {
           if (await removeBoard(projectRoot, b.id)) removed++;
+          else failed++;
         }
-        return {
-          message: color.green(
-            `✅ Pruned ${removed} board${removed === 1 ? '' : 's'} (${boards.length - removed} remain). Deletions sync to HQ as tombstones.`,
-          ),
-        };
+        const parts = [
+          `✅ Pruned ${removed} board${removed === 1 ? '' : 's'} (${boards.length - removed} remain).`,
+        ];
+        if (failed > 0) {
+          parts.push(color.yellow(`${failed} board${failed === 1 ? '' : 's'} could not be deleted — check file permissions or HQ sync locks.`));
+        }
+        return { message: color.green(parts.join(' ')) };
       }
 
       // ── rename ──────────────────────────────────────────────────────
