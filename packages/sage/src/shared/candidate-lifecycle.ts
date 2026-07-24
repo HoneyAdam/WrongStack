@@ -70,17 +70,16 @@ export interface ResolutionDecision {
 /**
  * Resolve the target memory id from a candidate snapshot.
  *
- * Both `computeResolution` and the stores' `resolveCandidate` methods
- * need the same `targetId` derivation to look up the target memory
- * before calling the policy function. Hoisted here to prevent drift
- * between the three sites.
+ * Trust boundary: the target id must come ONLY from the explicit
+ * `targetMemoryId` field on the candidate. Tags are user-supplied free
+ * text — the previous fallback that parsed `source:<id>` from candidate
+ * tags let any caller silently retarget a resolution by including the
+ * tag in their `memory_candidates({ action: 'propose', memory_id: X })`
+ * call (which writes `source:${memory_id}` into the tag list). The
+ * fallback is removed; `targetMemoryId` is now the sole source.
  */
 export function resolveTargetId(candidate: MemoryCandidate): string | undefined {
-  return (
-    candidate.targetMemoryId ??
-    candidate.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length) ??
-    undefined
-  );
+  return candidate.targetMemoryId;
 }
 
 /**
