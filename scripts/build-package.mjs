@@ -298,19 +298,24 @@ function emitDeclarations(entries, outdir) {
   if (process.env.WRONGSTACK_SKIP_DTS === '1') return;
 
   const tsc = join(dirname(require.resolve('typescript/package.json')), 'bin', 'tsc');
+  // Drive declarations from the package's tsconfig.json so every exported
+  // subpath produces its own .d.ts tree under outDir. Falling back to a
+  // bare `--rootDir src --emitDeclarationOnly` only emits the `index`
+  // entry's declarations, which breaks subpath imports like
+  // `@wrongstack/tools/tool-diff`. Browser packages (webui, simpleui)
+  // override their tsconfig with `noEmit: true`, so they need a
+  // dedicated declaration project.
+  const dtsProject =
+    packageJson.name === '@wrongstack/webui' || packageJson.name === '@wrongstack/simpleui'
+      ? 'tsconfig.dts.json'
+      : 'tsconfig.json';
   const args = [
     tsc,
     '--project',
-    'tsconfig.json',
+    dtsProject,
     '--declaration',
     '--declarationMap',
     '--emitDeclarationOnly',
-    '--noEmit',
-    'false',
-    '--rootDir',
-    'src',
-    '--outDir',
-    outdir,
   ];
   const result = spawnSync(process.execPath, args, {
     cwd: packageRoot,
@@ -375,7 +380,7 @@ if (!profile) {
   throw new Error(`No package build profile registered for ${packageJson.name}`);
 }
 
-if (profile.clean !== false)
+if (profile.clean !== false && process.env.WRONGSTACK_SKIP_CLEAN !== '1')
   // maxRetries/retryDelay: Windows throws EPERM/EBUSY when another process
   // (e.g. a concurrent vitest run) briefly holds a handle on a dist file.
   rmSync(join(packageRoot, 'dist'), {

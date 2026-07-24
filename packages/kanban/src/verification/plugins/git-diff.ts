@@ -35,6 +35,11 @@ export class GitDiffPlugin implements VerifierPlugin {
     let status_: 'passed' | 'failed' = 'passed';
     const errors: string[] = [];
 
+    if (status.error) {
+      status_ = 'failed';
+      errors.push(status.error);
+    }
+
     // Check if changes exist at all
     if (diff.length === 0 && status.clean) {
       status_ = 'failed';
