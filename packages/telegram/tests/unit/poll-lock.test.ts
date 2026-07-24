@@ -126,6 +126,30 @@ describe('PollLock', () => {
     expect(lock.tryAcquire()).toBe(true);
   });
 
+  it('steals a lock with a non-finite heartbeat instead of wedging forever', () => {
+    // A missing/non-numeric heartbeatAt would make `Date.now() - heartbeatAt`
+    // NaN, and `NaN > staleMs` is false, so the time-based staleness check
+    // would never fire. Combined with a live pid, that lock would be treated
+    // as held forever and no standby instance could ever take over. It must be
+    // rejected as corrupt.
+    setup();
+    const path = join(dir, 'nested', 'poll.lock');
+    for (const bad of [undefined, null, 'soon', Number.NaN]) {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          id: 'other:instance',
+          pid: process.pid, // alive pid — only the heartbeat guard can save us
+          acquiredAt: Date.now(),
+          heartbeatAt: bad,
+        }),
+      );
+      const lock = makeLock();
+      expect(lock.tryAcquire()).toBe(true);
+      lock.release();
+    }
+  });
+
   it('refreshes the heartbeat while held', async () => {
     setup();
     const lock = makeLock({ heartbeatMs: 20 });

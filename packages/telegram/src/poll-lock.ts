@@ -153,6 +153,11 @@ export class PollLock {
       const raw = readFileSync(this.lockPath, 'utf8');
       const parsed = JSON.parse(raw) as LockFilePayload;
       if (typeof parsed.id !== 'string' || typeof parsed.pid !== 'number') return null;
+      // A non-finite heartbeatAt makes `Date.now() - heartbeatAt` NaN, and
+      // `NaN > staleMs` is false, so the staleness check would silently never
+      // fire and the lock could wedge every standby instance forever. Reject
+      // it as corrupt so the file is reclaimed.
+      if (!Number.isFinite(parsed.heartbeatAt)) return null;
       return parsed;
     } catch {
       return null; // Missing or corrupt — treated as stale/absent.
