@@ -20,7 +20,14 @@ export interface HttpRequestOptions {
   readonly timeoutMs?: number | undefined;
   readonly maxAttempts?: number | undefined;
   readonly baseBackoffMs?: number | undefined;
+  /** Hard cap on the response body length; default 64 MiB. Guards against a
+   * misbehaving or hostile registry streaming an unbounded body into memory. */
+  readonly maxBodyBytes?: number | undefined;
 }
+
+/** Default response-body ceiling. Registry metadata for popular packages can be
+ * several MB, so the cap is generous while still bounding host memory. */
+const DEFAULT_MAX_BODY_BYTES = 64 * 1024 * 1024;
 
 export function retryAfterMs(headers: IncomingHttpHeaders, now = Date.now()): number | undefined {
   const value = Array.isArray(headers['retry-after']) ? headers['retry-after'][0] : headers['retry-after'];
@@ -54,10 +61,25 @@ function requestOnce(options: HttpRequestOptions): Promise<HttpResponse> {
       timeout: options.timeoutMs ?? 15_000,
     };
     const isHttp = options.hostname === 'localhost' || options.hostname === '127.0.0.1';
+    const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     const callback = (response: IncomingMessage): void => {
       let body = '';
       response.setEncoding?.('utf8');
-      response.on('data', (chunk: string | Buffer) => { body += chunk.toString(); });
+      response.on('data', (chunk: string | Buffer) => {
+        body += chunk.toString();
+        if (body.length > maxBodyBytes) {
+          // Stop reading and fail loudly rather than growing the buffer without
+          // bound (also defeats a slow-drip stream that never trips the idle
+          // timeout). destroy() ends the socket; the retry loop treats it as a
+          // transport error.
+          response.destroy();
+          reject(
+            new Error(
+              `Response body exceeded ${maxBodyBytes} bytes for ${options.hostname}${options.path}`,
+            ),
+          );
+        }
+      });
       response.on('end', () => resolve({
         statusCode: response.statusCode ?? 0,
         headers: response.headers,
