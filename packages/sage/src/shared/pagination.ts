@@ -121,8 +121,21 @@ export function boundedLimit(
 
 // ─── Sorting ────────────────────────────────────────────────────────────
 
-/** Sort comparator: `updatedAt DESC, id DESC` (id is the stable tie-breaker). */
+/**
+ * Sort comparator: `updatedAt DESC, id DESC` (id is the stable tie-breaker).
+ *
+ * Uses **byte comparison**, not `localeCompare`. ISO-8601 timestamps are
+ * pure ASCII and sort lexicographically byte-for-byte; `localeCompare` is
+ * locale-aware and can reorder ASCII-only ISO strings across locales
+ * (Turkish `i`/`I`, German `ß`/`ss`), producing different page orderings
+ * across machines paginating the same store. The result was duplicate or
+ * missed items at the pagination walk boundary. Byte comparison is
+ * locale-independent and deterministic.
+ */
 export function compareByUpdatedDesc(a: Sage, b: Sage): number {
-  const byUpdated = b.updatedAt.localeCompare(a.updatedAt);
-  return byUpdated !== 0 ? byUpdated : b.id.localeCompare(a.id);
+  if (a.updatedAt < b.updatedAt) return 1;
+  if (a.updatedAt > b.updatedAt) return -1;
+  if (a.id < b.id) return 1;
+  if (a.id > b.id) return -1;
+  return 0;
 }
