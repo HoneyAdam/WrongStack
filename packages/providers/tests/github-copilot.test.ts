@@ -56,6 +56,26 @@ describe('copilotBaseUrlFromToken', () => {
   });
 });
 
+describe('GitHubCopilotProvider identity', () => {
+  it('exposes the correct provider id, not the inherited openai preset id', () => {
+    const p = new GitHubCopilotProvider({
+      credentials: { copilotToken: COPILOT_TOKEN, githubToken: 'gho_x' },
+    });
+    // The provider extends WireFormatProvider with openaiWireFormat, which sets
+    // id='openai' in its constructor. Without the override the provider id would
+    // be wrong, breaking error messages, debug logging, and consumer id checks.
+    expect(p.id).toBe('github-copilot');
+  });
+
+  it('honors an explicit opts.id override', () => {
+    const p = new GitHubCopilotProvider({
+      credentials: { copilotToken: COPILOT_TOKEN, githubToken: 'gho_x' },
+      id: 'my-copilot-alias',
+    });
+    expect(p.id).toBe('my-copilot-alias');
+  });
+});
+
 describe('GitHubCopilotProvider request shape', () => {
   it('targets the proxy-derived base with Copilot headers', async () => {
     const captured: Captured = {};

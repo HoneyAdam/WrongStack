@@ -4,6 +4,7 @@ import {
   AnthropicOAuthProvider,
   type AnthropicOAuthTokens,
   CLAUDE_CODE_SYSTEM_PROMPT,
+  refreshAnthropicOAuthToken,
 } from '../src/anthropic-oauth.js';
 
 function sseBody(events: string): ReadableStream<Uint8Array> {
@@ -207,6 +208,52 @@ describe('AnthropicOAuthProvider token refresh', () => {
 
     expect(refreshFn).toHaveBeenCalledTimes(1);
     expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('refreshAnthropicOAuthToken', () => {
+  it('preserves the real status so transient (5xx/429) refresh failures stay recoverable', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => 'service unavailable',
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      let caught: unknown;
+      try {
+        await refreshAnthropicOAuthToken('rt');
+      } catch (err) {
+        caught = err;
+      }
+      // A 503 must not masquerade as a 401 auth failure — it stays recoverable
+      // so callers retry instead of dropping credentials and forcing re-login.
+      expect((caught as { status?: number }).status).toBe(503);
+      expect((caught as { recoverable?: boolean }).recoverable).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('returns tokens on success', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: 'new-access',
+        refresh_token: 'new-refresh',
+        expires_in: 3600,
+      }),
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const result = await refreshAnthropicOAuthToken('rt');
+      expect(result.access).toBe('new-access');
+      expect(result.refresh).toBe('new-refresh');
+      expect(result.expires).toBeGreaterThan(Date.now());
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

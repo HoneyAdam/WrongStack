@@ -65,6 +65,7 @@ export interface GitHubCopilotProviderOptions {
 }
 
 export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState> {
+  override readonly id: string;
   override readonly capabilities: Capabilities;
 
   private copilotToken: string;
@@ -88,6 +89,7 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
       fetchImpl: opts.fetchImpl,
       streamOpts: opts.streamOpts,
     });
+    this.id = opts.id ?? 'github-copilot';
     this.copilotToken = opts.credentials.copilotToken;
     this.githubToken = opts.credentials.githubToken;
     this.apiBase = apiBase;
