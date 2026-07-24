@@ -128,7 +128,7 @@ test('all sections present with complete data', () => {
     checks: CHECKS,
     fileScope: { expectedChanges: 0, actualChanges: 0, scopeMatches: true, files: [] },
     subtasks: st,
-    attachments: [{ kind: 'log', label: 'Log', content: 'x' }],
+    attachments: [{ kind: 'command_output', label: 'Log', content: 'x' }],
   }} />);
   expect(screen.getByText('Check Results')).toBeTruthy();
   expect(screen.getByText('File Scope')).toBeTruthy();

@@ -214,6 +214,10 @@
       "lines": 977,
       "relativeImports": 0
     },
+    "packages/kanban/src/verification/verification-context.ts": {
+      "lines": 970,
+      "relativeImports": 1
+    },
     "packages/mcp/src/authorization.ts": {
       "lines": 833,
       "relativeImports": 0
@@ -363,8 +367,8 @@
       "relativeImports": 2
     },
     "packages/webui/src/components/KanbanView.tsx": {
-      "lines": 2549,
-      "relativeImports": 9
+      "lines": 2561,
+      "relativeImports": 10
     },
     "packages/webui/src/components/MemoryManager/index.tsx": {
       "lines": 1104,

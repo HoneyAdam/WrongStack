@@ -23,6 +23,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { KanbanBoard, KanbanTask } from '../types.js';
 
@@ -44,6 +45,7 @@ import type { KanbanBoard, KanbanTask } from '../types.js';
  * safer than a false negative.
  */
 export const SHELL_OPERATOR_RE = /(?:&&|\|\||[;&<>|`\n\r]|\$[({])/;
+const ENV_EXPANSION_RE = /(?:\$[A-Za-z_]|%[^%\r\n]+%|![^!\r\n]+!)/;
 
 /**
  * Commands permitted by default — read-only inspection only.
@@ -53,17 +55,7 @@ export const SHELL_OPERATOR_RE = /(?:&&|\|\||[;&<>|`\n\r]|\$[({])/;
  * Test runners resolve a locally installed package's declared bin entry and
  * invoke it through Node; package managers never use this generic surface.
  */
-export const DEFAULT_ALLOWED_COMMANDS: readonly string[] = [
-  'ls', 'dir', 'cat', 'type',
-  'echo', 'printf', 'test', '[',
-  'which', 'where',
-  'pwd', 'cd',
-  'head', 'tail', 'more', 'less',
-  'wc', 'grep', 'findstr', 'rg', 'ripgrep',
-  'sort', 'uniq',
-  'diff', 'fc',
-  'true', 'false',
-];
+export const DEFAULT_ALLOWED_COMMANDS: readonly string[] = ['pwd', 'true', 'false', 'test'];
 
 /** Commands explicitly blocked even when they would otherwise pass the allowlist. */
 export const DEFAULT_BLOCKED_COMMANDS: readonly string[] = [
@@ -109,7 +101,7 @@ export interface CommandAllowlistConfig {
 }
 
 export function normalizeBaseCommand(token: string): string {
-  return token.replace(/^.*[/\\]/, '').toLowerCase();
+  return token.replace(/^.*[/\\]/, '').toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/i, '');
 }
 
 function buildAllowlist(
@@ -140,12 +132,44 @@ function buildAllowlist(
   return { allow, block };
 }
 
-/** Extract the base command name from a shell command string. */
+/** Parse a command string into an executable and argv without invoking a shell. */
+function parseCommandArguments(command: string): string[] | string {
+  const args: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let tokenStarted = false;
+
+  for (const char of command) {
+    if (quote) {
+      if (char === quote) quote = null;
+      else current += char;
+      tokenStarted = true;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      tokenStarted = true;
+    } else if (/\s/.test(char)) {
+      if (tokenStarted) {
+        args.push(current);
+        current = '';
+        tokenStarted = false;
+      }
+    } else {
+      current += char;
+      tokenStarted = true;
+    }
+  }
+
+  if (quote) return 'Command contains an unterminated quoted argument.';
+  if (tokenStarted) args.push(current);
+  return args;
+}
+
+/** Extract the base executable name from a command string. */
 export function extractBaseCommand(command: string): string {
-  const trimmed = command.trim();
-  if (!trimmed) return '';
-  const firstToken = trimmed.split(/\s+/)[0] ?? '';
-  return normalizeBaseCommand(firstToken);
+  const parsed = parseCommandArguments(command);
+  return typeof parsed === 'string' ? '' : normalizeBaseCommand(parsed[0] ?? '');
 }
 
 /** Validate a command string. Returns null if allowed, or an error message. */
@@ -167,6 +191,9 @@ export function validateCommand(
   if (!config.allowShellOperators && SHELL_OPERATOR_RE.test(testTarget)) {
     return 'Command contains shell operators (&&, ||, ;, |, &, >, <, backticks, $()) which are not permitted in the verifier.';
   }
+  if (ENV_EXPANSION_RE.test(testTarget)) {
+    return 'Command contains environment-variable expansion, which is not permitted in the verifier.';
+  }
   if (config.block.has(base)) {
     return `Command "${base}" is blocked by the verifier security policy.`;
   }
@@ -182,8 +209,10 @@ export function validateCommand(
 export interface TreeSnapshot {
   id: string;
   capturedAt: string;
-  /** The `git rev-parse HEAD` hash at capture time. */
+  /** The `git rev-parse HEAD` hash at capture time, empty for an unborn repository. */
   commitHash: string;
+  /** Git tree containing the complete tracked and untracked worktree baseline. */
+  treeHash: string;
 }
 
 /** A single file diff entry. */
@@ -192,7 +221,6 @@ export interface FileDiffEntry {
   operation: 'create' | 'modify' | 'delete';
   linesAdded: number;
   linesRemoved: number;
-  hunks: number;
 }
 
 export interface CommandResult {
@@ -221,6 +249,7 @@ export interface GitStatusResult {
   unstaged: number;
   staged: number;
   files: string[];
+  error?: string | undefined;
 }
 
 interface TestRunnerInvocation {
@@ -267,59 +296,49 @@ export class VerificationContext {
   // Git helpers
   // ---------------------------------------------------------------------------
 
-  /** Capture the current git tree state for later diff comparison.
-   *  Stores `git rev-parse HEAD` so `diffSince()` can diff against the stored
-   *  commit, not the current HEAD — this prevents pre-existing uncommitted
-   *  changes from polluting the verification diff.
-   *
-   *  If `git rev-parse HEAD` fails (no repo, no commits yet, detached HEAD
-   *  with no commits), the snapshot is still returned but with an empty
-   *  `commitHash`. Callers should treat this as "snapshot unreliable";
-   *  `diffSince()` will return `[]` rather than running `git diff --numstat
-   *  HEAD` against a non-existent HEAD (which would silently swallow the
-   *  failure and produce an empty diff even when staged files exist). */
+  /** Capture the complete tracked and untracked worktree state for later comparison. */
   async captureSnapshot(): Promise<TreeSnapshot> {
     let commitHash = '';
     try {
       const { stdout } = await this.runGitCommand(['rev-parse', 'HEAD']);
       commitHash = stdout.trim();
-    } catch (err) {
-      // Surface the failure: `diffSince()` skips empty commitHashes, so a
-      // missing commit hash reliably means "snapshot unreliable" instead of
-      // silently diffing against an absent HEAD.
+    } catch {
+      // Unborn repositories have no HEAD but can still produce a worktree tree.
+    }
+    let treeHash = '';
+    try {
+      treeHash = await this.captureWorktreeTree(commitHash);
+    } catch (error) {
       console.warn(
-        `[verification-context] captureSnapshot: git rev-parse HEAD failed; ` +
-          `snapshot stored with empty commitHash. diffSince() will return []. ` +
-          `Cause: ${(err as Error).message}`,
+        JSON.stringify({
+          level: 'warn',
+          event: 'verification_snapshot_capture_failed',
+          message: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        }),
       );
     }
     const snapshot: TreeSnapshot = {
       id: randomUUID(),
       capturedAt: new Date().toISOString(),
       commitHash,
+      treeHash,
     };
     this.snapshot = snapshot;
     return snapshot;
   }
 
-  /** Compute the diff since the captured snapshot. No snapshot = empty diff.
-   *  Uses the stored `commitHash` instead of always diffing against the current
-   *  HEAD, so pre-existing uncommitted changes do not pollute verification.
-   *
-   *  If the snapshot's `commitHash` is empty (captureSnapshot failed), this
-   *  returns `[]` rather than running `git diff --numstat HEAD` against an
-   *  absent HEAD — which would silently miss staged files. */
+  /** Compute the worktree diff since the captured snapshot. */
   async diffSince(_snapshot?: TreeSnapshot): Promise<FileDiffEntry[]> {
     const useSnapshot = _snapshot ?? this.snapshot;
-    if (!useSnapshot) return [];
-    // Empty commitHash means captureSnapshot failed; skip the diff rather than
-    // running `git diff --numstat HEAD` against a non-existent HEAD.
-    if (!useSnapshot.commitHash) return [];
-    // Validate commitHash to prevent argv injection
-    if (!/^(?:[0-9a-f]{7,64}|HEAD)$/.test(useSnapshot.commitHash)) return [];
+    if (!useSnapshot || !/^[0-9a-f]{40,64}$/.test(useSnapshot.treeHash)) return [];
     try {
-      const { stdout } = await this.runGitCommand(['diff', '--numstat', useSnapshot.commitHash]);
-      return parseGitNumstat(stdout);
+      const currentTree = await this.captureWorktreeTree();
+      const [numstat, nameStatus] = await Promise.all([
+        this.runGitCommand(['diff', '--no-renames', '--numstat', useSnapshot.treeHash, currentTree]),
+        this.runGitCommand(['diff', '--no-renames', '--name-status', useSnapshot.treeHash, currentTree]),
+      ]);
+      return parseGitNumstat(numstat.stdout, parseGitNameStatus(nameStatus.stdout));
     } catch {
       return [];
     }
@@ -354,8 +373,15 @@ export class VerificationContext {
         staged,
         files,
       };
-    } catch {
-      return { clean: true, untracked: 0, unstaged: 0, staged: 0, files: [] };
+    } catch (err) {
+      return {
+        clean: false,
+        untracked: 0,
+        unstaged: 0,
+        staged: 0,
+        files: [],
+        error: `Unable to read git status: ${(err as Error).message}`,
+      };
     }
   }
 
@@ -365,13 +391,15 @@ export class VerificationContext {
 
   /** Read a file relative to project root. */
   async readFile(filePath: string): Promise<string> {
-    const resolved = path.resolve(this.projectRoot, filePath);
+    const resolved = await this.resolveProjectPath(filePath);
+    if (!resolved) throw new Error(`Path escapes the project root: ${filePath}`);
     return fsp.readFile(resolved, 'utf8');
   }
 
   /** Check if a file exists relative to project root. */
   async fileExists(filePath: string): Promise<boolean> {
-    const resolved = path.resolve(this.projectRoot, filePath);
+    const resolved = await this.resolveProjectPath(filePath);
+    if (!resolved) return false;
     try {
       await fsp.access(resolved);
       return true;
@@ -383,8 +411,9 @@ export class VerificationContext {
   /** Stat a file (size, mtime). */
   async fileStat(
     filePath: string,
-  ): Promise<{ exists: boolean; size: number; mtime: string } | null> {
-    const resolved = path.resolve(this.projectRoot, filePath);
+  ): Promise<{ exists: boolean; size: number; mtime: string }> {
+    const resolved = await this.resolveProjectPath(filePath);
+    if (!resolved) return { exists: false, size: 0, mtime: '' };
     try {
       const stat = await fsp.stat(resolved);
       return {
@@ -401,14 +430,12 @@ export class VerificationContext {
   // Command runner
   // ---------------------------------------------------------------------------
 
-  /** Run a shell command and return structured output. Bounded by timeout.
+  /** Run one of the verifier's read-only commands.
    *
-   * The command is gated by the base-command allowlist and the shell-operator
-   * regex, which rejects `&&`, `||`, `;`, `|`, `&`, `>`, `<`, backticks, and
-   * `$()` by default. Callers that explicitly set `allowShellOperators` assume
-   * responsibility for validating the complete command string. `runTest()`
-   * does not use this escape hatch; it spawns a locally installed runner with
-   * an argument array and `shell: false`. */
+   * This path never opens a shell. It supports exact `pwd`, `true`, `false`,
+   * and `test -e|-f|-d <project-relative-path>` forms. Commands admitted by
+   * `allowedCommands` or `allowAll` are tokenized into an executable plus argv
+   * and spawned directly; the blocklist and shell-operator gate still apply. */
   async runCommand(
     command: string,
     opts?: {
@@ -437,61 +464,58 @@ export class VerificationContext {
       };
     }
 
-    const cwd = opts?.cwd ?? this.projectRoot;
-    const timeoutMs = opts?.timeoutMs ?? 60_000;
+    if (opts?.cwd && path.resolve(opts.cwd) !== path.resolve(this.projectRoot)) {
+      return this.rejectedCommand(command, start, 'Verifier commands must run at the project root.');
+    }
 
-    return new Promise<CommandResult>((resolve) => {
-      const isWindows = process.platform === 'win32';
-      const shell = isWindows ? ['cmd', '/d', '/c'] : ['sh', '-c'];
-      const child = spawn(shell[0]!, [...shell.slice(1), command], {
-        cwd,
-        shell: false,
-        windowsHide: true,
-        detached: !isWindows,
-      });
-      let stdout = '';
-      let stderr = '';
-      let timedOut = false;
-      let settled = false;
-
-      child.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString('utf8');
-      });
-      child.stderr?.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString('utf8');
-      });
-
-      let timer: NodeJS.Timeout | undefined;
-      const finish = (exitCode: number, suffix = ''): void => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        resolve({
-          command,
-          exitCode,
-          stdout,
-          stderr: `${stderr}${suffix}`,
-          durationMs: Date.now() - start,
-        });
+    const tokens = parseCommandArguments(command);
+    if (typeof tokens === 'string') return this.rejectedCommand(command, start, tokens);
+    const base = tokens[0] ?? '';
+    if ((base === 'pwd' || base === 'true' || base === 'false') && tokens.length === 1) {
+      return {
+        command,
+        exitCode: base === 'false' ? 1 : 0,
+        stdout: base === 'pwd' ? `${this.projectRoot}\n` : '',
+        stderr: '',
+        durationMs: Date.now() - start,
       };
+    }
+    if (base === 'test' && tokens.length === 3 && ['-e', '-f', '-d'].includes(tokens[1] ?? '')) {
+      const resolved = await this.resolveProjectPath(tokens[2] ?? '');
+      if (!resolved) {
+        return this.rejectedCommand(command, start, 'Test path must stay inside the project root.');
+      }
+      try {
+        const stat = await fsp.stat(resolved);
+        const matches = tokens[1] === '-e' || (tokens[1] === '-f' ? stat.isFile() : stat.isDirectory());
+        return {
+          command,
+          exitCode: matches ? 0 : 1,
+          stdout: '',
+          stderr: '',
+          durationMs: Date.now() - start,
+        };
+      } catch {
+        return { command, exitCode: 1, stdout: '', stderr: '', durationMs: Date.now() - start };
+      }
+    }
 
-      timer = setTimeout(() => {
-        timedOut = true;
-        terminateProcessTree(child, !isWindows);
-        finish(-1, `\n--- timed out after ${timeoutMs}ms ---`);
-      }, timeoutMs);
-
-      child.on('close', (code) => {
-        finish(
-          timedOut ? -1 : (code ?? -1),
-          timedOut ? `\n--- timed out after ${timeoutMs}ms ---` : '',
-        );
+    const normalizedBase = normalizeBaseCommand(base);
+    const isConfiguredCommand =
+      this.cmdAllowAll ||
+      (this.cmdAllow.has(normalizedBase) &&
+        !DEFAULT_ALLOWED_COMMANDS.some((allowed) => normalizeBaseCommand(allowed) === normalizedBase));
+    if (isConfiguredCommand) {
+      const [executable, ...args] = tokens;
+      if (!executable) return this.rejectedCommand(command, start, 'Empty command.');
+      const result = await this.runProcess(executable, args, {
+        cwd: this.projectRoot,
+        timeoutMs: opts?.timeoutMs ?? 60_000,
       });
+      return { ...result, command };
+    }
 
-      child.on('error', () => {
-        finish(-1, timedOut ? `\n--- timed out after ${timeoutMs}ms ---` : '\n--- spawn error ---');
-      });
-    });
+    return this.rejectedCommand(command, start, 'Unsupported verifier command shape.');
   }
 
   // ---------------------------------------------------------------------------
@@ -502,6 +526,7 @@ export class VerificationContext {
   async runTest(pattern: string, opts?: { cwd?: string; timeoutMs?: number }): Promise<TestResult> {
     const start = Date.now();
 
+    // Reserve all leading-hyphen patterns for a future CLI-extension safety contract.
     if (pattern.includes('\0') || pattern.trimStart().startsWith('-')) {
       return {
         testPattern: pattern,
@@ -568,14 +593,62 @@ export class VerificationContext {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  private rejectedCommand(command: string, start: number, reason: string): CommandResult {
+    return {
+      command,
+      exitCode: -1,
+      stdout: '',
+      stderr: reason,
+      durationMs: Date.now() - start,
+      rejected: true,
+    };
+  }
+
+  private async resolveProjectPath(filePath: string): Promise<string | null> {
+    if (path.isAbsolute(filePath)) return null;
+    const root = await fsp.realpath(this.projectRoot);
+    const candidate = path.resolve(root, filePath);
+    const relative = path.relative(root, candidate);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    try {
+      const real = await fsp.realpath(candidate);
+      const realRelative = path.relative(root, real);
+      return realRelative.startsWith('..') || path.isAbsolute(realRelative) ? null : real;
+    } catch {
+      const parent = await fsp.realpath(path.dirname(candidate)).catch(() => null);
+      if (!parent) return null;
+      const parentRelative = path.relative(root, parent);
+      return parentRelative.startsWith('..') || path.isAbsolute(parentRelative) ? null : candidate;
+    }
+  }
+
+  /** Materialize the worktree with a temporary alternate index, leaving the real index untouched. */
+  private async captureWorktreeTree(head = ''): Promise<string> {
+    const indexPath = path.join(tmpdir(), `.verification-index-${randomUUID()}`);
+    const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+    try {
+      if (head) await this.runGitCommand(['read-tree', head], 30_000, env);
+      await this.runGitCommand(['add', '--all', '--', '.', ':(exclude).temp_files'], 30_000, env);
+      const { stdout } = await this.runGitCommand(['write-tree'], 30_000, env);
+      return stdout.trim();
+    } finally {
+      await Promise.all([
+        fsp.rm(indexPath, { force: true }),
+        fsp.rm(`${indexPath}.lock`, { force: true }),
+      ]);
+    }
+  }
+
   private async runGitCommand(
     args: string[],
     timeoutMs = 30_000,
+    env: NodeJS.ProcessEnv = process.env,
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       const detachedProcessGroup = process.platform !== 'win32';
       const child = spawn('git', args, {
         cwd: this.projectRoot,
+        env,
         windowsHide: true,
         detached: detachedProcessGroup,
       });
@@ -625,11 +698,12 @@ export class VerificationContext {
     const start = Date.now();
     const displayCommand = [command, ...args].join(' ');
     return new Promise<CommandResult>((resolve) => {
+      const detachedProcessGroup = process.platform !== 'win32';
       const child = spawn(command, args, {
         cwd: opts.cwd,
         shell: false,
         windowsHide: true,
-        detached: process.platform !== 'win32',
+        detached: detachedProcessGroup,
       });
       let stdout = '';
       let stderr = '';
@@ -659,7 +733,7 @@ export class VerificationContext {
 
       timer = setTimeout(() => {
         timedOut = true;
-        terminateProcessTree(child, process.platform !== 'win32');
+        terminateProcessTree(child, detachedProcessGroup);
         finish(-1, `\n--- timed out after ${opts.timeoutMs}ms ---`);
       }, opts.timeoutMs);
 
@@ -731,6 +805,7 @@ export class VerificationContext {
 
 /** Best-effort process-tree termination that never delays timeout settlement. */
 function terminateProcessTree(child: ChildProcess, detachedProcessGroup: boolean): void {
+  // MUST NOT block promise resolution: timeout callers settle immediately after invoking this helper.
   const pid = child.pid;
   if (typeof pid === 'number' && process.platform === 'win32') {
     try {
@@ -764,14 +839,39 @@ function terminateProcessTree(child: ChildProcess, detachedProcessGroup: boolean
   } catch {
     try {
       child.kill('SIGKILL');
-    } catch {
-      // The process already exited.
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'verification_process_termination_failed',
+          message: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
   }
 }
 
+/** Parse `git diff --name-status` into file-operation evidence. */
+export function parseGitNameStatus(output: string): Map<string, FileDiffEntry['operation']> {
+  const operations = new Map<string, FileDiffEntry['operation']>();
+  for (const line of output.split('\n').filter(Boolean)) {
+    const [status = '', ...pathParts] = line.split('\t');
+    const filePath = pathParts.at(-1);
+    if (!filePath) continue;
+    operations.set(
+      filePath,
+      status.startsWith('A') ? 'create' : status.startsWith('D') ? 'delete' : 'modify',
+    );
+  }
+  return operations;
+}
+
 /** Parse `git diff --numstat` output into structured entries. */
-export function parseGitNumstat(output: string): FileDiffEntry[] {
+export function parseGitNumstat(
+  output: string,
+  operations: ReadonlyMap<string, FileDiffEntry['operation']> = new Map(),
+): FileDiffEntry[] {
   return output
     .split('\n')
     .filter((l) => l.trim())
@@ -781,22 +881,66 @@ export function parseGitNumstat(output: string): FileDiffEntry[] {
       const added = parseInt(parts[0]!, 10) || 0;
       const removed = parseInt(parts[1]!, 10) || 0;
       const filePath = parts[2] ?? '';
-      // `git diff --numstat` shows `added\tremoved\tpath`. From numstat alone
-      // we cannot distinguish create from modify — a pure-additive modification
-      // has the same signature as a new file. Default to 'modify'.
-      let operation: 'create' | 'modify' | 'delete' = 'modify';
-      if (added === 0 && removed > 0) {
-        operation = 'delete';
-      }
       return {
         path: filePath,
-        operation,
+        operation: operations.get(filePath) ?? 'modify',
         linesAdded: added,
         linesRemoved: removed,
-        hunks: Math.max(1, Math.ceil((added + removed) / 10)),
       };
     })
     .filter((e): e is NonNullable<typeof e> => e !== null);
+}
+
+function isTestCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isTestJsonObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    Array.isArray(candidate['testResults']) ||
+    (isTestCount(candidate['numPassedTests']) && isTestCount(candidate['numFailedTests']))
+  );
+}
+
+function parseTestJsonObject(output: string): Record<string, unknown> | null {
+  try {
+    const complete = JSON.parse(output.trim()) as unknown;
+    if (isTestJsonObject(complete)) return complete;
+  } catch {
+    // Surrounding runner output requires balanced-object extraction below.
+  }
+
+  for (let start = output.indexOf('{'); start >= 0; start = output.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < output.length; index += 1) {
+      const char = output[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(output.slice(start, index + 1)) as unknown;
+            if (isTestJsonObject(parsed)) return parsed;
+          } catch {
+            // Keep scanning: runner output can contain unrelated brace-delimited text.
+          }
+          break;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** Try to parse JSON test runner output. */
@@ -805,13 +949,8 @@ function tryParseTestJson(
   pattern: string,
 ): Omit<TestResult, 'durationMs'> | null {
   try {
-    // Find JSON block in output — non-greedy to stop at the first complete
-    // JSON object containing "testResults", rather than spanning from the
-    // first `{` to the last `}` across multiple test runs.
-    const jsonMatch = output.match(/\{[\s\S]*?"testResults"[\s\S]*?\}/);
-    const raw = jsonMatch?.[0] ?? output;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (parsed && typeof parsed === 'object') {
+    const parsed = parseTestJsonObject(output);
+    if (parsed) {
       const numPassedTestsValue = parsed['numPassedTests'];
       const numFailedTestsValue = parsed['numFailedTests'];
       const numSkippedTestsValue = parsed['numSkippedTests'];
