@@ -1250,12 +1250,14 @@ export function makeKanbanQueueTool(
             try {
               const board = await getBoard(projectRoot, dispatch.boardId);
               const liveTask = board?.tasks.find((t) => t.id === dispatch.taskId);
-              // Defensive guard: a task with no assignment (rare but possible
-              // during the brief window between assignment removal and
-              // task completion) must NOT be treated as a "different leaseId"
-              // — the optional chain would yield undefined, and `undefined !==
-              // ourLeaseId` is always true for a non-empty UUID, falsely
-              // terminating a legitimate worker.
+              // Defensive guard: no assignment means the task was
+              // released or recovered (e.g. mode='release') — the
+              // subagent no longer owns it. Terminate immediately.
+              // Capture the lease id explicitly so we don't mis-fire
+              // when the task exists but has no assignment yet
+              // (transient race during assignment removal): a literal
+              // `undefined !== ourLeaseId` would terminate a legitimate
+              // worker because undefined is not equal to any UUID.
               const liveLeaseId = liveTask?.assignment?.leaseId;
               if (liveLeaseId !== undefined && liveLeaseId !== ourLeaseId) {
                 await director.terminate(dispatch.subagentId).catch(() => {});
@@ -1392,12 +1394,14 @@ async function renewAndRevokeLease(opts: {
   try {
     const board = await getBoard(projectRoot, boardId);
     const liveTask = board?.tasks.find((t) => t.id === taskId);
-    // Defensive guard: a task with no assignment (rare but possible
-    // during the brief window between assignment removal and
-    // task completion) must NOT be treated as a "different leaseId"
-    // — the optional chain would yield undefined, and `undefined !==
-    // ourLeaseId` is always true for a non-empty UUID, falsely
-    // terminating a legitimate worker.
+    // Defensive guard: no assignment means the task was
+    // released or recovered (e.g. mode='release') — the
+    // subagent no longer owns it. Terminate immediately.
+    // Capture the lease id explicitly so we don't mis-fire
+    // when the task exists but has no assignment yet
+    // (transient race during assignment removal): a literal
+    // `undefined !== ourLeaseId` would terminate a legitimate
+    // worker because undefined is not equal to any UUID.
     const liveLeaseId = liveTask?.assignment?.leaseId;
     if (liveLeaseId !== undefined && liveLeaseId !== ourLeaseId) {
       await director.terminate(subagentId).catch(() => {});
