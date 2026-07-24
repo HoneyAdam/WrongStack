@@ -184,7 +184,12 @@ export async function* parseSSE(
         for (const msg of consumeChunk(value)) yield msg;
       }
     } finally {
-      reader.releaseLock();
+      // cancel(), not just releaseLock(): an early consumer exit — break/throw/
+      // return out of the generator that drives parseSSE — must close the HTTP
+      // body, otherwise the socket stays open until the outer AbortSignal (if
+      // any) fires. cancel() also releases the lock; on a fully-drained stream
+      // it is a harmless no-op.
+      void reader.cancel().catch(() => {});
     }
   }
 

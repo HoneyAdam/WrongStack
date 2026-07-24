@@ -100,6 +100,27 @@ describe('parseSSE', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({ event: 'web', data: 'streamed' });
   });
+
+  it('parseSSE cancels the web stream body when the consumer exits early', async () => {
+    let cancelled = false;
+    const enc = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        // Two complete events, then the stream stays open (never closed) —
+        // a real body a consumer may abandon mid-way.
+        c.enqueue(enc.encode('data: {"a":1}\n\n'));
+        c.enqueue(enc.encode('data: {"b":2}\n\n'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const iterator = parseSSE(body)[Symbol.asyncIterator]();
+    await iterator.next(); // pull the first event, then abandon iteration
+    await iterator.return?.(undefined);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cancelled).toBe(true);
+  });
 });
 
 async function readAll(rs: ReadableStream<Uint8Array>): Promise<string> {
