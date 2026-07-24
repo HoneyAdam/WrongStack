@@ -31,6 +31,10 @@ export class Connection {
     stdout.on('data', (chunk: Buffer) => this.onData(chunk));
     stdout.on('close', () => this.close());
     stdout.on('error', (err) => this.failAll(err));
+    // Without an stdin 'error' listener, a write to a server that just died
+    // (EPIPE, before stdout 'close' fires) emits an unhandled stream error and
+    // crashes the host. Treat it like any other transport failure.
+    stdin.on('error', (err) => this.failAll(err));
   }
 
   async sendRequest<R>(

@@ -29,6 +29,7 @@ import type {
 import type { ServerConfig, ServerState } from '../types.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { safeSpawn } from '../utils/safe-spawn.js';
+import { treeKill } from '../utils/tree-kill.js';
 import { pathToUri, uriToPath } from '../utils/uri.js';
 import { Connection } from './connection.js';
 import { initializeServer } from './initialize.js';
@@ -146,7 +147,7 @@ export class LSPServer {
       startup.cancel();
       this.state = 'failed';
       this.connection?.close();
-      this.child?.kill();
+      if (this.child) treeKill(this.child);
       this.processReachedReady = false;
       throw err;
     }
@@ -166,7 +167,7 @@ export class LSPServer {
     } finally {
       this.connection?.close();
       this.connection = null;
-      if (this.child && !this.child.killed) this.child.kill();
+      if (this.child && !this.child.killed) treeKill(this.child);
       this.child = null;
       this.processReachedReady = false;
       this.state = 'exited';
