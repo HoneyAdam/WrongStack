@@ -45,6 +45,8 @@ export interface OpenAIStreamState {
   thinkingOpen: boolean;
   toolByIndex: Map<number, OpenAIStreamToolState>;
   finalEmitted: boolean;
+  /** Set once `[DONE]` or a `finish_reason` is seen — a proper end-of-stream. */
+  sawTerminal: boolean;
 }
 
 export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
@@ -112,9 +114,14 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     thinkingOpen: false,
     toolByIndex: new Map(),
     finalEmitted: false,
+    sawTerminal: false,
   }),
   parseStreamEvent: (msg, state): StreamEvent[] => {
-    if (!msg.data || msg.data === '[DONE]') return [];
+    if (msg.data === '[DONE]') {
+      state.sawTerminal = true;
+      return [];
+    }
+    if (!msg.data) return [];
     const parsed = safeParse<Record<string, unknown>>(msg.data);
     if (!parsed.ok || !parsed.value) return [];
     const obj = parsed.value;
@@ -213,6 +220,7 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
 
     if (choice?.finish_reason) {
       state.stopReason = normalizeOpenAI(choice.finish_reason);
+      state.sawTerminal = true;
     }
 
     const u = obj['usage'] as
@@ -284,6 +292,11 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     }
     return out;
   },
+  // Started receiving but the upstream closed with no `[DONE]` and no
+  // `finish_reason` → the response was cut mid-stream. Terse endpoints that
+  // omit these markers use the local-llm preset, not this one, so on the
+  // OpenAI SSE contract this reliably means truncation.
+  isTruncated: (state) => state.started && !state.sawTerminal,
 });
 
 /**

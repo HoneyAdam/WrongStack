@@ -6,7 +6,7 @@ import type {
   StreamEvent,
   WireFamily,
 } from '@wrongstack/core/types';
-import { ConfigError, type ProviderError } from '@wrongstack/core/types';
+import { ConfigError, ProviderError } from '@wrongstack/core/types';
 import {
   type HeadersLike,
   parseProviderHttpError,
@@ -68,6 +68,15 @@ export interface WireFormatConfig<S = Record<string, unknown>> {
    * `[DONE]` instead of an explicit terminator).
    */
   finalizeStream?(state: S): StreamEvent[];
+  /**
+   * Optional: report whether the stream closed WITHOUT a terminal marker
+   * (e.g. OpenAI's `[DONE]` / a `finish_reason`). A clean mid-stream FIN from
+   * a proxy/LB idle timeout otherwise reaches `finalizeStream`, which happily
+   * synthesizes a `message_stop` with the default `end_turn` — committing a
+   * truncated response to history as if it finished. When this returns true,
+   * `runStream` throws a retryable error instead so the agent loop retries.
+   */
+  isTruncated?(state: S): boolean;
   /** Optional override; defaults to the shared HTTP error parser. `headers`
    *  (when the fetch impl provides them) carries Retry-After hints — impls
    *  may ignore it; the wire format backfills `body.retryAfterMs` either way. */
@@ -151,6 +160,18 @@ export class WireFormatProvider<S = Record<string, unknown>> extends WireAdapter
       for (const ev of this.cfg.parseStreamEvent(msg, state)) {
         yield ev;
       }
+    }
+    // The upstream closed. If it did so without a terminal marker, the response
+    // was cut mid-stream — surface a retryable error rather than letting
+    // finalizeStream synthesize a clean end_turn over truncated content.
+    if (this.cfg.isTruncated?.(state)) {
+      throw new ProviderError(
+        'Provider stream ended without a terminal marker ([DONE]/finish_reason) — response truncated mid-stream',
+        599,
+        true,
+        this.id,
+        { body: { message: 'stream truncated before completion' } },
+      );
     }
     if (this.cfg.finalizeStream) {
       for (const ev of this.cfg.finalizeStream(state)) {

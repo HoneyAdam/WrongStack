@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Capabilities, Request, ResponseFormat, StopReason, StreamEvent, Usage } from '@wrongstack/core/types';
-import type { ProviderError } from '@wrongstack/core/types';
+import { ProviderError } from '@wrongstack/core/types';
 import { safeParse } from '@wrongstack/core/utils';
 import { parseToolInput } from './_tool-input.js';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
@@ -144,6 +144,7 @@ export class OpenAIProvider extends WireAdapter {
   ): AsyncIterable<StreamEvent> {
     return parseOpenAIStream(body, fallbackModel, {
       stripThinkTags: this.opts.quirks?.stripThinkTags,
+      providerId: this.id,
     });
   }
 
@@ -303,12 +304,17 @@ type Response2Body = ReadableStream<Uint8Array> | NodeJS.ReadableStream | null;
 async function* parseOpenAIStream(
   body: Response2Body,
   fallbackModel: string,
-  opts?: { stripThinkTags?: boolean | undefined },
+  opts?: { stripThinkTags?: boolean | undefined; providerId?: string | undefined },
 ): AsyncIterable<StreamEvent> {
   let model = fallbackModel;
   let usage: Usage = { input: 0, output: 0 };
   let stopReason: StopReason = 'end_turn';
   let started = false;
+  // Whether a proper end-of-stream marker (`[DONE]` or a `finish_reason`) was
+  // seen. If the upstream closes without one after we started receiving, the
+  // response was cut mid-stream and must surface as retryable — not a clean
+  // end_turn over truncated content.
+  let sawTerminal = false;
   let textOpen = false;
   let thinkingOpen = false;
   const thinkFilter = opts?.stripThinkTags ? new ThinkTagFilter() : null;
@@ -347,7 +353,11 @@ async function* parseOpenAIStream(
   >();
 
   for await (const msg of parseSSE(body)) {
-    if (!msg.data || msg.data === '[DONE]') continue;
+    if (msg.data === '[DONE]') {
+      sawTerminal = true;
+      continue;
+    }
+    if (!msg.data) continue;
     const parsed = safeParse<Record<string, unknown>>(msg.data);
     if (!parsed.ok || !parsed.value) continue;
     const obj = parsed.value;
@@ -454,6 +464,7 @@ async function* parseOpenAIStream(
 
     if (choice?.finish_reason) {
       stopReason = normalizeOpenAI(choice.finish_reason);
+      sawTerminal = true;
     }
 
     const u = obj['usage'] as
@@ -527,6 +538,18 @@ async function* parseOpenAIStream(
     }
     const input = parseToolInput(joinArgBuffer(entry.argBuf));
     yield { type: 'tool_use_stop', id: entry.id, input };
+  }
+  if (started && !sawTerminal) {
+    // Content arrived, then the upstream closed with no `[DONE]` and no
+    // `finish_reason` — a clean proxy/LB idle-timeout FIN. Surface a retryable
+    // error rather than committing the truncated text as a finished turn.
+    throw new ProviderError(
+      'Provider stream ended without a terminal marker ([DONE]/finish_reason) — response truncated mid-stream',
+      599,
+      true,
+      opts?.providerId ?? 'openai',
+      { body: { message: 'stream truncated before completion' } },
+    );
   }
   if (started) {
     yield { type: 'message_stop', stopReason, usage };

@@ -72,9 +72,13 @@ export async function refreshCodexAccessToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    // Preserve the real status: FetchError derives `recoverable` from it
+    // (429/5xx → true). Hardcoding 401 marked every transient blip (503, 429)
+    // as a non-recoverable auth failure, so callers dropped credentials and
+    // forced a re-login instead of retrying.
     throw new FetchError({
       message: `Codex token refresh failed (${res.status}): ${text || res.statusText}`,
-      status: 401,
+      status: res.status,
       context: { provider: 'openai-codex' },
     });
   }
@@ -383,6 +387,10 @@ async function* parseCodexResponsesStream(
   let usage: Usage = { input: 0, output: 0 };
   let stopReason: StopReason = 'end_turn';
   let sawToolUse = false;
+  // Set once a terminal envelope (`response.completed`/`response.incomplete`,
+  // or `[DONE]`) is seen. If the stream closes without one after we started,
+  // the response was cut mid-stream and must surface as retryable.
+  let sawTerminal = false;
 
   // Currently-streaming function call (Responses streams one item at a time).
   let toolCallId: string | undefined;
@@ -423,7 +431,11 @@ async function* parseCodexResponsesStream(
       ? createSseLineFoldingTransform(body as ReadableStream<Uint8Array>)
       : body;
   for await (const msg of parseSSE(foldedBody)) {
-    if (!msg.data || msg.data === '[DONE]') continue;
+    if (msg.data === '[DONE]') {
+      sawTerminal = true;
+      continue;
+    }
+    if (!msg.data) continue;
     const parsed = safeParse<Record<string, unknown>>(msg.data);
     if (!parsed.ok || !parsed.value) continue;
     const evt = parsed.value;
@@ -559,6 +571,7 @@ async function* parseCodexResponsesStream(
         const resp = evt['response'] as { status?: string; usage?: ResponsesUsage } | undefined;
         if (resp?.usage) usage = normalizeUsage(resp.usage);
         stopReason = mapResponsesStatus(resp?.status, sawToolUse);
+        sawTerminal = true;
         break;
       }
 
@@ -578,6 +591,17 @@ async function* parseCodexResponsesStream(
     }
   }
 
+  if (started && !sawTerminal) {
+    // Output arrived, then the stream closed with no `response.completed` and
+    // no `[DONE]` — cut mid-stream. Retryable rather than a synthetic end_turn.
+    throw new ProviderError(
+      'Codex stream ended without a terminal envelope (response.completed/[DONE]) — response truncated mid-stream',
+      599,
+      true,
+      'openai-codex',
+      { body: { message: 'stream truncated before completion' } },
+    );
+  }
   if (started) {
     yield { type: 'message_stop', stopReason, usage };
   }

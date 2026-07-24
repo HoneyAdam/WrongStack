@@ -204,6 +204,29 @@ describe('OpenAICodexProvider stream parsing', () => {
     expect(res.usage).toMatchObject({ input: 8, output: 5, cacheRead: 2 });
   });
 
+  it('throws a retryable error when the stream ends with no response.completed and no [DONE] (mid-stream cut)', async () => {
+    const sse = [
+      'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',
+      '',
+      'data: {"type":"response.output_text.delta","delta":"Half a sen"}',
+      '',
+    ].join('\n');
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('a'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: (async () =>
+        new Response(sseBody(sse), { status: 200 })) as never as typeof fetch,
+    });
+    let caught: unknown;
+    try {
+      await p.complete(baseReq, { signal: new AbortController().signal });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/truncat/i);
+    expect((caught as { retryable?: boolean }).retryable).toBe(true);
+  });
+
   it('reconstructs streamed function-call arguments when output_item.done omits the final arguments field', async () => {
     const sse = [
       'data: {"type":"response.created","response":{"id":"r1","model":"gpt-5-codex"}}',

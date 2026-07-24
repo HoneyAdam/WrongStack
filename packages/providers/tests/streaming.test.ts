@@ -165,6 +165,29 @@ describe('OpenAIProvider.stream', () => {
     expect(res.model).toBe('gpt-test');
   });
 
+  it('throws a retryable error when the stream ends with no [DONE] and no finish_reason (mid-stream truncation)', async () => {
+    // Content arrived, then the upstream closed with no terminal marker — a
+    // clean proxy/LB idle-timeout FIN. This must NOT be reported as a finished
+    // end_turn; it must surface as a retryable error.
+    const sse = [
+      'data: {"id":"x","model":"gpt-test","choices":[{"index":0,"delta":{"content":"Half a sen"}}]}',
+      '',
+    ].join('\n');
+    const provider = new OpenAIProvider({ apiKey: 'k', fetchImpl: mockFetch(sseBody(sse)) });
+    let caught: unknown;
+    try {
+      await provider.complete(
+        { model: 'gpt-test', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100 },
+        { signal: new AbortController().signal },
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/truncat/i);
+    expect((caught as { retryable?: boolean }).retryable).toBe(true);
+  });
+
   it('splits DeepSeek cache hit and miss tokens for pricing', async () => {
     const sse = [
       'data: {"id":"x","model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"ok"}}]}',

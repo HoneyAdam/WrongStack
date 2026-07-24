@@ -1104,7 +1104,7 @@ describe('Google preset - parseStreamEvent edge cases', () => {
       googleWireFormat,
       sseBody([
         JSON.stringify({
-          candidates: [{}],
+          candidates: [{ finishReason: 'STOP' }],
           usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
         }),
       ]),
@@ -1192,19 +1192,28 @@ describe('Google preset - parseStreamEvent edge cases', () => {
     expect((stop as { usage: { cacheRead: number } }).usage.cacheRead).toBe(30);
   });
 
-  it('sets stopReason to end_turn when finishReason is absent', async () => {
-    const events = await collectFromPreset(
-      googleWireFormat,
-      sseBody([
-        JSON.stringify({
-          candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }],
-          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
-        }),
-      ]),
-      'gemini',
-    );
-    const stop = events.find((e) => e.type === 'message_stop');
-    expect((stop as { stopReason: string }).stopReason).toBe('end_turn');
+  it('throws a retryable truncation error when finishReason is absent (mid-stream cut)', async () => {
+    // Real Gemini always terminates a complete response with a finishReason;
+    // its absence after content means the stream was cut mid-response, which
+    // must surface as retryable rather than a synthetic end_turn.
+    let caught: unknown;
+    try {
+      await collectFromPreset(
+        googleWireFormat,
+        sseBody([
+          JSON.stringify({
+            candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+        ]),
+        'gemini',
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/truncat/i);
+    expect((caught as { retryable?: boolean }).retryable).toBe(true);
   });
 });
 

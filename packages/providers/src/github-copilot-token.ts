@@ -62,9 +62,13 @@ export async function refreshCopilotToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    // Preserve the real status: FetchError derives `recoverable` from it
+    // (429/5xx → true). Hardcoding 401 marked every transient blip (503, 429)
+    // as a non-recoverable auth failure, so callers dropped credentials and
+    // forced a re-login instead of retrying.
     throw new FetchError({
       message: `Copilot token request failed (${res.status}): ${text || res.statusText}`,
-      status: 401,
+      status: res.status,
       context: { provider: 'github-copilot' },
     });
   }

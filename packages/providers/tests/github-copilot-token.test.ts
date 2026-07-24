@@ -56,6 +56,29 @@ describe('refreshCopilotToken', () => {
     }
   });
 
+  it('preserves the real status so transient (5xx/429) refresh failures stay recoverable', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => 'service unavailable',
+    }) as never as typeof fetch;
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      let caught: unknown;
+      try {
+        await refreshCopilotToken('gh_token');
+      } catch (err) {
+        caught = err;
+      }
+      // A 503 must not masquerade as a 401 auth failure — it stays recoverable
+      // so callers retry instead of dropping credentials and forcing re-login.
+      expect((caught as { status?: number }).status).toBe(503);
+      expect((caught as { recoverable?: boolean }).recoverable).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('throws ParseError when response is missing fields', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

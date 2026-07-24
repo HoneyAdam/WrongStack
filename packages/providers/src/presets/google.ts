@@ -36,6 +36,8 @@ export interface GoogleStreamState {
   started: boolean;
   sawFunctionCall: boolean;
   finalEmitted: boolean;
+  /** Set once a `finishReason` is seen — Gemini's end-of-stream marker. */
+  sawTerminal: boolean;
 }
 
 export const googleWireFormat = defineWireFormat<GoogleStreamState>({
@@ -80,6 +82,7 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
     started: false,
     sawFunctionCall: false,
     finalEmitted: false,
+    sawTerminal: false,
   }),
   parseStreamEvent: (msg, state): StreamEvent[] => {
     if (!msg.data || msg.data === '[DONE]') return [];
@@ -127,6 +130,7 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
 
     if (candidate?.finishReason) {
       state.stopReason = normalizeGemini(candidate.finishReason);
+      state.sawTerminal = true;
     }
 
     const u = obj.usageMetadata;
@@ -148,6 +152,9 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
     const finalStop: StopReason = state.sawFunctionCall ? 'tool_use' : state.stopReason;
     return [{ type: 'message_stop', stopReason: finalStop, usage: state.usage }];
   },
+  // Started receiving but no `finishReason` arrived → the Gemini stream was cut
+  // mid-response. Surface a retryable error instead of a synthetic end_turn.
+  isTruncated: (state) => state.started && !state.sawTerminal,
 });
 
 function buildGenConfig(

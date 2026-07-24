@@ -5,7 +5,7 @@ import { GoogleProvider } from '../src/google.js';
 function gemSSE(): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const data =
-    'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":1}}\n\n';
+    'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":1}}\n\n';
   return new ReadableStream({
     pull(c) {
       c.enqueue(enc.encode(data));
