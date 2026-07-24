@@ -235,11 +235,32 @@ export class DirectorTaskRegistry {
     this.taskWaiters.clear();
   }
 
+  /** A task the registry could still settle: completed, currently assigned, or internal. */
+  private isKnownTask(taskId: string): boolean {
+    return (
+      this.completed.has(taskId) ||
+      this.descriptions.has(taskId) ||
+      this.owners.has(taskId) ||
+      this.internalTaskIds.has(taskId) ||
+      this.taskWaiters.has(taskId)
+    );
+  }
+
   private awaitTask(taskId: string): Promise<TaskResult> {
     const cached = this.completed.get(taskId);
     if (cached) return Promise.resolve(cached);
     const existing = this.taskWaiters.get(taskId);
     if (existing) return existing.promise;
+    // A taskId the registry has never seen — a leader typo/hallucination, or an
+    // id that was passed to await_tasks before it was ever assigned — can never
+    // be settle()d, so a waiter for it would hang the entire await_tasks call
+    // (and, on the kanban path, keep renewing the lease for hours). Return a
+    // synthetic stopped result immediately instead.
+    if (!this.isKnownTask(taskId)) {
+      return Promise.resolve(
+        this.makeStoppedResult(taskId, 'director', `Unknown task id "${taskId}" — never assigned`),
+      );
+    }
     let resolve!: (result: TaskResult) => void;
     const promise = new Promise<TaskResult>((done) => {
       resolve = done;
