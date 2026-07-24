@@ -262,7 +262,17 @@ export class DefaultModelsRegistry implements ModelsRegistry {
           context: { url: this.url, op: 'refreshModels' },
         });
       }
-      const json = (await res.json()) as ModelsDevPayload;
+      const json = (await res.json()) as unknown;
+      if (!looksLikeModelsPayload(json, true)) {
+        // A 200 with non-catalog JSON (captive portal, CDN error page). Do NOT
+        // cache it — throw so loadBase falls back to the stale cache instead of
+        // serving poison for the full TTL.
+        throw new FetchError({
+          message: `ModelsRegistry: ${this.url} returned a non-catalog payload`,
+          status: 502,
+          context: { url: this.url, op: 'refreshModels', reason: 'invalid-shape' },
+        });
+      }
       this.fetchedAt = new Date();
       const envelope: CacheEnvelope = {
         fetchedAt: this.fetchedAt.toISOString(),
@@ -314,18 +324,34 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       const cached = await this.readCacheAt(this.overlayCacheFile);
       if (cached && this.isFresh(cached.fetchedAt)) return cached.payload;
     }
+    const controller = new AbortController();
+    // The base fetch is timeout-bounded; the overlay fetch was not, so a
+    // stalled overlay host could hang load() (and boot) indefinitely.
+    const timeout = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
     try {
       const res = await this.fetchImpl(this.overlayUrl, {
         method: 'GET',
         headers: { accept: 'application/json' },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (!res.ok)
         throw new FetchError({
           message: `HTTP ${res.status}`,
           status: res.status,
           context: { url: this.url, op: 'refreshModels' },
         });
-      const json = (await res.json()) as ModelsDevPayload;
+      const json = (await res.json()) as unknown;
+      // Reject a non-catalog payload (error page) so it can't poison the
+      // overlay cache. Lenient: overlays may be partial diffs, so we don't
+      // demand a `models` map on every entry.
+      if (!looksLikeModelsPayload(json, false)) {
+        throw new FetchError({
+          message: `ModelsRegistry: ${this.overlayUrl} returned a non-catalog payload`,
+          status: 502,
+          context: { url: this.overlayUrl, op: 'refreshModels', reason: 'invalid-shape' },
+        });
+      }
       const envelope: CacheEnvelope = {
         fetchedAt: new Date().toISOString(),
         url: this.overlayUrl,
@@ -335,8 +361,9 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       await atomicWrite(this.overlayCacheFile, JSON.stringify(envelope)).catch(() => {});
       return json;
     } catch {
-      // Network/parse failure — fall back to stale overlay cache, then the
-      // bundled file (handled by the caller).
+      clearTimeout(timeout);
+      // Network/parse/timeout/invalid-shape failure — fall back to stale
+      // overlay cache, then the bundled file (handled by the caller).
       const cached = await this.readCacheAt(this.overlayCacheFile);
       if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) {
         const ageSeconds = Math.floor((Date.now() - new Date(cached.fetchedAt).getTime()) / 1000);
@@ -505,4 +532,28 @@ function formatAge(seconds: number): string {
 
 function hasEntries(payload: ModelsDevPayload | undefined): payload is ModelsDevPayload {
   return payload !== undefined && Object.keys(payload).length > 0;
+}
+
+/**
+ * Shape-check a fetched models payload before it is cached and served for the
+ * whole TTL. A captive portal or CDN error page returning `200` + valid JSON
+ * (e.g. `{"error":"..."}`) would otherwise poison the catalog until a manual
+ * refresh. Every provider entry must be an object — an error envelope whose
+ * values are strings/numbers is rejected. `requireModels` additionally demands
+ * that at least one entry carry a `models` map (the base catalog always does);
+ * it is relaxed for curated overlays, which may be partial diffs.
+ */
+function looksLikeModelsPayload(value: unknown, requireModels: boolean): value is ModelsDevPayload {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entries = Object.values(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  const allObjects = entries.every(
+    (entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry),
+  );
+  if (!allObjects) return false;
+  if (!requireModels) return true;
+  return entries.some((entry) => {
+    const models = (entry as Record<string, unknown>)['models'];
+    return models !== null && typeof models === 'object';
+  });
 }

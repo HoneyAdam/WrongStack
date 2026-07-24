@@ -61,6 +61,25 @@ describe('models-registry — extra coverage', () => {
     await expect(reg.load()).rejects.toThrow(/timed out/);
   });
 
+  it('rejects a poisoned 200 payload and falls back to the stale cache', async () => {
+    await writeCache(cacheFile, SAMPLE); // stale under ttlSeconds:0
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: 'blocked by captive portal' }),
+    ) as never as typeof fetch;
+    const reg = new DefaultModelsRegistry({ cacheFile, fetchImpl, ttlSeconds: 0 });
+    const payload = await reg.load();
+    // The error envelope is a valid-JSON 200 but not a catalog — it must not
+    // replace the stale-but-real cache.
+    expect(payload.anthropic).toBeDefined();
+    expect((payload as Record<string, unknown>).error).toBeUndefined();
+  });
+
+  it('refuses to cache a poisoned 200 payload when there is no cache', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: 'blocked' })) as never as typeof fetch;
+    const reg = new DefaultModelsRegistry({ cacheFile, fetchImpl, ttlSeconds: 0 });
+    await expect(reg.load()).rejects.toThrow(/non-catalog payload/);
+  });
+
   it('getModel returns undefined for unknown provider or model', async () => {
     const reg = new DefaultModelsRegistry({ cacheFile, seed: SAMPLE });
     expect(await reg.getModel('nope', 'm1')).toBeUndefined();
