@@ -585,6 +585,33 @@ describe('SqliteSageStore', () => {
     });
   });
 
+  describe('readAudit + retention', () => {
+    it('readAudit returns recent audited events newest-first, with mapped fields', async () => {
+      const store = trackStore(new SqliteSageStore({ projectRoot: tempDir }));
+      const mem = await store.rememberSage({ text: 'auditable memory', kind: 'fact' });
+      await store.recordUse([mem.id], 'test-source', 'sess-1'); // → 'memory.used'
+
+      const audit = await store.readAudit(10);
+      expect(audit.length).toBeGreaterThan(0);
+      // Newest first: the most recent event is the recordUse.
+      expect(audit[0]?.event).toBe('memory.used');
+      expect(audit[0]?.schemaVersion).toBe(1);
+      expect(audit.every((r) => typeof r.at === 'string' && r.at.length > 0)).toBe(true);
+      // The nested details column round-trips.
+      expect(audit[0]?.details).toMatchObject({ source: 'test-source' });
+    });
+
+    it('hygiene keeps the audit log bounded (prune runs without error)', async () => {
+      const store = trackStore(new SqliteSageStore({ projectRoot: tempDir }));
+      await store.rememberSage({ text: 'keep me', kind: 'fact' });
+      // hygiene() calls pruneAuditLog(); it must succeed and the trail stays readable.
+      await store.hygiene();
+      const audit = await store.readAudit(50);
+      expect(Array.isArray(audit)).toBe(true);
+      expect(audit.some((r) => r.event === 'memory.hygiene_completed')).toBe(true);
+    });
+  });
+
   describe('JSONL → SQLite migration', () => {
     it('auto-migrates existing JSONL records on first open', async () => {
       // Write every legacy artifact directly to disk (the JSONL store that used

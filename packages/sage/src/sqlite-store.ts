@@ -219,6 +219,14 @@ function withSqliteExperimentalWarningSuppressed<T>(run: () => T): T {
 
 const SQLITE_SCHEMA_VERSION = 3;
 const LEGACY_JSONL_MIGRATION_KEY = 'legacy_jsonl_migrated';
+// The audit log is a *recent activity* trail — its only consumer is
+// `/memory audit`, which shows the newest ~50 events. It is not a compliance
+// record, so it is bounded to the most recent rows rather than kept forever.
+// 1000 is ~20x the view with hard-capped disk regardless of write rate.
+const AUDIT_LOG_MAX_ROWS = 1000;
+// Prune opportunistically every this-many audit writes so growth stays bounded
+// between hygiene passes without a DELETE on every single insert.
+const AUDIT_LOG_PRUNE_INTERVAL = 256;
 
 /** Local command helpers (mirror store-helpers; kept private to this module). */
 function sqliteNormalizeCommand(command: string): string {
@@ -431,6 +439,7 @@ export class SqliteSageStore implements MemoryStore {
   private initialized = false;
   private initializing: Promise<void> | undefined;
   private mutationChain: Promise<unknown> = Promise.resolve();
+  private auditWritesSincePrune = 0;
   /**
    * Prepared-statement cache. `DatabaseSync.prepare()` recompiles SQL every call;
    * hot paths (remember, inject, search, list) re-use the same SQL thousands of
@@ -2476,6 +2485,54 @@ export class SqliteSageStore implements MemoryStore {
       this.traceId ?? null,
       data ? JSON.stringify(data) : null,
     );
+    if (++this.auditWritesSincePrune >= AUDIT_LOG_PRUNE_INTERVAL) {
+      this.auditWritesSincePrune = 0;
+      this.pruneAuditLog();
+    }
+  }
+
+  /** Delete all but the most recent {@link AUDIT_LOG_MAX_ROWS} audit rows. */
+  private pruneAuditLog(): void {
+    this.stmt(
+      `DELETE FROM audit_log WHERE id <= (
+         SELECT MAX(id) FROM audit_log
+       ) - ?`,
+    ).run(AUDIT_LOG_MAX_ROWS);
+  }
+
+  /**
+   * Read the most recent audit events, newest first. Backs `/memory audit`.
+   * Bounded by {@link AUDIT_LOG_MAX_ROWS} retention, so this is a rolling
+   * window of recent activity, not a full history.
+   */
+  async readAudit(limit = 50): Promise<SageAuditRecord[]> {
+    await this.initialize();
+    const rows = this.stmt(
+      'SELECT event, at, trace_id, data FROM audit_log ORDER BY id DESC LIMIT ?',
+    ).all(Math.max(1, Math.floor(limit))) as Array<{
+      event: string;
+      at: string;
+      trace_id: string | null;
+      data: string | null;
+    }>;
+    return rows.map((row) => {
+      let parsed: Record<string, unknown> = {};
+      if (row.data) {
+        try {
+          const value = JSON.parse(row.data);
+          if (value && typeof value === 'object') parsed = value as Record<string, unknown>;
+        } catch {
+          // Corrupt data column — surface the event without its detail.
+        }
+      }
+      const record: SageAuditRecord = { schemaVersion: 1, event: row.event, at: row.at };
+      if (typeof parsed['memoryId'] === 'string') record.memoryId = parsed['memoryId'];
+      if (typeof parsed['source'] === 'string') record.source = parsed['source'];
+      if (typeof parsed['reason'] === 'string') record.reason = parsed['reason'];
+      if (row.trace_id) record.traceId = row.trace_id;
+      if (parsed['details'] !== undefined) record.details = parsed['details'];
+      return record;
+    });
   }
 
   private eventPayload<T extends object>(payload: T): T & { traceId?: string | undefined } {
@@ -2738,6 +2795,9 @@ export class SqliteSageStore implements MemoryStore {
     this.audit('memory.hygiene_completed', {
       details: report as unknown as Record<string, unknown>,
     });
+    // Maintenance is the natural place to guarantee the audit trail stays
+    // bounded, independent of the opportunistic prune counter.
+    this.pruneAuditLog();
     return report;
   }
 

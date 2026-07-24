@@ -91,6 +91,7 @@ export class SqliteMemoryPort extends SqliteSageStore implements MemoryPort {
     listCandidates: (includeResolved) => super.listCandidates(includeResolved),
     graphFor: (query, maxDepth, limit) => super.graphFor(query, maxDepth, limit),
     verify: (memoryId, signal) => super.verify(memoryId, signal),
+    readAudit: (limit) => super.readAudit(limit),
   };
 
   override withTraceId(traceId: string): this {
