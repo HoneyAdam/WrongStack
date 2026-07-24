@@ -138,7 +138,8 @@ describe.skipIf(!isChronicleMetricsAvailable())('ChronicleMetricsStore', () => {
       });
 
       // Reads are excluded from lineage; the mutation carries full attribution.
-      const lineage = store.fileLineage({ path: 'src/app.ts' });
+      // Path lookup is case-normalized (Windows), yet display path is original.
+      const lineage = store.fileLineage({ path: 'SRC/App.ts' });
       expect(lineage).toHaveLength(1);
       expect(lineage[0]).toMatchObject({
         path: 'src/app.ts',

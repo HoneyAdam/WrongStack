@@ -30,7 +30,7 @@ import { withFileLock } from '../utils/atomic-write.js';
 import { findChroniclePartitions } from './query.js';
 import type { ChronicleEvent } from './types.js';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const READ_CHUNK_BYTES = 1024 * 1024;
 
 export interface ChronicleMetricsRefreshResult {
@@ -276,8 +276,8 @@ export class ChronicleMetricsStore {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
     if (options.path) {
-      clauses.push('path = ?');
-      params.push(normalizeKey(options.path));
+      clauses.push('path_key = ?');
+      params.push(normalizePathKey(options.path));
     }
     if (options.taskId) {
       clauses.push('task_id = ?');
@@ -400,6 +400,7 @@ export class ChronicleMetricsStore {
       CREATE TABLE IF NOT EXISTS file_lineage (
         event_id TEXT PRIMARY KEY,
         path TEXT NOT NULL,
+        path_key TEXT NOT NULL,
         operation TEXT NOT NULL,
         occurred_at TEXT NOT NULL,
         session_id TEXT NOT NULL DEFAULT '',
@@ -412,7 +413,9 @@ export class ChronicleMetricsStore {
         model_id TEXT NOT NULL DEFAULT '',
         source TEXT NOT NULL DEFAULT ''
       );
-      CREATE INDEX IF NOT EXISTS idx_file_lineage_path ON file_lineage(path, occurred_at);
+      -- Lookups filter on the case-normalized path_key (matching the query
+      -- engine); the path column retains original casing for display.
+      CREATE INDEX IF NOT EXISTS idx_file_lineage_path ON file_lineage(path_key, occurred_at);
       CREATE INDEX IF NOT EXISTS idx_file_lineage_task ON file_lineage(task_id);
       CREATE TABLE IF NOT EXISTS token_cost (
         scope_key TEXT PRIMARY KEY,
@@ -667,13 +670,14 @@ export class ChronicleMetricsStore {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO file_lineage
-        (event_id, path, operation, occurred_at, session_id, agent_id, task_id, board_id, run_id,
+        (event_id, path, path_key, operation, occurred_at, session_id, agent_id, task_id, board_id, run_id,
          tool_name, provider_id, model_id, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.eventId,
         normalizeKey(filePath),
+        normalizePathKey(filePath),
         operation,
         event.occurredAt ?? event.observedAt,
         event.scope.sessionId ?? '',
@@ -739,4 +743,12 @@ function clampLimit(limit: number | undefined, fallback: number): number {
 
 function normalizeKey(value: string): string {
   return value.replaceAll('\\', '/');
+}
+
+/** Case-normalized path key for lineage lookups. Mirrors the query engine's
+ *  path comparison (lowercase + forward-slash) and additionally strips a
+ *  leading `./` so a repo-relative path matches however the tool reported it —
+ *  case differences on Windows are the common mismatch. */
+function normalizePathKey(value: string): string {
+  return value.replaceAll('\\', '/').replace(/^\.\//, '').toLowerCase();
 }

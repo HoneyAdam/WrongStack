@@ -3,7 +3,9 @@ import {
   analyzeFileActivity,
   normalizeTrackedPath,
   pathsReferToSameFile,
+  summarizeLineage,
 } from '../../src/components/FileActivityDrawer.js';
+import type { ChronicleFileLineageRow } from '../../src/types.js';
 
 describe('FileActivityDrawer model', () => {
   it('matches relative and absolute Windows paths for the same file', () => {
@@ -52,5 +54,51 @@ describe('FileActivityDrawer model', () => {
         now,
       ),
     ).toEqual({ level: 'quiet', mutationCount: 0, sessionCount: 0, actorCount: 0, taskCount: 0 });
+  });
+
+  it('rolls up full-history lineage into distinct-count summary', () => {
+    const row = (over: Partial<ChronicleFileLineageRow>): ChronicleFileLineageRow => ({
+      path: 'src/app.ts',
+      operation: 'update',
+      occurredAt: '2026-07-20T10:00:00.000Z',
+      sessionId: '',
+      agentId: '',
+      taskId: '',
+      boardId: '',
+      runId: '',
+      toolName: '',
+      providerId: '',
+      modelId: '',
+      source: 'tool',
+      ...over,
+    });
+    const summary = summarizeLineage([
+      row({ occurredAt: '2026-07-20T10:00:00.000Z', sessionId: 's1', taskId: 't1', boardId: 'b1', toolName: 'edit', modelId: 'm1' }),
+      row({ occurredAt: '2026-07-22T10:00:00.000Z', sessionId: 's2', taskId: 't1', boardId: 'b1', toolName: 'write', modelId: 'm1' }),
+      row({ occurredAt: '2026-07-24T10:00:00.000Z', sessionId: 's2', taskId: 't2', toolName: 'edit', modelId: 'm2' }),
+    ]);
+    expect(summary).toMatchObject({
+      mutations: 3,
+      sessions: 2,
+      tasks: 2,
+      boards: 1,
+      firstAt: '2026-07-20T10:00:00.000Z',
+      lastAt: '2026-07-24T10:00:00.000Z',
+    });
+    expect([...summary.tools].sort()).toEqual(['edit', 'write']);
+    expect([...summary.models].sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('summarizes empty lineage without touching optional fields', () => {
+    expect(summarizeLineage([])).toEqual({
+      mutations: 0,
+      sessions: 0,
+      tasks: 0,
+      boards: 0,
+      tools: [],
+      models: [],
+      firstAt: undefined,
+      lastAt: undefined,
+    });
   });
 });

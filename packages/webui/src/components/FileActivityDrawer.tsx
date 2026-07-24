@@ -27,7 +27,7 @@ import {
   useKanbanStore,
   useSddBoardStore,
 } from '@/stores';
-import type { ChronicleEventView, WSServerMessage } from '@/types';
+import type { ChronicleEventView, ChronicleFileLineageRow, WSServerMessage } from '@/types';
 import { DiffView } from './DiffView';
 
 type DrawerTab = 'overview' | 'changes' | 'context' | 'logs';
@@ -54,6 +54,48 @@ export interface FileActivityAnalysis {
   sessionCount: number;
   actorCount: number;
   taskCount: number;
+}
+
+/** Full-history rollup of a file's mutation lineage, sourced from the Chronicle
+ *  metrics store (indexed by path) rather than a bounded event scan. */
+export interface FileLineageSummary {
+  mutations: number;
+  sessions: number;
+  tasks: number;
+  boards: number;
+  tools: string[];
+  models: string[];
+  firstAt?: string | undefined;
+  lastAt?: string | undefined;
+}
+
+export function summarizeLineage(rows: ChronicleFileLineageRow[]): FileLineageSummary {
+  const sessions = new Set<string>();
+  const tasks = new Set<string>();
+  const boards = new Set<string>();
+  const tools = new Set<string>();
+  const models = new Set<string>();
+  let firstAt: string | undefined;
+  let lastAt: string | undefined;
+  for (const row of rows) {
+    if (row.sessionId) sessions.add(row.sessionId);
+    if (row.taskId) tasks.add(row.taskId);
+    if (row.boardId) boards.add(row.boardId);
+    if (row.toolName) tools.add(row.toolName);
+    if (row.modelId) models.add(row.modelId);
+    if (!firstAt || row.occurredAt < firstAt) firstAt = row.occurredAt;
+    if (!lastAt || row.occurredAt > lastAt) lastAt = row.occurredAt;
+  }
+  return {
+    mutations: rows.length,
+    sessions: sessions.size,
+    tasks: tasks.size,
+    boards: boards.size,
+    tools: [...tools],
+    models: [...models],
+    firstAt,
+    lastAt,
+  };
 }
 
 const MIN_DRAWER_HEIGHT = 150;
@@ -193,6 +235,7 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
   const [drawerHeight, setDrawerHeight] = useState(DEFAULT_DRAWER_HEIGHT);
   const [tab, setTab] = useState<DrawerTab>('overview');
   const [chronicleEvents, setChronicleEvents] = useState<ChronicleEventView[]>([]);
+  const [lineage, setLineage] = useState<ChronicleFileLineageRow[]>([]);
   const [chronicleLoading, setChronicleLoading] = useState(false);
   const [chronicleError, setChronicleError] = useState<string | null>(null);
   const [gitBase, setGitBase] = useState<{
@@ -214,10 +257,9 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
     setChronicleError(null);
     setChronicleLoading(true);
     if (typeof client.getGitDiff === 'function') client.getGitDiff(file.path);
-    if (
-      typeof client.supportsCapability === 'function' &&
-      client.supportsCapability('chronicle.query')
-    ) {
+    const supports =
+      typeof client.supportsCapability === 'function' ? client.supportsCapability.bind(client) : null;
+    if (supports?.('chronicle.query')) {
       client.send({
         type: 'chronicle.query',
         payload: { query: { path: file.path, resourceKind: 'file', order: 'desc', limit: 150 } },
@@ -225,10 +267,16 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
     } else {
       setChronicleLoading(false);
     }
+    // Full-history lineage rollup from the metrics store (indexed by path) —
+    // cheap regardless of journal size, unlike the bounded query scan above.
+    if (supports?.('chronicle.metrics')) {
+      client.send({ type: 'chronicle.metrics', payload: { view: 'files', path: file.path, limit: 1000 } });
+    }
   }, [client, file.path]);
 
   useEffect(() => {
     setChronicleEvents([]);
+    setLineage([]);
     setGitBase(null);
     const offChronicle = client.on('chronicle.query_result', (message: WSServerMessage) => {
       if (message.type !== 'chronicle.query_result') return;
@@ -238,6 +286,14 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
       if (message.payload.events.length > 0 && matching.length === 0) return;
       setChronicleEvents(matching);
       setChronicleLoading(false);
+    });
+    const offMetrics = client.on('chronicle.metrics_result', (message: WSServerMessage) => {
+      if (message.type !== 'chronicle.metrics_result' || message.payload.view !== 'files') return;
+      // The server filtered by path; keep a defensive same-file guard in case a
+      // stale response for a previously-open file arrives after a fast switch.
+      setLineage(
+        message.payload.data.filter((row) => pathsReferToSameFile(row.path, file.path)),
+      );
     });
     const offChronicleError = client.on('chronicle.error', (message: WSServerMessage) => {
       if (message.type !== 'chronicle.error') return;
@@ -257,6 +313,7 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
     requestEvidence();
     return () => {
       offChronicle();
+      offMetrics();
       offChronicleError();
       offGit();
     };
@@ -301,6 +358,7 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
     [chronicleEvents, liveActivities],
   );
   const analysis = useMemo(() => analyzeFileActivity(records), [records]);
+  const lifetime = useMemo(() => summarizeLineage(lineage), [lineage]);
   const baseText = gitBase?.text ?? file.savedContent;
   const delta = useMemo(() => changeCounts(baseText, file.content), [baseText, file.content]);
   const sessions = useMemo(
@@ -448,6 +506,7 @@ export function FileActivityDrawer({ file }: { file: OpenFile }) {
             {tab === 'overview' && (
               <OverviewTab
                 analysis={analysis}
+                lifetime={lifetime}
                 records={records}
                 sessions={sessions}
                 agents={agents}
@@ -504,6 +563,7 @@ function HeaderMetric({ label }: { label: string }) {
 
 function OverviewTab({
   analysis,
+  lifetime,
   records,
   sessions,
   agents,
@@ -511,6 +571,7 @@ function OverviewTab({
   taskLabel,
 }: {
   analysis: FileActivityAnalysis;
+  lifetime: FileLineageSummary;
   records: ActivityRecord[];
   sessions: string[];
   agents: string[];
@@ -545,6 +606,7 @@ function OverviewTab({
             </div>
           ))}
         </div>
+        {lifetime.mutations > 0 && <LifetimeLineage lifetime={lifetime} />}
         <div
           className={cn(
             'flex items-start gap-2 rounded-md border px-2.5 py-2 text-[10px]',
@@ -601,6 +663,41 @@ function OverviewTab({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function LifetimeLineage({ lifetime }: { lifetime: FileLineageSummary }) {
+  const { t } = useAppTranslation();
+  const stats: Array<{ value: number; label: string }> = [
+    { value: lifetime.mutations, label: t('activity:fileActivity.lifetimeChanges') },
+    { value: lifetime.sessions, label: t('activity:fileActivity.lifetimeSessions') },
+    { value: lifetime.tasks, label: t('activity:fileActivity.lifetimeTasks') },
+    { value: lifetime.boards, label: t('activity:fileActivity.lifetimeBoards') },
+  ];
+  const since = lifetime.firstAt ? new Date(lifetime.firstAt).toLocaleDateString() : undefined;
+  return (
+    <div className="rounded-md border border-primary/15 bg-primary/[0.03] px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-wider text-primary [&>svg]:h-3 [&>svg]:w-3">
+        <FileClock />
+        {t('activity:fileActivity.lifetimeTitle')}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] text-muted-foreground">
+        {stats.map((stat) => (
+          <span key={stat.label}>
+            <b className="text-foreground">{stat.value.toLocaleString()}</b> {stat.label}
+          </span>
+        ))}
+        {since && <span>{t('activity:fileActivity.lifetimeSince', { date: since })}</span>}
+      </div>
+      {lifetime.tools.length > 0 && (
+        <div
+          className="mt-1 truncate font-mono text-[8px] text-muted-foreground"
+          title={lifetime.tools.join(', ')}
+        >
+          {t('activity:fileActivity.lifetimeTools', { tools: lifetime.tools.slice(0, 6).join(', ') })}
+        </div>
+      )}
     </div>
   );
 }
