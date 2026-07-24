@@ -26,7 +26,17 @@ export { wireProviderStreamsToChronicle, type ChronicleStreamAdapterOptions } fr
 export { createChroniclePromptManifest, type ChroniclePromptManifest } from './prompt-manifest.js';
 export { wireRollupsToChronicle, type ChronicleRollupAdapterOptions } from './rollup-adapter.js';
 export {
+  ChronicleMetricsStore,
+  isChronicleMetricsAvailable,
+  type ChronicleMetricsRefreshResult,
+  type ChronicleMetricsSummary,
+  type ChronicleProviderDailyRow,
+  type ChronicleTaskOutcomeRow,
+  type ChronicleFileLineageRow,
+} from './metrics-store.js';
+export {
   CHRONICLE_FACET_FIELDS,
+  findChroniclePartitions,
   ChronicleQueryEngine,
   type ChronicleSummary,
   type ChronicleSignalFamily,

@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
 import {
   CHRONICLE_SCHEMA_VERSION,
@@ -180,11 +182,10 @@ export class ChronicleJournal {
           await withFileLock(familyBase, async () => {
             const fileStat = await fs.lstat(file);
             if (!fileStat.isFile() || fileStat.mtimeMs > cutoff) return;
-            const entries = await readEntriesStrict(file);
             const checkpointResult = await readRetentionCheckpoint(familyBase);
             if (checkpointResult.error) throw new Error(checkpointResult.error);
             const checkpoint = checkpointResult.checkpoint;
-            const nextCheckpoint = verifyRetainedPrefix(entries, checkpoint);
+            const nextCheckpoint = await verifyRetainedPrefix(streamEntriesStrict(file), checkpoint);
             if (!nextCheckpoint) throw new Error('partition does not extend the trusted Chronicle chain');
             if (nextCheckpoint.sequence > (checkpoint?.sequence ?? 0)) {
               await writeRetentionCheckpoint(familyBase, nextCheckpoint);
@@ -399,15 +400,16 @@ function retentionCheckpointPath(basePath: string): string {
   return `${partitionFamilyBase(basePath)}.retention.json`;
 }
 
-function verifyRetainedPrefix(
-  entries: ChronicleEvent[],
+async function verifyRetainedPrefix(
+  entries: AsyncIterable<ChronicleEvent>,
   checkpoint: ChronicleRetentionCheckpoint | undefined,
-): ChronicleRetentionCheckpoint | undefined {
-  if (entries.length === 0) return undefined;
+): Promise<ChronicleRetentionCheckpoint | undefined> {
   let sequence = checkpoint?.sequence ?? 0;
   let hash = checkpoint?.hash ?? GENESIS_HASH;
   let advanced = false;
-  for (const entry of entries) {
+  let sawEntry = false;
+  for await (const entry of entries) {
+    sawEntry = true;
     if (entry.sequence <= sequence) continue;
     if (entry.sequence !== sequence + 1 || entry.previousHash !== hash) return undefined;
     const { hash: recordedHash, ...content } = entry;
@@ -416,6 +418,7 @@ function verifyRetainedPrefix(
     hash = recordedHash;
     advanced = true;
   }
+  if (!sawEntry) return undefined;
   if (!advanced) return checkpoint;
   return { version: RETENTION_CHECKPOINT_VERSION, sequence, hash };
 }
@@ -430,34 +433,34 @@ async function verifyPartitionFiles(
   let lastSequence = checkpointSequence;
   let coveredPrevious: ChronicleEvent | undefined;
   for (const file of files) {
-    let chunk: ChronicleEvent[];
-    try { chunk = await readEntriesStrict(file); } catch (error) { return { ok: false, entries, brokenAt: entries, reason: errorMessage(error) }; }
-    for (const entry of chunk) {
-      const { hash: recordedHash, ...content } = entry;
-      if (entry.sequence <= checkpointSequence) {
-        // A checkpoint can be durably renamed just before its source
-        // partition fails to unlink. Such retained bytes are still evidence:
-        // validate them rather than treating every covered sequence as absent.
-        if (hashValue(content) !== recordedHash) return { ok: false, entries, brokenAt: entries, reason: 'entry hash mismatch' };
-        if (coveredPrevious && entry.sequence !== coveredPrevious.sequence + 1) {
-          return { ok: false, entries, brokenAt: entries, reason: `sequence ${entry.sequence} is not ${coveredPrevious.sequence + 1}` };
+    try {
+      for await (const entry of streamEntriesStrict(file)) {
+        const { hash: recordedHash, ...content } = entry;
+        if (entry.sequence <= checkpointSequence) {
+          // A checkpoint can be durably renamed just before its source
+          // partition fails to unlink. Such retained bytes are still evidence:
+          // validate them rather than treating every covered sequence as absent.
+          if (hashValue(content) !== recordedHash) return { ok: false, entries, brokenAt: entries, reason: 'entry hash mismatch' };
+          if (coveredPrevious && entry.sequence !== coveredPrevious.sequence + 1) {
+            return { ok: false, entries, brokenAt: entries, reason: `sequence ${entry.sequence} is not ${coveredPrevious.sequence + 1}` };
+          }
+          if (coveredPrevious && entry.previousHash !== coveredPrevious.hash) {
+            return { ok: false, entries, brokenAt: entries, reason: 'previous hash mismatch' };
+          }
+          if (entry.sequence === checkpointSequence && recordedHash !== checkpoint?.hash) {
+            return { ok: false, entries, brokenAt: entries, reason: 'retention checkpoint hash mismatch' };
+          }
+          coveredPrevious = entry;
+          continue;
         }
-        if (coveredPrevious && entry.previousHash !== coveredPrevious.hash) {
-          return { ok: false, entries, brokenAt: entries, reason: 'previous hash mismatch' };
-        }
-        if (entry.sequence === checkpointSequence && recordedHash !== checkpoint?.hash) {
-          return { ok: false, entries, brokenAt: entries, reason: 'retention checkpoint hash mismatch' };
-        }
-        coveredPrevious = entry;
-        continue;
+        const index = entries++;
+        if (entry.sequence !== lastSequence + 1) return { ok: false, entries, brokenAt: index, reason: `sequence ${entry.sequence} is not ${lastSequence + 1}` };
+        if (entry.previousHash !== previousHash) return { ok: false, entries, brokenAt: index, reason: 'previous hash mismatch' };
+        if (hashValue(content) !== recordedHash) return { ok: false, entries, brokenAt: index, reason: 'entry hash mismatch' };
+        previousHash = recordedHash;
+        lastSequence = entry.sequence;
       }
-      const index = entries++;
-      if (entry.sequence !== lastSequence + 1) return { ok: false, entries, brokenAt: index, reason: `sequence ${entry.sequence} is not ${lastSequence + 1}` };
-      if (entry.previousHash !== previousHash) return { ok: false, entries, brokenAt: index, reason: 'previous hash mismatch' };
-      if (hashValue(content) !== recordedHash) return { ok: false, entries, brokenAt: index, reason: 'entry hash mismatch' };
-      previousHash = recordedHash;
-      lastSequence = entry.sequence;
-    }
+    } catch (error) { return { ok: false, entries, brokenAt: entries, reason: errorMessage(error) }; }
   }
   if (
     coveredPrevious &&
@@ -536,16 +539,31 @@ async function readLastEntryState(filePath: string): Promise<{
   } finally { await handle.close(); }
 }
 
-async function readEntriesStrict(filePath: string): Promise<ChronicleEvent[]> {
-  let raw: string;
-  try { raw = await fs.readFile(filePath, 'utf8'); } catch (error) { if (isNotFound(error)) return []; throw error; }
-  const entries: ChronicleEvent[] = [];
-  const lines = raw.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i]!.trim();
-    if (!trimmed) continue;
-    try { entries.push(JSON.parse(trimmed) as ChronicleEvent); } catch { throw new Error(`invalid JSON at line ${i + 1} in ${path.basename(filePath)}`); }
+/** Stream entries line by line. Reading a whole partition into one string
+ *  breaks past V8's max string length (~512MB) — purge and verify must work
+ *  on partitions of any size, so only individual lines are materialized. */
+async function* streamEntriesStrict(filePath: string): AsyncGenerator<ChronicleEvent> {
+  let lineNumber = 0;
+  try {
+    const input = createReadStream(filePath, { encoding: 'utf8', highWaterMark: 256 * 1024 });
+    const lines = createInterface({ input, crlfDelay: Infinity });
+    for await (const line of lines) {
+      lineNumber++;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: ChronicleEvent;
+      try { entry = JSON.parse(trimmed) as ChronicleEvent; } catch { throw new Error(`invalid JSON at line ${lineNumber} in ${path.basename(filePath)}`); }
+      yield entry;
+    }
+  } catch (error) {
+    if (isNotFound(error)) return;
+    throw error;
   }
+}
+
+async function readEntriesStrict(filePath: string): Promise<ChronicleEvent[]> {
+  const entries: ChronicleEvent[] = [];
+  for await (const entry of streamEntriesStrict(filePath)) entries.push(entry);
   return entries;
 }
 

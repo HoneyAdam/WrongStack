@@ -510,6 +510,12 @@ Object.defineProperty(ChronicleQueryEngine.prototype, 'partitionFiles', {
   },
 });
 
+/** Recursively locate journal partition files under a Chronicle directory,
+ *  ordered family-first then rotation index. Shared with the metrics store. */
+export async function findChroniclePartitions(root: string): Promise<string[]> {
+  return findPartitions(root);
+}
+
 async function findPartitions(root: string): Promise<string[]> {
   const result: string[] = [];
   const partitionName = /^(.*\.events)(?:\.(\d{5}))?\.jsonl$/;

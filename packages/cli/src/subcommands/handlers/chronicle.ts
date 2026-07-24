@@ -1,4 +1,4 @@
-import { ChronicleJournal, ChronicleQueryEngine, resolveChronicleRuntimeLocation, type ChronicleFacet, type ChronicleQuery } from '@wrongstack/core/chronicle';
+import { ChronicleJournal, ChronicleMetricsStore, ChronicleQueryEngine, resolveChronicleRuntimeLocation, type ChronicleFacet, type ChronicleQuery } from '@wrongstack/core/chronicle';
 import { resolveWstackPaths } from '@wrongstack/core/utils';
 import { statSync } from 'node:fs';
 import * as path from 'node:path';
@@ -62,6 +62,47 @@ export const chronicleCmd: SubcommandHandler = async (args, deps) => {
     return result.errors.length > 0 ? 1 : 0;
   }
 
+  // `wstack chronicle metrics [providers|tasks|files|summary] [key=value ...]`
+  // Incrementally ingests new journal bytes into metrics.db, then queries the
+  // derived aggregates instead of streaming raw partitions.
+  if (operation === 'metrics') {
+    const hasView = Boolean(args[1] && !args[1].includes('='));
+    const view = hasView ? args[1]! : 'summary';
+    const filters = parseQuery(args.slice(hasView ? 2 : 1));
+    let store: ChronicleMetricsStore;
+    try {
+      store = ChronicleMetricsStore.open(path.join(paths.projectDir, 'chronicle'));
+    } catch (error) {
+      deps.renderer.writeError(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+    try {
+      const refreshed = await store.refresh();
+      const payload =
+        view === 'providers' ? store.providerDaily({ ...(filters.from ? { from: filters.from } : {}), ...(filters.to ? { to: filters.to } : {}) })
+        : view === 'tasks' ? store.taskOutcomes({
+            ...(filters.sessionId ? { sessionId: filters.sessionId } : {}),
+            ...(filters.limit ? { limit: filters.limit } : {}),
+          })
+        : view === 'files' ? store.fileLineage({
+            ...(filters.path ? { path: filters.path } : {}),
+            ...(filters.taskId ? { taskId: filters.taskId } : {}),
+            ...(filters.sessionId ? { sessionId: filters.sessionId } : {}),
+            ...(filters.limit ? { limit: filters.limit } : {}),
+          })
+        : view === 'summary' ? store.summary()
+        : undefined;
+      if (payload === undefined) {
+        deps.renderer.writeError(`Unknown metrics view: ${view}. Use providers|tasks|files|summary.\n`);
+        return 1;
+      }
+      deps.renderer.write(JSON.stringify({ refreshed, [view]: payload }, null, 2) + '\n');
+      return 0;
+    } finally {
+      store.close();
+    }
+  }
+
   if (operation === 'facet') {
     const engine = await ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
     const field = args[1] as ChronicleFacet | undefined;
@@ -116,6 +157,7 @@ function usage(): string {
   return 'Usage:\n' +
     '  wstack chronicle query [field=value ...]\n' +
     '  wstack chronicle facet <field> [field=value ...]\n' +
+    '  wstack chronicle metrics [providers|tasks|files|summary] [field=value ...]\n' +
     '  wstack chronicle prune [--days N] [--dry-run]\n\n' +
     'Examples:\n' +
     '  wstack chronicle query path=src/app.ts line=42\n' +
@@ -123,6 +165,9 @@ function usage(): string {
     '  wstack chronicle query eventType=tool.executed sessionId=<id> limit=50\n' +
     '  wstack chronicle query attr.tool.name=read\n' +
     '  wstack chronicle facet modelId from=2026-07-01T00:00:00Z\n' +
+    '  wstack chronicle metrics providers from=2026-07-01\n' +
+    '  wstack chronicle metrics files path=src/app.ts\n' +
+    '  wstack chronicle metrics tasks limit=20\n' +
     '  wstack chronicle prune --days 7 --dry-run\n' +
     '  wstack chronicle prune --days 30\n';
 }

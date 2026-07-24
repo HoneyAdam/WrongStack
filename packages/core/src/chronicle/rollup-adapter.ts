@@ -57,10 +57,39 @@ export function wireRollupsToChronicle(options: ChronicleRollupAdapterOptions): 
     options.events.on('subagent.ctx_pct', (event) => gauge('subagent.ctx_pct', event, 'subagentId')),
     options.events.on('countdown.tick', (event) => gauge('countdown.tick', event)),
     options.events.on('coordinator.stats', (event) => gauge('coordinator.stats', event)),
+    // Full-fleet snapshots fired on every agent-state flush (~14KB each) are
+    // reduced to one windowed aggregate per session; the raw event is excluded
+    // from the domain adapter. Sums preserve the fleet-level metric trail.
+    options.events.on('session.agents_updated', (event) => {
+      const key = `session.agents\0${event.sessionId ?? ''}`;
+      const target = bucket(key, { signal: 'session.agents', ...(event.sessionId ? { sessionId: event.sessionId } : {}), dimensions: {} });
+      const sums = { agents: 0, running: 0, iterations: 0, toolCalls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 };
+      for (const agent of event.agents) {
+        sums.agents++;
+        if (agent.status === 'running') sums.running++;
+        sums.iterations += numeric(agent.iterations); sums.toolCalls += numeric(agent.toolCalls);
+        sums.costUsd += numeric(agent.costUsd); sums.tokensIn += numeric(agent.tokensIn); sums.tokensOut += numeric(agent.tokensOut);
+      }
+      sample(target, sums);
+    }),
+    // Per-request network chatter (started/completed pairs were the 2nd most
+    // frequent raw family) becomes one aggregate per session×initiator×host
+    // window with status-class categories. network.request.failed stays raw.
+    options.events.on('network.request.completed', (event) => {
+      const key = `network.request\0${event.sessionId}\0${event.initiator}\0${event.serverAddress}`;
+      const target = bucket(key, { signal: 'network.request', sessionId: event.sessionId,
+        dimensions: { initiator: event.initiator, serverAddress: event.serverAddress } });
+      sample(target, {
+        durationMs: event.durationMs,
+        ...(event.requestBytes !== undefined ? { requestBytes: event.requestBytes } : {}),
+        ...(event.responseBytes !== undefined ? { responseBytes: event.responseBytes } : {}),
+      }, `${Math.floor(event.statusCode / 100)}xx`, event.requestId);
+    }),
   ];
   const timer = setInterval(() => { const cutoff = Date.now() - windowMs; for (const [key, value] of buckets) if (value.updatedAt <= cutoff) flush(key); }, windowMs);
   timer.unref?.();
   return () => { clearInterval(timer); for (const key of [...buckets.keys()]) flush(key); offs.forEach((off) => { off(); }); };
 }
 function text(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined; }
+function numeric(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
 function safeDigest(value: unknown): string { try { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); } catch { return 'unhashable'; } }

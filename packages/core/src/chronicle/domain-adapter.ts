@@ -14,6 +14,12 @@ const SPECIALIZED = [
   /^brain\.human_answered$/, /^brain\.outcome$/, /^file\.activity$/,
   /^provider\.(?:text_delta|thinking_delta)$/,
   /^(?:ctx\.pct|subagent\.ctx_pct|countdown\.tick|coordinator\.stats)$/,
+  // Full-fleet UI snapshots and per-request network chatter are windowed by
+  // the rollup adapter — persisting every raw occurrence dominated journal
+  // bytes (~75%) without adding evidence the aggregates don't carry.
+  // network.request.failed stays raw: failures are individually meaningful.
+  /^session\.agents_updated$/,
+  /^network\.request\.(?:started|completed)$/,
 ];
 /**
  * Only domains that can improve coding decisions, provenance, reliability or
@@ -24,9 +30,10 @@ const CODING_SIGNAL = [
   /^(?:agent|subagent|delegate|fleet)\./,
   /^(?:session|iteration|context|compaction|checkpoint|in_flight)\./,
   /^(?:memory|storage|trust)\./,
-  /^(?:sdd|worktree)\./,
+  /^(?:sdd|worktree|kanban)\./,
   /^(?:brain|token|budget|concurrency)\./,
   /^(?:provider|mcp|network)\./,
+  /^file\.event$/,
   /^error$/,
 ];
 const SENSITIVE_KEY = /(content|text|prompt|question|rationale|reason|detail|summary|description|context|input|output|error|message|secret|token|password|key)$/i;
@@ -44,15 +51,25 @@ export function wireDomainEventsToChronicle(options: ChronicleDomainAdapterOptio
   return options.events.onAny((eventName, payload) => {
     if (SPECIALIZED.some((pattern) => pattern.test(eventName))) return;
     if (!CODING_SIGNAL.some((pattern) => pattern.test(eventName))) return;
-    const context = typeof options.context === 'function' ? options.context() : options.context;
     const record = objectPayload(payload);
+    // file.event reads are already evidenced by tool.resource.observed edges;
+    // only mutations need the durable session/task/board lineage record.
+    if (eventName === 'file.event' && record.operation === 'read') return;
+    const context = typeof options.context === 'function' ? options.context() : options.context;
     const sessionId = stringField(record, 'sessionId');
     const agentId = stringField(record, 'agentId') ?? stringField(record, 'subagentId');
     const taskId = stringField(record, 'taskId');
+    const kanbanBoardId = stringField(record, 'kanbanBoardId') ?? stringField(record, 'boardId');
     const input: ChronicleEventInput = {
       eventType: eventName,
       occurredAt: eventTime(record),
-      scope: { ...context.scope, ...(sessionId ? { sessionId } : {}), ...(agentId ? { agentId } : {}), ...(taskId ? { taskId } : {}) },
+      scope: {
+        ...context.scope,
+        ...(sessionId ? { sessionId } : {}),
+        ...(agentId ? { agentId } : {}),
+        ...(taskId ? { taskId } : {}),
+        ...(kanbanBoardId ? { kanbanBoardId } : {}),
+      },
       correlation: {
         ...context.correlation,
         ...(stringField(record, 'traceId') ? { traceId: stringField(record, 'traceId')! } : {}),
@@ -65,7 +82,7 @@ export function wireDomainEventsToChronicle(options: ChronicleDomainAdapterOptio
         ...(stringField(record, 'providerId') ?? stringField(record, 'provider') ? { providerId: stringField(record, 'providerId') ?? stringField(record, 'provider') } : {}),
         ...(stringField(record, 'modelId') ?? stringField(record, 'model') ? { modelId: stringField(record, 'modelId') ?? stringField(record, 'model') } : {}),
       },
-      resource: inferResource(record),
+      resource: inferResource(record, eventName),
       attributes: sanitize(record) as Record<string, unknown>,
       tags: { collector: 'eventbus-domain', family: eventName.split('.')[0] ?? 'unknown' },
     };
@@ -92,7 +109,13 @@ function inferOutcome(name: string, payload: Record<string, unknown>): Chronicle
   if (/(?:completed|finished|committed|merged|written|persisted|accepted|recovered|verified|connected|success)$/.test(name) || payload.ok === true) return 'success';
   return 'unknown';
 }
-function inferResource(payload: Record<string, unknown>): ChronicleResourceRef | undefined {
+function inferResource(payload: Record<string, unknown>, eventName?: string): ChronicleResourceRef | undefined {
+  // file.event's resource IS the file — its taskId/boardId are scope, not the
+  // subject. Without this the generic candidate order would pick kind 'task'
+  // and drop resource.path, breaking path-filtered lineage queries.
+  if (eventName === 'file.event' && typeof payload.filePath === 'string' && payload.filePath.length > 0) {
+    return { kind: 'file', id: `path:${payload.filePath}`, path: payload.filePath };
+  }
   const candidates: Array<[ChronicleResourceRef['kind'], string, unknown]> = [
     ['memory', 'memoryId', payload.memoryId], ['task', 'taskId', payload.taskId],
     ['kanban', 'boardId', payload.boardId ?? payload.runId], ['artifact', 'worktreeId', payload.worktreeId ?? payload.handleId],

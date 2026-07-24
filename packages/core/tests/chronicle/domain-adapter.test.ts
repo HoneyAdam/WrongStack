@@ -33,19 +33,18 @@ describe('domain lifecycle bridge', () => {
     const events = new EventBus();
     const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
     const off = wireDomainEventsToChronicle({ events, journal, context });
-    // Emit a session.agents_updated with a large recentMail array
     const mail = Array.from({ length: 20 }, (_, i) => ({
       id: `msg-${i}`, direction: 'incoming', from: 'agent-x', to: '*',
       type: 'status', subject: `event #${i}`, at: Date.now(),
     }));
-    events.emit('session.agents_updated', {
+    events.emit('agent.status_changed', {
       sessionId: 's',
       agents: [{
         id: 'leader', name: 'leader',
         recentMail: mail,
         recentTools: Array.from({ length: 10 }, (_, i) => ({ name: `tool-${i}`, durationMs: i * 100 })),
       }],
-    });
+    } as never);
     const recorded = await journal.readAll(); off();
     const attrs = recorded[0]!.attributes as Record<string, unknown>;
     const agents = (attrs['agents'] as Array<Record<string, unknown>>) ?? [];
@@ -65,5 +64,43 @@ describe('domain lifecycle bridge', () => {
     // General arrays still allow 20 items (agents, etc.)
     expect(agents).toHaveLength(1); // only 1 agent in fixture
     off();
+  });
+
+  it('excludes rollup-owned snapshots and network chatter from raw persistence', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-excl-')); dirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'events.jsonl') });
+    const events = new EventBus();
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    const off = wireDomainEventsToChronicle({ events, journal, context });
+    events.emit('session.agents_updated', { sessionId: 's', agents: [] });
+    events.emit('network.request.started', { sessionId: 's', requestId: 'r1', initiator: 'provider', operationName: 'op', method: 'POST', scheme: 'https', serverAddress: 'api.example.com', pathHash: 'h', queryKeys: [], startedAt: new Date().toISOString() });
+    events.emit('network.request.completed', { sessionId: 's', requestId: 'r1', initiator: 'provider', operationName: 'op', method: 'POST', scheme: 'https', serverAddress: 'api.example.com', pathHash: 'h', statusCode: 200, durationMs: 12, completedAt: new Date().toISOString() });
+    events.emit('network.request.failed', { sessionId: 's', requestId: 'r2', initiator: 'tool', operationName: 'op', method: 'GET', scheme: 'https', serverAddress: 'api.example.com', pathHash: 'h', durationMs: 5, errorName: 'ECONNRESET', failedAt: new Date().toISOString() });
+    const recorded = await journal.readAll(); off();
+    expect(recorded.map((event) => event.eventType)).toEqual(['network.request.failed']);
+  });
+
+  it('persists file.event mutations with task/board scope and skips reads', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-filev-')); dirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'events.jsonl') });
+    const events = new EventBus();
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm', projectId: 'p' }, 'trace');
+    const off = wireDomainEventsToChronicle({ events, journal, context });
+    const base = {
+      absPath: '/repo/src/app.ts', sessionId: 's', agentId: 'worker-1', agentName: 'Worker',
+      provider: 'openai', model: 'model-a', toolUseId: 'tu-1',
+      scope: 'task' as const, taskId: 'task-9', boardId: 'board-3', runId: 'run-7',
+      timestamp: new Date().toISOString(),
+    };
+    events.emit('file.event', { ...base, operation: 'update', filePath: 'src/app.ts', toolName: 'edit' });
+    events.emit('file.event', { ...base, operation: 'read', filePath: 'src/other.ts', toolName: 'read' });
+    events.emit('kanban.task_moved', { sessionId: 's', taskId: 'task-9', boardId: 'board-3', from: 'doing', to: 'done' } as never);
+    const recorded = await journal.readAll(); off();
+    expect(recorded.map((event) => event.eventType)).toEqual(['file.event', 'kanban.task_moved']);
+    expect(recorded[0]).toMatchObject({
+      scope: { sessionId: 's', agentId: 'worker-1', taskId: 'task-9', kanbanBoardId: 'board-3' },
+      resource: { kind: 'file', path: 'src/app.ts' },
+    });
+    expect(recorded[1]).toMatchObject({ scope: { taskId: 'task-9', kanbanBoardId: 'board-3' } });
   });
 });

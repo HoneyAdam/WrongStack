@@ -91,4 +91,40 @@ describe('wireProviderAttemptsToChronicle', () => {
     expect(recorded[2]?.runtime).toEqual({ providerId: 'openai', modelId: 'model-a' });
     await expect(journal.verify()).resolves.toMatchObject({ ok: true, entries: 3 });
   });
+
+  it('deduplicates tool-manifest names per manifestHash and caps message summaries', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-provider-dedup-'));
+    tempDirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'events.jsonl') });
+    const events = new EventBus();
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    const unsubscribe = wireProviderAttemptsToChronicle({ events, journal, context });
+    const manifest = (id: string, messageCount: number) => ({
+      manifestId: id,
+      messageCount,
+      estimatedMessageTokens: 10,
+      contentBytes: 100,
+      messages: Array.from({ length: messageCount }, (_, index) => ({ index, role: 'user', bytes: 5, hash: `h${index}`, blocks: { text: 1 } })),
+      tools: { count: 3, estimatedDefinitionTokens: 30, manifestHash: 'tools-hash-1', names: ['read', 'write', 'edit'], mutating: 2, destructive: 0 },
+    });
+    const emitStarted = (attemptId: string, promptManifest: unknown) => events.emit('provider.attempt.started', {
+      sessionId: 's', logicalRequestId: 'lr', attemptId, attempt: 0, providerId: 'p', model: 'm',
+      streaming: true, messageCount: 1, toolCount: 3, startedAt: new Date().toISOString(), promptManifest,
+    } as never);
+    const first = manifest('prompt_1', 2);
+    emitStarted('a1', first);
+    emitStarted('a2', manifest('prompt_2', 12));
+    const recorded = await journal.readAll();
+    unsubscribe();
+    const manifests = recorded.map((event) => (event.attributes as { promptManifest: Record<string, unknown> }).promptManifest);
+    // First occurrence keeps the full name list; repeats carry only the hash ref.
+    expect((manifests[0]!.tools as { names?: string[] }).names).toEqual(['read', 'write', 'edit']);
+    expect((manifests[1]!.tools as { names?: string[]; namesRef?: string }).names).toBeUndefined();
+    expect((manifests[1]!.tools as { namesRef?: string }).namesRef).toBe('tools-hash-1');
+    // Long conversations keep only the tail of per-message summaries.
+    expect((manifests[1]!.messages as unknown[]).length).toBe(8);
+    expect(manifests[1]!.messagesTruncated).toBe(4);
+    // The shared bus payload must never be mutated in place.
+    expect(first.tools.names).toEqual(['read', 'write', 'edit']);
+  });
 });

@@ -26,4 +26,36 @@ describe('Chronicle rollups', () => {
     expect(recorded[0]).toMatchObject({ attributes: { signal: 'process.output', samples: 3, stats: { bytes: { sum: 60, min: 10, max: 30, avg: 20 } }, rawEventsRetained: false } });
     expect(recorded[1]).toMatchObject({ attributes: { signal: 'ctx.pct', samples: 2, stats: { load: { min: 0.2, max: 0.8, avg: 0.5 }, tokens: { sum: 100, last: 80 } } } });
   });
+
+  it('aggregates fleet snapshots and completed network requests into windows', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-rollup2-')); dirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'events.jsonl') });
+    const events = new EventBus(); const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    const off = wireRollupsToChronicle({ events, journal, context, windowMs: 60_000 });
+    const agent = (over: Record<string, unknown>) => ({
+      id: 'a', name: 'a', status: 'running', iterations: 1, toolCalls: 2, costUsd: 0.5, tokensIn: 100, tokensOut: 10, ...over,
+    });
+    events.emit('session.agents_updated', { sessionId: 's', agents: [agent({}), agent({ id: 'b', status: 'done' })] } as never);
+    events.emit('session.agents_updated', { sessionId: 's', agents: [agent({ toolCalls: 4 })] } as never);
+    for (const [statusCode, durationMs] of [[200, 10], [200, 30], [500, 50]] as const) {
+      events.emit('network.request.completed', {
+        sessionId: 's', requestId: `r${durationMs}`, initiator: 'provider', operationName: 'op', method: 'POST',
+        scheme: 'https', serverAddress: 'api.example.com', pathHash: 'h', statusCode, durationMs,
+        completedAt: new Date().toISOString(),
+      });
+    }
+    off();
+    const recorded = await journal.readAll();
+    const bySignal = new Map(recorded.map((event) => [(event.attributes as { signal: string }).signal, event]));
+    expect(bySignal.get('session.agents')).toMatchObject({ attributes: {
+      samples: 2,
+      stats: { agents: { sum: 3, last: 1 }, running: { sum: 2 }, toolCalls: { sum: 8, max: 4 }, costUsd: { sum: 1.5 } },
+    } });
+    expect(bySignal.get('network.request')).toMatchObject({ attributes: {
+      samples: 3,
+      dimensions: { initiator: 'provider', serverAddress: 'api.example.com' },
+      stats: { durationMs: { sum: 90, min: 10, max: 50, avg: 30 } },
+      categories: { '2xx': 2, '5xx': 1 },
+    } });
+  });
 });

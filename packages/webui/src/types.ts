@@ -425,6 +425,70 @@ export interface ChronicleGraphResult {
   }>;
   truncated: boolean;
 }
+/** Derived aggregates served from the server-side Chronicle metrics store
+ *  (metrics.db) — no raw journal scan on the request path. */
+export type ChronicleMetricsView = 'summary' | 'providers' | 'tasks' | 'files';
+export interface ChronicleMetricsRefresh {
+  ingestedEvents: number;
+  ingestedBytes: number;
+  sourceFiles: number;
+  invalidLines: number;
+}
+export interface ChronicleProviderDailyRow {
+  day: string;
+  providerId: string;
+  modelId: string;
+  attempts: number;
+  completed: number;
+  failed: number;
+  retries: number;
+  fallbacks: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  avgDurationMs: number;
+  maxDurationMs: number;
+}
+export interface ChronicleTaskOutcomeRow {
+  taskId: string;
+  runId: string;
+  boardId: string;
+  sessionId: string;
+  agentId: string;
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  retries: number;
+  verificationFailures: number;
+  filesTouched: number;
+}
+export interface ChronicleFileLineageRow {
+  path: string;
+  operation: string;
+  occurredAt: string;
+  sessionId: string;
+  agentId: string;
+  taskId: string;
+  boardId: string;
+  runId: string;
+  toolName: string;
+  providerId: string;
+  modelId: string;
+  source: string;
+}
+export interface ChronicleMetricsSummaryView {
+  providers: { attempts: number; completed: number; failed: number; successRate: number };
+  tasks: Record<string, number>;
+  files: { mutations: number; uniquePaths: number };
+  estimatedCostUsd: number;
+}
+export type ChronicleMetricsResultPayload =
+  | { view: 'summary'; refreshed: ChronicleMetricsRefresh; data: ChronicleMetricsSummaryView }
+  | { view: 'providers'; refreshed: ChronicleMetricsRefresh; data: ChronicleProviderDailyRow[] }
+  | { view: 'tasks'; refreshed: ChronicleMetricsRefresh; data: ChronicleTaskOutcomeRow[] }
+  | { view: 'files'; refreshed: ChronicleMetricsRefresh; data: ChronicleFileLineageRow[] };
 
 export interface WSSessionStats {
   type: 'session.stats';
@@ -2192,6 +2256,20 @@ export type WSClientMessageCore =
       };
     }
   | { type: 'chronicle.graph'; payload: { seed: ChronicleQuery; hops?: number; maxNodes?: number } }
+  | {
+      type: 'chronicle.metrics';
+      payload: {
+        view?: ChronicleMetricsView | undefined;
+        from?: string | undefined;
+        to?: string | undefined;
+        path?: string | undefined;
+        taskId?: string | undefined;
+        boardId?: string | undefined;
+        sessionId?: string | undefined;
+        status?: string | undefined;
+        limit?: number | undefined;
+      };
+    }
   | { type: 'session.save'; payload?: SessionScopedPayload }
   | { type: 'sessions.list'; payload: { limit: number } & SessionScopedPayload }
   | { type: 'session.delete'; payload: { id: string } }
@@ -2517,6 +2595,7 @@ export type WSServerMessage =
       };
     }
   | { type: 'chronicle.graph_result'; payload: ChronicleGraphResult }
+  | { type: 'chronicle.metrics_result'; payload: ChronicleMetricsResultPayload }
   | { type: 'chronicle.error'; payload: { message: string } }
   | WSSessionsList
   | WSProviderCatalog

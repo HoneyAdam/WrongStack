@@ -8,6 +8,7 @@ export const SURFACE_PROTOCOL_CAPABILITIES = [
   'chronicle.facet',
   'chronicle.facets',
   'chronicle.graph',
+  'chronicle.metrics',
 ] as const;
 
 export type SurfaceProtocolCapability = (typeof SURFACE_PROTOCOL_CAPABILITIES)[number];

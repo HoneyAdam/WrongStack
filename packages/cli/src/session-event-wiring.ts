@@ -57,6 +57,20 @@ export interface WireSessionEventsResult {
   disposeChronicle: () => Promise<void>;
 }
 
+// ── Chronicle retention ───────────────────────────────────────────────────
+
+const DEFAULT_CHRONICLE_RETENTION_DAYS = 30;
+const MIN_CHRONICLE_RETENTION_DAYS = 7;
+
+/** `0` disables auto-purge; positive values are floored at 7 days so a
+ *  project-committed config cannot flush recent evidence. */
+export function resolveChronicleRetentionDays(config: Record<string, unknown>): number {
+  const raw = (config.chronicle as { retentionDays?: unknown } | undefined)?.retentionDays;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return DEFAULT_CHRONICLE_RETENTION_DAYS;
+  if (raw <= 0) return 0;
+  return Math.max(MIN_CHRONICLE_RETENTION_DAYS, raw);
+}
+
 // ── Exported wiring ────────────────────────────────────────────────────────
 
 /** Wire SessionEventBridge, appendSessionEvent, error ring, and tool-lifecycle
@@ -107,7 +121,10 @@ export function wireSessionEvents(deps: WireSessionEventsDeps): WireSessionEvent
       projectId: wpaths.projectHash ?? wpaths.projectSlug,
       projectDir: wpaths.projectDir,
     });
-    chronicleJournal = new ChronicleJournal({ filePath: location.journalPath });
+    chronicleJournal = new ChronicleJournal({
+      filePath: location.journalPath,
+      retentionDays: resolveChronicleRetentionDays(config),
+    });
     const chronicleContext = createChronicleContext({
       installationId: location.installationId,
       machineId: location.machineId,

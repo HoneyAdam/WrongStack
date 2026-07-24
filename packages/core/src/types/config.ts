@@ -1082,6 +1082,21 @@ export interface SessionLoggingConfig {
   };
 }
 
+/**
+ * Chronicle durable-journal options. The journal itself is always on when a
+ * project dir exists; this only governs how long rotated partitions are kept.
+ */
+export interface ChronicleConfig {
+  /**
+   * Delete rotated Chronicle journal partitions older than this many days.
+   * Auto-purge runs opportunistically after append batches and is
+   * verify()-safe via the retention checkpoint sidecar. `0` disables
+   * auto-purge entirely; positive values below 7 are clamped to 7 so a
+   * repo-committed config cannot flush recent evidence. Default: 30.
+   */
+  retentionDays?: number | undefined;
+}
+
 export type SyncCategory = 'settings' | 'skills' | 'prompts' | 'memory' | 'history';
 
 export interface SyncConfig {
@@ -1773,6 +1788,8 @@ export interface Config {
    * Controls what gets written to the persistent JSONL transcript.
    */
   session?: SessionLoggingConfig | undefined;
+  /** Chronicle durable-journal options (partition retention / auto-purge). */
+  chronicle?: ChronicleConfig | undefined;
   /**
    * Runtime reasoning / cache controls applied to every provider request
    * (REPL/TUI/WebUI). Mapped into `Request.reasoning` and `Request.cache` by a

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePagination } from '@/hooks/usePagination';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
-import type { ChronicleEventView, ChronicleFacetValue, ChronicleGraphResult, ChronicleQuery, ChronicleSummary, WSServerMessage } from '@/types';
+import type { ChronicleEventView, ChronicleFacetValue, ChronicleGraphResult, ChronicleProviderDailyRow, ChronicleQuery, ChronicleSummary, WSServerMessage } from '@/types';
 import { Pagination } from './ui/pagination';
 
 const facetFields = ['eventType', 'providerId', 'modelId', 'outcome', 'resourceKind'] as const;
@@ -30,6 +30,7 @@ export function ChronicleDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [graph, setGraph] = useState<ChronicleGraphResult | null>(null);
+  const [providerDaily, setProviderDaily] = useState<ChronicleProviderDailyRow[]>([]);
 
   const run = useCallback((next: ChronicleQuery) => {
     if (!client.supportsCapability('chronicle.query')) {
@@ -51,8 +52,10 @@ export function ChronicleDashboard() {
     const offFacets = client.on('chronicle.facets_result', (message: WSServerMessage) => { if (message.type === 'chronicle.facets_result') setFacets(message.payload.values); });
     const offError = client.on('chronicle.error', (message: WSServerMessage) => { if (message.type === 'chronicle.error') { setError(message.payload.message); setLoading(false); } });
     const offGraph = client.on('chronicle.graph_result', (message: WSServerMessage) => { if (message.type === 'chronicle.graph_result') setGraph(message.payload); });
+    const offMetrics = client.on('chronicle.metrics_result', (message: WSServerMessage) => { if (message.type === 'chronicle.metrics_result' && message.payload.view === 'providers') setProviderDaily(message.payload.data); });
     run({ limit: 300, order: 'desc' });
-    return () => { offQuery(); offFacet(); offFacets(); offError(); offGraph(); };
+    if (client.supportsCapability('chronicle.metrics')) client.send({ type: 'chronicle.metrics', payload: { view: 'providers' } });
+    return () => { offQuery(); offFacet(); offFacets(); offError(); offGraph(); offMetrics(); };
   }, [client, run]);
 
   const visible = useMemo(() => events.filter((event) => matchesSignal(event, signal)), [events, signal]);
@@ -82,6 +85,20 @@ export function ChronicleDashboard() {
       </section>
 
       <section className="flex flex-wrap gap-x-6 gap-y-1 border-b border-border/60 bg-primary/[0.018] px-4 py-1.5 font-mono text-[9px] text-muted-foreground"><span className="font-sans font-semibold uppercase tracking-wider text-primary">Token economics</span><span>fresh input <b className="text-foreground">{summary.inputTokens.toLocaleString()}</b></span><span>output <b className="text-foreground">{summary.outputTokens.toLocaleString()}</b></span><span>cache read <b className="text-foreground">{summary.cacheReadTokens.toLocaleString()}</b></span><span>cache write <b className="text-foreground">{summary.cacheWriteTokens.toLocaleString()}</b></span><span>cache hit <b className="text-foreground">{cacheRatio(summary).toFixed(1)}%</b></span><span>estimated cost <b className="text-foreground">${summary.estimatedCostUsd.toFixed(4)}</b></span></section>
+
+      {providerDaily.length > 0 && <section className="flex items-center gap-3 overflow-x-auto border-b border-border/60 bg-muted/[0.14] px-4 py-1.5">
+        <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Model reliability</span>
+        {providerDaily.slice(0, 6).map((row) => {
+          const terminal = row.completed + row.failed;
+          const rate = terminal > 0 ? (row.completed / terminal) * 100 : 100;
+          return <span key={`${row.day}-${row.providerId}-${row.modelId}`} className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-2.5 py-0.5 font-mono text-[9px]" title={`${row.day} · ${row.attempts} attempts · avg ${formatMilliseconds(row.avgDurationMs)} · ${row.inputTokens.toLocaleString()} in / ${row.outputTokens.toLocaleString()} out`}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', rate >= 99 ? 'bg-success' : rate >= 90 ? 'bg-warning' : 'bg-destructive')}/>
+            <span className="max-w-[180px] truncate">{row.providerId}/{row.modelId}</span>
+            <b className="text-foreground">{rate.toFixed(0)}%</b>
+            <span className="text-muted-foreground">{row.day.slice(5)}</span>
+          </span>;
+        })}
+      </section>}
 
       <section className="border-b border-border/70 px-4 py-3">
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-[1.35fr_1fr_1fr_1fr_1fr_auto]">
