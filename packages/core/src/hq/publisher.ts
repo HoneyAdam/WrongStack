@@ -273,7 +273,20 @@ export class HqPublisher {
       }
     };
     const onMessage = (event: unknown) => {
-      void this.handleServerMessage(event);
+      // HQ traffic is best-effort telemetry: a failed message (e.g. transient
+      // Windows EPERM while a kanban board is being renamed under a reader)
+      // must degrade to a warning, never an unhandled rejection that kills
+      // the host process.
+      this.handleServerMessage(event).catch((error: unknown) => {
+        const message = `WrongStack HQ publisher: server message handling failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        if (this.logger) {
+          this.logger.warn(message, { event: 'hq.publisher.message_failed' });
+          return;
+        }
+        process.emitWarning(message, { code: 'WRONGSTACK_HQ_MESSAGE_FAILED' });
+      });
     };
     const onCloseOrError = () => {
       removeSocketListener(socket, 'open', onOpen);

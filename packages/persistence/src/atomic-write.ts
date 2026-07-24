@@ -253,20 +253,22 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
     return;
   }
 
-  const delays = [10, 25, 60, 120, 250];
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
+  // Windows readers (fs.open on the destination) can hold the file through
+  // several rename attempts; ~2s total gives concurrent-process readers time
+  // to release without failing the write.
+  const delays = [10, 25, 60, 120, 250, 500, 1000];
+  let attempt = 0;
+  for (;;) {
     try {
       await fs.rename(from, to);
       return;
     } catch (error) {
-      lastError = error;
       const code = (error as NodeJS.ErrnoException).code;
       if (!code || !TRANSIENT_RENAME_CODES.has(code) || attempt === delays.length) throw error;
       await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      attempt++;
     }
   }
-  throw lastError;
 }
 
 const defaultPrimitives = createPersistencePrimitives();

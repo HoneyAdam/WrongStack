@@ -62,6 +62,34 @@ function isEnoent(err: unknown): boolean {
   );
 }
 
+// On Windows, opening a board file while another process is mid-rename over it
+// (atomicWrite's tmp→target replace) fails with EPERM/EBUSY even though the
+// file is healthy. Readers are lockless by design, so tolerate that window
+// with a short retry before surfacing the error.
+const TRANSIENT_READ_CODES = new Set(['EPERM', 'EBUSY']);
+const READ_RETRY_DELAYS_MS = [15, 40, 100, 250];
+
+async function readFileWithRetry(filePath: string): Promise<string> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await fs.readFile(filePath, 'utf8');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (
+        process.platform !== 'win32' ||
+        code === undefined ||
+        !TRANSIENT_READ_CODES.has(code) ||
+        attempt === READ_RETRY_DELAYS_MS.length
+      ) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, READ_RETRY_DELAYS_MS[attempt]));
+      attempt++;
+    }
+  }
+}
+
 async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.stat(filePath);
@@ -112,7 +140,7 @@ export async function readBoard(
   const boardId = await resolveBoardRef(projectRoot, boardRef);
   if (!boardId) return null;
   try {
-    const raw = await fs.readFile(getKanbanPath(projectRoot, boardId), 'utf8');
+    const raw = await readFileWithRetry(getKanbanPath(projectRoot, boardId));
     return normalizeBoard(JSON.parse(raw) as KanbanBoard);
   } catch (err) {
     if (isEnoent(err)) return null;
@@ -147,6 +175,35 @@ interface KanbanEventLogState {
 }
 
 const eventLogState = new Map<string, KanbanEventLogState>();
+
+/**
+ * Upper bound on how many distinct event-file cache entries the module-global
+ * map retains. Long-lived CLI processes bound to multiple project roots would
+ * otherwise accumulate one entry per (project, board) forever. Eviction runs
+ * opportunistically inside `trimKanbanEventLog` and drops entries whose backing
+ * events file no longer exists on disk.
+ */
+const EVENT_LOG_MAX_CACHE_ENTRIES = 128;
+
+/**
+ * Evict stale entries from the global `eventLogState` map. Drops any entry whose
+ * backing events file has been deleted (ENOENT). Called opportunistically during
+ * event-log trimming so a long-lived multi-project CLI process does not leak one
+ * cache entry per (project, board) for the lifetime of the process.
+ */
+async function evictStaleEventLogCache(): Promise<void> {
+  if (eventLogState.size <= EVENT_LOG_MAX_CACHE_ENTRIES) return;
+  for (const key of eventLogState.keys()) {
+    try {
+      await fs.stat(key);
+    } catch (err) {
+      if (isEnoent(err)) {
+        eventLogState.delete(key);
+      }
+    }
+    if (eventLogState.size <= EVENT_LOG_MAX_CACHE_ENTRIES) return;
+  }
+}
 
 export async function appendKanbanEvent(
   projectRoot: string,
@@ -188,6 +245,7 @@ async function trimKanbanEventLog(filePath: string, appendedBytes: number): Prom
         size: stat.size,
         ...(lineCount !== undefined ? { lineCount } : {}),
       });
+      await evictStaleEventLogCache();
       return;
     }
     if (!lines) {
@@ -201,6 +259,7 @@ async function trimKanbanEventLog(filePath: string, appendedBytes: number): Prom
       size: Buffer.byteLength(body),
       lineCount: trimmed.length,
     });
+    await evictStaleEventLogCache();
   } catch {
     eventLogState.delete(filePath);
     // Best-effort only: log-space management must never interrupt event recording.
@@ -214,7 +273,7 @@ export async function readKanbanEvents(
   const boardId = await resolveBoardRef(projectRoot, boardRef);
   if (!boardId) return [];
   try {
-    const raw = await fs.readFile(getKanbanEventsPath(projectRoot, boardId), 'utf8');
+    const raw = await readFileWithRetry(getKanbanEventsPath(projectRoot, boardId));
     return raw
       .split(/\r?\n/)
       .filter(Boolean)
@@ -232,9 +291,12 @@ export async function deleteBoard(projectRoot: string, boardRef: string): Promis
   return withFileLock(filePath, async () => {
     try {
       await fs.unlink(filePath);
+      const eventsPath = getKanbanEventsPath(projectRoot, boardId);
+      // Clear the cache entry unconditionally: the board file is already gone,
+      // so even if the events-file unlink fails the cached state is stale.
+      eventLogState.delete(eventsPath);
       try {
-        await fs.unlink(getKanbanEventsPath(projectRoot, boardId));
-        eventLogState.delete(getKanbanEventsPath(projectRoot, boardId));
+        await fs.unlink(eventsPath);
       } catch (eventsErr) {
         if (!isEnoent(eventsErr)) throw eventsErr;
       }
@@ -257,7 +319,7 @@ export async function mutateBoard<T>(
   return withFileLock(filePath, async () => {
     let board: KanbanBoard;
     try {
-      const raw = await fs.readFile(filePath, 'utf8');
+      const raw = await readFileWithRetry(filePath);
       board = normalizeBoard(JSON.parse(raw) as KanbanBoard);
     } catch (err) {
       if (isEnoent(err)) return null;
@@ -280,7 +342,7 @@ export async function mutateBoard<T>(
     // were computing, and our mutation is based on stale state. This check
     // runs for both no-op and mutating paths so a silent no-op cannot mask a
     // concurrent write that happened during the mutator's async execution.
-    const currentRaw = await fs.readFile(filePath, 'utf8');
+    const currentRaw = await readFileWithRetry(filePath);
     const currentBoard = JSON.parse(currentRaw) as KanbanBoard;
     const currentRevision = currentBoard.revision ?? 0;
     if (currentRevision !== readRevision) {
@@ -351,6 +413,8 @@ export interface CreateBoardObjectOptions {
   supervisor?: KanbanBoard['supervisor'] | undefined;
   lifecycle?: KanbanBoard['lifecycle'] | undefined;
   boundary?: KanbanBoard['boundary'] | undefined;
+  atomicity?: KanbanBoard['atomicity'] | undefined;
+  completionGate?: KanbanBoard['completionGate'] | undefined;
 }
 
 export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
@@ -376,6 +440,15 @@ export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
     ...(opts.boundary !== undefined
       ? { boundary: normalizeKanbanBoundaryPolicy(opts.boundary) }
       : {}),
+    ...(opts.atomicity !== undefined
+      ? {
+          atomicity: {
+            ...opts.atomicity,
+            ...(opts.atomicity.config ? { config: { ...opts.atomicity.config } } : {}),
+          },
+        }
+      : {}),
+    ...(opts.completionGate !== undefined ? { completionGate: { ...opts.completionGate } } : {}),
   };
 }
 

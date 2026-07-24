@@ -46,6 +46,20 @@ const MAX_BOARDS_PER_PUBLISH = 50;
 // isValidBoardId. +5 accounts for the ".json" suffix check.
 const MAX_BOARD_ID_LENGTH = 128;
 
+// Kanban↔HQ sync is best-effort telemetry: every detached promise in this
+// module must land here instead of surfacing as an unhandled rejection (which
+// kills the host process on Node ≥15). Failed publishes self-heal — the state
+// fingerprint stays unwritten, so the next watcher event or reconnect
+// full-snapshot re-detects the same diff.
+function warnSyncFailure(error: unknown): void {
+  process.emitWarning(
+    `WrongStack kanban HQ sync failed (best-effort, will retry on next change): ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+    { code: 'WRONGSTACK_HQ_KANBAN_SYNC_FAILED' },
+  );
+}
+
 export function createKanbanHqSync(
   projectRoot: string,
   projectId = deriveHqProjectId(projectRoot),
@@ -60,6 +74,14 @@ export function createKanbanHqSync(
   let applyingRemote = false;
   let stopped = false;
   let operationChain: Promise<void> = Promise.resolve();
+  // Remote snapshots waiting to be applied, coalesced per boardId (latest
+  // revision wins). Applying a snapshot does one file read/write per board;
+  // when snapshots arrive faster than disk can absorb them, queueing each one
+  // individually on `operationChain` retains every payload in memory — an
+  // unbounded queue that has driven long fleet sessions into OOM. Coalescing
+  // bounds pending memory to one record per distinct board.
+  let pendingRemote: HqKanbanSnapshotPayload | null = null;
+  let remoteApplyQueued = false;
 
   const runExclusive = <T>(operation: () => Promise<T>): Promise<T> => {
     let resolveResult!: (value: T | PromiseLike<T>) => void;
@@ -91,7 +113,9 @@ export function createKanbanHqSync(
       const dirtyBoardIds = [...pendingBoardIds];
       fullRescanPending = false;
       pendingBoardIds.clear();
-      void runExclusive(() => publishLocal(false, rescan ? undefined : dirtyBoardIds));
+      runExclusive(() => publishLocal(false, rescan ? undefined : dirtyBoardIds)).catch(
+        warnSyncFailure,
+      );
     }, 100);
     timer.unref?.();
   };
@@ -300,14 +324,31 @@ export function createKanbanHqSync(
     }
   };
 
+  const handleRemote = (snapshot: HqKanbanSnapshotPayload): Promise<void> => {
+    if (snapshot.projectId !== projectId || stopped) return Promise.resolve();
+    pendingRemote =
+      pendingRemote === null ? snapshot : coalesceRemoteSnapshots(pendingRemote, snapshot);
+    // At most one apply pass is ever queued: it drains whatever has been
+    // coalesced by the time it runs, so bursts collapse instead of chaining.
+    if (remoteApplyQueued) return Promise.resolve();
+    remoteApplyQueued = true;
+    return runExclusive(async () => {
+      remoteApplyQueued = false;
+      const batch = pendingRemote;
+      pendingRemote = null;
+      if (batch !== null) await applyRemote(batch);
+    }).catch(warnSyncFailure);
+  };
+
   return {
     attachPublisher,
-    handleRemote: (snapshot) => runExclusive(() => applyRemote(snapshot)),
+    handleRemote,
     stop: () => {
       stopped = true;
       if (timer !== undefined) clearTimeout(timer);
       pendingBoardIds.clear();
       fullRescanPending = false;
+      pendingRemote = null;
       watcher?.close();
       watcher = undefined;
       publisher = undefined;
@@ -397,6 +438,57 @@ function chunkSnapshotPayload(
   // An empty snapshot is meaningful on first attach: it registers the project
   // state channel even when the project has no boards yet.
   return chunks.length > 0 ? chunks : [emptyPayload()];
+}
+
+/** Merge two pending remote snapshots into one, keeping — per boardId — the
+ *  record with the highest (revision, timestamp), whether board or tombstone.
+ *  Equivalent to applying both snapshots in arrival order when revisions are
+ *  monotonically increasing (which HQ guarantees in practice): the only
+ *  divergence is a lower-revision board arriving after a higher-revision
+ *  tombstone for the same boardId, where coalescing correctly keeps the
+ *  tombstone whereas naive sequential apply would resurrect the stale board. */
+function coalesceRemoteSnapshots(
+  older: HqKanbanSnapshotPayload,
+  newer: HqKanbanSnapshotPayload,
+): HqKanbanSnapshotPayload {
+  type RemoteRecord =
+    | { kind: 'board'; revision: number; time: string; record: HqKanbanBoardRecord }
+    | { kind: 'tombstone'; revision: number; time: string; record: HqKanbanTombstone };
+  const byBoardId = new Map<string, RemoteRecord>();
+  const put = (candidate: RemoteRecord, boardId: string): void => {
+    const existing = byBoardId.get(boardId);
+    // On a full (revision, time) tie, prefer the newer-arriving record so a
+    // same-timestamp content update in the second snapshot is not silently
+    // discarded in favor of the older-arriving one.
+    if (
+      existing === undefined ||
+      compareVersions(existing.revision, existing.time, candidate.revision, candidate.time) <= 0
+    ) {
+      byBoardId.set(boardId, candidate);
+    }
+  };
+  for (const snapshot of [older, newer]) {
+    for (const record of snapshot.boards) {
+      put({ kind: 'board', revision: record.revision, time: record.updatedAt, record }, record.boardId);
+    }
+    for (const record of snapshot.tombstones) {
+      put(
+        { kind: 'tombstone', revision: record.revision, time: record.deletedAt, record },
+        record.boardId,
+      );
+    }
+  }
+  const merged: HqKanbanSnapshotPayload = {
+    projectId: newer.projectId,
+    generatedAt: newer.generatedAt,
+    boards: [],
+    tombstones: [],
+  };
+  for (const entry of byBoardId.values()) {
+    if (entry.kind === 'board') merged.boards.push(entry.record);
+    else merged.tombstones.push(entry.record);
+  }
+  return merged;
 }
 
 function compareVersions(

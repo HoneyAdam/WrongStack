@@ -1,6 +1,6 @@
 import { createHqPublisherFromEnv, resolveHqConfig } from '@wrongstack/core/hq';
-import { type CreateHqPublisherOptions } from '@wrongstack/core/hq';
-import { type HqPublisher, type HqSocketLike } from '@wrongstack/core/hq';
+import type { CreateHqPublisherOptions } from '@wrongstack/core/hq';
+import type { HqPublisher, HqSocketLike } from '@wrongstack/core/hq';
 import { WebSocket } from 'ws';
 import { createKanbanHqSync } from './kanban-hq-sync.js';
 
@@ -77,7 +77,16 @@ export function startCliHqConnection(options: CliHqConnectionOptions): CliHqConn
       kanbanSync = createKanbanHqSync(options.projectRoot, next.project.projectId);
     }
     next.connect();
-    if (kanbanSync !== undefined) void kanbanSync.attachPublisher(next);
+    if (kanbanSync !== undefined) {
+      kanbanSync.attachPublisher(next).catch((error: unknown) => {
+        process.emitWarning(
+          `WrongStack kanban HQ sync attach failed (best-effort, retried on reconnect): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { code: 'WRONGSTACK_HQ_KANBAN_SYNC_FAILED' },
+        );
+      });
+    }
     options.onConnect?.(next);
   };
 

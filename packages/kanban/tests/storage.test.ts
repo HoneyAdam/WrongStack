@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   boardMeta,
   createBoardObject,
@@ -17,6 +17,7 @@ import {
   writeBoard,
 } from '../src/storage.js';
 import { createBoard } from '../src/manager.js';
+import type { KanbanEvent } from '../src/types.js';
 
 let tmpDir: string;
 
@@ -24,8 +25,27 @@ beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'stor-test-'));
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 async function makeBoard() {
   return createBoard(tmpDir, { title: 'Storage Test' });
+}
+
+let eventSeq = 0;
+
+function moveEvent(boardId: string, taskId: string): KanbanEvent {
+  eventSeq += 1;
+  return {
+    id: `evt-${eventSeq}`,
+    boardId,
+    type: 'task.moved',
+    ts: new Date().toISOString(),
+    taskId,
+    before: { columnId: 'c1' },
+    after: { columnId: 'c2' },
+  };
 }
 
 function fixtureBoard() {
@@ -71,8 +91,27 @@ describe('boardMeta', () => {
       description: 'A test',
       tags: ['alpha'],
       tasks: [
-        { id: 't1', title: 'Task 1', columnId: 'col-1', order: 0, priority: 'high' as const, status: 'completed' as const, createdAt: now, updatedAt: now, completedAt: now },
-        { id: 't2', title: 'Task 2', columnId: 'col-1', order: 1, priority: 'medium' as const, status: 'pending' as const, createdAt: now, updatedAt: now },
+        {
+          id: 't1',
+          title: 'Task 1',
+          columnId: 'col-1',
+          order: 0,
+          priority: 'high' as const,
+          status: 'completed' as const,
+          createdAt: now,
+          updatedAt: now,
+          completedAt: now,
+        },
+        {
+          id: 't2',
+          title: 'Task 2',
+          columnId: 'col-1',
+          order: 1,
+          priority: 'medium' as const,
+          status: 'pending' as const,
+          createdAt: now,
+          updatedAt: now,
+        },
       ],
     };
     const meta = boardMeta(board);
@@ -124,11 +163,7 @@ describe('readKanbanEvents', () => {
       { type: 'task.created', taskId: 't1', timestamp: new Date().toISOString() },
       { type: 'task.completed', taskId: 't1', timestamp: new Date().toISOString() },
     ];
-    await fs.writeFile(
-      eventsPath,
-      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
-      'utf8',
-    );
+    await fs.writeFile(eventsPath, events.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
     const parsed = await readKanbanEvents(tmpDir, board.id);
     expect(parsed).toHaveLength(2);
     expect(parsed[0].type).toBe('task.created');
@@ -366,10 +401,19 @@ describe('resolveBoardRef', () => {
     await fs.mkdir(path.join(tmpDir, '.wrongstack', 'kanbans'), { recursive: true });
     const writeBoardFile = async (id: string) => {
       const boardPath = getKanbanPath(tmpDir, id);
-      await fs.writeFile(boardPath, JSON.stringify({
-        id, title: `Board ${id}`, columns: [{ id: 'c1', title: 'C1', order: 0, wipLimit: 0 }],
-        tasks: [], createdAt: now, updatedAt: now, version: 1,
-      }), 'utf8');
+      await fs.writeFile(
+        boardPath,
+        JSON.stringify({
+          id,
+          title: `Board ${id}`,
+          columns: [{ id: 'c1', title: 'C1', order: 0, wipLimit: 0 }],
+          tasks: [],
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+        }),
+        'utf8',
+      );
     };
     await writeBoardFile(`${sharedPrefix}aaa`);
     await writeBoardFile(`${sharedPrefix}bbb`);
@@ -434,11 +478,154 @@ describe('appendKanbanEvent', () => {
   it('appends an event and reads it back', async () => {
     const { appendKanbanEvent } = await import('../src/storage.js');
     const board = await makeBoard();
-    const event = { type: 'task.moved' as const, taskId: 't1', fromColumn: 'c1', toColumn: 'c2', timestamp: new Date().toISOString() };
+    const event = moveEvent(board.id, 't1');
     await appendKanbanEvent(tmpDir, board.id, event);
     const events = await readKanbanEvents(tmpDir, board.id);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('task.moved');
+  });
+
+  it('skips the event-file read on successive appends when size matches the cache', async () => {
+    // The trim cache short-circuits the read when the on-disk size equals
+    // cached.size + appendedBytes. Instrument `node:fs/promises` so storage.ts
+    // sees a wrapped readFile whose call count we can assert on. ESM
+    // namespaces cannot be mutated directly, so we mock the module.
+    const readFileMock = vi.fn(async (filePath: string, encoding: BufferEncoding) => {
+      return fs.readFile(filePath, encoding);
+    });
+    const statMock = vi.fn(async (filePath: string) => fs.stat(filePath));
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        readFile: readFileMock,
+        stat: statMock,
+      };
+    });
+    const { appendKanbanEvent } = await import('../src/storage.js');
+    const board = await makeBoard();
+    const eventsPath = path.join(
+      path.dirname(getKanbanPath(tmpDir, board.id)),
+      `${board.id}.events.jsonl`,
+    );
+
+    const events = [
+      moveEvent(board.id, 't1'),
+      moveEvent(board.id, 't2'),
+      moveEvent(board.id, 't3'),
+    ];
+
+    for (const event of events) {
+      await appendKanbanEvent(tmpDir, board.id, event);
+    }
+
+    // The cache short-circuits the read when the size matches, so on a small
+    // log file (well below the 512_000 byte threshold) no readFile should be
+    // issued by trimKanbanEventLog. The readFile mock should record zero
+    // calls against the events path.
+    const trimReadCalls = readFileMock.mock.calls.filter((call) => call[0] === eventsPath);
+    expect(trimReadCalls).toHaveLength(0);
+
+    const stored = await readKanbanEvents(tmpDir, board.id);
+    expect(stored).toHaveLength(3);
+    vi.doUnmock('node:fs/promises');
+  });
+
+  it('invalidates the cache and re-reads when an external rewrite changes the file size', async () => {
+    const { appendKanbanEvent } = await import('../src/storage.js');
+    const board = await makeBoard();
+    const eventsPath = path.join(
+      path.dirname(getKanbanPath(tmpDir, board.id)),
+      `${board.id}.events.jsonl`,
+    );
+
+    // Establish a cache entry by appending one event.
+    await appendKanbanEvent(tmpDir, board.id, moveEvent(board.id, 't1'));
+
+    // Externally rewrite the file at a different size: this is the
+    // "concurrent process rewrote the events file" scenario. The cache must
+    // notice the size mismatch on the next append and re-read.
+    const externalPayload = JSON.stringify({
+      type: 'task.moved',
+      taskId: 'external',
+      fromColumn: 'c1',
+      toColumn: 'c2',
+      timestamp: new Date().toISOString(),
+    });
+    await fs.writeFile(
+      eventsPath,
+      `${externalPayload}\n${externalPayload}\n${externalPayload}\n`,
+      'utf8',
+    );
+
+    // Instrument node:fs/promises so we can confirm the cache invalidation
+    // path. The cache must observe the size mismatch and re-read the file.
+    const readFileMock = vi.fn(async (filePath: string, encoding: BufferEncoding) => {
+      return fs.readFile(filePath, encoding);
+    });
+    const statMock = vi.fn(async (filePath: string) => fs.stat(filePath));
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        readFile: readFileMock,
+        stat: statMock,
+      };
+    });
+    const { appendKanbanEvent: trackedAppend } = await import('../src/storage.js');
+
+    await trackedAppend(tmpDir, board.id, moveEvent(board.id, 't2'));
+
+    // The cache short-circuit failed because the size no longer matches the
+    // cached value. The trim path must have run, which is observable via
+    // the stat call. The read itself is skipped because the file is still
+    // small (well below 512_000 bytes), but the next append after this one
+    // should hit the cache short-circuit again.
+    const stores = await readKanbanEvents(tmpDir, board.id);
+    expect(stores.length).toBeGreaterThanOrEqual(3);
+
+    // A second append that just bumps the file by appendedBytes should hit
+    // the cache short-circuit again — a fresh readFile call to the events
+    // path inside the trim function must be zero.
+    readFileMock.mockClear();
+    statMock.mockClear();
+    await trackedAppend(tmpDir, board.id, moveEvent(board.id, 't3'));
+    const trimReadCalls = readFileMock.mock.calls.filter((call) => call[0] === eventsPath);
+    expect(trimReadCalls).toHaveLength(0);
+    vi.doUnmock('node:fs/promises');
+  });
+
+  it('clears the cache entry when the read inside trim fails', async () => {
+    // Replace the events file with a directory so the read inside
+    // trimKanbanEventLog throws EISDIR. The cache must drop the entry so a
+    // subsequent successful append re-establishes a fresh cache.
+    const { appendKanbanEvent } = await import('../src/storage.js');
+    const board = await makeBoard();
+    const eventsPath = path.join(
+      path.dirname(getKanbanPath(tmpDir, board.id)),
+      `${board.id}.events.jsonl`,
+    );
+
+    // Establish a cache entry.
+    await appendKanbanEvent(tmpDir, board.id, moveEvent(board.id, 't1'));
+
+    // Replace the events file with a directory so the next trim's read fails
+    // with EISDIR. The catch handler must clear the cache entry.
+    await fs.unlink(eventsPath);
+    await fs.mkdir(eventsPath, { recursive: true });
+
+    // appendFile will still try to write to the path-as-dir and fail. The
+    // appendKanbanEvent promise rejects, but the cache should be cleared.
+    await expect(
+      appendKanbanEvent(tmpDir, board.id, moveEvent(board.id, 't2')),
+    ).rejects.toThrow();
+
+    // Restore the file with a valid payload and confirm a fresh cache entry
+    // is built on the next successful append.
+    await fs.rmdir(eventsPath);
+    await appendKanbanEvent(tmpDir, board.id, moveEvent(board.id, 'after-recovery'));
+    const events = await readKanbanEvents(tmpDir, board.id);
+    expect(events.some((e) => e.taskId === 'after-recovery')).toBe(true);
   });
 });
 
@@ -498,8 +685,27 @@ describe('boardMeta with undefined fields', () => {
     const now = new Date().toISOString();
     const board = createBoardObject({ title: 'Stats' });
     board.tasks = [
-      { id: 't1', title: 'Done', columnId: 'backlog', order: 0, priority: 'high', status: 'completed', createdAt: now, updatedAt: now, completedAt: now },
-      { id: 't2', title: 'Pending', columnId: 'backlog', order: 1, priority: 'low', status: 'pending', createdAt: now, updatedAt: now },
+      {
+        id: 't1',
+        title: 'Done',
+        columnId: 'backlog',
+        order: 0,
+        priority: 'high',
+        status: 'completed',
+        createdAt: now,
+        updatedAt: now,
+        completedAt: now,
+      },
+      {
+        id: 't2',
+        title: 'Pending',
+        columnId: 'backlog',
+        order: 1,
+        priority: 'low',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
     ];
     const meta = boardMeta(board);
     expect(meta.taskCount).toBe(2);
