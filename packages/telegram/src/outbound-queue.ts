@@ -302,6 +302,12 @@ export class OutboundQueue {
     } finally {
       this.#active -= 1;
       lane.running = false;
+      // Prune an idle lane so the per-chat map doesn't grow for the whole
+      // process lifetime in unrestricted mode (a bot reachable by many chats).
+      // enqueue() lazily recreates it on the next send to this chat.
+      if (lane.pending.length === 0) {
+        this.#lanes.delete(key);
+      }
       this.#schedule();
     }
   }
