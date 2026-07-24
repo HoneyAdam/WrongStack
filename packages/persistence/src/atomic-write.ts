@@ -157,7 +157,18 @@ export function createPersistencePrimitives(
         try {
           const stat = await fs.stat(lockPath);
           if (Date.now() - stat.mtimeMs > staleMs) {
-            await fs.unlink(lockPath);
+            // Re-stat right before removing. A live holder's heartbeat (or a
+            // fresh holder that just acquired) changes mtimeMs; only delete
+            // when the lock is STILL the same stale file we observed, so we
+            // never unlink another actor's fresh lock in the stat→unlink gap.
+            const recheck = await fs.stat(lockPath).catch(() => undefined);
+            if (
+              recheck &&
+              recheck.mtimeMs === stat.mtimeMs &&
+              Date.now() - recheck.mtimeMs > staleMs
+            ) {
+              await fs.unlink(lockPath).catch(() => undefined);
+            }
             continue;
           }
         } catch {
@@ -172,9 +183,24 @@ export function createPersistencePrimitives(
       }
     }
 
+    // Heartbeat: refresh the lock's mtime while fn() runs so a legitimately
+    // long critical section (e.g. index compaction under a slow disk/AV) is
+    // never mistaken for a stale lock and stolen by another process — which
+    // would put two holders in the section and drop writes. A live holder now
+    // stays fresh, so the stale-break path only fires for a crashed holder.
+    // Refresh twice per stale window so a live holder never crosses staleMs.
+    // The small floor only guards against a pathologically tiny staleMs.
+    const refreshMs = Math.max(50, Math.floor(staleMs / 2));
+    const heartbeat = setInterval(() => {
+      const now = new Date();
+      void fs.utimes(lockPath, now, now).catch(() => undefined);
+    }, refreshMs);
+    heartbeat.unref?.();
+
     try {
       return await fn();
     } finally {
+      clearInterval(heartbeat);
       await handle?.close().catch(() => undefined);
       await fs.unlink(lockPath).catch(() => undefined);
     }

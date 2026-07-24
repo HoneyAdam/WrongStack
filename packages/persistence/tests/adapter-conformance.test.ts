@@ -98,6 +98,30 @@ describe.each(adapters)('%s persistence conformance', (_label, adapter) => {
     expect(calls).toBe(1);
   });
 
+  it('keeps a long-held lock fresh so a concurrent holder cannot break in (heartbeat)', async () => {
+    const target = path.join(tempDir, 'longheld.json');
+    let inside = 0;
+    let maxConcurrent = 0;
+    const run = (label: string) =>
+      adapter.withFileLock(
+        target,
+        async () => {
+          inside += 1;
+          maxConcurrent = Math.max(maxConcurrent, inside);
+          // Hold well past staleMs. Without the heartbeat, the other caller
+          // would deem this lock stale and steal it, overlapping the section.
+          await new Promise((r) => setTimeout(r, 600));
+          inside -= 1;
+          return label;
+        },
+        { timeoutMs: 5_000, staleMs: 300 },
+      );
+
+    const [a, b] = await Promise.all([run('a'), run('b')]);
+    expect(maxConcurrent).toBe(1); // ran sequentially — neither lock was stolen
+    expect(new Set([a, b])).toEqual(new Set(['a', 'b']));
+  });
+
   it('wakes when a contended lock is released', async () => {
     const target = path.join(tempDir, 'contended.json');
     const lockPath = path.join(tempDir, '.contended.json.lock');
