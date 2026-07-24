@@ -146,6 +146,19 @@ export class GitHubCopilotProvider extends WireFormatProvider<OpenAIStreamState>
     // undefined) handles that naturally — but we still need the github
     // token to actually call refreshFn, hence the explicit guard.
     if (!this.copilotToken || this.refreshCoordinator.isStale()) {
+      // Without a GitHub token, the coordinator's doRefresh() no-ops (no
+      // refresh key), leaving the copilot token empty — the request would then
+      // go out as `Bearer pending` and come back as a raw, confusing 401. Fail
+      // fast with an actionable message instead.
+      if (!this.githubToken) {
+        throw new ProviderError(
+          'GitHub Copilot is not signed in (no GitHub token). Run `wstack auth` to sign in again.',
+          401,
+          false,
+          this.id,
+          { body: { message: 'no GitHub token available to mint a Copilot token' } },
+        );
+      }
       await this.refreshCoordinator.doRefresh(signal);
     }
   }

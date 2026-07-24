@@ -78,6 +78,30 @@ describe('GitHubCopilotProvider request shape', () => {
   });
 });
 
+describe('GitHubCopilotProvider missing credentials', () => {
+  it('fails with an actionable error (not a raw 401) when there is no GitHub token to mint with', async () => {
+    const captured: Captured = {};
+    const p = new GitHubCopilotProvider({
+      credentials: {
+        copilotToken: '', // no usable Copilot token
+        githubToken: undefined, // ...and nothing to mint one from
+        expiresAt: Date.now() - 1000,
+      },
+      fetchImpl: capturingFetch(OPENAI_SSE, captured),
+    });
+    let caught: unknown;
+    try {
+      await p.complete(baseReq, { signal: new AbortController().signal });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/sign in|not signed in|GitHub token/i);
+    // The guard must trip BEFORE any request goes out as `Bearer <empty>`.
+    expect(captured.url).toBeUndefined();
+  });
+});
+
 describe('GitHubCopilotProvider token refresh', () => {
   it('mints a fresh Copilot token when expired and persists', async () => {
     const captured: Captured = {};
