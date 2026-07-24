@@ -46,12 +46,12 @@ export function useImageAttachments(): UseImageAttachmentsResult {
     input.addEventListener('change', () => {
       const files = input.files;
       if (!files || files.length === 0) return;
-      const readers: Promise<AttachedImage>[] = [];
+      const readers: Promise<AttachedImage | null>[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (!file) continue;
         readers.push(
-          new Promise<AttachedImage>((resolve) => {
+          new Promise<AttachedImage | null>((resolve) => {
             const reader = new FileReader();
             reader.onload = () => {
               resolve({
@@ -61,13 +61,23 @@ export function useImageAttachments(): UseImageAttachmentsResult {
                 name: file.name,
               });
             };
+            // Without onerror, a corrupt/unreadable file leaves this promise
+            // pending forever — Promise.all never settles and the WHOLE batch of
+            // attachments is silently dropped. Resolve null and skip just this one.
+            reader.onerror = () => resolve(null);
             reader.readAsDataURL(file);
           }),
         );
       }
-      void Promise.all(readers).then((images) => {
-        setAttachedImages((current) => [...current, ...images]);
-      });
+      void Promise.all(readers)
+        .then((images) => {
+          const valid = images.filter((img): img is AttachedImage => img !== null);
+          if (valid.length > 0) setAttachedImages((current) => [...current, ...valid]);
+        })
+        .catch(() => {
+          // Defensive: no reader rejects (errors resolve to null), but never
+          // leave this detached promise without its own catch.
+        });
       // Clean up the input element.
       input.remove();
     });
