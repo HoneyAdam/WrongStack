@@ -65,7 +65,7 @@ export function ModelSwitcher(props: ModelSwitcherProps): React.JSX.Element {
           </optgroup>
         ))}
       </select>
-      <ChevronDown size={11} className="model-chevron" aria-hidden="true" />
+      <ChevronDown size={11} className="select-chevron" aria-hidden="true" />
       {pendingModelSwitch && (
         <div
           className="model-switch-warning"

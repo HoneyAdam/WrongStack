@@ -158,9 +158,9 @@ describe('restoreAll is a cross-suite safety net', () => {
     // Simulate the cross-suite contamination vector: another suite patches
     // process.stdout.write and forgets to restore it. If silenceTerminal's
     // restoreAll() captured the module-load original, the next test sees a
-    // clean stdout.write. If it did NOT, the patched spy persists and the
-    // console.log call below is silently dropped — exactly the regression
-    // we want to detect.
+    // clean stdout.write. If it did NOT, the patched spy persists and any
+    // subsequent console output from sibling tests in the same vitest worker
+    // is silently dropped — exactly the regression we want to detect.
     const straySpy = vi.fn().mockReturnValue(true);
     process.stdout.write = straySpy as typeof process.stdout.write;
     expect(process.stdout.write('before')).toBe(true); // patched → straySpy ran

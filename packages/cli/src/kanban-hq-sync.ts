@@ -37,6 +37,15 @@ const SYNC_STATE_FILE = '.hq-sync.json';
 const MAX_KANBAN_SNAPSHOT_PAYLOAD_BYTES = 512 * 1024;
 const KANBAN_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+// --- File-watcher guard limits ---
+// Cap the number of boards read per publish cycle so a large project doesn't
+// open hundreds of JSON files in a single burst. Remaining boards spill to
+// the next cycle.
+const MAX_BOARDS_PER_PUBLISH = 50;
+// Reject unreasonably long filenames in the watcher callback before they reach
+// isValidBoardId. +5 accounts for the ".json" suffix check.
+const MAX_BOARD_ID_LENGTH = 128;
+
 export function createKanbanHqSync(
   projectRoot: string,
   projectId = deriveHqProjectId(projectRoot),
@@ -69,11 +78,13 @@ export function createKanbanHqSync(
     return result;
   };
 
-  const schedulePublish = (boardId: string | null): void => {
-    if (stopped || applyingRemote || publisher === undefined) return;
-    if (boardId === null) fullRescanPending = true;
-    else pendingBoardIds.add(boardId);
-    if (timer !== undefined) clearTimeout(timer);
+  // Schedule the next publish cycle with a fixed debounce. The caller
+  // (schedulePublish) already collapses rapid events into one batch, and
+  // runExclusive serializes execution — no Date.now()-based interval is
+  // needed because the 100ms debounce plus serialization chain already
+  // prevents back-to-back publish bursts.
+  const scheduleNext = (): void => {
+    if (stopped || timer !== undefined || applyingRemote) return;
     timer = setTimeout(() => {
       timer = undefined;
       const rescan = fullRescanPending;
@@ -83,6 +94,15 @@ export function createKanbanHqSync(
       void runExclusive(() => publishLocal(false, rescan ? undefined : dirtyBoardIds));
     }, 100);
     timer.unref?.();
+  };
+
+  const schedulePublish = (boardId: string | null): void => {
+    if (stopped || applyingRemote || publisher === undefined) return;
+    if (boardId === null) fullRescanPending = true;
+    else pendingBoardIds.add(boardId);
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    scheduleNext();
   };
 
   const publishLocal = async (
@@ -97,7 +117,23 @@ export function createKanbanHqSync(
     const boards: HqKanbanBoardRecord[] = [];
     const tombstones: HqKanbanTombstone[] = [];
     const fullScan = fullSnapshot || dirtyBoardIds === undefined;
-    const boardIds = fullScan ? await listBoardIds(projectRoot) : dirtyBoardIds;
+    const allBoardIds: readonly string[] = fullScan
+      ? await listBoardIds(projectRoot)
+      : dirtyBoardIds;
+    let boardIds = allBoardIds;
+
+    // Batch limit: only cap true delta publishes, never a full scan (initial
+    // snapshot OR full rescan). When fullScan is true, ALL boards must be
+    // loaded into `present` so the deletion-detection loop below does NOT
+    // false-tombstone the boards this cycle didn't reach.
+    if (!fullScan && boardIds.length > MAX_BOARDS_PER_PUBLISH) {
+      for (const id of boardIds.slice(MAX_BOARDS_PER_PUBLISH)) {
+        pendingBoardIds.add(id);
+      }
+      scheduleNext();
+      boardIds = boardIds.slice(0, MAX_BOARDS_PER_PUBLISH);
+    }
+
     const present = new Set<string>();
     const now = new Date().toISOString();
     for (const boardId of boardIds) {
@@ -195,6 +231,10 @@ export function createKanbanHqSync(
             schedulePublish(null);
             return;
           }
+          // Reject pathologically long filenames before any allocation or
+          // id validation — protects against inotify spam from non-kanban
+          // tooling that writes temp files into the kanban directory.
+          if (filename.length > MAX_BOARD_ID_LENGTH + 5) return; // +5 for ".json"
           if (filename === SYNC_STATE_FILE || filename.endsWith('.events.jsonl')) return;
           if (!filename.endsWith('.json')) return;
           const boardId = filename.slice(0, -'.json'.length);

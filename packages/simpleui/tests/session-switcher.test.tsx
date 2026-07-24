@@ -103,7 +103,7 @@ describe('SessionSwitcher — rendering', () => {
 
   it('dropdown is closed by default', () => {
     const container = render(baseProps());
-    expect(container.querySelector('.session-dropdown')).toBeNull();
+    expect(container.querySelector('.session-menu')).toBeNull();
   });
 });
 
@@ -112,18 +112,18 @@ describe('SessionSwitcher — open / close', () => {
     const container = render(baseProps());
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
-    expect(container.querySelector('.session-dropdown')).not.toBeNull();
+    expect(container.querySelector('.session-menu')).not.toBeNull();
   });
 
   it('closes dropdown on outside click', () => {
     const container = render(baseProps());
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
-    expect(container.querySelector('.session-dropdown')).not.toBeNull();
+    expect(container.querySelector('.session-menu')).not.toBeNull();
 
     // Simulate outside click
     act(() => pointerDown(document.body));
-    expect(container.querySelector('.session-dropdown')).toBeNull();
+    expect(container.querySelector('.session-menu')).toBeNull();
   });
 });
 
@@ -147,10 +147,10 @@ describe('SessionSwitcher — actions', () => {
     const container = render(baseProps({ onCreateSession }));
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
-    const newBtn = container.querySelector('.session-dropdown button') as HTMLButtonElement;
+    const newBtn = container.querySelector('.session-menu button') as HTMLButtonElement;
     act(() => click(newBtn));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.session-dropdown')).toBeNull();
+    expect(container.querySelector('.session-menu')).toBeNull();
   });
 
   it('disables New session button when running', () => {
@@ -170,7 +170,7 @@ describe('SessionSwitcher — actions', () => {
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
 
-    const items = container.querySelectorAll('.session-list button');
+    const items = container.querySelectorAll('.session-menu-list button');
     expect(items).toHaveLength(2);
 
     const activeBtn = items[0] as HTMLButtonElement;
@@ -188,16 +188,16 @@ describe('SessionSwitcher — actions', () => {
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
 
-    const items = container.querySelectorAll('.session-list button');
+    const items = container.querySelectorAll('.session-menu-list button');
     act(() => click(items[1] as HTMLButtonElement));
     expect(onResumeSession).toHaveBeenCalledWith('sess-2');
-    expect(container.querySelector('.session-dropdown')).toBeNull();
+    expect(container.querySelector('.session-menu')).toBeNull();
   });
 
   it('shows empty state when no sessions', () => {
     const container = render(baseProps({ sessions: [] }));
     const trigger = container.querySelector('.session-trigger') as HTMLButtonElement;
     act(() => click(trigger));
-    expect(container.querySelector('.session-empty')).not.toBeNull();
+    expect(container.querySelector('.session-menu-empty')).not.toBeNull();
   });
 });

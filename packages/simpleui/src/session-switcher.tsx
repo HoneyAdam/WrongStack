@@ -1,4 +1,4 @@
-import { ChevronDown, History, Plus } from 'lucide-react';
+import { Check, ChevronDown, History, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { relativeSessionTime, sessionDisplayName } from './lib/session-model.js';
 import type { SessionInfo, SimpleSessionSummary } from './types.js';
@@ -60,46 +60,57 @@ export function SessionSwitcher(props: SessionSwitcherProps): React.JSX.Element 
         type="button"
         className="session-trigger"
         aria-expanded={open}
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         disabled={!session || running}
         onClick={handleTriggerClick}
         title={session ? currentName : 'Connecting…'}
       >
-        <History size={14} aria-hidden="true" />
+        <History size={11} aria-hidden="true" />
         <span>{session ? currentName : 'Connecting…'}</span>
-        <ChevronDown size={14} aria-hidden="true" />
+        <ChevronDown size={11} aria-hidden="true" />
       </button>
       {open && (
-        <div className="session-dropdown" role="menu">
-          <button type="button" disabled={running} onClick={handleCreate} role="menuitem">
-            <Plus size={14} aria-hidden="true" />
-            New session
-          </button>
-          {sessions.length === 0 ? (
-            <p className="session-empty">No saved sessions yet</p>
-          ) : (
-            <ul className="session-list">
-              {sessions.map((item) => {
-                const active = item.id === session?.id;
+        <section className="session-menu" role="dialog" aria-label="Recent sessions">
+          <div className="session-menu-heading">
+            <span>RECENT SESSIONS</span>
+            <button type="button" disabled={running} onClick={handleCreate}>
+              <Plus size={11} aria-hidden="true" />
+              NEW
+            </button>
+          </div>
+          <div className="session-menu-list">
+            {sessions.length === 0 ? (
+              <div className="session-menu-empty">No saved sessions yet</div>
+            ) : (
+              sessions.slice(0, 12).map((item) => {
+                const active = item.isCurrent || item.id === session?.id;
                 return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      disabled={active || running}
-                      onClick={() => handleResume(item.id)}
-                      aria-current={active ? 'page' : undefined}
-                      role="menuitem"
-                    >
-                      <b>{sessionDisplayName(item)}</b>
-                      <span className="session-meta">{item.model}</span>
-                      <span className="session-time">{relativeSessionTime(item.startedAt)}</span>
-                    </button>
-                  </li>
+                  <button
+                    type="button"
+                    className={active ? 'active' : undefined}
+                    aria-current={active ? 'page' : undefined}
+                    disabled={active || running}
+                    key={item.id}
+                    onClick={() => handleResume(item.id)}
+                  >
+                    <span className="session-menu-main">
+                      {active ? (
+                        <Check size={12} aria-hidden="true" />
+                      ) : (
+                        <History size={12} aria-hidden="true" />
+                      )}
+                      <span className="session-menu-copy">
+                        <b>{sessionDisplayName(item)}</b>
+                        <small>{[item.provider, item.model].filter(Boolean).join(' · ')}</small>
+                      </span>
+                    </span>
+                    <time dateTime={item.startedAt}>{relativeSessionTime(item.startedAt)}</time>
+                  </button>
                 );
-              })}
-            </ul>
-          )}
-        </div>
+              })
+            )}
+          </div>
+        </section>
       )}
     </div>
   );

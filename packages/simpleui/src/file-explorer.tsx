@@ -1,6 +1,20 @@
-import { Check, File, FileEdit, Folder, FolderOpen, Save, Search, X } from 'lucide-react';
+import {
+  Check,
+  File,
+  FileEdit,
+  Folder,
+  FolderOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Save,
+  Search,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SimpleSocket } from './lib/ws.js';
+
+const SELECTED_FILE_STORAGE_KEY = 'wrongstack-simpleui-file-manager-selected-file';
+const MAX_STORED_PATH_LENGTH = 4096;
 
 interface FileNode {
   name: string;
@@ -11,6 +25,30 @@ interface FileNode {
 
 interface FileExplorerProps {
   socketRef: React.RefObject<SimpleSocket | null>;
+}
+
+function readSelectedPath(): string | null {
+  try {
+    const stored = globalThis.localStorage?.getItem(SELECTED_FILE_STORAGE_KEY);
+    return stored && stored.length <= MAX_STORED_PATH_LENGTH ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedPath(path: string): void {
+  try {
+    globalThis.localStorage?.setItem(SELECTED_FILE_STORAGE_KEY, path);
+  } catch {
+    // Persistence is best-effort in private browsing and quota-restricted environments.
+  }
+}
+
+function isPathInsideDirectory(filePath: string | null, directoryPath: string): boolean {
+  if (!filePath) return false;
+  const file = filePath.replaceAll('\\', '/');
+  const directory = directoryPath.replaceAll('\\', '/').replace(/\/+$/, '');
+  return file.startsWith(`${directory}/`);
 }
 
 function FileTreeNode({
@@ -26,9 +64,17 @@ function FileTreeNode({
   selectedPath: string | null;
   filter: string;
 }) {
-  const [expanded, setExpanded] = useState(depth < 1);
+  const [expanded, setExpanded] = useState(() => isPathInsideDirectory(selectedPath, node.path));
   const hasChildren = node.type === 'directory' && node.children && node.children.length > 0;
   const isSelected = node.type === 'file' && node.path === selectedPath;
+
+  // When a persisted selection is restored, reveal its ancestor chain the
+  // next time the otherwise-collapsed file list is opened.
+  useEffect(() => {
+    if (node.type === 'directory' && isPathInsideDirectory(selectedPath, node.path)) {
+      setExpanded(true);
+    }
+  }, [node.path, node.type, selectedPath]);
 
   // Auto-expand to reveal matching search results
   useEffect(() => {
@@ -114,9 +160,10 @@ function ChevronRight({ size }: { size: number }) {
 
 export function FileExplorer({ socketRef }: FileExplorerProps) {
   const [open, setOpen] = useState(false);
+  const [fileListOpen, setFileListOpen] = useState(false);
   const [tree, setTree] = useState<FileNode[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(readSelectedPath);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
@@ -186,7 +233,7 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
       // Only accept the response for the file we requested
       if (returnedPath !== filePath) return;
 
-      if (payload?.['content'] && typeof payload['content'] === 'string') {
+      if (typeof payload?.['content'] === 'string') {
         setFileContent(payload['content']);
         setEditedContent(null);
       } else {
@@ -203,6 +250,7 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
 
   const handleSelectFile = useCallback((path: string) => {
     setSelectedPath(path);
+    persistSelectedPath(path);
     loadFileContent(path);
   }, [loadFileContent]);
 
@@ -251,7 +299,14 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
         className="file-explorer-trigger"
         aria-label="Open file manager"
         title="Project file manager"
-        onClick={() => { setOpen(true); if (!tree) loadTree(); }}
+        onClick={() => {
+          setOpen(true);
+          setFileListOpen(false);
+          if (!tree) loadTree();
+          if (selectedPath && fileContent === null && !contentLoading) {
+            loadFileContent(selectedPath);
+          }
+        }}
       >
         <Folder size={13} aria-hidden="true" />
       </button>
@@ -270,6 +325,23 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
           <div className="file-explorer-head-actions">
             <button
               type="button"
+              onClick={() => {
+                setFileListOpen((visible) => {
+                  if (!visible) setTimeout(() => searchRef.current?.focus(), 0);
+                  return !visible;
+                });
+              }}
+              aria-label={fileListOpen ? 'Collapse file list' : 'Expand file list'}
+              title={fileListOpen ? 'Collapse file list' : 'Expand file list'}
+            >
+              {fileListOpen ? (
+                <PanelLeftClose size={13} aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen size={13} aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
               onClick={handleTreeReload}
               aria-label="Reload file tree"
               title="Reload file tree"
@@ -286,44 +358,48 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
             </button>
           </div>
         </header>
-        <div className="file-manager-search">
-          <Search size={12} aria-hidden="true" />
-          <input
-            ref={searchRef}
-            type="text"
-            placeholder="Filter files…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter files"
-            className="file-manager-search-input"
-          />
-          {filter && (
-            <button
-              type="button"
-              className="file-manager-search-clear"
-              onClick={() => setFilter('')}
-              aria-label="Clear filter"
-            >
-              <X size={11} />
-            </button>
-          )}
-        </div>
-        <div className="file-manager-split">
-          <div className="file-explorer-body">
-            {loading && <p className="file-explorer-empty">Loading…</p>}
-            {!loading && !tree && !error && <p className="file-explorer-empty">Failed to load file tree.</p>}
-            {error && !selectedPath && <p className="file-explorer-empty file-explorer-error">{error}</p>}
-            {tree && tree.map((node) => (
-              <FileTreeNode
-                key={node.path}
-                node={node}
-                depth={0}
-                onSelect={handleSelectFile}
-                selectedPath={selectedPath}
-                filter={filter}
-              />
-            ))}
+        {fileListOpen && (
+          <div className="file-manager-search">
+            <Search size={12} aria-hidden="true" />
+            <input
+              ref={searchRef}
+              type="text"
+              placeholder="Filter files…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Filter files"
+              className="file-manager-search-input"
+            />
+            {filter && (
+              <button
+                type="button"
+                className="file-manager-search-clear"
+                onClick={() => setFilter('')}
+                aria-label="Clear filter"
+              >
+                <X size={11} />
+              </button>
+            )}
           </div>
+        )}
+        <div className={`file-manager-split${fileListOpen ? '' : ' file-list-collapsed'}`}>
+          {fileListOpen && (
+            <div className="file-explorer-body">
+              {loading && <p className="file-explorer-empty">Loading…</p>}
+              {!loading && !tree && !error && <p className="file-explorer-empty">Failed to load file tree.</p>}
+              {error && !selectedPath && <p className="file-explorer-empty file-explorer-error">{error}</p>}
+              {tree?.map((node) => (
+                <FileTreeNode
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  onSelect={handleSelectFile}
+                  selectedPath={selectedPath}
+                  filter={filter}
+                />
+              ))}
+            </div>
+          )}
           <div className="file-manager-content">
             {selectedPath && contentLoading && (
               <div className="file-manager-empty">Loading…</div>
@@ -402,7 +478,14 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
             )}
             {!selectedPath && (
               <div className="file-manager-empty">
-                Select a file to view its content
+                <button
+                  type="button"
+                  className="file-manager-open-list-btn"
+                  onClick={() => setFileListOpen(true)}
+                >
+                  <PanelLeftOpen size={13} aria-hidden="true" />
+                  Select a file to view its content
+                </button>
               </div>
             )}
           </div>

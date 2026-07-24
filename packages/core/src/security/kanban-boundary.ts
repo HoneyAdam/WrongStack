@@ -54,6 +54,34 @@ export async function evaluateToolKanbanBoundary(
   const task = identity.taskId
     ? board.tasks.find((candidate) => candidate.id === identity.taskId)
     : undefined;
+
+  // Lease ownership check: when the subagent was dispatched with a frozen
+  // leaseId, verify the task's current assignment still matches. A mismatch
+  // means recover_stale reclaimed and reassigned this task — the subagent is
+  // stale and must not perform filesystem writes (except the kanban tool,
+  // which has its own expectedLeaseId fence in the assignment handlers).
+  if (identity.leaseId && task?.assignment) {
+    const caps = tool.capabilities ?? [];
+    const isWrite =
+      caps.includes('fs.write') ||
+      caps.includes('fs.write.outside-project') ||
+      caps.some((c) => c.startsWith('shell.'));
+    if (isWrite && tool.name !== 'kanban' && task.assignment.leaseId !== identity.leaseId) {
+      return {
+        decision: 'block',
+        reason:
+          `Task ${task.id} lease mismatch: the current worker's lease (${identity.leaseId}) ` +
+          `does not match the active lease on the board (${task.assignment.leaseId}). ` +
+          `This task was likely recovered and reassigned to another worker. ` +
+          `File modifications from a stale worker are blocked. ` +
+          `Use kanban mark_assignment with expectedLeaseId to resolve, or use ` +
+          `kanban get_board to reassess the current state.`,
+        boardId: board.id,
+        taskId: task.id,
+      };
+    }
+  }
+
   const layers = resolveKanbanBoundaryLayers(board, task);
   if (layers.length === 0) return { decision: 'allow' };
 
@@ -90,6 +118,7 @@ function resolveKanbanIdentity(ctx: Context): {
   boardId?: string;
   taskId?: string;
   policyRoot?: string;
+  leaseId?: string;
 } {
   const metaKanban = ctx.meta['kanban'];
   const record =
@@ -104,10 +133,13 @@ function resolveKanbanIdentity(ctx: Context): {
     (typeof record?.['taskId'] === 'string' ? record['taskId'] : undefined);
   const policyRoot =
     typeof record?.['projectRoot'] === 'string' ? record['projectRoot'] : undefined;
+  const leaseId =
+    typeof record?.['leaseId'] === 'string' ? record['leaseId'] : undefined;
   return {
     ...(boardId ? { boardId } : {}),
     ...(taskId ? { taskId } : {}),
     ...(policyRoot ? { policyRoot } : {}),
+    ...(leaseId ? { leaseId } : {}),
   };
 }
 

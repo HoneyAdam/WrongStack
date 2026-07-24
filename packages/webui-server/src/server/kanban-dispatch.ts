@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Context } from '@wrongstack/core/agent';
 import {
   areDependenciesMet,
@@ -33,7 +34,7 @@ export type KanbanTaskDispatcher = (
     allowedCapabilities?: readonly string[] | undefined;
     context?:
       | {
-          kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+          kanban?: { boardId?: string; taskId?: string; projectRoot?: string; leaseId?: string };
         }
       | undefined;
     onDone?: ((result: KanbanDispatchResult) => void | Promise<void>) | undefined;
@@ -76,11 +77,16 @@ function reply(ws: WebSocket, type: string, success: boolean, value: unknown): v
   });
 }
 
-function activityContext(ctx: KanbanDispatchContext, note?: string): KanbanEventContext {
+function activityContext(
+  ctx: KanbanDispatchContext,
+  note?: string,
+  expectedLeaseId?: string,
+): KanbanEventContext {
   const sessionId = ctx.context?.session?.id;
   return {
     ...(sessionId ? { sessionId } : {}),
     ...(note?.trim() ? { note: note.trim() } : {}),
+    ...(expectedLeaseId ? { expectedLeaseId } : {}),
   };
 }
 
@@ -124,6 +130,20 @@ export async function handleKanbanTaskDispatch(
       ? 'fixed'
       : 'session');
   const useSessionModel = modelRouting === 'session';
+  // Generate a leaseId for fencing writes to the kanban board. This lease is
+  // passed to the worker via the kanban context and expectedLeaseId in the
+  // prompt instructions. Every subsequent updateTaskAssignment call fences
+  // with expectedLeaseId so a recovered-and-reassigned task cannot be
+  // overwritten by this worker's terminal writes.
+  const leaseId = randomUUID();
+  const now = new Date().toISOString();
+  // Use a generous lease (30 min) so long-running workers do not silently
+  // drop their completion result. The WebUI dispatch path has no host-side
+  // heartbeat renewal (unlike kanban_queue's detached supervisor), so the
+  // lease must outlive typical AI task durations. Workers that need more
+  // time should call heartbeat_assignment with their expectedLeaseId.
+  const leaseTtlMs = 30 * 60 * 1000;
+  const leaseExpiresAt = new Date(Date.now() + leaseTtlMs).toISOString();
   const assignment = {
     agentId:
       (payload?.agentId as string | undefined) ?? task.assignment?.agentId ?? task.assignedAgent,
@@ -158,7 +178,11 @@ export async function handleKanbanTaskDispatch(
       task.retryPolicy,
     attempt: (task.assignment?.attempt ?? 0) + 1,
     status: 'queued' as const,
-    dispatchedAt: new Date().toISOString(),
+    dispatchedAt: now,
+    leaseId,
+    claimedAt: now,
+    heartbeatAt: now,
+    leaseExpiresAt,
   };
   const assignedBoard = await assignTask(
     ctx.projectRoot,
@@ -173,7 +197,7 @@ export async function handleKanbanTaskDispatch(
   }
 
   try {
-    const summary = await ctx.dispatchTask(buildKanbanAgentPrompt(board, task, assignment), {
+    const summary = await ctx.dispatchTask(buildKanbanAgentPrompt(board, task, assignment, leaseId), {
       ...(assignment.provider ? { provider: assignment.provider } : {}),
       ...(assignment.model ? { model: assignment.model } : {}),
       ...(assignment.fallbackModels ? { fallbackModels: assignment.fallbackModels } : {}),
@@ -184,7 +208,7 @@ export async function handleKanbanTaskDispatch(
       ...(assignment.allowedCapabilities
         ? { allowedCapabilities: assignment.allowedCapabilities }
         : {}),
-      context: { kanban: { boardId, taskId: task.id, projectRoot: ctx.projectRoot } },
+      context: { kanban: { boardId, taskId: task.id, projectRoot: ctx.projectRoot, leaseId } },
       onDone: async (result) => {
         await updateTaskAssignment(
           ctx.projectRoot,
@@ -196,7 +220,7 @@ export async function handleKanbanTaskDispatch(
             ...(result.result !== undefined ? { lastResult: result.result } : {}),
             ...(result.error !== undefined ? { error: result.error } : {}),
           },
-          activityContext(ctx),
+          activityContext(ctx, undefined, leaseId),
         );
         const reconciled = await reconcileKanbanBoard(ctx.projectRoot, boardId);
         const completed = reconciled?.board ?? (await getBoard(ctx.projectRoot, boardId));
@@ -233,7 +257,7 @@ export async function handleKanbanTaskDispatch(
         ...(runTaskId ? { runTaskId } : {}),
         lastResult: summary,
       },
-      activityContext(ctx),
+      activityContext(ctx, undefined, leaseId),
     );
     const runningTask = updated?.tasks.find((candidate) => candidate.id === task.id) ?? task;
     ctx.broadcast?.({
@@ -251,7 +275,7 @@ export async function handleKanbanTaskDispatch(
       boardId,
       task.id,
       { ...assignment, status: 'failed', error: message },
-      activityContext(ctx),
+      activityContext(ctx, undefined, leaseId),
     );
     reply(ws, 'kanban.task.dispatch', false, message);
   }
@@ -261,6 +285,7 @@ function buildKanbanAgentPrompt(
   board: Pick<KanbanBoard, 'id' | 'title' | 'tasks'>,
   task: KanbanTask,
   assignment: KanbanTask['assignment'],
+  leaseId: string | undefined,
 ): string {
   const dependencies = (task.dependsOn ?? [])
     .map((dependencyId) => board.tasks.find((candidate) => candidate.id === dependencyId))
@@ -310,7 +335,14 @@ function buildKanbanAgentPrompt(
     task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
     '',
     'Work the task end-to-end. Use the kanban tool, not direct file edits, to update this task.',
-    `When you start or finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running", "completed", or "failed". Include lastResult or error when you finish.`,
+    ...(leaseId ? [
+      'LEASE CONTRACT:',
+      `- Your leaseId is "${leaseId}". Include expectedLeaseId "${leaseId}" in every mark_assignment and heartbeat_assignment call.`,
+      '- The expectedLeaseId fence makes your write a safe no-op if recover_stale already reassigned the task because your lease expired (e.g. if you take too long).',
+      '- If your lease expires, call heartbeat_assignment with expectedLeaseId to extend it, or release_task so another worker can claim.',
+      'On failure the host may call recover_stale; respect its decisions and do not duplicate work.',
+    ] : []),
+    `When you start or finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running", "completed", or "failed"${leaseId ? `, and expectedLeaseId "${leaseId}"` : ''}. Include lastResult or error when you finish.`,
     'When finished, report what changed, what you verified, and any remaining blockers.',
   ]
     .filter(Boolean)

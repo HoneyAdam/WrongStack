@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addTask, createBoard } from '@wrongstack/kanban';
+import { addTask, assignTask, createBoard } from '@wrongstack/kanban';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { ToolExecutor } from '../../src/execution/tool-executor.js';
@@ -282,5 +282,162 @@ describe('tool Kanban boundary integration', () => {
     expect(decisions[0]?.boundaryReason).toBeTruthy();
     expect(confirmAwaiter).toHaveBeenCalledOnce();
     expect(execute).toHaveBeenCalledOnce();
+  });
+
+  describe('lease ownership check', () => {
+    it('blocks write tools when the subagent lease mismatches the board assignment', async () => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'wstack-boundary-lease-'));
+      roots.push(projectRoot);
+      const board = await createBoard(projectRoot, {
+        title: 'Lease scope',
+        boundary: {
+          enabled: true,
+          enforcement: 'block',
+          shellAccess: 'block',
+          allow: [{ kind: 'directory', path: 'src', access: 'write' }],
+        },
+      });
+      const taskResult = await addTask(projectRoot, board.id, { title: 'Scoped lease' });
+      const task = taskResult!.task;
+      const workerLeaseId = 'worker-lease-001';
+      const boardLeaseId = 'board-lease-002'; // deliberately different
+      await assignTask(projectRoot, board.id, task.id, { leaseId: boardLeaseId });
+      const ctx = {
+        projectRoot,
+        workingDir: projectRoot,
+        meta: {
+          kanban: {
+            boardId: board.id,
+            taskId: task.id,
+            projectRoot,
+            leaseId: workerLeaseId,
+          },
+        },
+      } as unknown as Context;
+      const writeTool = { name: 'write', capabilities: ['fs.write'] } as Tool;
+
+      const result = await evaluateToolKanbanBoundary(
+        writeTool,
+        { path: 'src/test.ts' },
+        ctx,
+      );
+      expect(result.decision).toBe('block');
+      expect(result.reason).toContain('lease mismatch');
+      expect(result.reason).toContain(workerLeaseId);
+      expect(result.reason).toContain(boardLeaseId);
+      expect(result).toMatchObject({ boardId: board.id, taskId: task.id });
+    });
+
+    it('allows write tools when the subagent lease matches the board assignment', async () => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'wstack-boundary-lease-match-'));
+      roots.push(projectRoot);
+      const board = await createBoard(projectRoot, {
+        title: 'Lease match',
+        boundary: {
+          enabled: true,
+          enforcement: 'block',
+          shellAccess: 'block',
+          allow: [{ kind: 'directory', path: 'src', access: 'write' }],
+        },
+      });
+      const taskResult = await addTask(projectRoot, board.id, { title: 'Match lease' });
+      const task = taskResult!.task;
+      const leaseId = 'lease-match-001';
+      await assignTask(projectRoot, board.id, task.id, { leaseId });
+      const ctx = {
+        projectRoot,
+        workingDir: projectRoot,
+        meta: {
+          kanban: {
+            boardId: board.id,
+            taskId: task.id,
+            projectRoot,
+            leaseId,
+          },
+        },
+      } as unknown as Context;
+      const writeTool = { name: 'write', capabilities: ['fs.write'] } as Tool;
+
+      const result = await evaluateToolKanbanBoundary(
+        writeTool,
+        { path: 'src/test.ts' },
+        ctx,
+      );
+      // Lease matches — the boundary allow rule governs
+      expect(result.decision).toBe('allow');
+    });
+
+    it('exempts the kanban tool from lease mismatch checks', async () => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'wstack-boundary-kanban-exempt-'));
+      roots.push(projectRoot);
+      const board = await createBoard(projectRoot, {
+        title: 'Kanban exempt',
+        boundary: {
+          enabled: true,
+          enforcement: 'block',
+          shellAccess: 'allow', // opaque tools pass through
+          allow: [{ kind: 'directory', path: 'src', access: 'write' }],
+        },
+      });
+      const taskResult = await addTask(projectRoot, board.id, { title: 'Kanban exempt task' });
+      const task = taskResult!.task;
+      await assignTask(projectRoot, board.id, task.id, { leaseId: 'board-lease' });
+      const ctx = {
+        projectRoot,
+        workingDir: projectRoot,
+        meta: {
+          kanban: {
+            boardId: board.id,
+            taskId: task.id,
+            projectRoot,
+            leaseId: 'stale-worker-lease', // deliberately different
+          },
+        },
+      } as unknown as Context;
+      const kanbanTool = { name: 'kanban', capabilities: ['fs.write'] } as Tool;
+
+      const result = await evaluateToolKanbanBoundary(
+        kanbanTool,
+        { action: 'get_board', boardId: board.id },
+        ctx,
+      );
+      // Kanban tool name matches the exemption — lease check is skipped,
+      // and shellAccess: 'allow' lets the opaque evaluation pass.
+      expect(result.decision).toBe('allow');
+    });
+
+    it('skips lease check when no leaseId is present in context', async () => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'wstack-boundary-no-lease-'));
+      roots.push(projectRoot);
+      const board = await createBoard(projectRoot, {
+        title: 'No lease',
+        boundary: {
+          enabled: true,
+          enforcement: 'block',
+          shellAccess: 'block',
+          allow: [{ kind: 'directory', path: 'src', access: 'write' }],
+        },
+      });
+      const taskResult = await addTask(projectRoot, board.id, { title: 'No lease task' });
+      const task = taskResult!.task;
+      await assignTask(projectRoot, board.id, task.id, { leaseId: 'board-lease' });
+      const ctx = {
+        projectRoot,
+        workingDir: projectRoot,
+        currentKanbanBoardId: board.id,
+        currentKanbanTaskId: task.id,
+        meta: {},
+      } as unknown as Context;
+      const writeTool = { name: 'write', capabilities: ['fs.write'] } as Tool;
+
+      const result = await evaluateToolKanbanBoundary(
+        writeTool,
+        { path: 'src/test.ts' },
+        ctx,
+      );
+      // No leaseId in ctx.meta.kanban → identity.leaseId is undefined
+      // → lease check is skipped → boundary layers govern
+      expect(result.decision).toBe('allow');
+    });
   });
 });

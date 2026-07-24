@@ -3576,6 +3576,10 @@ a:focus-visible {
   grid-template-columns: 200px minmax(0, 1fr);
 }
 
+.file-manager-split.file-list-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .file-manager .file-explorer-body {
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -3673,6 +3677,17 @@ a:focus-visible {
   display: flex; align-items: center; justify-content: center;
   height: 100%; color: var(--muted);
   font-family: "IBM Plex Mono", monospace; font-size: 10px;
+}
+
+.file-manager-open-list-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-strong); padding: 7px 10px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit;
+}
+
+.file-manager-open-list-btn:hover {
+  border-color: var(--muted); color: var(--text);
 }
 
 /* ── Diff panel header extensions ────────────────────────────────── */
