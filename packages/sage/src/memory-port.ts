@@ -23,8 +23,9 @@ export interface SageRetrievalCapability extends SageRetrieverLike {
   ): Promise<import('./types.js').Sage[]>;
 }
 
-export const SAGE_RETRIEVAL_CAPABILITY =
-  defineMemoryCapability<SageRetrievalCapability>('wrongstack.memory.retrieval.v1');
+export const SAGE_RETRIEVAL_CAPABILITY = defineMemoryCapability<SageRetrievalCapability>(
+  'wrongstack.memory.retrieval.v1',
+);
 export const SAGE_SURFACE_CAPABILITY = defineMemoryCapability<SageSurface>(
   'wrongstack.memory.surface.v1',
 );
@@ -33,9 +34,7 @@ export function getSageService(port: MemoryPort): SageServiceLike | undefined {
   return port.getCapability(SAGE_SERVICE_CAPABILITY);
 }
 
-export function getSageRetrieval(
-  port: MemoryPort,
-): SageRetrievalCapability | undefined {
+export function getSageRetrieval(port: MemoryPort): SageRetrievalCapability | undefined {
   return port.getCapability(SAGE_RETRIEVAL_CAPABILITY);
 }
 
@@ -115,10 +114,16 @@ export class SqliteMemoryPort extends SqliteSageStore implements MemoryPort {
   }
 
   async dispose(): Promise<void> {
+    // Production teardown sequence: drain every queued mutation so a close()
+    // call never lands under an in-flight BEGIN IMMEDIATE / file lock /
+    // prepared-statement run. Without the drain, a remember / inject /
+    // counter increment that was still running when the host tore down the
+    // port would close the DB handle from under it, throwing inside the
+    // caller's awaited promise with a confusing stack trace.
+    await this.drainMutations();
     this.close();
   }
 }
-
 
 /**
  * Compatibility wrapper for third-party implementations of the legacy Core
@@ -200,4 +205,3 @@ export class LegacyMemoryPortAdapter implements MemoryPort {
 export function createSqliteMemoryPort(options: SageStoreOptions): MemoryPort {
   return new SqliteMemoryPort(options);
 }
-

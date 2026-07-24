@@ -38,6 +38,20 @@ import {
   resolveSagePaths,
 } from './paths.js';
 import {
+  computeResolution,
+  rejectIfUnsafeInput,
+  resolveTargetId,
+} from './shared/candidate-lifecycle.js';
+import {
+  boundedLimit,
+  clampPageLimit,
+  DEFAULT_PAGE_STATUSES,
+  encodePageCursor,
+  MAX_PAGE_LIMIT,
+  VALID_MEMORY_STATUSES,
+} from './shared/pagination.js';
+import { consolidateSession as sharedConsolidateSession } from './shared/session-consolidation.js';
+import {
   canonicalMemoryText,
   clamp01,
   normalizeAnchors,
@@ -63,8 +77,6 @@ import type {
   MemoryGraphRelation,
   MemoryVerificationResult,
   RememberSageInput,
-  SessionConsolidationInput,
-  SessionConsolidationResult,
   Sage,
   SageAuditRecord,
   SageForPathOptions,
@@ -76,6 +88,8 @@ import type {
   SageStats,
   SageStatus,
   SageStoreOptions,
+  SessionConsolidationInput,
+  SessionConsolidationResult,
   UpdateSageInput,
 } from './types.js';
 import {
@@ -86,16 +100,6 @@ import {
   sageToLegacyScope,
   toLegacyEntry,
 } from './types.js';
-import { computeResolution, rejectIfUnsafeInput, resolveTargetId } from './shared/candidate-lifecycle.js';
-import { consolidateSession as sharedConsolidateSession } from './shared/session-consolidation.js';
-import {
-  VALID_MEMORY_STATUSES,
-  DEFAULT_PAGE_STATUSES,
-  MAX_PAGE_LIMIT,
-  boundedLimit,
-  clampPageLimit,
-  encodePageCursor,
-} from './shared/pagination.js';
 
 // ─── Pagination helpers (mirror SageStore.listSagePage semantics) ──
 
@@ -188,7 +192,7 @@ function withSqliteExperimentalWarningSuppressed<T>(run: () => T): T {
   let reentering = false;
   const onWarning = (warning: Error, ...args: unknown[]) => {
     if (reentering) return;
-    const msg = typeof warning === 'string' ? warning : warning?.message ?? '';
+    const msg = typeof warning === 'string' ? warning : (warning?.message ?? '');
     if (/sqlite/i.test(msg) && /experimental/i.test(msg)) return;
     reentering = true;
     process.off('warning', onWarning);
@@ -360,9 +364,7 @@ function initSchema(db: DatabaseSync): void {
     'CREATE INDEX IF NOT EXISTS idx_candidates_status_created ON candidates(status, created_at DESC)',
   );
   // Shared-anchor lookups for findRelatedSage / retrieveForPath.
-  db.exec(
-    'CREATE INDEX IF NOT EXISTS idx_edge_to_relation ON edges(to_node, relation)',
-  );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_edge_to_relation ON edges(to_node, relation)');
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────
@@ -484,11 +486,11 @@ export class SqliteSageStore implements MemoryStore {
     // Fresh DB: the schema was just created by initSchema() with the latest
     // version (including canonical_text), so skip all migrations.
     // Legacy DB without a version row: treat as v0 so all migrations run.
-    const currentVersion = row?.value ?? (
-      (this.stmt('SELECT COUNT(*) AS n FROM memories').get() as { n: number }).n > 0
+    const currentVersion =
+      row?.value ??
+      ((this.stmt('SELECT COUNT(*) AS n FROM memories').get() as { n: number }).n > 0
         ? 0
-        : SQLITE_SCHEMA_VERSION
-    );
+        : SQLITE_SCHEMA_VERSION);
     if (!row) {
       // Use ON CONFLICT so two processes first-opening a fresh DB simultaneously
       // both see !row, both try INSERT, but only one succeeds — the other gets
@@ -510,8 +512,9 @@ export class SqliteSageStore implements MemoryStore {
         this.db.exec("ALTER TABLE memories ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''");
         // Backfill existing rows (safe to re-run — ALTER TABLE ADD COLUMN is
         // idempotent on the column itself, but backfill should only run once).
-        const backfillRows = this.stmt("SELECT id, data FROM memories WHERE canonical_text = ''")
-          .all() as Array<{ id: string; data: string }>;
+        const backfillRows = this.stmt(
+          "SELECT id, data FROM memories WHERE canonical_text = ''",
+        ).all() as Array<{ id: string; data: string }>;
         if (backfillRows.length > 0) {
           const stmt = this.stmt('UPDATE memories SET canonical_text = ? WHERE id = ?');
           for (const r of backfillRows) {
@@ -537,9 +540,7 @@ export class SqliteSageStore implements MemoryStore {
       this.db.exec('BEGIN IMMEDIATE');
       try {
         try {
-          this.db.exec(
-            "ALTER TABLE candidates ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''",
-          );
+          this.db.exec("ALTER TABLE candidates ADD COLUMN canonical_text TEXT NOT NULL DEFAULT ''");
         } catch {
           // Column already present (fresh CREATE TABLE path or partial upgrade).
         }
@@ -625,8 +626,9 @@ export class SqliteSageStore implements MemoryStore {
     ];
     if (!legacyPaths.some((filePath) => fs.existsSync(filePath))) return;
 
-    const alreadyMigrated = this.stmt('SELECT value FROM schema_meta WHERE key = ?')
-      .get(LEGACY_JSONL_MIGRATION_KEY);
+    const alreadyMigrated = this.stmt('SELECT value FROM schema_meta WHERE key = ?').get(
+      LEGACY_JSONL_MIGRATION_KEY,
+    );
     if (alreadyMigrated) return;
 
     const readLegacy = async <T>(filePath: string): Promise<T[]> => {
@@ -642,8 +644,11 @@ export class SqliteSageStore implements MemoryStore {
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const trimmed = lines[lineIndex]!.trim();
         if (!trimmed) continue;
-        try { result.push(JSON.parse(trimmed) as T); }
-        catch { throw new Error(`Corrupt legacy JSONL in ${filePath} at line ${lineIndex + 1}`); }
+        try {
+          result.push(JSON.parse(trimmed) as T);
+        } catch {
+          throw new Error(`Corrupt legacy JSONL in ${filePath} at line ${lineIndex + 1}`);
+        }
       }
       return result;
     };
@@ -684,16 +689,18 @@ export class SqliteSageStore implements MemoryStore {
     try {
       // A second process may have completed migration while this process was
       // reading the source files. Re-check under SQLite's write transaction.
-      const migratedByPeer = this.stmt('SELECT value FROM schema_meta WHERE key = ?')
-        .get(LEGACY_JSONL_MIGRATION_KEY);
+      const migratedByPeer = this.stmt('SELECT value FROM schema_meta WHERE key = ?').get(
+        LEGACY_JSONL_MIGRATION_KEY,
+      );
       if (migratedByPeer) {
         this.db.exec('COMMIT');
         return;
       }
 
       for (const incoming of latestMemories.values()) {
-        const existingRow = this.stmt('SELECT data FROM memories WHERE id = ?')
-          .get(incoming.id) as { data: string } | undefined;
+        const existingRow = this.stmt('SELECT data FROM memories WHERE id = ?').get(incoming.id) as
+          | { data: string }
+          | undefined;
         const existing = existingRow ? this.rowToMemory(existingRow) : undefined;
         if (existing && !shouldReplaceMigratedMemory(existing, incoming)) continue;
         this.upsertMemory(incoming);
@@ -708,8 +715,9 @@ export class SqliteSageStore implements MemoryStore {
          VALUES (?, ?, ?, ?, ?, ?)`,
       );
       for (const candidate of latestCandidates.values()) {
-        const existingRow = this.stmt('SELECT data FROM candidates WHERE id = ?')
-          .get(candidate.id) as { data: string } | undefined;
+        const existingRow = this.stmt('SELECT data FROM candidates WHERE id = ?').get(
+          candidate.id,
+        ) as { data: string } | undefined;
         if (existingRow) {
           const existing = JSON.parse(existingRow.data) as MemoryCandidate;
           if (existing.updatedAt.localeCompare(candidate.updatedAt) > 0) continue;
@@ -761,8 +769,9 @@ export class SqliteSageStore implements MemoryStore {
           auditRecords: audits.length,
         }),
       );
-      this.stmt('INSERT INTO schema_meta (key, value) VALUES (?, 1)')
-        .run(LEGACY_JSONL_MIGRATION_KEY);
+      this.stmt('INSERT INTO schema_meta (key, value) VALUES (?, 1)').run(
+        LEGACY_JSONL_MIGRATION_KEY,
+      );
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
@@ -820,8 +829,9 @@ export class SqliteSageStore implements MemoryStore {
     // Preserve structural related_to edges (symbol→file, file→dir, dir→dir ancestors)
     // that are shared across memories — they must not be destroyed when one memory
     // is deleted because other memories depend on them for graph traversal.
-    this.stmt("DELETE FROM edges WHERE (from_node = ? OR to_node = ?) AND relation != 'related_to'")
-      .run(nodeId, nodeId);
+    this.stmt(
+      "DELETE FROM edges WHERE (from_node = ? OR to_node = ?) AND relation != 'related_to'",
+    ).run(nodeId, nodeId);
   }
 
   /**
@@ -916,12 +926,11 @@ export class SqliteSageStore implements MemoryStore {
       // matching this key exactly (both run through normalizeAudience).
       const audienceKey = audience ? JSON.stringify(audience) : null;
       const row = this.stmt(
-          `SELECT data FROM memories
+        `SELECT data FROM memories
            WHERE status IN ('active','stale') AND scope = ? AND canonical_text = ?
              AND audience IS ?
            LIMIT 1`,
-        )
-        .get(scope, canonical, audienceKey) as { data: string } | undefined;
+      ).get(scope, canonical, audienceKey) as { data: string } | undefined;
 
       if (row) {
         const existing = this.rowToMemory(row);
@@ -1057,8 +1066,12 @@ export class SqliteSageStore implements MemoryStore {
     return this.runMutation(() => {
       // Two-pass query to avoid the OR that defeats the scope index.
       // First pass: indexed scope match.
-      const rows = [...this.stmt('SELECT data FROM memories WHERE status != ? AND scope = ?')
-        .all('deleted', sageScope) as Array<{ data: string }>];
+      const rows = [
+        ...(this.stmt('SELECT data FROM memories WHERE status != ? AND scope = ?').all(
+          'deleted',
+          sageScope,
+        ) as Array<{ data: string }>),
+      ];
       // Second pass: legacy-scope rows that the indexed pass missed.
       const legacyRows = this.stmt(
         'SELECT data FROM memories WHERE status != ? AND scope != ? AND json_extract(data, ?) = ?',
@@ -1066,8 +1079,11 @@ export class SqliteSageStore implements MemoryStore {
       // De-duplicate against the first pass by id.
       const firstPassIds = new Set<string>();
       for (const r of rows) {
-        try { firstPassIds.add(JSON.parse(r.data).id as string); }
-        catch { /* unparseable -- skip dedup */ }
+        try {
+          firstPassIds.add(JSON.parse(r.data).id as string);
+        } catch {
+          /* unparseable -- skip dedup */
+        }
       }
       for (const r of legacyRows) {
         try {
@@ -1084,7 +1100,11 @@ export class SqliteSageStore implements MemoryStore {
       const skippedPermanent: string[] = [];
       for (const row of rows) {
         let memory: Sage;
-        try { memory = this.rowToMemory(row); } catch { continue; }
+        try {
+          memory = this.rowToMemory(row);
+        } catch {
+          continue;
+        }
         if ((memory.legacyScope ?? sageToLegacyScope(memory.scope)) !== scope) continue;
         if (!matchesLegacyForget(memory, normalized)) continue;
         if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') {
@@ -1127,9 +1147,8 @@ export class SqliteSageStore implements MemoryStore {
       // First pass: indexed scope match.
       const rows = [
         ...(this.stmt(
-            "SELECT data FROM memories WHERE status IN ('active','stale') AND scope = ?",
-          )
-          .all(sageScope) as Array<{ data: string }>),
+          "SELECT data FROM memories WHERE status IN ('active','stale') AND scope = ?",
+        ).all(sageScope) as Array<{ data: string }>),
       ];
       // Second pass: legacy-scope rows that the indexed pass missed.
       const legacyRows = this.stmt(
@@ -1138,8 +1157,11 @@ export class SqliteSageStore implements MemoryStore {
       // De-duplicate against the first pass by id.
       const firstPassIds = new Set<string>();
       for (const r of rows) {
-        try { firstPassIds.add(JSON.parse(r.data).id as string); }
-        catch { /* unparseable -- skip dedup */ }
+        try {
+          firstPassIds.add(JSON.parse(r.data).id as string);
+        } catch {
+          /* unparseable -- skip dedup */
+        }
       }
       for (const r of legacyRows) {
         try {
@@ -1155,7 +1177,11 @@ export class SqliteSageStore implements MemoryStore {
       const groups = new Map<string, Sage[]>();
       for (const row of rows) {
         let memory: Sage;
-        try { memory = this.rowToMemory(row); } catch { continue; }
+        try {
+          memory = this.rowToMemory(row);
+        } catch {
+          continue;
+        }
         if ((memory.legacyScope ?? sageToLegacyScope(memory.scope)) !== scope) continue;
         const key = normalizeTextKey(memory.text);
         const group = groups.get(key);
@@ -1171,9 +1197,7 @@ export class SqliteSageStore implements MemoryStore {
         // group is skipped: the permanent must stay untouched, and the mutable
         // duplicates remain as standalone records that can be forgotten
         // explicitly or cleaned up by a targeted consolidation run.
-        const mutable = group.filter(
-          (m) => (m.persistence ?? DEFAULT_PERSISTENCE) !== 'permanent',
-        );
+        const mutable = group.filter((m) => (m.persistence ?? DEFAULT_PERSISTENCE) !== 'permanent');
         if (mutable.length < 2) continue;
         const [keeper, ...duplicates] = [...mutable].sort(
           (a, b) => b.importance - a.importance || b.confidence - a.confidence,
@@ -1216,8 +1240,9 @@ export class SqliteSageStore implements MemoryStore {
         ? " AND (scope = ? OR json_extract(data, '$.legacyScope') = ?)"
         : '';
       const params: string[] = scope ? [sageScope!, scope] : [];
-      const rows = this.stmt(`SELECT data FROM memories WHERE status != 'deleted'${scopeClause}`)
-        .all(...params) as Array<{ data: string }>;
+      const rows = this.stmt(
+        `SELECT data FROM memories WHERE status != 'deleted'${scopeClause}`,
+      ).all(...params) as Array<{ data: string }>;
       const skippedPermanent: string[] = [];
       const clearedIds: string[] = [];
       for (const row of rows) {
@@ -1264,9 +1289,8 @@ export class SqliteSageStore implements MemoryStore {
     // First pass: indexed scope match.
     const rows = [
       ...(this.stmt(
-          "SELECT data FROM memories WHERE status = 'active' AND scope = ? ORDER BY created_at DESC",
-        )
-        .all(sageScope) as Array<{ data: string }>),
+        "SELECT data FROM memories WHERE status = 'active' AND scope = ? ORDER BY created_at DESC",
+      ).all(sageScope) as Array<{ data: string }>),
     ];
     // Second pass: legacy-scope rows that the indexed pass missed.
     const legacyRows = this.stmt(
@@ -1275,8 +1299,11 @@ export class SqliteSageStore implements MemoryStore {
     // De-duplicate against the first pass by id.
     const firstPassIds = new Set<string>();
     for (const r of rows) {
-      try { firstPassIds.add(JSON.parse(r.data).id as string); }
-      catch { /* unparseable -- skip dedup */ }
+      try {
+        firstPassIds.add(JSON.parse(r.data).id as string);
+      } catch {
+        /* unparseable -- skip dedup */
+      }
     }
     for (const r of legacyRows) {
       try {
@@ -1309,8 +1336,11 @@ export class SqliteSageStore implements MemoryStore {
     });
     const entries = rows
       .map((row) => {
-        try { return this.rowToMemory(row); }
-        catch { return null; }
+        try {
+          return this.rowToMemory(row);
+        } catch {
+          return null;
+        }
       })
       .filter((m): m is Sage => m !== null)
       .filter((memory) => (memory.legacyScope ?? sageToLegacyScope(memory.scope)) === scope)
@@ -1431,14 +1461,26 @@ export class SqliteSageStore implements MemoryStore {
         : normalizeSlashes(path.posix.dirname(anchoredPath));
       const now = this.nowIso();
       if (anchor.type === 'symbol' && anchor.symbol) {
-        insert.run(`symbol:${anchoredPath}#${anchor.symbol}`, fileNode, 'related_to', memory.confidence, now);
+        insert.run(
+          `symbol:${anchoredPath}#${anchor.symbol}`,
+          fileNode,
+          'related_to',
+          memory.confidence,
+          now,
+        );
       }
       if (!isDirectory) {
         insert.run(fileNode, `dir:${directoryPath}`, 'related_to', memory.confidence, now);
       }
       const directories = ancestorPaths(directoryPath);
       for (let i = 0; i < directories.length - 1; i++) {
-        insert.run(`dir:${directories[i]}`, `dir:${directories[i + 1]}`, 'related_to', memory.confidence, now);
+        insert.run(
+          `dir:${directories[i]}`,
+          `dir:${directories[i + 1]}`,
+          'related_to',
+          memory.confidence,
+          now,
+        );
       }
     }
   }
@@ -1580,8 +1622,7 @@ export class SqliteSageStore implements MemoryStore {
     // role/task-scoped memories; explicit search (default true) returns them.
     // Mirrors retrieveForPath / findRelatedSage and the legacy JSONL store.
     const includeAudienceScoped = opts?.includeAudienceScoped !== false;
-    const audienceFilter = (memory: Sage): boolean =>
-      includeAudienceScoped || !memory.audience;
+    const audienceFilter = (memory: Sage): boolean => includeAudienceScoped || !memory.audience;
     // When includeStatuses is not explicitly provided (automatic context
     // retrieval), exclude memories marked contextPolicy='never' — mirrors
     // the canonical SageStore.searchSage (store.ts:1992).
@@ -1594,16 +1635,18 @@ export class SqliteSageStore implements MemoryStore {
     if (!trimmedQuery) {
       const placeholders = statusFilter.map(() => '?').join(',');
       const rows = this.stmt(
-          `SELECT data FROM memories
+        `SELECT data FROM memories
            WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
            ORDER BY importance DESC, updated_at DESC
            LIMIT ?`,
-        )
-        .all(...statusFilter, ...scopeParams, limit) as Array<{ data: string }>;
+      ).all(...statusFilter, ...scopeParams, limit) as Array<{ data: string }>;
       return rows
         .map((r) => {
-          try { return this.rowToMemory(r); }
-          catch { return null; }
+          try {
+            return this.rowToMemory(r);
+          } catch {
+            return null;
+          }
         })
         .filter((m): m is Sage => m !== null)
         .filter(audienceFilter);
@@ -1642,14 +1685,13 @@ export class SqliteSageStore implements MemoryStore {
       // downgrades every search to the LIKE fallback via the outer catch.
       const runFts = (ftsQuery: string): Array<{ data: string }> =>
         this.stmt(
-            `SELECT m.data FROM memories m
+          `SELECT m.data FROM memories m
              JOIN memories_fts f ON m.rowid = f.rowid
              WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}${neverInjectClause}
              AND memories_fts MATCH ?
              ORDER BY bm25(memories_fts) ASC, m.importance DESC
              LIMIT ?`,
-          )
-          .all(...statusFilter, ...scopeParams, ftsQuery, limit) as Array<{ data: string }>;
+        ).all(...statusFilter, ...scopeParams, ftsQuery, limit) as Array<{ data: string }>;
       // AND first (space-joined) keeps precise multi-term queries precise. If
       // that matches nothing, fall back to OR so a noisy multi-word query (a
       // task description, a shell command line) still surfaces a memory that
@@ -1671,13 +1713,12 @@ export class SqliteSageStore implements MemoryStore {
     const likePattern = `%${escapeLikePattern(query.toLowerCase())}%`;
     const placeholders = statusFilter.map(() => '?').join(',');
     const rows = this.stmt(
-        `SELECT data FROM memories
+      `SELECT data FROM memories
          WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
          AND LOWER(json_extract(data, '$.text')) LIKE ? ESCAPE '\\'
          ORDER BY importance DESC
          LIMIT ?`,
-      )
-      .all(...statusFilter, ...scopeParams, likePattern, limit) as Array<{ data: string }>;
+    ).all(...statusFilter, ...scopeParams, likePattern, limit) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
   }
 
@@ -1708,8 +1749,7 @@ export class SqliteSageStore implements MemoryStore {
     // only through the explicit retrieveForAudience path. Mirrors searchSage /
     // findRelatedSage and the legacy JSONL store.
     const includeAudienceScoped = opts?.includeAudienceScoped !== false;
-    const audienceFilter = (memory: Sage): boolean =>
-      includeAudienceScoped || !memory.audience;
+    const audienceFilter = (memory: Sage): boolean => includeAudienceScoped || !memory.audience;
 
     // Primary path: use the typed anchor edge index (about_file / about_directory /
     // about_symbol / …) instead of a full-table LIKE over the JSON blob.
@@ -1735,9 +1775,7 @@ export class SqliteSageStore implements MemoryStore {
 
     const targetPlaceholders = targetList.map(() => '?').join(',');
     const globClause =
-      symbolGlobs.length > 0
-        ? `OR ${symbolGlobs.map(() => 'e.to_node GLOB ?').join(' OR ')}`
-        : '';
+      symbolGlobs.length > 0 ? `OR ${symbolGlobs.map(() => 'e.to_node GLOB ?').join(' OR ')}` : '';
     // Use a subquery starting from edges (filtered by to_node via
     // idx_edge_to_relation) instead of scanning memories and probing edges.
     // The original `FROM memories INNER JOIN edges` defeated the idx_edge_from
@@ -1760,7 +1798,7 @@ export class SqliteSageStore implements MemoryStore {
       return edgeRows.map((r) => this.rowToMemory(r)).filter(audienceFilter);
     }
 
-        // Fallback: legacy rows / anchors not yet reflected as graph edges.
+    // Fallback: legacy rows / anchors not yet reflected as graph edges.
     const conditions: string[] = [];
     const params: (string | number)[] = ['active', 'stale'];
     for (const normalized of relPaths) {
@@ -1904,9 +1942,9 @@ export class SqliteSageStore implements MemoryStore {
     const statuses = opts.includeStatuses ?? ['active'];
     const seedPlaceholders = memoryIds.map(() => '?').join(',');
     // Load only the seed rows first — avoid full-table parse when seeds miss.
-    const seedRows = this.stmt(
-      `SELECT data FROM memories WHERE id IN (${seedPlaceholders})`,
-    ).all(...memoryIds) as Array<{ data: string }>;
+    const seedRows = this.stmt(`SELECT data FROM memories WHERE id IN (${seedPlaceholders})`).all(
+      ...memoryIds,
+    ) as Array<{ data: string }>;
     const seedIds = new Set(memoryIds);
     const seeds = seedRows
       .map((row) => this.rowToMemory(row))
@@ -1996,12 +2034,12 @@ export class SqliteSageStore implements MemoryStore {
     // the cyclical fallback logic couldn't express "this dimension is absent
     // so it's automatically satisfied."
     const rows = this.stmt(
-        `SELECT data FROM memories
+      `SELECT data FROM memories
          WHERE status IN ('active','stale')
          AND audience IS NOT NULL
          ORDER BY importance DESC
          LIMIT ?`,
-      )
+    )
       // Hard limit of 1000 rows to bound the in-memory + JS filter pass.
       // This is an engineering safety net, not a user-facing cursor — if the
       // store accumulates more than 1000 audience-scoped memories the excess
@@ -2076,8 +2114,9 @@ export class SqliteSageStore implements MemoryStore {
 
     // Whole-store status counts (ignores filters) for tab badges.
     const statusCounts: Record<string, number> = {};
-    const statusRows = this.stmt('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
-      .all() as Array<{ status: string; n: number }>;
+    const statusRows = this.stmt(
+      'SELECT status, COUNT(*) AS n FROM memories GROUP BY status',
+    ).all() as Array<{ status: string; n: number }>;
     for (const r of statusRows) statusCounts[r.status] = r.n;
 
     // Resolve status filter (default: all except 'deleted').
@@ -2107,8 +2146,9 @@ export class SqliteSageStore implements MemoryStore {
     const whereClause = `WHERE ${where.join(' AND ')}`;
 
     // Total matching the filter (across all pages).
-    const totalRow = this.stmt(`SELECT COUNT(*) AS n FROM memories ${whereClause}`)
-      .get(...(params as (string | number)[])) as { n: number };
+    const totalRow = this.stmt(`SELECT COUNT(*) AS n FROM memories ${whereClause}`).get(
+      ...(params as (string | number)[]),
+    ) as { n: number };
     const total = totalRow.n;
 
     // Cursor: keyset pagination on the DESC ordering.
@@ -2123,11 +2163,10 @@ export class SqliteSageStore implements MemoryStore {
 
     // Fetch limit+1 to detect whether another page follows.
     const rows = this.stmt(
-        `SELECT data, updated_at, id FROM memories ${whereClause}${cursorClause}
+      `SELECT data, updated_at, id FROM memories ${whereClause}${cursorClause}
          ORDER BY updated_at DESC, id DESC
          LIMIT ?`,
-      )
-      .all(...(pageParams as (string | number)[]), limit + 1) as Array<{
+    ).all(...(pageParams as (string | number)[]), limit + 1) as Array<{
       data: string;
       updated_at: string;
       id: string;
@@ -2138,7 +2177,9 @@ export class SqliteSageStore implements MemoryStore {
     const memories = pageRows.map((r) => this.rowToMemory({ data: r.data }));
     const lastRow = pageRows[pageRows.length - 1];
     const nextCursor =
-      hasMore && lastRow ? encodePageCursor({ updatedAt: lastRow.updated_at, id: lastRow.id }) : null;
+      hasMore && lastRow
+        ? encodePageCursor({ updatedAt: lastRow.updated_at, id: lastRow.id })
+        : null;
 
     return { memories, nextCursor, total, statusCounts };
   }
@@ -2147,13 +2188,15 @@ export class SqliteSageStore implements MemoryStore {
     await this.initialize();
     const totalRow = this.stmt('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
     const byStatus: Record<string, number> = {};
-    const statusRows = this.stmt('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
-      .all() as Array<{ status: string; n: number }>;
+    const statusRows = this.stmt(
+      'SELECT status, COUNT(*) AS n FROM memories GROUP BY status',
+    ).all() as Array<{ status: string; n: number }>;
     for (const r of statusRows) byStatus[r.status] = r.n;
 
     const byKind: Record<string, number> = {};
-    const kindRows = this.stmt('SELECT kind, COUNT(*) AS n FROM memories GROUP BY kind')
-      .all() as Array<{ kind: string; n: number }>;
+    const kindRows = this.stmt(
+      'SELECT kind, COUNT(*) AS n FROM memories GROUP BY kind',
+    ).all() as Array<{ kind: string; n: number }>;
     for (const r of kindRows) byKind[r.kind] = r.n;
 
     const edgeRow = this.stmt('SELECT COUNT(*) AS n FROM edges').get() as { n: number };
@@ -2177,11 +2220,10 @@ export class SqliteSageStore implements MemoryStore {
     await this.initialize();
     const edgeId = `edge_${ulid()}`;
     this.stmt(
-        `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
+      `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(from_node, to_node, relation) DO UPDATE SET weight = weight + excluded.weight`,
-      )
-      .run(from, to, relation, weight, this.nowIso());
+    ).run(from, to, relation, weight, this.nowIso());
     this.events?.emit(
       'memory.graph_edge_added',
       this.eventPayload({ edgeId, from, to, relation, weight }),
@@ -2287,9 +2329,9 @@ export class SqliteSageStore implements MemoryStore {
       // Symbol anchors live under `symbol:<path>#<name>` — seed every symbol
       // node owned by this path so `graph <path>` also surfaces memories that
       // are anchored to a symbol within the file rather than the file itself.
-      const symbolNodes = this.stmt(
-        'SELECT DISTINCT to_node FROM edges WHERE to_node GLOB ?',
-      ).all(`symbol:${escapeGlobPattern(normalizedPath)}#*`) as Array<{ to_node: string }>;
+      const symbolNodes = this.stmt('SELECT DISTINCT to_node FROM edges WHERE to_node GLOB ?').all(
+        `symbol:${escapeGlobPattern(normalizedPath)}#*`,
+      ) as Array<{ to_node: string }>;
       for (const row of symbolNodes) starts.add(row.to_node);
     } catch {
       /* query is not a project-relative path — skip path-based starts */
@@ -2309,9 +2351,9 @@ export class SqliteSageStore implements MemoryStore {
     }
     if (memIds.length > 0) {
       const placeholders = memIds.map(() => '?').join(',');
-      const batchRows = this.stmt(
-        `SELECT data FROM memories WHERE id IN (${placeholders})`,
-      ).all(...memIds) as Array<{ data: string }>;
+      const batchRows = this.stmt(`SELECT data FROM memories WHERE id IN (${placeholders})`).all(
+        ...memIds,
+      ) as Array<{ data: string }>;
       const memAnchorMap = batchRows.map((r) => this.rowToMemory(r));
       for (const memory of memAnchorMap) {
         if (!memory) continue;
@@ -2358,7 +2400,12 @@ export class SqliteSageStore implements MemoryStore {
         // and deleted are terminal regardless of anchor state.
         switch (memory.status) {
           case 'stale':
-            updates.push({ ...memory, status: 'active', lastVerifiedAt: result.checkedAt, freshness: 1 });
+            updates.push({
+              ...memory,
+              status: 'active',
+              lastVerifiedAt: result.checkedAt,
+              freshness: 1,
+            });
             break;
           case 'active':
             updates.push({ ...memory, lastVerifiedAt: result.checkedAt, freshness: 1 });
@@ -2390,10 +2437,7 @@ export class SqliteSageStore implements MemoryStore {
             | undefined;
           if (fresh) {
             const current = this.rowToMemory(fresh);
-            if (
-              current.status !== memory.status &&
-              !['active', 'stale'].includes(current.status)
-            ) {
+            if (current.status !== memory.status && !['active', 'stale'].includes(current.status)) {
               continue;
             }
           }
@@ -2408,8 +2452,12 @@ export class SqliteSageStore implements MemoryStore {
   // ─── Audit ──────────────────────────────────────────────────────────
 
   private audit(event: string, data?: Record<string, unknown>): void {
-    this.stmt('INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)')
-      .run(event, this.nowIso(), this.traceId ?? null, data ? JSON.stringify(data) : null);
+    this.stmt('INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)').run(
+      event,
+      this.nowIso(),
+      this.traceId ?? null,
+      data ? JSON.stringify(data) : null,
+    );
   }
 
   private eventPayload<T extends object>(payload: T): T & { traceId?: string | undefined } {
@@ -2613,11 +2661,7 @@ export class SqliteSageStore implements MemoryStore {
       }
 
       // Permanent memories are exempt from time/usage rules
-      if (
-        reason &&
-        persistence !== 'permanent' &&
-        !existingPendingKeys.has(m.id)
-      ) {
+      if (reason && persistence !== 'permanent' && !existingPendingKeys.has(m.id)) {
         const ageDays = Math.floor((nowMs - Date.parse(m.updatedAt)) / 86_400_000);
         await this.addCandidate({
           id: ulid(),
@@ -2799,8 +2843,9 @@ export class SqliteSageStore implements MemoryStore {
         // already-accepted/rejected candidate cannot be re-resolved (one-way
         // lifecycle transition). Mirrors SageStore's pending-only find.
         const snapshot = this.runMutation(() => {
-          const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
-            .get(candidateId) as { data: string } | undefined;
+          const row = this.stmt(
+            "SELECT data FROM candidates WHERE id = ? AND status = 'pending'",
+          ).get(candidateId) as { data: string } | undefined;
           if (!row) return undefined;
           return JSON.parse(row.data) as MemoryCandidate;
         });
@@ -2831,8 +2876,9 @@ export class SqliteSageStore implements MemoryStore {
         // twice. The memory is still returned because it was legitimately
         // created; only the redundant candidate re-write is skipped.
         await this.runMutation(() => {
-          const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
-            .get(candidateId) as { data: string } | undefined;
+          const row = this.stmt(
+            "SELECT data FROM candidates WHERE id = ? AND status = 'pending'",
+          ).get(candidateId) as { data: string } | undefined;
           if (!row) return;
           const current = JSON.parse(row.data) as MemoryCandidate;
           const updated: MemoryCandidate = {
@@ -2853,7 +2899,10 @@ export class SqliteSageStore implements MemoryStore {
             updated.updatedAt,
             normalizeTextKey(updated.text ?? ''),
           );
-          this.audit('memory.candidate_accepted', { memoryId: memory.id, details: { candidateId } });
+          this.audit('memory.candidate_accepted', {
+            memoryId: memory.id,
+            details: { candidateId },
+          });
         });
         return memory;
       },
@@ -2874,8 +2923,9 @@ export class SqliteSageStore implements MemoryStore {
     return this.runMutation(() => {
       // Restrict to `pending` so a resolved candidate cannot be re-resolved
       // (one-way lifecycle). Mirrors SageStore's pending-only find.
-      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
-        .get(candidateId) as { data: string } | undefined;
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'").get(
+        candidateId,
+      ) as { data: string } | undefined;
       if (!row) return false;
       const candidate = JSON.parse(row.data) as MemoryCandidate;
       const updated: MemoryCandidate = {
@@ -2919,8 +2969,9 @@ export class SqliteSageStore implements MemoryStore {
   ): Promise<MemoryCandidateResolution | undefined> {
     await this.initialize();
     const snapshot = await this.runMutation(() => {
-      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
-        .get(candidateId) as { data: string } | undefined;
+      const row = this.stmt("SELECT data FROM candidates WHERE id = ? AND status = 'pending'").get(
+        candidateId,
+      ) as { data: string } | undefined;
       return row ? (JSON.parse(row.data) as MemoryCandidate) : undefined;
     });
     if (!snapshot) {
@@ -2933,7 +2984,13 @@ export class SqliteSageStore implements MemoryStore {
       });
       if (!any) return undefined;
       const anyTargetId = resolveTargetId(any);
-      return { candidateId, decision, applied: false, alreadyResolved: true, ...(anyTargetId ? { targetMemoryId: anyTargetId } : {}) };
+      return {
+        candidateId,
+        decision,
+        applied: false,
+        alreadyResolved: true,
+        ...(anyTargetId ? { targetMemoryId: anyTargetId } : {}),
+      };
     }
     const targetId = resolveTargetId(snapshot);
     const target: Sage | null = targetId
@@ -2956,14 +3013,19 @@ export class SqliteSageStore implements MemoryStore {
         updatedAt: this.nowIso(),
       };
       const result = this.stmt(
-          "UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
-        )
-        .run(JSON.stringify(updated), updated.status, updated.updatedAt, candidateId);
+        "UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
+      ).run(JSON.stringify(updated), updated.status, updated.updatedAt, candidateId);
       return result.changes > 0;
     });
     if (!claimed) {
       const failTargetId = resolveTargetId(snapshot);
-      return { candidateId, decision, applied: false, alreadyResolved: true, ...(failTargetId ? { targetMemoryId: failTargetId } : {}) };
+      return {
+        candidateId,
+        decision,
+        applied: false,
+        alreadyResolved: true,
+        ...(failTargetId ? { targetMemoryId: failTargetId } : {}),
+      };
     }
     let applied = false;
     if (policy.mutation.kind === 'delete_memory' && policy.mutation.targetId) {
@@ -3010,7 +3072,12 @@ export class SqliteSageStore implements MemoryStore {
       reason: policy.reason,
       details: { candidateId, decision, applied },
     });
-    return { candidateId, decision, ...(policy.mutation.targetId ? { targetMemoryId: policy.mutation.targetId } : {}), applied };
+    return {
+      candidateId,
+      decision,
+      ...(policy.mutation.targetId ? { targetMemoryId: policy.mutation.targetId } : {}),
+      applied,
+    };
   }
 
   // ─── Legacy compat ──────────────────────────────────────────────────
@@ -3037,9 +3104,8 @@ export class SqliteSageStore implements MemoryStore {
     await this.initialize();
     const dedupSet = new Set<string>();
     const memories = this.stmt(
-        "SELECT data FROM memories WHERE status IN ('active', 'stale') AND scope = 'project'",
-      )
-      .all() as Array<{ data: string }>;
+      "SELECT data FROM memories WHERE status IN ('active', 'stale') AND scope = 'project'",
+    ).all() as Array<{ data: string }>;
     for (const row of memories) {
       const memory = JSON.parse(row.data) as Sage;
       dedupSet.add(canonicalMemoryText(memory.text));
@@ -3051,7 +3117,10 @@ export class SqliteSageStore implements MemoryStore {
     // (new Set(initialDedupSet)), so the original set is not mutated by the
     // shared loop — the copy is for isolation, not for load-bearing semantics.
     return sharedConsolidateSession(
-      { createCandidate: (i) => this.createCandidate(i), acceptCandidate: (id) => this.acceptCandidate(id) },
+      {
+        createCandidate: (i) => this.createCandidate(i),
+        acceptCandidate: (id) => this.acceptCandidate(id),
+      },
       dedupSet,
       input,
     );
@@ -3077,9 +3146,8 @@ export class SqliteSageStore implements MemoryStore {
     if (valid.length === 0) return [];
     const placeholders = valid.map(() => '?').join(',');
     const rows = this.stmt(
-        `SELECT data FROM memories WHERE status IN (${placeholders}) ORDER BY updated_at DESC`,
-      )
-      .all(...valid) as Array<{ data: string }>;
+      `SELECT data FROM memories WHERE status IN (${placeholders}) ORDER BY updated_at DESC`,
+    ).all(...valid) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
   }
 
@@ -3162,8 +3230,9 @@ export class SqliteSageStore implements MemoryStore {
       }
 
       const nodeId = SqliteSageStore.toNodeId(id);
-      const edgeCount = this.stmt('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
-        .get(nodeId, nodeId) as { n: number };
+      const edgeCount = this.stmt(
+        'SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?',
+      ).get(nodeId, nodeId) as { n: number };
 
       // Cascade: clean up references in other memories. Mirrors the reference
       // cleanup logic of SageStore.cascadeDeleteUnlocked (store.ts:1650-1671),
@@ -3259,6 +3328,33 @@ export class SqliteSageStore implements MemoryStore {
     });
   }
 
+  /**
+   * Wait for every enqueued mutation to finish, swallowing transient write
+   * errors so a single failed write cannot block teardown indefinitely. Used
+   * by `SqliteMemoryPort.dispose()` so the production teardown sequence is:
+   * `drain → close`, guaranteeing the database handle is not closed under an
+   * in-flight `BEGIN IMMEDIATE` / lock acquisition / statement.run sequence.
+   *
+   * The chain includes every remember / inject / use / migrate call since the
+   * store was initialized, and `runMutation` already rejects on individual
+   * errors. We swallow here only so a failing tail does not prevent the next
+   * supervisor iteration from completing cleanup — the individual call's
+   * caller already saw the rejection via its awaited promise.
+   */
+  async drainMutations(): Promise<void> {
+    await this.mutationChain.catch(() => undefined);
+  }
+
+  /**
+   * Synchronously close the underlying database handle and release prepared
+   * statements. This is the **fast** path — it does NOT wait for any in-flight
+   * mutation. Callers that need the slow-path lifecycle teardown must use
+   * `dispose()` on the host-facing `SqliteMemoryPort`, which awaits the
+   * mutation chain before calling this.
+   *
+   * Tests call this directly without awaiting, so the signature stays sync;
+   * the production teardown sequence is `dispose()` → drain → `close()`.
+   */
   close(): void {
     this.stmtCache.clear();
     if (this.db) {
