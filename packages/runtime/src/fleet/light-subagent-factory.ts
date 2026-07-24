@@ -96,9 +96,16 @@ export function abortLightSubagent(agent: Agent): void {
 
 export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentFactory {
   const configStore = deps.container.resolve(TOKENS.ConfigStore);
-  const fallbackProfileManager = deps.container.safeResolve(TOKENS.FallbackProfileManager)
-    ?? new FallbackProfileManager(configStore.get() as Config);
-  configStore.watch((next) => fallbackProfileManager.reload(next as Config));
+  const existingManager = deps.container.safeResolve(TOKENS.FallbackProfileManager);
+  const fallbackProfileManager =
+    existingManager ?? new FallbackProfileManager(configStore.get() as Config);
+  // A container-provided manager is already watched once at registration
+  // (container.ts). Only wire a watcher for a fallback manager we created here;
+  // otherwise every makeLightSubagentFactory call (e.g. one per SDD run) leaked
+  // a duplicate, never-removed watcher on the long-lived shared configStore.
+  if (!existingManager) {
+    configStore.watch((next) => fallbackProfileManager.reload(next as Config));
+  }
   const tokenCounter = deps.container.resolve(TOKENS.TokenCounter);
   const secretScrubber = deps.container.resolve(TOKENS.SecretScrubber);
   const systemPromptBuilder = deps.container.resolve(TOKENS.SystemPromptBuilder);
