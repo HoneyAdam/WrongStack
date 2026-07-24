@@ -367,6 +367,7 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       '  /kanban duplicate <boardId> [title]  Duplicate a board',
       '  /kanban show <boardId>         Show board details (columns + tasks)',
       '  /kanban delete <boardId>       Delete a board',
+      '  /kanban prune [days] [--all] [--yes]  Delete stale boards (dry-run without --yes)',
       '  /kanban rename <boardId> <t>   Rename a board',
       '  /kanban snapshot [boardId]     Show agent queue snapshot',
       '',
@@ -473,6 +474,67 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
         };
       }
 
+      // ── prune ──────────────────────────────────────────────────────
+      // Retention relief for run-mirror accumulation: every fleet/AutoPhase
+      // run mirrors into a board and nothing deletes them, so long-lived
+      // projects collect thousands. Dry-run by default; --yes applies.
+      if (cmd === 'prune') {
+        const flags = new Set(rest.filter((t) => t.startsWith('--') || t === '-y'));
+        const positional = rest.filter((t) => !t.startsWith('--') && t !== '-y');
+        const days = positional[0] ? Number(positional[0]) : 7;
+        if (!Number.isFinite(days) || days < 0) {
+          return { message: color.red('Usage: /kanban prune [days>=0] [--all] [--yes]') };
+        }
+        const includeUnfinished = flags.has('--all');
+        const apply = flags.has('--yes') || flags.has('-y');
+        const cutoff = Date.now() - days * 86_400_000;
+
+        const boards = await listBoards(projectRoot);
+        const stale = boards.filter((b) => {
+          const updatedAt = Date.parse(b.updatedAt);
+          if (!Number.isFinite(updatedAt) || updatedAt > cutoff) return false;
+          if (includeUnfinished) return true;
+          return b.taskCount === 0 || b.completedTaskCount === b.taskCount;
+        });
+        if (stale.length === 0) {
+          return {
+            message: color.green(
+              `Nothing to prune: no ${includeUnfinished ? '' : 'finished/empty '}boards idle ≥ ${days}d (of ${boards.length} total).`,
+            ),
+          };
+        }
+
+        if (!apply) {
+          const preview = stale
+            .slice(0, 20)
+            .map(
+              (b) =>
+                `  ${LABEL(b.id.slice(0, 8))}  ${b.title.slice(0, 48)}  ${DIM(`${b.taskCount} tasks · updated ${fmtAge(b.updatedAt)}`)}`,
+            );
+          if (stale.length > 20) preview.push(DIM(`  … and ${stale.length - 20} more`));
+          return {
+            message: [
+              HEADING(
+                `Would prune ${stale.length} of ${boards.length} boards (idle ≥ ${days}d${includeUnfinished ? ', including unfinished' : ', finished/empty only'})`,
+              ),
+              ...preview,
+              '',
+              DIM(`Run /kanban prune ${positional[0] ?? days}${includeUnfinished ? ' --all' : ''} --yes to delete.`),
+            ].join('\n'),
+          };
+        }
+
+        let removed = 0;
+        for (const b of stale) {
+          if (await removeBoard(projectRoot, b.id)) removed++;
+        }
+        return {
+          message: color.green(
+            `✅ Pruned ${removed} board${removed === 1 ? '' : 's'} (${boards.length - removed} remain). Deletions sync to HQ as tombstones.`,
+          ),
+        };
+      }
+
       // ── rename ──────────────────────────────────────────────────────
       if (cmd === 'rename') {
         if (rest.length < 2)
@@ -546,6 +608,7 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
             'duplicate',
             'show',
             'delete',
+            'prune',
             'rename',
             'generate',
             'snapshot',
