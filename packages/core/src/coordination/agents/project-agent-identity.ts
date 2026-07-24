@@ -918,7 +918,7 @@ export function refreshProjectAgentIdentity(role: string, projectRoot?: string):
   // Re-scaffold identifying headers so the role knows these are available
   writeTextAtomically(
     path.join(dir, 'learned.md'),
-    `# Learned wisdom for ${role}\n\n<!-- Accumulated project-specific knowledge appears here after agent-improve runs. -->\n`,
+    renderLearnedInstructions(role, [], new Date().toISOString()),
   );
   writeTextAtomically(
     path.join(dir, 'identity.md'),
@@ -1004,7 +1004,7 @@ export function buildProjectContextualizedPrompt(
       learnedLabel = 'Consolidated knowledge for this project';
     } else {
       learnedContent = loadProjectAgentLearned(role, projectRoot);
-      learnedLabel = 'Learned wisdom for this project';
+      learnedLabel = 'Learned instructions for this project (structured: what / why / how)';
     }
   }
   if (learnedContent) {
@@ -1026,7 +1026,23 @@ export function buildProjectContextualizedPrompt(
   );
   if (learningPolicy.enabled) {
     parts.push(
-      `\n\n## Knowledge capture\n\nWhen you discover a project-specific pattern, convention, or decision that future "${role}" invocations should remember, end your response with a \`## LEARNED\` block. The runtime persists that content to:\n\n  \`\`\`\n  ${learnedFilePath}\n  \`\`\`\n\nCapture only durable, cross-session knowledge — never ephemeral task details.`,
+      `\n\n## Knowledge capture\n\n` +
+        `The file below stores **learning data for this project's "${role}" agent** — not your memory, not a session log. ` +
+        `It is read back into the system prompt of every future "${role}" invocation, so each entry must teach a future agent how to act. ` +
+        `On every capture the runtime **merges your new entry with every prior entry and rewrites the whole buffer as a structured instruction list** — grouped by category ("What to do", "What to avoid", "Patterns to follow", "Project facts"), with each item decomposed into **what** (the rule), **why** (the reason), and **how** (the concrete commands, file paths, or package names that anchor the rule). ` +
+        `When you discover a durable principle that future invocations should follow, end your response with a \`## LEARNED\` block. The runtime persists it to:\n\n` +
+        `  \`\`\`\n  ${learnedFilePath}\n  \`\`\`\n\n` +
+        `**Write directives, not narratives.** Each LEARNED entry should be:\n\n` +
+        `- A **rule or principle** that applies across sessions, not a description of what happened in this one.\n` +
+        `- A short **imperative or statement** (1–3 sentences), starting with a verb like "Always verify…", "Use X for Y", "Avoid…", "Never assume…".\n` +
+        `- **Generic** — no commit SHAs, timestamps, specific line numbers, or PR/issue numbers. File paths, package names, and command names are fine when they anchor the lesson.\n` +
+        `- **Self-contained** — understandable without the surrounding session context.\n` +
+        `- **Front-load concrete anchors** — commands in backticks, package names like \`@wrongstack/core\`, file paths like \`packages/core/src/.../foo.ts\`. The structured-list renderer extracts these as the "how" for the entry.\n\n` +
+        `**Bad** (session log — rejected at capture time):\n\n` +
+        `\`\`\`\n## LEARNED\nWhen I worked on the telegram plugin today, commit 9c7682b84 had a race condition in poll-lock at line 42 because writeFileSync wasn't using the 'wx' flag.\n\`\`\`\n\n` +
+        `**Good** (directive — persists, then merges into the structured list):\n\n` +
+        `\`\`\`\n## LEARNED\nAlways use the 'wx' (exclusive create) flag with writeFileSync when implementing concurrent lock acquisition in \`packages/core/src/.../poll-lock.ts\` — filesystem-level atomicity guarantees only one writer wins.\n\`\`\`\n\n` +
+        `Capture only durable, cross-session knowledge — never ephemeral task details.`,
     );
   }
 
@@ -1074,12 +1090,21 @@ export function buildProjectContextualizedPrompt(
 //     surface this in /agent-improve output.
 //
 //  4. SIZE  SOFT_LIMIT = 8 192 B → hintLearnedNeedsSummarization() returns true.
-//           HARD_LIMIT = 16 384 B → `pruneToSize()` drops oldest entries.
+//           HARD_LIMIT = 16 384 B → capture halves the structured entry list
+//           (oldest first) and re-renders before writing.
 //
-//  5. CONTENT QUALITY  A block is skipped when:
-//     - meaningful body (strip markdown) < 50 chars
-//     - >70% of lines are code fences
-//     - near-duplicate by Jaccard ≥ 0.55
+//  5. CONTENT QUALITY  A block is run through `normalizeLearnedEntry` and
+//     skipped when it cannot be converted into an instructive directive:
+//     - too short after stripping ephemeral artifacts (< 30 chars)
+//     - all narrative framing with no salvageable directive tail
+//     - overwhelmingly narrative (>50% sentences are event descriptions)
+//     - longer than LEARNED_ENTRY_MAX_CHARS (600 chars) — truncated to the
+//       first instructive sentence cluster that fits
+//     Ephemeral artifacts stripped BEFORE the length check:
+//     - git commit SHAs, ISO timestamps, specific line numbers, PR/issue refs
+//     Code-only blocks (>70% fenced-code lines) and near-duplicates
+//     (Jaccard ≥ 0.55) are still rejected. Surviving entries are stamped
+//     with a category tag (convention / pattern / warning / fact).
 //
 //  OWNER  logic : packages/core/src/coordination/agents/project-agent-identity.ts
 //         hook  : packages/cli/src/fleet/host.ts
@@ -1087,6 +1112,260 @@ export function buildProjectContextualizedPrompt(
 
 export const LEARNED_SOFT_LIMIT = 8_192;
 export const LEARNED_HARD_LIMIT = 16_384;
+
+/**
+ * Maximum length (in characters) of a single captured learning entry after
+ * normalization. Entries longer than this are truncated to the first few
+ * instructive sentences. Keeps `learned.md` scannable and prevents agents
+ * from dumping journal-style narratives into the buffer.
+ */
+export const LEARNED_ENTRY_MAX_CHARS = 600;
+
+/**
+ * Minimum instructive content length (after stripping ephemeral artifacts
+ * and narrative framing) for an entry to qualify as learned data.
+ */
+const MIN_INSTRUCTIVE_LENGTH = 30;
+
+/**
+ * Category tag for a captured learning entry. Derived deterministically from
+ * the entry's content so the file is self-describing and scannable.
+ *
+ *  - `convention`  — durable rule / standard ("Always run X", "Never assume Y")
+ *  - `pattern`     — reusable approach ("Use X for Y", "Prefer A over B")
+ *  - `warning`     — pitfall / anti-pattern ("Avoid X", "Beware Y")
+ *  - `fact`        — stable project fact (default when no directive verb matches)
+ */
+export type LearnedEntryCategory = 'convention' | 'pattern' | 'warning' | 'fact';
+
+/**
+ * Patterns whose presence signals an entry is narrative ("I/we did X") rather
+ * than instructive ("Always do X"). When a sentence begins with one of these,
+ * it is describing an event, not a principle — and gets stripped at capture
+ * time so the buffer is not polluted with session logs.
+ *
+ * Each pattern matches a sentence START (after a sentence boundary), so it
+ * only fires on narrative framing, never on substantive content that happens
+ * to mention those words.
+ */
+const NARRATIVE_SENTENCE_STARTS: readonly RegExp[] = [
+  /^(?:when|while|during|after|before|once|since)\s+(?:i|we|the agent|i was|i were|i had)\b/i,
+  /^(?:i|we)\s+(?:found|noticed|learned|discovered|realized|saw|encountered|hit|ran into)\b/i,
+  /^(?:i|we)\s+(?:was|were|had|did|ran|tried|attempted|used|modified|changed|updated)\b/i,
+  /^(?:this|that|the)\s+(?:task|session|run|commit|change|pr|pull request|invocation)\b/i,
+  /^(?:in|on|for|at|during)\s+(?:this|that|the)\s+(?:task|session|run|commit|change|pr)\b/i,
+  /^(?:today|yesterday|earlier|just now|recently|lately)\b/i,
+];
+
+/**
+ * Ephemeral artifacts that are noisy anchors (they pin an entry to a single
+ * moment in history instead of making it actionable across sessions). Stripped
+ * before persistence so the buffer reads like durable guidance.
+ *
+ * Kept deliberately conservative: file paths, package names, and command names
+ * are NEVER stripped — those anchor the lesson in actionable form.
+ */
+const EPHEMERAL_PATTERNS: readonly { pattern: RegExp; replacement: string }[] = [
+  // Git commit / blob SHAs (7-40 hex chars surrounded by word boundaries).
+  { pattern: /\b[0-9a-f]{7,40}\b/g, replacement: '' },
+  // ISO-8601 timestamps (with optional fractional seconds and timezone).
+  {
+    pattern: /\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g,
+    replacement: '',
+  },
+  // Date-only references in narrative context ("on 2026-07-22", "from 2026-01-15").
+  // Matches date preceded by a preposition so we don't strip version strings
+  // like "2026.1.0" or legitimate date-valued configuration.
+  { pattern: /(?<=\b(?:on|from|since|before|after|dated|until)\s)\d{4}-\d{2}-\d{2}\b/gi, replacement: '' },
+  // Specific line / line-range references ("line 42", "lines 10–20").
+  { pattern: /\b(?:line|lines?)\s+\d+(?:\s*[-–]\s*\d+)?/gi, replacement: '' },
+  // PR / issue / MR number references ("PR #42", "issue #100").
+  { pattern: /#\s*(?:PR|issue|MR)\s*\d+/gi, replacement: '' },
+  // Standalone PR/issue/mr id (#123) when it's a numeric-only reference.
+  { pattern: /(?<=\s)#\d{1,6}\b/g, replacement: '' },
+];
+
+/**
+ * Normalize a captured LEARNED block into an instructive entry.
+ *
+ * Removes ephemeral artifacts (commit SHAs, timestamps, line numbers, PR refs),
+ * strips narrative framing sentences ("When I did X...", "Today I found..."),
+ * and enforces a maximum length. Returns `null` when the block is too thin,
+ * too narrative, or otherwise cannot be salvaged into actionable guidance —
+ * in which case the capture pipeline should reject it rather than persist a
+ * session-log entry that masquerades as learned data.
+ *
+ * This function is deliberately conservative: when unsure, it preserves the
+ * content. The goal is to remove clearly-noisy artifacts, not to rewrite the
+ * agent's lesson.
+ */
+export function normalizeLearnedEntry(raw: string): {
+  text: string;
+  category: LearnedEntryCategory;
+} | null {
+  if (!raw) return null;
+
+  // Step 1: strip ephemeral artifacts.
+  let cleaned = raw;
+  for (const { pattern, replacement } of EPHEMERAL_PATTERNS) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
+
+  // Step 2: split into sentences and drop narrative-only sentences.
+  // A sentence is "narrative-only" when it STARTS with a narrative marker
+  // and contains no directive verb / imperative framing — i.e. it is purely
+  // describing what happened. Substantive sentences that merely mention
+  // a temporal marker (e.g. "When retrying, use backoff with jitter")
+  // are preserved.
+  const sentences = splitSentences(cleaned);
+  const directiveSentences: string[] = [];
+  let hadSubstantiveNarrative = false;
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    if (isNarrativeSentence(trimmed)) {
+      hadSubstantiveNarrative = true;
+      // If the sentence ALSO contains a directive verb, salvage the directive
+      // tail (e.g. "When polling, prefer long-poll with jitter" → keep "prefer
+      // long-poll with jitter"). Otherwise drop it.
+      const salvaged = salvageDirectiveTail(trimmed);
+      if (salvaged) {
+        directiveSentences.push(salvaged);
+      }
+      continue;
+    }
+    directiveSentences.push(trimmed);
+  }
+
+  // If every sentence was narrative-only and we salvaged nothing, this is a
+  // session log entry, not a learning — reject it.
+  if (directiveSentences.length === 0) return null;
+
+  let normalized = directiveSentences.join(' ').replace(/\s+/g, ' ').trim();
+
+  // Step 3: enforce length cap. Truncate to the first full sentence that fits.
+  if (normalized.length > LEARNED_ENTRY_MAX_CHARS) {
+    normalized = truncateToInstructive(normalized, LEARNED_ENTRY_MAX_CHARS);
+    if (normalized.length < MIN_INSTRUCTIVE_LENGTH) return null;
+  }
+
+  if (normalized.length < MIN_INSTRUCTIVE_LENGTH) return null;
+
+  // If the entry was overwhelmingly narrative (more than half of its
+  // sentences were narrative framing) and nothing directive remains, treat
+  // it as a session log entry.
+  if (hadSubstantiveNarrative && directiveSentences.length < sentences.length / 2) {
+    // Only reject if the surviving content is thin relative to the original.
+    if (normalized.length < MIN_INSTRUCTIVE_LENGTH * 2) return null;
+  }
+
+  return {
+    text: normalized,
+    category: classifyLearnedEntry(normalized),
+  };
+}
+
+/**
+ * Split a block into sentence-like units. Conservative splitter that
+ * respects common abbreviations and avoids splitting on decimals so we
+ * don't shred well-formed technical content.
+ */
+function splitSentences(text: string): string[] {
+  return text
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+(?=[A-Z(])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Heuristic: is this sentence narrative framing (describes an event) rather
+ * than instructive content (describes what should be done)?
+ */
+function isNarrativeSentence(sentence: string): boolean {
+  return NARRATIVE_SENTENCE_STARTS.some((re) => re.test(sentence));
+}
+
+/**
+ * Given a narrative sentence like "When retrying, prefer long-poll with jitter",
+ * extract the directive tail ("prefer long-poll with jitter") and return it.
+ * Returns null when no salvageable directive tail exists.
+ */
+function salvageDirectiveTail(sentence: string): string | null {
+  // Try each narrative pattern; if it matches, look for a directive verb
+  // somewhere in the remainder.
+  for (const re of NARRATIVE_SENTENCE_STARTS) {
+    const m = re.exec(sentence);
+    if (!m) continue;
+    const tail = sentence.slice(m[0].length).replace(/^[,\s]+/, '').trim();
+    if (!tail) return null;
+    // Salvage only if the tail starts with a directive verb / noun phrase
+    // that reads as actionable guidance.
+    if (looksDirective(tail)) return tail;
+    return null;
+  }
+  return null;
+}
+
+const DIRECTIVE_VERB_PATTERN =
+  /^(?:always|never|prefer|avoid|use|ensure|verify|check|run|execute|apply|adopt|choose|require|must|should|don'?t|do not|keep|maintain|set|define|specify|validate|confirm|inspect|review|handle|enable|disable|restrict|cap|limit|wrap|isolate|separate|combine|split|merge|refactor|rename|move|extract|inline)\b/i;
+
+/**
+ * Loose test for "this reads as actionable guidance" — either starts with a
+ * directive verb, or contains one of the canonical imperative markers.
+ */
+function looksDirective(text: string): boolean {
+  if (DIRECTIVE_VERB_PATTERN.test(text)) return true;
+  // Substantive phrasing like "the project uses X" or "X is required" also
+  // counts as directive knowledge (it tells future invocations how things are).
+  if (/\b(?:is|are|must be|should be|required to)\s+(?:always|never|used|preferred)\b/i.test(text))
+    return true;
+  // Narrative tails that contain a deontic verb ("had to use", "needs to
+  // verify", "must be") carry a buried lesson — salvage them.
+  if (
+    /\b(?:had to|has to|have to|needs? to|must|should|ought to)\s+\w+/i.test(text) &&
+    text.length > MIN_INSTRUCTIVE_LENGTH
+  )
+    return true;
+  return false;
+}
+
+/**
+ * Truncate text to fit within `maxChars`, cutting at the last sentence
+ * boundary that still fits. Falls back to a hard cut when even the first
+ * sentence exceeds the budget.
+ */
+function truncateToInstructive(text: string, maxChars: number): string {
+  const sentences = splitSentences(text);
+  let acc = '';
+  for (const s of sentences) {
+    const candidate = acc ? `${acc} ${s}` : s;
+    if (candidate.length > maxChars) break;
+    acc = candidate;
+  }
+  if (acc) return acc;
+  // Hard cut at maxChars with an ellipsis when no sentence boundary works.
+  return `${text.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+/**
+ * Classify an instructive entry into one of four category buckets so the
+ * `learned.md` file is self-describing and scannable. Order of checks is
+ * intentional: warnings are the highest-signal category and win ties.
+ */
+export function classifyLearnedEntry(text: string): LearnedEntryCategory {
+  const lower = text.toLowerCase();
+  if (/\b(?:avoid|never|don'?t|do not|must not|prevent|watch out|beware|pitfall|gotcha|hazard|risk)\b/.test(lower))
+    return 'warning';
+  if (
+    /\b(?:use|prefer|choose|adopt|leverage|apply|switch to|migrate to)\b/.test(lower) ||
+    /\b(?:pattern|approach|strategy|technique|idiom)\b/.test(lower)
+  )
+    return 'pattern';
+  if (/\b(?:always|must|should|require|ensure|verify|check|run|execute|before|after|when)\b/.test(lower))
+    return 'convention';
+  return 'fact';
+}
 
 /**
  * Normalize text for dedup comparison: lowercase, strip punctuation, sort tokens.
@@ -1187,7 +1466,10 @@ export function getProjectAgentLearnStats(
   } catch {
     /* no file */
   }
-  const entries = splitLearnedEntries(learnedText);
+  // Use the structured parser so entryCount reflects directive entries, not
+  // raw chunks split by `---` (the structured document also uses `---` for
+  // section dividers and the footer, which would inflate chunk counts).
+  const entries = parseStructuredLearnedEntries(role, projectRoot);
   const exists = existsSync(dir);
   const policy = loadProjectAgentLearningPolicy(role, projectRoot);
   const captureKey = `${path.resolve(projectRoot ?? process.cwd())}\0${assertProjectAgentRole(role)}`;
@@ -1336,35 +1618,384 @@ export function listProjectAgentLearnedEntries(role: string, projectRoot?: strin
   return splitLearnedEntries(loadProjectAgentLearned(role, projectRoot));
 }
 
+// ---------------------------------------------------------------------------
+// Structured instruction list
+//
+// Each `learned.md` capture now produces a structured instruction list rather
+// than an append-only journal. Every entry is decomposed into a "what / why /
+// how" shape so a future agent invocation can read the buffer and immediately
+// understand the rule, the reason behind it, and the concrete steps to apply
+// it. The buffer is rewritten in this structured form on every capture, with
+// historical entries re-decomposed in lockstep so the file stays
+// self-describing and scannable across the lifetime of the role.
+// ---------------------------------------------------------------------------
+
 /**
- * Remove entries from the learned body until it fits within `targetBytes`,
- * dropping the *oldest* entries first (entries are in chronological order
- * since new items are appended at the end).
+ * Parsed representation of a single buffered entry — the structured shape
+ * that every capture merges into.
  */
-function pruneToSize(body: string, targetBytes: number): string {
-  const entries = splitLearnedEntries(body);
-  const result: string[] = [];
-  let size = 0;
-  // Iterate from newest (last) to oldest (first)
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const current = entries[i]!;
-    const entry = `\n\n---\n\n${current}`;
-    const entryBytes = Buffer.byteLength(entry, 'utf8');
-    if (size + entryBytes <= targetBytes) {
-      result.unshift(current);
-      size += entryBytes;
+export interface StructuredLearnedEntry {
+  /** Injective content identity: normalized token signature for dedup. */
+  key: string;
+  /** Category bucket (convention / pattern / warning / fact). */
+  category: LearnedEntryCategory;
+  /** The directive itself — what the agent should do. */
+  what: string;
+  /** Why this directive exists — derived from category and directive signals. */
+  why: string;
+  /** Concrete, runnable anchor — commands, file paths, package names. */
+  how: string;
+  /** ISO timestamp of when this entry was originally captured. */
+  capturedAt: string;
+}
+
+/**
+ * Parse the stamp line at the top of a buffered entry. Handles three formats:
+ *
+ *  1. New structured-document format (current):
+ *     `<!-- learned-stamp: category=<cat>; capturedAt=<iso> -->`
+ *  2. Legacy stamped format: `> [category] Captured <iso>` / `> Captured <iso>`
+ *  3. Legacy taught format: `> [category] Taught <iso>` / `> Taught <iso>`
+ *
+ * Buffers persisted before the structured-document migration still load
+ * cleanly through this parser.
+ */
+export function parseLearnedEntryStamp(entry: string): {
+  capturedAt: string;
+  category: LearnedEntryCategory | null;
+} {
+  // New structured format — the stamp lives in a hidden HTML comment.
+  const structuredMatch = entry.match(
+    /<!--\s*learned-stamp:\s*category=([\w-]+);\s*capturedAt=([^;]+?)\s*-->/,
+  );
+  if (structuredMatch) {
+    const rawCategory = structuredMatch[1];
+    const candidate: LearnedEntryCategory | undefined =
+      rawCategory === 'convention' ||
+      rawCategory === 'pattern' ||
+      rawCategory === 'warning' ||
+      rawCategory === 'fact'
+        ? rawCategory
+        : undefined;
+    return {
+      capturedAt: typeof structuredMatch[2] === 'string' ? structuredMatch[2].trim() : '',
+      category: candidate ?? null,
+    };
+  }
+  // Legacy format — `> [category] Captured <iso>` or `> Captured <iso>`.
+  const stampMatch = entry.match(/^>\s*(?:\[\s*([\w-]+)\s*\]\s+)?(?:Captured|Taught)\s+(\S+)/m);
+  if (!stampMatch) {
+    return { capturedAt: '', category: null };
+  }
+  const rawCategory = stampMatch[1];
+  const candidate: LearnedEntryCategory | undefined =
+    rawCategory === 'convention' ||
+    rawCategory === 'pattern' ||
+    rawCategory === 'warning' ||
+    rawCategory === 'fact'
+      ? rawCategory
+      : undefined;
+  return {
+    capturedAt: typeof stampMatch[2] === 'string' ? stampMatch[2] : '',
+    category: candidate ?? null,
+  };
+}
+
+/**
+ * Strip the stamp line(s) from a buffered entry so only the directive text
+ * remains. Handles both the hidden-comment structured stamp and the legacy
+ * blockquote stamp.
+ */
+function stripStamp(entry: string): string {
+  return entry
+    .replace(/<!--\s*learned-stamp:[\s\S]*?-->/g, '')
+    .replace(/^>\s*(?:\[[\w-]+\]\s+)?(?:Captured|Taught)\s+.+$/m, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Extract a content key (normalized token signature) from a directive. Used
+ * for dedup so two entries that say the same thing in slightly different
+ * words collapse to one. Same normalization shape as the existing dedup path
+ * for backward compatibility.
+ */
+function directiveKey(text: string): string {
+  return normalizeForComparison(text);
+}
+
+/**
+ * Decompose a directive into its "what / why / how" components.
+ *
+ * Most captured LEARNED blocks are a single sentence — "Always run pnpm
+ * typecheck before declaring work complete." This function heuristically
+ * pulls out the action (what), the implicit reason (why, derived from
+ * the entry's category and directive verbs), and any concrete anchors
+ * (how, extracted as commands, file paths, and package names).
+ *
+ * The decomposition is deliberately conservative: when an entry already
+ * reads cleanly as a single imperative, the "what" carries the full text
+ * and "why"/"how" are short complementary notes. The agent reading the
+ * buffer can scan the "what" lines for relevance and dive into "why" /
+ * "how" only when applying the rule.
+ */
+export function decomposeLearnedEntry(
+  text: string,
+  category: LearnedEntryCategory,
+): { what: string; why: string; how: string } {
+  const what = text;
+  const why = deriveWhy(category, text);
+  const how = extractHow(text);
+  return { what, why, how };
+}
+
+const WHY_BY_CATEGORY: Record<LearnedEntryCategory, string> = {
+  convention:
+    'Established convention for this codebase — skipping it risks regressions, merge friction, or out-of-sync state with peers.',
+  pattern:
+    "This project's chosen approach — alternatives were considered and either conflict with existing architecture or were rejected for known reasons.",
+  warning:
+    'Known failure mode — skipping this has caused real defects in this codebase. The cost of getting it wrong outweighs the cost of the check.',
+  fact:
+    'Current state of the project — assumed by other conventions, build steps, or peers, so acting on a stale assumption wastes a cycle.',
+};
+
+/**
+ * Build a category-aware reason string. When the directive text contains
+ * signals about WHY (e.g. "before merging", "to avoid silent data loss"),
+ * append those signals so the "why" reads as project-specific rather than
+ * generic.
+ */
+function deriveWhy(category: LearnedEntryCategory, text: string): string {
+  const base = WHY_BY_CATEGORY[category];
+  const signals: string[] = [];
+  const lower = text.toLowerCase();
+  if (/\bbefore\s+(?:merge|commit|deploy|release|shipping|publishing)\b/.test(lower))
+    signals.push('guard before shipping');
+  if (/\bto\s+avoid\b/.test(lower)) {
+    const m = text.match(/to avoid ([^.!?]+)/i);
+    if (m && m[1]) signals.push(`avoid ${m[1].trim()}`);
+  }
+  if (/\bso\s+(?:that|we|the project)\b/.test(lower)) {
+    const m = text.match(/so (?:that |we |the project )?([^.!?]+)/i);
+    if (m && m[1]) signals.push(`so ${m[1].trim()}`);
+  }
+  if (signals.length === 0) return base;
+  return `${base} Project signals: ${signals.join('; ')}.`;
+}
+
+/**
+ * Extract concrete runnable anchors from a directive: shell commands
+ * (`pnpm test`, `git status`), file paths (`packages/core/src/...`),
+ * package names (`@wrongstack/core`), and environment names (`vitest`).
+ * Returns a deduplicated bullet list, or an empty string when no concrete
+ * anchor can be extracted.
+ */
+function extractHow(text: string): string {
+  const anchors = new Set<string>();
+  // Backtick-wrapped commands / paths / identifiers — strong signal.
+  const backticked = text.match(/`([^`]+)`/g) ?? [];
+  for (const raw of backticked) {
+    const inner = raw.replace(/`/g, '').trim();
+    if (inner.length > 0 && inner.length <= 120) anchors.add(inner);
+  }
+  // File paths — anything matching packages/..., src/..., tests/..., or ending in .ts/.tsx/.js/.json/.md
+  const pathMatches = text.match(/(?:[a-zA-Z0-9_.\-]+\/)+[a-zA-Z0-9_.\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yaml|yml)/g) ?? [];
+  for (const p of pathMatches) anchors.add(p);
+  // Package-scoped names like @scope/name
+  const scoped = text.match(/@[a-z0-9][\w.\-]*\/[a-z0-9][\w.\-]*/gi) ?? [];
+  for (const p of scoped) anchors.add(p);
+  if (anchors.size === 0) return '';
+  return [...anchors].map((a) => `- \`${a}\``).join('\n');
+}
+
+/**
+ * Parse every buffered entry into a structured representation, skipping
+ * malformed lines and structural-document chunks (the header, section
+ * headings, footer) that don't carry a per-entry stamp. Entries with no
+ * parseable directive body are dropped — the merge pipeline re-derives
+ * category from the directive text so old entries that lost their stamp
+ * still load.
+ */
+export function parseStructuredLearnedEntries(role: string, projectRoot?: string): StructuredLearnedEntry[] {
+  // Read the raw buffer directly — do NOT use splitLearnedEntries, which
+  // strips HTML comments and would destroy the structured stamp metadata.
+  const raw = loadProjectAgentLearned(role, projectRoot);
+  if (!raw) return [];
+  const structured: StructuredLearnedEntry[] = [];
+  // Each entry block in the structured document starts with a stamp comment
+  // immediately followed by a bullet `- **<what>**`. Extract those pairs.
+  const entryPattern =
+    /<!--\s*learned-stamp:\s*category=([\w-]+);\s*capturedAt=([^;]+?)\s*-->\s*\n-\s+\*\*(.+?)\*\*(?:\s*\n\s+-\s+\*Why:\*\s+(.+?))?(?:\s*\n\s+-\s+\*How:\*\s+(.+?))?(?=\n(?:<!--|##|---|\n|$))/gs;
+  let m: RegExpExecArray | null;
+  while ((m = entryPattern.exec(raw)) !== null) {
+    const categoryRaw = m[1] ?? '';
+    const capturedAt = (m[2] ?? '').trim();
+    const what = (m[3] ?? '').trim();
+    const why = (m[4] ?? '').trim();
+    const howRaw = (m[5] ?? '').trim();
+    const category: LearnedEntryCategory =
+      categoryRaw === 'convention' ||
+      categoryRaw === 'pattern' ||
+      categoryRaw === 'warning' ||
+      categoryRaw === 'fact'
+        ? categoryRaw
+        : 'fact';
+    if (what.length < MIN_INSTRUCTIVE_LENGTH) continue;
+    structured.push({
+      key: directiveKey(what),
+      category,
+      what,
+      why: why || WHY_BY_CATEGORY[category],
+      how: howRaw,
+      capturedAt,
+    });
+  }
+  // Fallback: if no structured stamps were found, try the legacy format
+  // (blockquote stamps) via splitLearnedEntries so old buffers still load.
+  // Also handles raw unstructured text written by updateProjectAgentLearned
+  // (entries without any stamp — each chunk is treated as a directive).
+  if (structured.length === 0) {
+    const rawEntries = listProjectAgentLearnedEntries(role, projectRoot);
+    for (const chunk of rawEntries) {
+      const stamp = parseLearnedEntryStamp(chunk);
+      const directive = stamp.capturedAt || stamp.category ? stripStamp(chunk) : chunk;
+      if (directive.length < MIN_INSTRUCTIVE_LENGTH) continue;
+      const category = stamp.category ?? classifyLearnedEntry(directive);
+      const { what, why, how } = decomposeLearnedEntry(directive, category);
+      structured.push({
+        key: directiveKey(directive),
+        category,
+        what,
+        why,
+        how,
+        capturedAt: stamp.capturedAt,
+      });
     }
   }
-  return result.join('\n\n---\n\n');
+  return structured;
+}
+
+/**
+ * Merge a new directive into an existing structured-entry list, deduplicating
+ * by content similarity. Returns the merged list with the new entry replacing
+ * its near-duplicate when one is found (newest write wins).
+ */
+export function mergeStructuredEntries(
+  existing: StructuredLearnedEntry[],
+  fresh: { text: string; category: LearnedEntryCategory; capturedAt: string },
+): StructuredLearnedEntry[] {
+  const { what, why, how } = decomposeLearnedEntry(fresh.text, fresh.category);
+  const freshEntry: StructuredLearnedEntry = {
+    key: directiveKey(fresh.text),
+    category: fresh.category,
+    what,
+    why,
+    how,
+    capturedAt: fresh.capturedAt,
+  };
+  // Dedup: drop existing entries that overlap with the new one (token overlap ≥ 0.55).
+  const merged = existing.filter((entry) => tokenOverlap(entry.key, freshEntry.key) < 0.55);
+  merged.push(freshEntry);
+  // Stable order: by category bucket (warning → convention → pattern → fact),
+  // then by what text so the buffer is scannable and reproducible.
+  const order: Record<LearnedEntryCategory, number> = { warning: 0, convention: 1, pattern: 2, fact: 3 };
+  merged.sort((a, b) => {
+    const cmp = order[a.category] - order[b.category];
+    if (cmp !== 0) return cmp;
+    return a.what.localeCompare(b.what);
+  });
+  return merged;
+}
+
+const SECTION_TITLE: Record<LearnedEntryCategory, string> = {
+  warning: '## What to avoid',
+  convention: '## What to do',
+  pattern: '## Patterns to follow',
+  fact: '## Project facts',
+};
+
+/**
+ * Render a structured-entry list as the markdown instruction document that
+ * gets written to `learned.md`. The output is intentionally a single
+ * structured reference — not a journal — so a future agent reading it can
+ * scan section headings and pull the rules it needs.
+ *
+ * Each entry embeds its category and capture timestamp as a hidden HTML
+ * comment (`<!-- learned-stamp: ... -->`) so the parser can recover that
+ * metadata when re-loading the buffer. The comment is invisible when the
+ * file is rendered as markdown — agents reading the document see only the
+ * structured "what / why / how" content.
+ */
+export function renderLearnedInstructions(
+  role: string,
+  entries: StructuredLearnedEntry[],
+  capturedAt: string,
+): string {
+  const headerLines = [
+    `# Learned instructions for \`${role}\``,
+    '',
+    '> Project-specific learning data for the `' +
+      role +
+      '` agent. Each entry is a directive — read it as an instruction, not a journal entry. Entries are re-derived on every capture, so this file is always a current, structured snapshot of what this agent has learned.',
+    '',
+  ];
+
+  if (entries.length === 0) {
+    return (
+      headerLines.join('\n') +
+      [
+        '_No learned entries yet._',
+        '',
+        '---',
+        `*Last capture: ${capturedAt} · 0 entries*`,
+        '',
+      ].join('\n')
+    );
+  }
+
+  // Group entries by category in the canonical order.
+  const buckets: Record<LearnedEntryCategory, StructuredLearnedEntry[]> = {
+    warning: [],
+    convention: [],
+    pattern: [],
+    fact: [],
+  };
+  for (const entry of entries) buckets[entry.category].push(entry);
+
+  const sections: string[] = [];
+  for (const category of ['warning', 'convention', 'pattern', 'fact'] as LearnedEntryCategory[]) {
+    const list = buckets[category];
+    if (list.length === 0) continue;
+    sections.push(SECTION_TITLE[category]);
+    sections.push('');
+    for (const entry of list) {
+      // Hidden stamp comment preserves category + capturedAt for the parser.
+      // The what/why/how body stays clean for human/agent readers.
+      const stamp = `<!-- learned-stamp: category=${entry.category}; capturedAt=${entry.capturedAt} -->`;
+      sections.push(stamp);
+      sections.push(`- **${entry.what}**`);
+      sections.push(`  - *Why:* ${entry.why}`);
+      if (entry.how) {
+        for (const line of entry.how.split('\n')) sections.push(`  - *How:* ${line.replace(/^- /, '')}`);
+      }
+      sections.push('');
+    }
+  }
+
+  const footer = ['---', `*Last capture: ${capturedAt} · ${entries.length} entries*`, ''];
+
+  return [...headerLines, ...sections, ...footer].join('\n');
 }
 
 /**
  * Learned-wisdom capture from agent output.
  *
  * Scans `output` for `## LEARNED` blocks and persists each unique,
- * quality-passing block to the role's `learned.md`.  Deduplication is
- * performed against the existing content; if the new block is a near-
- * duplicate (token overlap ≥ 0.55) it is silently skipped.
+ * quality-passing block to the role's `learned.md`.  Each block is run
+ * through `normalizeLearnedEntry` so the buffer only accumulates instructive
+ * directives — narrative session logs are rejected at capture time. Near-
+ * duplicate entries (token overlap ≥ 0.55) are silently skipped.
  *
  * When the resulting file would exceed `LEARNED_HARD_LIMIT` (16 KB)
  * the oldest entries are rotated out before writing.
@@ -1434,14 +2065,18 @@ export function captureLearnedFromAgentOutputDetailed(
     };
   }
 
-  const normalizedEntries = listProjectAgentLearnedEntries(normalizedRole, projectRoot)
-    .map((entry) => entry.replace(/^> (?:Captured|Taught) .+$/m, '').trim())
-    .filter(Boolean)
-    .map(normalizeForComparison);
-  let newContent = existingRaw;
+  // Dedup against existing structured entries' directive keys so the
+  // capture loop can reject near-duplicates using the same normalization
+  // the structured renderer applies. This replaces the old chunked-text
+  // dedup path which could not see through the structured document format.
+  const normalizedEntries = parseStructuredLearnedEntries(normalizedRole, projectRoot).map(
+    (entry) => entry.key,
+  );
+  let structuredEntries = parseStructuredLearnedEntries(normalizedRole, projectRoot);
   let captured = 0;
   let skipped = 0;
   const now = new Date();
+  const nowIso = now.toISOString();
   const remainingSessionCaptures = isManual
     ? Number.POSITIVE_INFINITY
     : Math.max(
@@ -1457,14 +2092,18 @@ export function captureLearnedFromAgentOutputDetailed(
       skipped++;
       continue;
     }
-    const meaningful = content
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/[#*_>`-]/g, ' ')
-      .trim();
-    if (meaningful.length < 50) {
+    // Run normalization FIRST: strip ephemeral artifacts, drop narrative
+    // framing, classify, and reject entries that cannot be salvaged into
+    // instructive directives. This is the quality gate that keeps the
+    // buffer from accumulating session logs.
+    const normalized = normalizeLearnedEntry(content);
+    if (!normalized) {
       skipped++;
       continue;
     }
+    // Code-only check: rejects entries that are mostly fenced code even after
+    // normalization (the normalizer preserves prose, so a code-only block
+    // will already be short on text — this is a belt-and-braces check).
     const totalLines = Math.max(1, content.split('\n').length);
     const codeBodyLines = (content.match(/```[\s\S]*?```/g) ?? []).reduce(
       (sum, block) => sum + Math.max(0, block.split('\n').length - 2),
@@ -1474,14 +2113,22 @@ export function captureLearnedFromAgentOutputDetailed(
       skipped++;
       continue;
     }
-    const candidateNorm = normalizeForComparison(content);
+    const candidateNorm = normalizeForComparison(normalized.text);
     if (normalizedEntries.some((entry) => tokenOverlap(candidateNorm, entry) >= 0.55)) {
       skipped++;
       continue;
     }
     normalizedEntries.push(candidateNorm);
-    const stamped = `> Captured ${now.toISOString()}\n\n${content}`;
-    newContent = newContent ? `${newContent}\n\n---\n\n${stamped}` : stamped;
+    // Merge the new directive into the structured list, deduplicating against
+    // existing entries by content similarity. The buffer is rewritten as a
+    // structured instruction list (what / why / how) at the end of this
+    // function — historical entries are re-decomposed in lockstep so the
+    // file is always a current, consistent snapshot.
+    structuredEntries = mergeStructuredEntries(structuredEntries, {
+      text: normalized.text,
+      category: normalized.category,
+      capturedAt: nowIso,
+    });
     captured++;
   }
 
@@ -1491,11 +2138,20 @@ export function captureLearnedFromAgentOutputDetailed(
       captured: 0,
       skipped,
       status: 'quality_rejected',
-      reason: 'Every LEARNED block was too short, code-only, or a near-duplicate.',
+      reason:
+        'Every LEARNED block was too short, too narrative, or a near-duplicate. Write directives, not session logs.',
     };
   }
+
+  // Render the merged list as a structured instruction document. This is the
+  // single source of truth — the buffer is rewritten in full on every
+  // capture so the file always reflects the current, merged state.
+  let newContent = renderLearnedInstructions(normalizedRole, structuredEntries, nowIso);
   if (Buffer.byteLength(newContent, 'utf8') >= LEARNED_HARD_LIMIT) {
-    newContent = pruneToSize(newContent, LEARNED_SOFT_LIMIT);
+    // Trim oldest entries when the document exceeds the hard limit. Keep
+    // the structured form intact by re-rendering after pruning.
+    const trimmed = structuredEntries.slice(-Math.max(1, Math.floor(structuredEntries.length / 2)));
+    newContent = renderLearnedInstructions(normalizedRole, trimmed, nowIso);
   }
 
   writeTextAtomically(path.join(roleDir(normalizedRole, projectRoot), 'learned.md'), newContent);
@@ -1713,15 +2369,18 @@ export function buildConsolidationInstruction(role: string, projectRoot?: string
   const sections: string[] = [
     `You are reviewing and consolidating the captured learning entries for the "${normalizedRole}" agent role in this project.`,
     '',
-    'Your task is to synthesize ALL of the raw entries below into a single, narrowly-scoped document that represents what this agent has learned — specifically for its skills and role responsibilities.',
+    'Your task is to synthesize the raw entries below into a single, narrowly-scoped document that represents what this agent has learned — specifically for its skills and role responsibilities. This document is the **instruction manual for future invocations** of this agent in this project. It is not a journal, not an exhaustive transcription, and not a memory store.',
     '',
     '## Requirements',
     '',
-    '1. **No omissions.** Every fact, convention, decision, command, file reference, and pattern from the raw entries MUST appear in the consolidated document. If two entries say the same thing, merge them into one statement — but never drop information.',
-    '2. **Narrow scope.** Rewrite verbose, narrative entries into concise, directive statements. The output is not a journal — it is an instruction manual for future invocations of this agent.',
-    '3. **Structured format.** Organize the content under clear markdown headings (##) by topic. Use bullet points for individual facts. Each bullet should be a self-contained, actionable directive.',
-    '4. **Preserve specifics.** Keep exact file paths, command names, version numbers, package names, and configuration values exactly as they appear in the raw entries.',
-    '5. **No filler.** Do not include meta-commentary about the consolidation process itself. The document should read as if it were always a single authoritative reference.',
+    '1. **Be selective.** Some raw entries are noise — narrative descriptions of single-session events, ephemeral references (commit SHAs, timestamps, line numbers, PR refs), or thin fragments that cannot be generalized. **Drop them.** The output must be smaller than the input; a consolidation that preserves every word is not a consolidation.',
+    '2. **Extract the directive.** When a raw entry mixes narrative framing with a buried lesson ("When I worked on X, I realized Y"), extract the lesson as a directive and discard the framing.',
+    '3. **Generic, not specific.** Rewrite entries so they apply across sessions. Replace session-specific anchors (commit SHAs, dates, line numbers) with general principles or concrete tools/commands that will still be valid next month.',
+    '4. **Self-contained bullets.** Each bullet must make sense standalone — understandable to a future agent that has no context about the session that produced it.',
+    '5. **Narrow scope.** Keep only knowledge that is genuinely durable and role-relevant. When in doubt, leave it out.',
+    '6. **Structured format.** Organize the content under clear markdown headings (##) by topic. Use bullet points for individual facts. Group by category (Conventions, Patterns, Warnings, Project Facts) when it helps scannability.',
+    '7. **Preserve actionable anchors.** Keep exact file paths, command names, package names, and configuration values that make a directive concrete and runnable.',
+    '8. **No filler.** Do not include meta-commentary about the consolidation process. The document should read as if it were always a single authoritative reference.',
     '',
     rawEntries.length > 0
       ? `## Raw learned entries (${rawEntries.length} total)\n\n${rawBody}`

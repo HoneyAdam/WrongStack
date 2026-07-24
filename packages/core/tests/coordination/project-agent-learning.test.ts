@@ -6,15 +6,23 @@ import {
   buildConsolidationInstruction,
   buildProjectContextualizedPrompt,
   captureLearnedFromAgentOutputDetailed,
+  classifyLearnedEntry,
   clearProjectAgentConsolidated,
   createProjectAgent,
   createProjectAgentRoster,
+  decomposeLearnedEntry,
   getProjectAgentLearnStats,
   isConsolidated,
+  LEARNED_ENTRY_MAX_CHARS,
   listProjectAgentLearnedEntries,
   listProjectAgentRoles,
   loadConsolidationMetadata,
   loadProjectAgentConsolidated,
+  mergeStructuredEntries,
+  normalizeLearnedEntry,
+  parseLearnedEntryStamp,
+  parseStructuredLearnedEntries,
+  renderLearnedInstructions,
   saveProjectAgentConsolidated,
   updateProjectAgentConfig,
   updateProjectAgentLearned,
@@ -43,7 +51,10 @@ describe('project agent self-learning lifecycle', () => {
     );
 
     expect(result).toMatchObject({ status: 'captured', captured: 1, skipped: 1 });
-    expect(listProjectAgentLearnedEntries('executor', projectRoot)).toHaveLength(1);
+    // After the refactor the buffer is the structured instruction list, so
+    // the entry count is observed via parseStructuredLearnedEntries rather
+    // than the raw chunked buffer.
+    expect(parseStructuredLearnedEntries('executor', projectRoot)).toHaveLength(1);
     expect(getProjectAgentLearnStats('executor', projectRoot)).toMatchObject({
       entryCount: 1,
       lifetimeCaptureCount: 1,
@@ -79,7 +90,9 @@ describe('project agent self-learning lifecycle', () => {
       projectRoot,
     );
     expect(result.status).toBe('disabled');
-    expect(listProjectAgentLearnedEntries('architect', projectRoot)).toHaveLength(1);
+    // The buffer is the structured instruction list now, so entry count is
+    // observed via the structured parser.
+    expect(parseStructuredLearnedEntries('architect', projectRoot)).toHaveLength(1);
     expect(buildProjectContextualizedPrompt('base prompt', 'architect', projectRoot)).not.toContain(
       'transport contracts',
     );
@@ -105,7 +118,7 @@ describe('project agent self-learning lifecycle', () => {
 
     const result = captureLearnedFromAgentOutputDetailed(output, 'tester', projectRoot);
     expect(result).toMatchObject({ status: 'captured', captured: 3, skipped: 2 });
-    expect(listProjectAgentLearnedEntries('tester', projectRoot)).toHaveLength(3);
+    expect(parseStructuredLearnedEntries('tester', projectRoot)).toHaveLength(3);
   });
 
   it('discovers config-only project agent roles', () => {
@@ -385,7 +398,7 @@ describe('project agent self-learning lifecycle', () => {
     );
     const prompt = buildProjectContextualizedPrompt('BASE', 'architect', projectRoot);
     expect(prompt).toContain('transport contracts');
-    expect(prompt).toContain('Learned wisdom for this project');
+    expect(prompt).toContain('Learned instructions for this project');
   });
 
   it('builds a consolidation instruction containing all raw entries', () => {
@@ -411,7 +424,7 @@ describe('project agent self-learning lifecycle', () => {
     expect(hasExistingConsolidation).toBe(false);
     expect(instruction).toContain('null guards');
     expect(instruction).toContain('async error handling');
-    expect(instruction).toContain('No omissions');
+    expect(instruction).toContain('Be selective');
   });
 
   it('tracks consolidation state in getProjectAgentLearnStats', () => {
@@ -448,5 +461,314 @@ describe('project agent self-learning lifecycle', () => {
     fs.writeFileSync(path.join(dir, 'consolidation.json'), '{"broken": true}');
 
     expect(loadConsolidationMetadata('executor', projectRoot)).toBeUndefined();
+  });
+
+  // ── Instructive capture: normalization + classification ──────────────────
+  //
+  // The capture pipeline must reject narrative / ephemeral content and
+  // produce directive entries. These tests pin the normalization behavior
+  // so the buffer stays readable and teachable across sessions.
+
+  describe('instructive capture (normalization)', () => {
+    it('strips commit SHAs, timestamps, line numbers, and PR refs from a captured entry', () => {
+      const result = normalizeLearnedEntry(
+        'When reviewing commit 9c7682b84abc on 2026-07-22T10:30:00Z, the poll lock at line 42 of poll-lock.ts must use writeFileSync with the wx flag (PR #100).',
+      );
+      expect(result).not.toBeNull();
+      // Ephemeral artifacts should be gone.
+      expect(result!.text).not.toMatch(/9c7682b84/);
+      expect(result!.text).not.toMatch(/2026-07-22/);
+      expect(result!.text).not.toMatch(/line\s+\d+/i);
+      expect(result!.text).not.toMatch(/#100/);
+      // The directive substance survives.
+      expect(result!.text).toMatch(/poll[- ]lock/i);
+      expect(result!.text).toMatch(/wx/);
+    });
+
+    it('rejects entirely-narrative entries that cannot be salvaged', () => {
+      // Pure session log — describes an event with no directive.
+      expect(normalizeLearnedEntry('Today I noticed that the test suite took 4 minutes to run.')).toBeNull();
+      expect(normalizeLearnedEntry('Yesterday I worked on the auth module.')).toBeNull();
+      expect(normalizeLearnedEntry('I found that commit abc1234 had a bug.')).toBeNull();
+    });
+
+    it('salvages the directive tail from a narrative-framed entry', () => {
+      const result = normalizeLearnedEntry(
+        'When retrying a 429 from the Telegram API, prefer an exponential backoff with 30% jitter over a fixed delay.',
+      );
+      expect(result).not.toBeNull();
+      // The narrative "When retrying" framing should be stripped but the
+      // directive tail preserved.
+      expect(result!.text.toLowerCase()).toContain('prefer');
+      expect(result!.text.toLowerCase()).toMatch(/exponential.*backoff/);
+      expect(result!.text.toLowerCase()).toMatch(/jitter/);
+    });
+
+    it('keeps clean directives intact without modification', () => {
+      const directive =
+        'Always run pnpm typecheck before declaring a refactor complete. Use the focused package typecheck, not the workspace-wide one.';
+      const result = normalizeLearnedEntry(directive);
+      expect(result).not.toBeNull();
+      expect(result!.text).toBe(directive);
+    });
+
+    it('truncates over-long entries to the first instructive sentence cluster', () => {
+      const long = Array.from({ length: 30 }, (_, i) =>
+        `Always run a regression test on package ${i} before merging a change.`,
+      ).join(' ');
+      const result = normalizeLearnedEntry(long);
+      expect(result).not.toBeNull();
+      expect(result!.text.length).toBeLessThanOrEqual(LEARNED_ENTRY_MAX_CHARS);
+      expect(result!.text.length).toBeGreaterThan(0);
+    });
+
+    it('rejects entries that are too short after normalization', () => {
+      expect(normalizeLearnedEntry('Use X.')).toBeNull();
+      expect(normalizeLearnedEntry('Always.')).toBeNull();
+      expect(normalizeLearnedEntry('')).toBeNull();
+    });
+
+    it('classifies entries by content into the correct category', () => {
+      expect(classifyLearnedEntry('Always verify typecheck before merge.')).toBe('convention');
+      expect(classifyLearnedEntry('Use pnpm for monorepo package management.')).toBe('pattern');
+      expect(classifyLearnedEntry('Avoid mutating shared state in async handlers.')).toBe('warning');
+      expect(classifyLearnedEntry('The project uses vitest 2.x for unit tests.')).toBe('fact');
+    });
+
+    it('stamps captured entries with their category for scannability', () => {
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAlways run pnpm typecheck before declaring work complete.',
+        'executor',
+        projectRoot,
+      );
+      const entries = parseStructuredLearnedEntries('executor', projectRoot);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].category).toBe('convention');
+    });
+
+    it('does not persist purely-narrative LEARNED blocks (session-log rejection)', () => {
+      const result = captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nToday I noticed that the build took a long time and we changed the test runner last week.',
+        'tester',
+        projectRoot,
+      );
+      expect(result.status).toBe('quality_rejected');
+      expect(listProjectAgentLearnedEntries('tester', projectRoot)).toHaveLength(0);
+    });
+
+    it('strips ephemeral anchors from a verbose narrative so the directive persists', () => {
+      const result = captureLearnedFromAgentOutputDetailed(
+        [
+          '## LEARNED',
+          'When I worked on commit 9c7682b84 on 2026-07-22, the poll-lock at line 42 had to use the wx flag in writeFileSync so concurrent writers would not both succeed.',
+        ].join('\n'),
+        'executor',
+        projectRoot,
+      );
+      expect(result.status).toBe('captured');
+      const entries = parseStructuredLearnedEntries('executor', projectRoot);
+      expect(entries).toHaveLength(1);
+      const directive = entries[0].what;
+      // Ephemeral anchors gone, directive substance present.
+      expect(directive).not.toMatch(/9c7682b84/);
+      expect(directive).not.toMatch(/2026-07-22/);
+      expect(directive).not.toMatch(/line\s+\d+/i);
+      expect(directive.toLowerCase()).toMatch(/wx.*writefilesync|writefilesync.*wx/);
+    });
+
+    it('still rejects over-narrative multi-block responses even when one block is valid', () => {
+      const output = [
+        '## LEARNED',
+        'Today I worked on the auth module and noticed some issues.',
+        '',
+        '## LEARNED',
+        'Always validate JWT tokens against an explicit allowlist of algorithms before trusting any claim.',
+      ].join('\n');
+      const result = captureLearnedFromAgentOutputDetailed(output, 'reviewer', projectRoot);
+      expect(result.status).toBe('captured');
+      expect(result.captured).toBe(1);
+      expect(result.skipped).toBe(1);
+      const entries = parseStructuredLearnedEntries('reviewer', projectRoot);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].what).toMatch(/JWT/);
+    });
+
+    it('dedupes against normalized text so stripping ephemeral anchors does not bypass dedup', () => {
+      // Two captures with the same lesson — the second must be rejected
+      // as a near-duplicate. Use isManual=true to bypass cooldown.
+      const first = captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAlways use the wx flag in writeFileSync when implementing concurrent locks.',
+        'executor',
+        projectRoot,
+        true,
+      );
+      const second = captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAlways use the wx flag in writeFileSync when implementing concurrent locks.',
+        'executor',
+        projectRoot,
+        true,
+      );
+      expect(first.status).toBe('captured');
+      // Exact-duplicate entry must be rejected by the dedup gate.
+      expect(second.status).toBe('quality_rejected');
+      expect(parseStructuredLearnedEntries('executor', projectRoot)).toHaveLength(1);
+    });
+  });
+
+  // ── Structured instruction list: merge + reformat on every capture ────────
+  //
+  // The capture pipeline must merge historical entries with the new entry and
+  // rewrite the buffer as a structured instruction document with each entry
+  // decomposed into what / why / how. The structured helpers are the public
+  // surface — direct buffer reads are not stable across formats.
+
+  describe('structured instruction list (capture-time consolidation)', () => {
+    it('rewrites the buffer as a structured document with section headings per category', () => {
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAlways run pnpm typecheck before declaring work complete.',
+        'executor',
+        projectRoot,
+      );
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAvoid mutating shared state in async handlers.',
+        'executor',
+        projectRoot,
+        true,
+      );
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nUse pnpm for monorepo package management.',
+        'executor',
+        projectRoot,
+        true,
+      );
+      const buffer = fs.readFileSync(
+        path.join(projectRoot, '.wrongstack', 'agents', 'executor', 'learned.md'),
+        'utf8',
+      );
+      // Structured headings — one per category present.
+      expect(buffer).toMatch(/^# Learned instructions for `executor`/m);
+      expect(buffer).toMatch(/^## What to avoid$/m);
+      expect(buffer).toMatch(/^## What to do$/m);
+      expect(buffer).toMatch(/^## Patterns to follow$/m);
+      // The footer pinpoints the merge moment.
+      expect(buffer).toMatch(/Last capture: .+ · 3 entries/);
+    });
+
+    it('decomposes each entry into what / why / how', () => {
+      const { what, why, how } = decomposeLearnedEntry(
+        'Always run `pnpm typecheck` before declaring work complete in `packages/core`.',
+        'convention',
+      );
+      expect(what).toMatch(/pnpm typecheck/);
+      // why must reflect the category (convention → guard against regressions)
+      expect(why).toMatch(/regressions|convention/i);
+      // how must surface the backticked command and the file path.
+      expect(how).toMatch(/`pnpm typecheck`/);
+      expect(how).toMatch(/`packages\/core`/);
+    });
+
+    it('renders structured entries grouped by category in the warning-first order', () => {
+      const entries = [
+        {
+          key: 'k1',
+          category: 'fact' as const,
+          what: 'The project uses vitest 2.x.',
+          why: 'project state',
+          how: '',
+          capturedAt: '2026-07-24T10:00:00Z',
+        },
+        {
+          key: 'k2',
+          category: 'warning' as const,
+          what: 'Avoid mutating shared state.',
+          why: 'race conditions',
+          how: '',
+          capturedAt: '2026-07-24T10:00:01Z',
+        },
+        {
+          key: 'k3',
+          category: 'convention' as const,
+          what: 'Always run pnpm typecheck.',
+          why: 'guard against regressions',
+          how: '- `pnpm typecheck`',
+          capturedAt: '2026-07-24T10:00:02Z',
+        },
+      ];
+      const rendered = renderLearnedInstructions('tester', entries, '2026-07-24T10:00:02Z');
+      const warningIdx = rendered.indexOf('## What to avoid');
+      const conventionIdx = rendered.indexOf('## What to do');
+      const factIdx = rendered.indexOf('## Project facts');
+      expect(warningIdx).toBeGreaterThan(-1);
+      expect(conventionIdx).toBeGreaterThan(warningIdx);
+      expect(factIdx).toBeGreaterThan(conventionIdx);
+      // Each entry rendered as a bold "what" + "why" + optional "how"
+      expect(rendered).toMatch(/-\s+\*\*Always run pnpm typecheck\.\*\*/);
+      expect(rendered).toMatch(/-\s+\*\*Avoid mutating shared state\.\*\*/);
+      expect(rendered).toMatch(/-\s+\*\*The project uses vitest 2\.x\.\*\*/);
+    });
+
+    it('merges a new directive into existing entries, deduplicating by similarity', () => {
+      const existing = parseStructuredLearnedEntries('nonexistent', projectRoot); // empty
+      const merged = mergeStructuredEntries(existing, {
+        text: 'Always run pnpm typecheck before declaring work complete.',
+        category: 'convention',
+        capturedAt: '2026-07-24T10:00:00Z',
+      });
+      expect(merged).toHaveLength(1);
+      const again = mergeStructuredEntries(merged, {
+        text: 'Always run pnpm typecheck before declaring work complete.', // exact dup
+        category: 'convention',
+        capturedAt: '2026-07-24T10:00:01Z',
+      });
+      expect(again).toHaveLength(1);
+      const different = mergeStructuredEntries(again, {
+        text: 'Avoid mutating shared state in async handlers.',
+        category: 'warning',
+        capturedAt: '2026-07-24T10:00:02Z',
+      });
+      expect(different).toHaveLength(2);
+      // Sorted warning-first.
+      expect(different[0].category).toBe('warning');
+      expect(different[1].category).toBe('convention');
+    });
+
+    it('preserves historical entries through a re-capture (merge, not replace)', () => {
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAlways run pnpm typecheck before declaring work complete.',
+        'executor',
+        projectRoot,
+      );
+      const firstEntries = parseStructuredLearnedEntries('executor', projectRoot);
+      expect(firstEntries).toHaveLength(1);
+
+      captureLearnedFromAgentOutputDetailed(
+        '## LEARNED\nAvoid mutating shared state in async handlers.',
+        'executor',
+        projectRoot,
+        true,
+      );
+      const secondEntries = parseStructuredLearnedEntries('executor', projectRoot);
+      expect(secondEntries).toHaveLength(2);
+      // Both lessons survive the second capture.
+      const whats = secondEntries.map((e) => e.what);
+      expect(whats).toContain('Always run pnpm typecheck before declaring work complete.');
+      expect(whats).toContain('Avoid mutating shared state in async handlers.');
+    });
+
+    it('parses stamps from existing entries so historical captures keep their metadata', () => {
+      const stamped = `> [convention] Captured 2026-07-22T10:30:00Z
+
+Always run pnpm typecheck before declaring work complete.`;
+      const stamp = parseLearnedEntryStamp(stamped);
+      expect(stamp.capturedAt).toBe('2026-07-22T10:30:00Z');
+      expect(stamp.category).toBe('convention');
+    });
+
+    it('renders the empty-state scaffold for a refreshed role', () => {
+      const empty = renderLearnedInstructions('fresh-role', [], '2026-07-24T10:00:00Z');
+      expect(empty).toMatch(/^# Learned instructions for `fresh-role`/m);
+      expect(empty).toMatch(/No learned entries yet/);
+      expect(empty).toMatch(/0 entries/);
+    });
   });
 });
