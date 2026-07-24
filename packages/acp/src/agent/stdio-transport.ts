@@ -9,8 +9,8 @@
  * standard ACP agents must not write non-JSON data to stdout.
  */
 import { expectDefined, writeErr } from '@wrongstack/core/utils';
+import { treeKill } from '@wrongstack/core/utils/tree-kill';
 import type { ACPMessage } from '../types/acp-messages.js';
-import { treeKill } from '../tree-kill.js';
 import { buildWin32CmdShimInvocation } from '../win32-cmd.js';
 
 const DEFAULT_MAX_FRAME_CHARS = 20 * 1024 * 1024;

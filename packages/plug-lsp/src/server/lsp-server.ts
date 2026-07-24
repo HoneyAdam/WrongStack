@@ -29,7 +29,7 @@ import type {
 import type { ServerConfig, ServerState } from '../types.js';
 import { LSPError, LSPErrorCode } from '../types.js';
 import { safeSpawn } from '../utils/safe-spawn.js';
-import { treeKill } from '../utils/tree-kill.js';
+import { treeKill } from '@wrongstack/core/utils/tree-kill';
 import { pathToUri, uriToPath } from '../utils/uri.js';
 import { Connection } from './connection.js';
 import { initializeServer } from './initialize.js';

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
-import { treeKill } from '../src/tree-kill.js';
+import { treeKill } from '../../src/utils/tree-kill.js';
 
 const REAL_PLATFORM = process.platform;
 
@@ -26,11 +26,18 @@ afterEach(() => {
 });
 
 describe('treeKill', () => {
-  it('falls back to child.kill() when pid is undefined', () => {
+  it('falls back to a graceful kill when pid is undefined', () => {
     const kill = vi.fn();
     treeKill({ pid: undefined, kill });
-    expect(kill).toHaveBeenCalledTimes(1);
+    // graceful default → no explicit signal (SIGTERM)
+    expect(kill).toHaveBeenCalledWith(undefined);
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it('force + undefined pid sends SIGKILL directly', () => {
+    const kill = vi.fn();
+    treeKill({ pid: undefined, kill }, { force: true });
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
   });
 
   it('on Windows spawns taskkill /T /F for the whole tree', () => {
@@ -43,17 +50,29 @@ describe('treeKill', () => {
       ['/pid', '4321', '/T', '/F'],
       expect.objectContaining({ windowsHide: true }),
     );
-    // taskkill owns the teardown; the direct kill is only a fallback.
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it('on Windows falls back to child.kill() if taskkill fails to spawn', () => {
+  it('on Windows falls back to child.kill() if taskkill errors, tolerating a dead child', () => {
     setPlatform('win32');
     const killer = fakeKiller();
     spawnMock.mockReturnValue(killer);
-    const kill = vi.fn();
+    const kill = vi.fn(() => {
+      throw new Error('already gone');
+    });
     treeKill({ pid: 42, kill });
     killer.emit('error', new Error('ENOENT'));
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(killer.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it('on Windows falls back to child.kill() when spawning taskkill throws', () => {
+    setPlatform('win32');
+    spawnMock.mockImplementation(() => {
+      throw new Error('spawn EACCES');
+    });
+    const kill = vi.fn();
+    treeKill({ pid: 7, kill });
     expect(kill).toHaveBeenCalledTimes(1);
   });
 
@@ -65,6 +84,29 @@ describe('treeKill', () => {
     expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
     expect(spawnMock).not.toHaveBeenCalled();
     vi.advanceTimersByTime(2000);
+    expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+  });
+
+  it('on POSIX with force sends SIGKILL immediately and skips the backstop', () => {
+    setPlatform('linux');
+    vi.useFakeTimers();
+    const kill = vi.fn();
+    treeKill({ pid: 5, kill }, { force: true });
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    vi.advanceTimersByTime(5000);
+    expect(kill).toHaveBeenCalledTimes(1); // no backstop
+  });
+
+  it('honors a custom graceMs for the POSIX backstop', () => {
+    setPlatform('linux');
+    vi.useFakeTimers();
+    const kill = vi.fn();
+    treeKill({ pid: 3, kill }, { graceMs: 500 });
+    expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
+    vi.advanceTimersByTime(499);
+    expect(kill).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
     expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
   });
 });

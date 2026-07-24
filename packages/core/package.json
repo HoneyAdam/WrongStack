@@ -52,6 +52,10 @@
       "types": "./dist/utils/error.d.ts",
       "import": "./dist/utils/error.js"
     },
+    "./utils/tree-kill": {
+      "types": "./dist/utils/tree-kill.d.ts",
+      "import": "./dist/utils/tree-kill.js"
+    },
     "./execution": {
       "types": "./dist/execution/index.d.ts",
       "import": "./dist/execution/index.js"

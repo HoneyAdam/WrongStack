@@ -49,6 +49,7 @@ const coreEntries = entryMap([
   'src/utils/index.ts',
   'src/utils/expect-defined.ts',
   'src/utils/error.ts',
+  'src/utils/tree-kill.ts',
   'src/execution/prompt-enhancer.ts',
   'src/execution/index.ts',
   'src/design/index.ts',

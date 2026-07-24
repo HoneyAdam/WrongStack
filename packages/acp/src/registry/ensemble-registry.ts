@@ -15,8 +15,8 @@
  */
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { treeKill } from '@wrongstack/core/utils/tree-kill';
 import { AGENTS_CATALOG } from './agents.catalog.js';
-import { treeKill } from '../tree-kill.js';
 import { buildWin32CmdShimInvocation } from '../win32-cmd.js';
 
 /** Vendor classification — used to filter the catalog by family. */
