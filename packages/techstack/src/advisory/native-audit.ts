@@ -434,6 +434,14 @@ const defaultAuditCommandRunner: AuditCommandRunner = (
         timeout: 60_000,
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
+        // On Windows the audit tools are batch shims — `npm`/`composer` resolve
+        // to npm.cmd/composer.cmd, which execFile cannot launch without a shell
+        // (it ignores PATHEXT), so it fails ENOENT and every Windows audit
+        // silently reports "exited with code null" with zero advisories. Route
+        // through the shell there. Safe because every command and argument here
+        // is a static literal (conventional filenames only) — no user input
+        // reaches the command line; the dynamic workspace path is passed as cwd.
+        shell: process.platform === 'win32',
       },
       (error, stdout, stderr) => {
         const exitCode = (error as (Error & { code?: string | number }) | null)?.code;
