@@ -24,6 +24,13 @@ import {
 } from './mailbox-types.js';
 
 export const MAILBOX_HTTP_MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Per-connection cap on unflushed SSE bytes. A consumer whose socket buffers
+ * more than this is too slow (or dead) to keep up; we drop it rather than let
+ * one stalled client grow the process's memory without bound.
+ */
+const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
 export const MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE = 120;
 export const MAILBOX_HTTP_RATE_LIMIT_WINDOW_MS = 60_000;
 
@@ -448,7 +455,26 @@ function handleSse(
   });
   response.write(': connected\n\n');
 
-  const unsubscribe = eventEmitter.subscribe((event) => {
+  // `close` is forward-referenced by the subscribe callback (which may fire
+  // before the rest of the setup runs), so declare its dependencies first.
+  let closed = false;
+  let unsubscribe: () => void = () => {};
+  let keepAlive: ReturnType<typeof setInterval> | undefined;
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    if (keepAlive !== undefined) clearInterval(keepAlive);
+    unsubscribe();
+    closeSseStreams.delete(close);
+    try {
+      response.end();
+    } catch {
+      // The client already closed the stream.
+    }
+  };
+
+  unsubscribe = eventEmitter.subscribe((event) => {
+    if (closed) return;
     try {
       // SSE events carry a `timestamp` field at the top level. Some event
       // shapes (e.g. `messageSent`) wrap the timestamp inside a nested
@@ -460,31 +486,25 @@ function handleSse(
         return;
       }
       response.write(`data: ${JSON.stringify(event)}\n\n`);
+      // Backpressure guard: `write()`'s return value was previously ignored, so
+      // a slow or stalled consumer made Node buffer every event in memory
+      // without bound. Once the unflushed backlog exceeds the cap, drop this
+      // one consumer rather than let a single dead client grow the process.
+      if (response.writableLength > MAX_SSE_BUFFER_BYTES) {
+        close();
+      }
     } catch {
-      unsubscribe();
+      close();
     }
   });
-  const keepAlive = setInterval(() => {
+  keepAlive = setInterval(() => {
     try {
       response.write(': keepalive\n\n');
     } catch {
-      clearInterval(keepAlive);
+      close();
     }
   }, 15_000);
 
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    clearInterval(keepAlive);
-    unsubscribe();
-    closeSseStreams.delete(close);
-    try {
-      response.end();
-    } catch {
-      // The client already closed the stream.
-    }
-  };
   closeSseStreams.add(close);
   request.once('close', close);
 }
