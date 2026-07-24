@@ -629,7 +629,6 @@ export class HqPublisher {
     if (handler === undefined) return;
 
     for (const command of message.commands) {
-      this.lastCommandId = command.commandId;
       try {
         const result = await handler(command);
         if (result !== undefined) this.ackCommand(result);
@@ -642,6 +641,13 @@ export class HqPublisher {
           message: err instanceof Error ? err.message : String(err),
         });
       }
+      // Advance the poll cursor only AFTER the command is handled and acked.
+      // Advancing it before `await handler` meant a socket flap mid-handler
+      // left the next command_poll asking for commands AFTER this one — so an
+      // operator command (steer/abort/broadcast) that never ran was silently
+      // skipped and never re-fetched. At-least-once (a possible duplicate on
+      // reconnect, which these commands tolerate) beats losing one outright.
+      this.lastCommandId = command.commandId;
     }
   }
 
