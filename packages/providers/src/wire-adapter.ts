@@ -37,6 +37,16 @@ export interface WireAdapterStreamOptions {
    * loop can retry the iteration.
    */
   streamHangTimeoutMs?: number | undefined;
+  /**
+   * Maximum time (ms) to wait for response HEADERS to arrive before aborting
+   * the request. This bounds the header phase, which `streamHangTimeoutMs`
+   * (a body-only, inter-chunk guard) does not cover: a proxy that accepts the
+   * TCP connection but never sends a response line would otherwise hang until
+   * the caller's own signal fires (forever, for long-lived signals). A header
+   * timeout surfaces as a retryable ProviderError. Default: 60_000. Set to 0
+   * to disable.
+   */
+  headersTimeoutMs?: number | undefined;
 }
 
 /** Validate fetchImpl response has required fields; normalize missing body to null. */
@@ -83,6 +93,7 @@ function logRawChunk(
 }
 
 const DEFAULT_STREAM_HANG_TIMEOUT_MS = 60_000;
+const DEFAULT_HEADERS_TIMEOUT_MS = 60_000;
 
 /**
  * Shared HTTP mechanics for streaming providers.
@@ -101,6 +112,7 @@ export abstract class WireAdapter implements Provider {
 
   protected readonly debugStream: boolean;
   protected readonly streamHangTimeoutMs: number;
+  protected readonly headersTimeoutMs: number;
 
   constructor(
     protected readonly apiKey: string,
@@ -124,6 +136,7 @@ export abstract class WireAdapter implements Provider {
     }
     this.debugStream = streamOpts.debugStream ?? false;
     this.streamHangTimeoutMs = streamOpts.streamHangTimeoutMs ?? DEFAULT_STREAM_HANG_TIMEOUT_MS;
+    this.headersTimeoutMs = streamOpts.headersTimeoutMs ?? DEFAULT_HEADERS_TIMEOUT_MS;
   }
 
   async complete(req: Request, opts: { signal: AbortSignal }): Promise<Response> {
@@ -141,49 +154,90 @@ export abstract class WireAdapter implements Provider {
     // buildBody.
     const body = this.buildBody(req, { capabilities: this.capabilities });
 
-    let httpRes: Response2;
+    // Linked abort: forward the caller's signal to a controller we ALSO trip
+    // if response headers never arrive. `streamHangTimeoutMs` only guards the
+    // body's inter-chunk gaps; without this, a proxy that accepts the socket
+    // but never sends headers hangs until the caller's signal fires. The
+    // header timer is cleared the moment headers arrive, so it never truncates
+    // the body — the caller's signal continues to drive cancellation for the
+    // whole stream lifetime.
+    const linked = new AbortController();
+    const forwardAbort = () => linked.abort((opts.signal as { reason?: unknown }).reason);
+    if (opts.signal.aborted) linked.abort((opts.signal as { reason?: unknown }).reason);
+    else opts.signal.addEventListener('abort', forwardAbort, { once: true });
+    let headersTimedOut = false;
+    const headersTimer =
+      this.headersTimeoutMs > 0
+        ? setTimeout(() => {
+            headersTimedOut = true;
+            linked.abort();
+          }, this.headersTimeoutMs)
+        : undefined;
+    if (headersTimer && typeof headersTimer.unref === 'function') headersTimer.unref();
+
     try {
-      const raw = await this.fetchImpl(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: opts.signal,
-      });
-      validateResponse(raw);
-      httpRes = raw as Response2;
-    } catch (err) {
-      if (opts.signal.aborted) throw err;
-      throw new ProviderError(toErrorMessage(err), 0, true, this.id, {
-        cause: err,
-        body: { message: toErrorMessage(err) },
-      });
-    }
+      let httpRes: Response2;
+      try {
+        const raw = await this.fetchImpl(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: linked.signal,
+        });
+        validateResponse(raw);
+        httpRes = raw as Response2;
+      } catch (err) {
+        // Caller cancelled — propagate the raw abort untouched.
+        if (opts.signal.aborted) throw err;
+        // Our header timer tripped: classify as a (retryable) stream hang so
+        // the agent loop retries rather than surfacing a dead turn.
+        if (headersTimedOut) {
+          throw new StreamHangError({
+            providerId: this.id,
+            model: req.model,
+            hangTimeoutMs: this.headersTimeoutMs,
+            bytesReceived: 0,
+            elapsedMs: this.headersTimeoutMs,
+            cause: err,
+          });
+        }
+        // Any other pre-body fetch failure → retryable.
+        throw new ProviderError(toErrorMessage(err), 0, true, this.id, {
+          cause: err,
+          body: { message: toErrorMessage(err) },
+        });
+      } finally {
+        if (headersTimer) clearTimeout(headersTimer);
+      }
 
-    if (!httpRes.ok) {
-      const text = await safeText(httpRes);
-      throw this.translateError(httpRes.status, text, httpRes.headers);
-    }
+      if (!httpRes.ok) {
+        const text = await safeText(httpRes);
+        throw this.translateError(httpRes.status, text, httpRes.headers);
+      }
 
-    let sseBody = httpRes.body;
-    if (!sseBody) {
-      // No body — emit nothing
-      return;
-    }
+      let sseBody = httpRes.body;
+      if (!sseBody) {
+        // No body — emit nothing
+        return;
+      }
 
-    // Layer 1: debug logging — wrap the stream to log raw bytes.
-    // Checks both the instance-level option (set at construction) AND the
-    // runtime singleton (flipped via /settings or setDebugStreamEnabled) so
-    // toggles take effect on the next request without recreating providers.
-    if (this.debugStream || isDebugStreamEnabled()) {
-      sseBody = this.wrapDebugStream(sseBody);
-    }
+      // Layer 1: debug logging — wrap the stream to log raw bytes.
+      // Checks both the instance-level option (set at construction) AND the
+      // runtime singleton (flipped via /settings or setDebugStreamEnabled) so
+      // toggles take effect on the next request without recreating providers.
+      if (this.debugStream || isDebugStreamEnabled()) {
+        sseBody = this.wrapDebugStream(sseBody);
+      }
 
-    // Layer 2: hang detection — wrap with timeout-aware reader
-    if (this.streamHangTimeoutMs > 0) {
-      sseBody = this.wrapWithHangDetection(sseBody, req.model);
-    }
+      // Layer 2: hang detection — wrap with timeout-aware reader
+      if (this.streamHangTimeoutMs > 0) {
+        sseBody = this.wrapWithHangDetection(sseBody, req.model);
+      }
 
-    yield* this.parseStream(sseBody, req.model, req);
+      yield* this.parseStream(sseBody, req.model, req);
+    } finally {
+      opts.signal.removeEventListener('abort', forwardAbort);
+    }
   }
 
   /**
