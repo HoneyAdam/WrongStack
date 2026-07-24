@@ -1,6 +1,7 @@
 import { expectDefined } from '../utils/expect-defined.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 import { createHash } from 'node:crypto';
 import type { WstackPaths } from '../utils/wstack-paths.js';
 import type { SyncCategory, SyncConfig } from '../types/config.js';
@@ -121,7 +122,7 @@ export class CloudSync {
       lastSyncedAt: new Date().toISOString(),
       localRev: rev,
     };
-    await fs.writeFile(this.statePath, JSON.stringify(syncState, null, 2), 'utf8');
+    await atomicWrite(this.statePath, JSON.stringify(syncState, null, 2));
     this.state = syncState;
 
     return {
@@ -170,7 +171,10 @@ export class CloudSync {
 
       const blobData = await this.getBlob(token, owner, repoName, entry.sha);
       await fs.mkdir(path.dirname(destPath), { recursive: true });
-      await fs.writeFile(destPath, Buffer.from(blobData, 'base64'));
+      // Atomic write: pulled blobs land on live files (config.json, memory,
+      // history). A bare writeFile truncated by a crash/ENOSPC mid-write would
+      // corrupt the live file; atomicWrite writes a temp + fsync + rename.
+      await atomicWrite(destPath, Buffer.from(blobData, 'base64'));
     }
 
     const localRev = await this.hashLocalCategories(cfg.categories);
@@ -180,7 +184,7 @@ export class CloudSync {
       lastSyncedAt: new Date().toISOString(),
       localRev,
     };
-    await fs.writeFile(this.statePath, JSON.stringify(syncState, null, 2), 'utf8');
+    await atomicWrite(this.statePath, JSON.stringify(syncState, null, 2));
     this.state = syncState;
 
     return {
@@ -268,11 +272,29 @@ export class CloudSync {
   }
 
   private async getTreeEntries(token: string, owner: string, repo: string, treeSha: string) {
-    return (await this.githubFetch(token, owner, repo, 'GET', `/git/trees/${treeSha}?recursive=1`)) as Array<{
-      path: string;
-      sha: string;
-      type: 'blob' | 'tree';
-    }>;
+    // GitHub returns `{ sha, tree: [...], truncated }`, NOT a bare array — the
+    // previous cast made `for (const entry of ...)` throw "not iterable", so
+    // pull never actually ran. Unwrap `.tree`, and refuse a truncated result
+    // rather than silently syncing a partial file set.
+    const res = (await this.githubFetch(
+      token,
+      owner,
+      repo,
+      'GET',
+      `/git/trees/${treeSha}?recursive=1`,
+    )) as {
+      tree?: Array<{ path: string; sha: string; type: 'blob' | 'tree' }>;
+      truncated?: boolean;
+    };
+    if (res.truncated) {
+      throw new WrongStackError({
+        message:
+          'Sync tree is too large — GitHub truncated the result; refusing a partial pull.',
+        code: ERROR_CODES.UNKNOWN,
+        subsystem: 'general',
+      });
+    }
+    return res.tree ?? [];
   }
 
   private async createCommit(

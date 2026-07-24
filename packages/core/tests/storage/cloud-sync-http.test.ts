@@ -118,7 +118,8 @@ describe('CloudSync.pull via real githubFetch', () => {
       const m = init?.method;
       if (u.includes('/git/refs/heads/main') && m === 'GET') return json({ object: { sha: 'head-sha' } });
       if (u.includes('/git/commits/') && m === 'GET') return json({ tree: { sha: 'tree-sha' }, message: 'm' });
-      if (u.includes('/git/trees/') && m === 'GET') return json(treeEntries);
+      // Real GitHub returns `{ sha, tree: [...], truncated }`, not a bare array.
+      if (u.includes('/git/trees/') && m === 'GET') return json({ tree: treeEntries, truncated: false });
       if (u.includes('/git/blobs/') && m === 'GET') return json({ content: Buffer.from('{"pulled":true}').toString('base64') });
       return json({}, 404);
     });

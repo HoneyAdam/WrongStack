@@ -1022,6 +1022,11 @@ export class FileSessionWriter implements SessionWriter {
             await writeFd.write(`${leftover}\n`, undefined, 'utf8');
           }
         }
+        // fsync the data to disk BEFORE the rename. Without this, a power loss
+        // after the rename is journaled but before the data pages are flushed
+        // can leave the whole session JSONL zero-filled on NTFS — losing the
+        // entire session, not just the rewound tail.
+        await writeFd.sync();
       } finally {
         await writeFd.close();
       }
