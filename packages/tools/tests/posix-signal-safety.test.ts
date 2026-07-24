@@ -15,6 +15,11 @@ const allowedNegativeKillSources = new Set([
   // Desktop runtime-manager kills its own child's process group (-pid) on macOS
   // to catch grandchildren. Same pattern as process-registry.ts.
   'apps/desktop/src/main/runtime-manager.ts',
+  // Kanban verification spawns check commands detached into their own process
+  // group on POSIX; terminateProcessTree() group-kills -child.pid of a child
+  // this module itself spawned (taskkill /T on win32). Same pattern as
+  // shell-executor.ts.
+  'packages/kanban/src/verification/verification-context.ts',
 ]);
 const allowedDirectSignalSources = new Set([
   'packages/cli/src/slash-commands/session.ts',
@@ -27,6 +32,10 @@ const allowedDirectSignalSources = new Set([
   // Desktop runtime-manager signals its own child's process group (-pid).
   // Same pattern as shell-executor.ts.
   'apps/desktop/src/main/runtime-manager.ts',
+  // Kanban verification SIGKILLs its own detached check-command child (group
+  // kill on POSIX, child.kill fallback). Same reviewed pattern as
+  // shell-executor.ts.
+  'packages/kanban/src/verification/verification-context.ts',
 ]);
 const negativeProcessKillPattern = /process\.kill\s*\(\s*-/;
 const directProcessSignalPattern = /process\.kill\s*\([^,\n]+,\s*['"]SIG(?:KILL|TERM|INT|HUP)['"]/;
