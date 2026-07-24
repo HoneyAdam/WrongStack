@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   claimReadyTask,
   describeKanbanBoundary,
+  getBoard,
   heartbeatTaskAssignment,
   type KanbanBoard,
   type KanbanTask,
@@ -1062,6 +1063,7 @@ export function makeKanbanQueueTool(
                 taskId: claim.task.id,
                 origin: claim.task.origin,
                 projectRoot,
+                leaseId: leaseSeeding.leaseId,
               },
             },
           };
@@ -1194,10 +1196,17 @@ export function makeKanbanQueueTool(
             // Fire-and-forget renewal: the expectedLeaseId fence inside
             // heartbeatTaskAssignment's mutateBoard lock makes a stale
             // renewal a no-op; transient write errors simply retry next tick.
-            void heartbeatTaskAssignment(projectRoot, dispatch.boardId, dispatch.taskId, {
-              leaseExpiresAt: refreshedExpiry,
-              expectedLeaseId: ourLeaseId,
-            }).catch(() => {});
+            void renewAndRevokeLease({
+              projectRoot,
+              boardId: dispatch.boardId,
+              taskId: dispatch.taskId,
+              subagentId: dispatch.subagentId,
+              runTaskId: dispatch.runTaskId,
+              ourLeaseId,
+              refreshedExpiry,
+              director,
+              disposers,
+            });
           }
         }, heartbeatIntervalMs);
         renewalTimer.unref?.();
@@ -1233,6 +1242,32 @@ export function makeKanbanQueueTool(
             // Only heartbeat tasks still in flight; resolved ones are
             // finalized below after awaitTasks settles.
             if (!runTaskIds.has(dispatch.runTaskId)) continue;
+            // Atomic lease revocation check before heartbeating. If the
+            // supervisor reclaimed and reassigned this task (changing its
+            // leaseId), terminate the stale subagent immediately so it stops
+            // writing files. The awaitTasks below will pick up the stopped
+            // result and write it back (fenced, so a no-op vs the successor).
+            try {
+              const board = await getBoard(projectRoot, dispatch.boardId);
+              const liveTask = board?.tasks.find((t) => t.id === dispatch.taskId);
+              // Defensive guard: a task with no assignment (rare but possible
+              // during the brief window between assignment removal and
+              // task completion) must NOT be treated as a "different leaseId"
+              // — the optional chain would yield undefined, and `undefined !==
+              // ourLeaseId` is always true for a non-empty UUID, falsely
+              // terminating a legitimate worker.
+              const liveLeaseId = liveTask?.assignment?.leaseId;
+              if (liveLeaseId !== undefined && liveLeaseId !== ourLeaseId) {
+                await director.terminate(dispatch.subagentId).catch(() => {});
+                runTaskIds.delete(dispatch.runTaskId);
+                continue;
+              }
+            } catch {
+              // Board read is best-effort; on transient error the next
+              // heartbeat interval tick retries. The heartbeat below is
+              // fenced with expectedLeaseId so it's safe even without
+              // the revocation check passing this cycle.
+            }
             try {
               // Atomic ownership fence: expectedLeaseId is checked inside
               // heartbeatTaskAssignment's mutateBoard lock, so if the
@@ -1314,6 +1349,73 @@ export function makeKanbanQueueTool(
       };
     },
   };
+}
+
+/**
+ * Renew a kanban lease OR revoke it if the task was reassigned.
+ *
+ * Reads the live board to compare the task's current leaseId against the
+ * frozen leaseId this supervisor was seeded with. When they differ, the
+ * supervisor (or recover_stale) reclaimed and reassigned the task — this
+ * subagent is stale and must be terminated to stop it from writing files.
+ *
+ * Fire-and-forget mode only (awaitCompletion uses its own inline check
+ * inside `runHeartbeat`).
+ */
+async function renewAndRevokeLease(opts: {
+  projectRoot: string;
+  boardId: string;
+  taskId: string;
+  subagentId: string;
+  runTaskId: string;
+  ourLeaseId: string;
+  refreshedExpiry: string;
+  director: Host.DirectorLeaseRecoveryPort;
+  disposers: Map<string, () => void>;
+}): Promise<void> {
+  const {
+    projectRoot,
+    boardId,
+    taskId,
+    subagentId,
+    runTaskId,
+    ourLeaseId,
+    refreshedExpiry,
+    director,
+    disposers,
+  } = opts;
+
+  // Lease revocation check: read the live board and verify our leaseId
+  // still matches. If recover_stale reclaimed the task, terminate the
+  // stale subagent immediately to stop it from doing more work.
+  let revoked = false;
+  try {
+    const board = await getBoard(projectRoot, boardId);
+    const liveTask = board?.tasks.find((t) => t.id === taskId);
+    // Defensive guard: a task with no assignment (rare but possible
+    // during the brief window between assignment removal and
+    // task completion) must NOT be treated as a "different leaseId"
+    // — the optional chain would yield undefined, and `undefined !==
+    // ourLeaseId` is always true for a non-empty UUID, falsely
+    // terminating a legitimate worker.
+    const liveLeaseId = liveTask?.assignment?.leaseId;
+    if (liveLeaseId !== undefined && liveLeaseId !== ourLeaseId) {
+      await director.terminate(subagentId).catch(() => {});
+      disposers.get(runTaskId)?.();
+      disposers.delete(runTaskId);
+      revoked = true;
+    }
+  } catch {
+    // Board read is best-effort; on transient error the next interval tick
+    // retries. The heartbeat below is fenced with expectedLeaseId so it's
+    // safe even without the revocation check passing.
+  }
+  if (!revoked) {
+    await heartbeatTaskAssignment(projectRoot, boardId, taskId, {
+      leaseExpiresAt: refreshedExpiry,
+      expectedLeaseId: ourLeaseId,
+    }).catch(() => {});
+  }
 }
 
 function normalizeKanbanQueueInput(input: unknown): KanbanQueueInput {
