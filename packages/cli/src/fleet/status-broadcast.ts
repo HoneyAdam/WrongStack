@@ -205,7 +205,22 @@ export function createFleetStatusBroadcaster(opts: FleetStatusBroadcasterOptions
         // A retired subagent's id will never be seen again, so its one-shot dedup
         // guards and throttle timestamp are dead weight. Prune them so a long-lived
         // fleet that spawns thousands of subagents does not leak one entry each.
+        //
+        // Deregister from the mailbox agent registry so the retirement is visible
+        // cross-process immediately. Without this, the registry entry lingers with
+        // status 'idle' (the last heartbeat from the task_completed handler) until
+        // the 60s lazy prune fires — leaking dead agents in fleet_status and the
+        // fleet pulse for up to a minute. deregisterAgent is used instead of
+        // heartbeat({ status: 'offline' }) because (a) RegisteredAgent.status
+        // does not include 'offline' (only the read-side MailboxAgentStatus does),
+        // and (b) the heartbeat path is throttled to 1/5s so it silently drops
+        // when fired right after the task_completed idle heartbeat.
         opts.events.on('subagent.removed', (e) => {
+          void mb()
+            .deregisterAgent(e.subagentId)
+            .catch(() => {
+              /* best-effort — a broken mailbox must never affect the fleet */
+            });
           announcedSpawn.delete(e.subagentId);
           lastSentAt.delete(e.subagentId);
           for (const key of announcedBudget) {

@@ -13,9 +13,15 @@ import { createFleetStatusBroadcaster } from '../src/fleet/status-broadcast.js';
 
 type SentMail = { to: string; type: string; subject: string; body: string; priority?: string };
 
-function makeFakeMailbox(): { mailbox: Mailbox; sent: SentMail[]; heartbeats: unknown[] } {
+function makeFakeMailbox(): {
+  mailbox: Mailbox;
+  sent: SentMail[];
+  heartbeats: unknown[];
+  deregistered: string[];
+} {
   const sent: SentMail[] = [];
   const heartbeats: unknown[] = [];
+  const deregistered: string[] = [];
   const mailbox = {
     send: vi.fn(async (m: SentMail) => {
       sent.push(m);
@@ -24,8 +30,11 @@ function makeFakeMailbox(): { mailbox: Mailbox; sent: SentMail[]; heartbeats: un
     heartbeat: vi.fn(async (h: unknown) => {
       heartbeats.push(h);
     }),
+    deregisterAgent: vi.fn(async (agentId: string) => {
+      deregistered.push(agentId);
+    }),
   } as never as Mailbox;
-  return { mailbox, sent, heartbeats };
+  return { mailbox, sent, heartbeats, deregistered };
 }
 
 function completedEvent(subagentId: string, over: Record<string, unknown> = {}) {
@@ -149,6 +158,15 @@ describe('createFleetStatusBroadcaster', () => {
     expect(fake.heartbeats[0]).toMatchObject({ agentId: 'sub-1', status: 'running' });
     expect((fake.heartbeats[0] as { currentTask: string }).currentTask.length).toBeLessThanOrEqual(80);
     expect(fake.heartbeats[1]).toMatchObject({ agentId: 'sub-1', status: 'idle' });
+  });
+
+  it('deregisters the agent from the mailbox registry on subagent.removed', async () => {
+    build();
+    events.emit('subagent.removed', { subagentId: 'sub-1', reason: 'retired' });
+    // deregisterAgent is fire-and-forget (void mb().deregisterAgent(...).catch(...)),
+    // so flush the microtask queue.
+    await vi.runAllTimersAsync();
+    expect(fake.deregistered).toContain('sub-1');
   });
 
   it('enabled:false disables everything; stop() detaches listeners', async () => {
