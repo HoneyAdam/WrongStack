@@ -153,6 +153,9 @@ export function startTechStackConsumer(opts: TechStackConsumerOptions): () => vo
   state.timer = setInterval(() => {
     void pollOnce();
   }, pollIntervalMs);
+  // Background consumer: never keep the host process alive on its own. dispose()
+  // clears this timer; without unref the poll interval blocks a clean exit.
+  state.timer.unref?.();
 
   // Run an immediate first poll
   void pollOnce();

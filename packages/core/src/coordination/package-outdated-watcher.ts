@@ -236,6 +236,10 @@ export function startPackageOutdatedWatcher(opts: PackageOutdatedWatcherOptions)
   state.timer = setInterval(() => {
     void pollOnce();
   }, pollIntervalMs);
+  // Background watcher: never keep the host process alive on its own. The
+  // REPL/TUI/server that started it owns the real keep-alive, and dispose()
+  // clears this timer; without unref the poll interval blocks a clean exit.
+  state.timer.unref?.();
 
   // Run immediately on start
   void pollOnce();
