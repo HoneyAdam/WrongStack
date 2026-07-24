@@ -430,7 +430,11 @@ export class TelegramBot {
       for (const upd of updates) {
         this.offset = upd.update_id + 1;
         if (upd.callback_query) {
-          void this.dispatchCallback(upd.callback_query);
+          void this.dispatchCallback(upd.callback_query).catch((err) =>
+            this.log.debug(
+              `Callback dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
           continue;
         }
 
@@ -489,7 +493,15 @@ export class TelegramBot {
 
     if (denialReason === 'user') {
       this.log.debug(`Ignoring message from user ${userId ?? 'unknown'} (not in allowedUsers)`);
-      void this.sendMessage(chatId, '⛔ You are not authorized to interact with this bot.');
+      // Best-effort denial notice: the reply itself can fail (bot blocked, chat
+      // not found → non-retryable throw). Swallow so an unauthorized user
+      // cannot spam a stream of unhandled rejections into the poll loop.
+      void this.sendMessage(chatId, '⛔ You are not authorized to interact with this bot.').catch(
+        (err) =>
+          this.log.debug(
+            `Failed to send denial notice: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+      );
       return;
     }
     if (denialReason === 'chat') {
@@ -688,7 +700,11 @@ export class TelegramBot {
     request.promptMessageId = promptMessageId;
     const pending = request.pendingCallbacks.splice(0);
     for (const callback of pending) {
-      void this.dispatchCallback(callback);
+      void this.dispatchCallback(callback).catch((err) =>
+        this.log.debug(
+          `Callback dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
     }
     return true;
   }
