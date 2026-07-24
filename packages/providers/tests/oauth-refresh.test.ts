@@ -64,7 +64,7 @@ describe('createSingleFlightRefresh', () => {
     expect(sf.inFlight).toBe(false);
   });
 
-  it('forwards the first caller signal to refreshFn', async () => {
+  it('runs the shared refresh with no caller signal (decoupled from callers)', async () => {
     const refreshFn = vi.fn().mockResolvedValue('ok');
     const sf = createSingleFlightRefresh(refreshFn);
     const ctrl1 = new AbortController();
@@ -75,8 +75,34 @@ describe('createSingleFlightRefresh', () => {
 
     await Promise.all([p1, p2]);
     expect(refreshFn).toHaveBeenCalledTimes(1);
-    // First caller's signal wins; concurrent caller's signal is dropped.
-    expect(refreshFn.mock.calls[0]?.[0]).toBe(ctrl1.signal);
+    // No caller's signal drives the shared refresh — cancelling one caller must
+    // not cancel the shared token exchange that persists rotated tokens.
+    expect(refreshFn.mock.calls[0]?.[0]).toBeUndefined();
+  });
+
+  it('a caller aborting rejects only that caller; the shared refresh still resolves the others', async () => {
+    let resolveRefresh!: (v: string) => void;
+    const refreshFn = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const sf = createSingleFlightRefresh(refreshFn);
+    const ctrlA = new AbortController();
+    const ctrlB = new AbortController();
+
+    const pA = sf.refresh(ctrlA.signal);
+    const pB = sf.refresh(ctrlB.signal);
+
+    // Caller A cancels (e.g. user Esc) while the refresh is still in flight.
+    ctrlA.abort();
+    await expect(pA).rejects.toThrow();
+
+    // The shared work is untouched: complete it and B still gets the value.
+    resolveRefresh('rotated-token');
+    await expect(pB).resolves.toBe('rotated-token');
+    expect(refreshFn).toHaveBeenCalledTimes(1);
   });
 
   it('reports inFlight correctly across the lifecycle', async () => {

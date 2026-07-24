@@ -18,15 +18,16 @@
  * - `refresh()` called while a refresh IS in flight → awaits the same promise.
  * - On rejection, every awaiter sees the same error; the slot is cleared so
  *   a later refresh can be retried.
- * - The first caller's `signal` is used by the in-flight refresh. Signals
- *   from later callers are ignored (cancelling the in-flight refresh would
- *   break the other awaiters).
+ * - NO caller's `signal` drives the shared refresh. The token exchange (and
+ *   its state-mutation + persistence side effects) always runs to completion,
+ *   bounded only by each `refreshFn`'s own internal timeout. A caller's signal
+ *   cancels only THAT caller's wait — it never cancels the shared work.
  */
 export interface SingleFlightRefresh<T> {
   /**
    * Trigger (or join) a refresh. Returns the new value once complete.
-   * `signal` from the first caller is used; concurrent callers' signals are
-   * ignored so cancellation cannot break another awaiter's refresh.
+   * `signal` aborts only the calling awaiter's wait; the shared refresh keeps
+   * running so other awaiters — and the persistence callback — are unaffected.
    */
   refresh(signal?: AbortSignal): Promise<T>;
   /** True iff a refresh is currently in flight. */
@@ -39,11 +40,41 @@ export function createSingleFlightRefresh<T>(
   let inFlight: Promise<T> | null = null;
 
   const refresh = (signal?: AbortSignal): Promise<T> => {
-    if (inFlight) return inFlight;
-    inFlight = refreshFn(signal).finally(() => {
-      inFlight = null;
+    // The shared refresh runs independent of ANY caller's signal. Binding it to
+    // the first caller's signal (the old behavior) meant one caller's Esc
+    // rejected every other awaiter whose request was still live — and, for
+    // providers that rotate the refresh token on each refresh (Codex,
+    // ChatGPT), an abort landing after the server rotated the token but before
+    // `performRefresh` persisted it discarded the new token, so the NEXT
+    // refresh hit `invalid_grant` and forced a re-login. Pass `undefined`:
+    // every refreshFn impl already wraps its own `AbortSignal.timeout`, so the
+    // shared work stays bounded, just not caller-cancellable.
+    if (!inFlight) {
+      inFlight = refreshFn(undefined).finally(() => {
+        inFlight = null;
+      });
+    }
+    const shared = inFlight;
+
+    // A caller's signal cancels only that caller's wait. Callers that abort
+    // reject individually; the refresh and its side effects still complete.
+    if (!signal) return shared;
+    if (signal.aborted) return Promise.reject(signalAbortReason(signal));
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => reject(signalAbortReason(signal));
+      signal.addEventListener('abort', onAbort, { once: true });
+      const cleanup = (): void => signal.removeEventListener('abort', onAbort);
+      shared.then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (err) => {
+          cleanup();
+          reject(err);
+        },
+      );
     });
-    return inFlight;
   };
 
   return {
@@ -52,4 +83,13 @@ export function createSingleFlightRefresh<T>(
       return inFlight !== null;
     },
   };
+}
+
+/** The signal's own abort reason, or a synthesized AbortError when it has none. */
+function signalAbortReason(signal: AbortSignal): unknown {
+  const reason = (signal as { reason?: unknown }).reason;
+  if (reason !== undefined) return reason;
+  const err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  return err;
 }
