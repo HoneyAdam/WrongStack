@@ -42,6 +42,10 @@ function emitStructuredLog(level: 'debug' | 'info' | 'warn' | 'error', event: st
 }
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const STALE_THRESHOLD_MS = 30_000;
+// A registry lock is only ever held for a brief read-modify-write; one older
+// than this means the holder crashed. This is the ONLY stale signal on
+// Windows, where process.kill(pid, 0) liveness checks are unreliable.
+const LOCK_STALE_MS = 30_000;
 const LOCKFILE = '.process-registry.lock';
 
 export interface PersistentProcessEntry {
@@ -107,33 +111,40 @@ async function acquireLock(lockfilePath: string, timeoutMs = 5000): Promise<() =
       };
     } catch (err) {
       if (isNodeError(err) && err.code === 'EEXIST') {
-        // Lock exists - check if the holder is still alive
+        // Lock exists - decide whether it is stale and stealable.
         try {
           const content = await fs.readFile(lockfilePath, 'utf-8');
           const parts = content.split(':');
-          const lockPidStr = parts[0] ?? '0';
-          const lockPid = parseInt(lockPidStr, 10);
+          const lockPid = parseInt(parts[0] ?? '0', 10);
+          // Content is `pid:host:timestamp`; the last field is the
+          // acquisition time (host is never empty, so index is safe).
+          const lockTs = Number(parts[parts.length - 1]);
+          const staleByAge = Number.isFinite(lockTs) && Date.now() - lockTs > LOCK_STALE_MS;
 
-          // On Unix, check if process is still running
-          if (process.platform !== 'win32') {
+          let holderDead = false;
+          if (process.platform !== 'win32' && Number.isFinite(lockPid) && lockPid > 0) {
             try {
               process.kill(lockPid, 0); // Signal 0 just checks if process exists
             } catch {
-              // Lock holder is dead - steal the lock
-              await fs.unlink(lockfilePath);
-              continue;
+              holderDead = true;
             }
+          }
+
+          // Steal when the holder is provably dead (Unix) OR the lock is older
+          // than LOCK_STALE_MS. The age check is the only stale signal on
+          // Windows — without it a crashed holder's lock wedges the registry,
+          // and with it every kill-guard, permanently.
+          if (holderDead || staleByAge) {
+            await fs.unlink(lockfilePath).catch(() => {});
+            continue;
           }
         } catch {
           // Can't read lock file - assume stale, try to steal
-          try {
-            await fs.unlink(lockfilePath);
-          } catch {
-            /* ignore */
-          }
+          await fs.unlink(lockfilePath).catch(() => {});
+          continue;
         }
 
-        // Wait before retrying
+        // Holder still alive and lock fresh — wait before retrying
         await new Promise((r) => setTimeout(r, 100));
         continue;
       }
@@ -145,29 +156,49 @@ async function acquireLock(lockfilePath: string, timeoutMs = 5000): Promise<() =
 
 /**
  * Read and parse the persistent registry file.
- * Returns empty data if file doesn't exist or is corrupted.
+ * Returns empty data if the file is missing, corrupted, or structurally wrong.
  */
+function freshRegistryData(): PersistentRegistryData {
+  return {
+    version: 1,
+    instances: new Map(),
+    protectedPatterns: ['wrongstack', 'node'],
+    lastCleanup: Date.now(),
+  };
+}
+
 async function readRegistryFile(filePath: string): Promise<PersistentRegistryData> {
+  let content: string;
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(content);
-
-    // Convert instances array back to Map
-    if (parsed.instances && Array.isArray(parsed.instances)) {
-      parsed.instances = new Map(parsed.instances);
-    }
-
-    return parsed;
+    content = await fs.readFile(filePath, 'utf-8');
   } catch (err) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
-      return {
-        version: 1,
-        instances: new Map(),
-        protectedPatterns: ['wrongstack', 'node'],
-        lastCleanup: Date.now(),
-      };
-    }
-    throw err;
+    if (isNodeError(err) && err.code === 'ENOENT') return freshRegistryData();
+    throw err; // genuine IO error (EACCES, EMFILE…) — surface it
+  }
+
+  // A torn write (crash mid-persist) or hand-corruption must NOT throw here:
+  // that would propagate through every kill-guard and wedge them forever with
+  // no self-heal. Parse defensively and fall back to empty; the next write
+  // overwrites the bad file.
+  try {
+    const parsed = JSON.parse(content) as Partial<PersistentRegistryData> & {
+      instances?: unknown;
+    };
+    if (!parsed || typeof parsed !== 'object') return freshRegistryData();
+    const base = freshRegistryData();
+    return {
+      version: 1,
+      instances: Array.isArray(parsed.instances)
+        ? new Map(parsed.instances as [string, PersistentProcessEntry][])
+        : base.instances,
+      protectedPatterns: Array.isArray(parsed.protectedPatterns)
+        ? parsed.protectedPatterns
+        : base.protectedPatterns,
+      lastCleanup:
+        typeof parsed.lastCleanup === 'number' ? parsed.lastCleanup : base.lastCleanup,
+    };
+  } catch {
+    return freshRegistryData();
   }
 }
 
