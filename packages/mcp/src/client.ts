@@ -124,6 +124,44 @@ type ToolsChangedListener = (name: string, tools: MCPTool[]) => void;
 export type MCPListChangedListener = (name: string) => void;
 
 /**
+ * Force-kill a child and its descendants. On Windows a stdio server is launched
+ * through a `.cmd` shim with `shell: true`, so `child` is the `cmd.exe` wrapper
+ * and the real server (npx→node / uvx) is its grandchild — `child.kill('SIGKILL')`
+ * signals only the wrapper and orphans the server, which then accumulates across
+ * every close / restart / idle-sleep. `taskkill /T /F` tears down the whole tree.
+ */
+function forceKillTree(child: ChildProcess): void {
+  if (child.pid === undefined) {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    killer.once('error', () => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    });
+    killer.unref();
+    return;
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* already gone */
+  }
+}
+
+/**
  * Lightweight MCP client supporting three transport types:
  * - stdio: spawns a child process and communicates over pipes
  * - sse: connects to an HTTP SSE endpoint for server events, POST for requests
@@ -635,15 +673,11 @@ export class MCPClient {
         new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), GRACEFUL_MS)),
       ]);
       if (gracefulRace === 'timeout') {
-        try {
-          // SIGKILL is ignored by `kill('SIGKILL')` on Windows in older
-          // Node, but `child.kill('SIGKILL')` maps to TerminateProcess
-          // under the hood for spawned children since Node 18 — safe to
-          // call cross-platform.
-          child.kill('SIGKILL');
-        } catch {
-          // ignore
-        }
+        // On Windows the graceful child.kill() above only signals the cmd.exe
+        // wrapper, so this escalation is always reached — tree-kill the real
+        // server (taskkill /T /F) instead of just the wrapper. POSIX SIGKILLs
+        // the child directly.
+        forceKillTree(child);
         await Promise.race([
           exitPromise,
           new Promise<void>((resolve) => setTimeout(resolve, FORCE_TIMEOUT_MS)),
