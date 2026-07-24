@@ -266,6 +266,61 @@ describe('looksLikeSecret', () => {
     expect(looksLikeSecret('ghp_' + 'abcdefghijklmnopqrstuvwxyz123456')).toBe(true);
   });
 
+  // ─── Provider-specific patterns (extended coverage) ──────────────────
+  // Each test uses a long-enough synthetic token that ONLY the named
+  // pattern can match — so a future pattern rewrite that swallows one
+  // pattern accidentally will not silently let the others through.
+  const L = 'a'.repeat(40);
+
+  it('detects Anthropic sk-ant-api03-… tokens', () => {
+    expect(looksLikeSecret(`sk-ant-api03-${L}`)).toBe(true);
+  });
+
+  it('detects OpenAI sk-… tokens (bare sk- prefix)', () => {
+    expect(looksLikeSecret(`sk-${L}`)).toBe(true);
+  });
+
+  it('detects Google AIza… API keys', () => {
+    expect(looksLikeSecret(`AIza${'b'.repeat(35)}`)).toBe(true);
+  });
+
+  it('detects HuggingFace hf_… tokens', () => {
+    expect(looksLikeSecret(`hf_${L}`)).toBe(true);
+  });
+
+  it('detects Stripe sk_live_/sk_test_/pk_live_/pk_test_/rk_live_/rk_test_ keys', () => {
+    expect(looksLikeSecret(`sk_live_${L}`)).toBe(true);
+    expect(looksLikeSecret(`sk_test_${L}`)).toBe(true);
+    expect(looksLikeSecret(`pk_live_${L}`)).toBe(true);
+    expect(looksLikeSecret(`pk_test_${L}`)).toBe(true);
+    expect(looksLikeSecret(`rk_live_${L}`)).toBe(true);
+    expect(looksLikeSecret(`rk_test_${L}`)).toBe(true);
+  });
+
+  it('detects npm npm_… tokens', () => {
+    expect(looksLikeSecret(`npm_${'c'.repeat(40)}`)).toBe(true);
+  });
+
+  it('detects Discord base64-triplet tokens', () => {
+    // Modern Discord tokens are 4-part: id.timestamp.hmac.cipher
+    // but the well-known shape is M…/N…/O…  base64url; the legacy
+    // 3-part variant is what most public examples use. The 24-27
+    // char middle segment length distinguishes it from JWTs.
+    const id = 'M'.repeat(27);
+    const ts = 'X'.repeat(8);
+    const hmac = 'Y'.repeat(28);
+    expect(looksLikeSecret(`${id}.${ts}.${hmac}`)).toBe(true);
+  });
+
+  it('does NOT false-positive on short uppercase words', () => {
+    // The Discord pattern requires a leading M/N/O followed by 23+
+    // base64url chars; ordinary words like "M" or "Monday" must NOT
+    // match. The \b word-boundary plus the 23-char minimum rule this out.
+    expect(looksLikeSecret('Monday')).toBe(false);
+    expect(looksLikeSecret('NPM install')).toBe(false);
+    expect(looksLikeSecret('AI assistant')).toBe(false);
+  });
+
   it('returns false for normal text', () => {
     expect(looksLikeSecret('hello world')).toBe(false);
   });
