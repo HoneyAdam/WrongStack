@@ -145,7 +145,12 @@ export {
 } from './kanban-dispatch.js';
 export { handleKanbanHostRoute, type KanbanHostRouteHandlers } from './kanban-host-routes.js';
 export type { KanbanBoardPage, KanbanRouteContext } from './kanban-routes.js';
-export { handleKanbanRoute, paginateKanbanBoards } from './kanban-routes.js';
+export {
+  handleKanbanRoute,
+  KANBAN_CLIENT_MESSAGE_TYPES,
+  paginateKanbanBoards,
+} from './kanban-routes.js';
+export { watchKanbanBoards } from './kanban-board-watcher.js';
 export { createShutdown, registerShutdownHandlers } from './lifecycle.js';
 export {
   handleConfigDoctor,
@@ -501,4 +506,5 @@ export {
   send,
   sendResult,
 } from './ws-utils.js';
+export { formatExternalAccessUrls, getExternalAddresses, type NetworkAddress } from './network-info.js';
 export { createZipBuffer, readZipEntries, type ZipEntryInput } from './zip.js';

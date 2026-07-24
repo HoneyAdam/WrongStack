@@ -207,6 +207,29 @@ describe('ws-auth', () => {
       })).toBe(false);
     });
 
+    it('allows non-browser client from remote IP on wildcard bind with valid URL token', () => {
+      expect(verifyClient({
+        origin: undefined,
+        url: '/?token=test-token-123',
+        hostHeader: '100.64.0.1:3456',
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+        remoteAddress: '100.64.0.1',
+      })).toBe(true);
+    });
+
+    it('allows non-browser client from remote IP on wildcard bind with valid cookie token', () => {
+      expect(verifyClient({
+        origin: undefined,
+        url: '/',
+        hostHeader: '100.64.0.1:3456',
+        cookieHeader: 'ws_token=test-token-123',
+        wsHost: '0.0.0.0',
+        expectedToken: TOKEN,
+        remoteAddress: '100.64.0.1',
+      })).toBe(true);
+    });
+
     it('allows non-browser client from loopback IP on wildcard bind with token', () => {
       expect(verifyClient({
         origin: undefined,

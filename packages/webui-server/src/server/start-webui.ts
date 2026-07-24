@@ -64,6 +64,7 @@ import {
 import type { FileWatcherMetrics } from './setup-events.js';
 import type { WebUIOptions } from './types.js';
 import { broadcast, resolveAuthToken } from './ws-utils.js';
+import { formatExternalAccessUrls } from './network-info.js';
 
 export async function startWebUI(
   opts: WebUIOptions & {
@@ -464,18 +465,46 @@ export async function startWebUI(
   // HTTP frontend and the WS upgrade handler on the same port.
   httpServer.listen(httpPort, wsHost, () => {
     console.log(`[WebUI] HTTP server running on http://${wsHost}:${httpPort}`);
+    // For wildcard binds, enumerate external network addresses so the
+    // operator can see Tailscale/LAN URLs without manual lookup.
+    const extraUrls = formatExternalAccessUrls({
+      bindHost: wsHost,
+      port: httpPort,
+      token: accessToken,
+      publicUrl,
+    });
+    if (extraUrls.length > 0) {
+      console.log('[WebUI] Accessible on external interfaces:\n' + extraUrls.join('\n'));
+    }
   });
 
-  // When bound to the IPv4 loopback, also listen on the IPv6 loopback [::1].
-  // Chrome/Edge on Windows resolve `localhost` to [::1] before 127.0.0.1, so
-  // a v4-only bind causes ECONNREFUSED. The WS upgrade handler rides both
-  // listeners via the {server: httpServer} attach above. Best-effort: systems
-  // without IPv6 (or with net.ipv6.bindv6only conflicts) raise EAFNOSUPPORT /
-  // EADDRNOTAVAIL, which we swallow silently.
-  if (wsHost === '127.0.0.1') {
+  // Dual-stack / IPv6 companion listener.
+  //
+  // When the primary bind is IPv4-only, also try the IPv6 equivalent so
+  // peers using IPv6 can connect. Tailscale assigns both v4 (100.x.x.x)
+  // and v6 (fd7a:…) addresses; Chrome/Edge on Windows resolve `localhost`
+  // to [::1] before 127.0.0.1. Without the companion listener, a v4-only
+  // bind causes ECONNREFUSED for all IPv6 peers.
+  //
+  // When the primary bind is IPv6-only (::), try the IPv4 companion as a
+  // fallback for systems where `::` does not accept IPv4-mapped
+  // connections (net.ipv6.bindv6only=1, some Windows configs).
+  //
+  // Best-effort: on systems with dual-stack IPv6 sockets (bindv6only=0,
+  // the Linux/macOS default), the companion listener may raise
+  // EADDRINUSE because the primary's port is already covered. We
+  // swallow EADDRINUSE along with EAFNOSUPPORT / EADDRNOTAVAIL (no IPv6
+  // stack, IPv6 disabled, or companion already covered by dual-stack).
+  const companion =
+    wsHost === '127.0.0.1' ? '::1' :
+    wsHost === '0.0.0.0' || wsHost === undefined ? '::' :
+    wsHost === '::' || wsHost === '[::]' ? '0.0.0.0' :
+    null;
+  if (companion) {
+    const companionLabel = companion.includes(':') ? `[${companion}]` : companion;
     httpServer
-      .listen(httpPort, '::1', () => {
-        console.log(`[WebUI] HTTP server running on http://[::1]:${httpPort}`);
+      .listen(httpPort, companion, () => {
+        console.log(`[WebUI] HTTP server running on http://${companionLabel}:${httpPort}`);
       })
       .on('error', (err: NodeJS.ErrnoException) => {
         if (

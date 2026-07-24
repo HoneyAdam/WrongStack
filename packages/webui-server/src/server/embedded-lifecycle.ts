@@ -7,6 +7,7 @@ import {
 import { openBrowser } from './open-browser.js';
 import type { SurfaceKind } from './port-utils.js';
 import { buildWebUIAccessUrl } from './ws-utils.js';
+import { formatExternalAccessUrls } from './network-info.js';
 
 /**
  * PR 7 of Issue #30 (webui-server 8-PR refactor): process lifecycle.
@@ -116,9 +117,18 @@ export function announceWebuiReady(p: AnnounceWebuiReadyParams): void {
     publicUrl: p.publicUrl,
   });
   p.server.on('listening', () => {
+    const extraUrls = formatExternalAccessUrls({
+      bindHost: p.host,
+      port: p.httpPort,
+      token: p.wsToken,
+      publicUrl: p.publicUrl,
+    });
+    const extraBlock = extraUrls.length > 0
+      ? `\n  Also reachable on external interfaces:\n${extraUrls.join('\n')}\n`
+      : '';
     log(
       `\n  ▸ ${p.surface === 'webui' ? 'WebUI' : 'SimpleUI'} ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
-        `    (same agent as this terminal)\n`,
+        `    (same agent as this terminal)\n${extraBlock}`,
     );
     if (p.open) launch(openUrl);
   });

@@ -227,10 +227,13 @@ export function verifyClient(input: VerifyClientInput): boolean {
     // no cookie jar) — query-string token exposure (C-598) is a *browser*
     // history/log concern, which non-browser clients don't have.
     // When wsHost=0.0.0.0 the server accepts connections from any network
-    // interface — a non-loopback peer is denied outright.
+    // interface. Tokenless connections from non-loopback peers are denied
+    // outright, but a valid token (URL or cookie) authenticates non-browser
+    // clients from any origin — enabling curl, scripts, and automation tools
+    // on Tailscale/LAN peers to reach the WS API with the operator's token.
     const remoteIp = remoteAddress ?? '';
     const isRemoteLoopback = remoteIp === '127.0.0.1' || remoteIp === '::1';
-    if (!isRemoteLoopback && isWildcardBind(wsHost)) return false; // LAN exposure = deny
+    if (!isRemoteLoopback && isWildcardBind(wsHost) && !urlTokenOk && !cookieTokenOk) return false;
     return urlTokenOk || cookieTokenOk || (isLoopbackBind(wsHost) && !requireToken);
   }
   try {
