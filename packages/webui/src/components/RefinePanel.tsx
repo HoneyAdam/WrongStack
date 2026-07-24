@@ -100,6 +100,13 @@ export function RefinePanel({
   // When the panel opens with status 'countdown', we run a 3-2-1 timer.
   // On expiry we fire onStartRefine so the parent kicks off refineModel.
   // The user can click "send as-is" to skip refinement entirely.
+  //
+  // onStartRefine is stored in a ref so the effect depends only on `status`.
+  // If it were in the dependency array, a parent re-render (which gives the
+  // inline callback a new identity) would tear down and restart the interval,
+  // resetting the countdown to 3.
+  const onStartRefineRef = useRef(onStartRefine);
+  onStartRefineRef.current = onStartRefine;
   const [preRefineCountdown, setPreRefineCountdown] = useState(3);
   const preRefineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -110,7 +117,7 @@ export function RefinePanel({
       setPreRefineCountdown((prev) => {
         if (prev <= 1) {
           if (preRefineTimerRef.current) clearInterval(preRefineTimerRef.current);
-          onStartRefine?.();
+          onStartRefineRef.current?.();
           return 0;
         }
         return prev - 1;
@@ -119,7 +126,7 @@ export function RefinePanel({
     return () => {
       if (preRefineTimerRef.current) clearInterval(preRefineTimerRef.current);
     };
-  }, [status, onStartRefine]);
+  }, [status]);
 
   // Auto-send countdown (post-refine, in the 'ready' comparison state)
   useEffect(() => {

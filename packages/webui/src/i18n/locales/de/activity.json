@@ -496,7 +496,7 @@
     "pickModelHint": "Pick a provider/model to re-run this refinement on. Your session model stays unchanged.",
     "countdownHeader": "✨ Verfeinerung beginnt in…",
     "countdownYourMessage": "Deine Nachricht",
-    "countdownHint": "Verfeinerung beginnt in {{seconds}}s. Klicke „Send as-is“, um zu überspringen.",
+    "countdownHint": "Verfeinerung beginnt in {{seconds}}s. Klicke „Unverändert senden“, um zu überspringen.",
     "countdownStartNow": "Jetzt verfeinern",
     "countdownSendAsIs": "Unverändert senden",
     "cancelRefineSendOriginal": "Abbrechen & Original senden"
