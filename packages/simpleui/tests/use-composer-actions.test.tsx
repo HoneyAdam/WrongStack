@@ -33,11 +33,11 @@ function makeRefineState(text = 'original text'): RefineState {
   return {
     original: text,
     refined: 'refined version',
-    english: '',
-    status: 'completed' as never,
+    english: 'english version',
+    status: 'ready',
     provider: 'openai',
     model: 'gpt-4o',
-  } as RefineState;
+  };
 }
 
 function renderHookViaRoot(
@@ -68,8 +68,10 @@ function renderHookViaRoot(
   const fileRefsRef = { current: state.fileRefs };
   const refineStateRef = { current: state.refineState };
 
-  // startSend mock — the hook uses this as the dispatch entry point.
+  // startSend mock — the hook uses this as the refine-aware dispatch entry point.
   const startSendMock = vi.fn();
+  // dispatchUserMessage mock — the direct send path that bypasses refining.
+  const dispatchUserMessageMock = vi.fn();
 
   function Probe(): null {
     captured.current = useComposerActions({
@@ -82,6 +84,7 @@ function renderHookViaRoot(
       fileRefs: state.fileRefs,
       running: state.running,
       startSend: startSendMock,
+      dispatchUserMessage: dispatchUserMessageMock,
       setQueue: (updater) => {
         if (typeof updater === 'function') state.queue = updater(state.queue);
         else state.queue = updater;
@@ -110,7 +113,7 @@ function renderHookViaRoot(
   const root = createRoot(container);
   roots.push(root);
   act(() => root.render(<Probe />));
-  return { root, socket, state, startSendMock, refs: { sessionIdRef, draftRef, fileRefsRef, refineStateRef } };
+  return { root, socket, state, startSendMock, dispatchUserMessageMock, refs: { sessionIdRef, draftRef, fileRefsRef, refineStateRef } };
 }
 
 beforeEach(() => {
@@ -167,21 +170,49 @@ describe('useComposerActions — submitWith', () => {
 });
 
 describe('useComposerActions — refineDecision', () => {
-  it('clears refine state on keep decision', () => {
+  it("clears refine state on 'edit' without dispatching", () => {
     const captured: Captured = { current: undefined as never };
-    const rs = makeRefineState('keep this');
-    const { state } = renderHookViaRoot(captured, { refineState: rs });
-    act(() => captured.current.refineDecision('keep'));
+    const rs = makeRefineState('edit me');
+    const { state, startSendMock, dispatchUserMessageMock } = renderHookViaRoot(captured, { refineState: rs });
+    act(() => captured.current.refineDecision('edit'));
     expect(state.refineState).toBeNull();
+    expect(dispatchUserMessageMock).not.toHaveBeenCalled();
+    expect(startSendMock).not.toHaveBeenCalled();
   });
 
-  it('discards: clears refine state without sending', () => {
+  // ── Regression: refineDecision must call dispatchUserMessage, NOT startSend.
+  //    startSend re-enters the refine pipeline (sets status to 'refining' and
+  //    sends a new model.refine request), which caused an infinite loop where
+  //    every panel decision cycled the panel back into the refining state.
+  it("dispatches via dispatchUserMessage (not startSend) for 'refined'", () => {
     const captured: Captured = { current: undefined as never };
-    const rs = makeRefineState('discard me');
-    const { socket, state } = renderHookViaRoot(captured, { refineState: rs });
-    act(() => captured.current.refineDecision('discard'));
+    const rs = makeRefineState('original');
+    const { state, startSendMock, dispatchUserMessageMock } = renderHookViaRoot(captured, { refineState: rs });
+    act(() => captured.current.refineDecision('refined'));
     expect(state.refineState).toBeNull();
-    expect(socket.send).not.toHaveBeenCalled();
+    expect(dispatchUserMessageMock).toHaveBeenCalledTimes(1);
+    expect(dispatchUserMessageMock).toHaveBeenCalledWith('refined version');
+    expect(startSendMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches via dispatchUserMessage (not startSend) for 'original'", () => {
+    const captured: Captured = { current: undefined as never };
+    const rs = makeRefineState('original text');
+    const { startSendMock, dispatchUserMessageMock } = renderHookViaRoot(captured, { refineState: rs });
+    act(() => captured.current.refineDecision('original'));
+    expect(dispatchUserMessageMock).toHaveBeenCalledTimes(1);
+    expect(dispatchUserMessageMock).toHaveBeenCalledWith('original text');
+    expect(startSendMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches via dispatchUserMessage (not startSend) for 'english'", () => {
+    const captured: Captured = { current: undefined as never };
+    const rs = makeRefineState('original');
+    const { startSendMock, dispatchUserMessageMock } = renderHookViaRoot(captured, { refineState: rs });
+    act(() => captured.current.refineDecision('english'));
+    expect(dispatchUserMessageMock).toHaveBeenCalledTimes(1);
+    expect(dispatchUserMessageMock).toHaveBeenCalledWith('english version');
+    expect(startSendMock).not.toHaveBeenCalled();
   });
 });
 

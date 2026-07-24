@@ -394,6 +394,7 @@ export function SimpleUiSession() {
     fileRefs,
     running,
     startSend,
+    dispatchUserMessage,
     setQueue,
     setDraft,
     setFileRefs,

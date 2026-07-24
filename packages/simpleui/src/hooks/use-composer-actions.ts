@@ -20,10 +20,14 @@ export interface UseComposerActionsOptions {
   draft: string;
   fileRefs: string[];
   running: boolean;
-  /** Caller-provided dispatch — the hook uses this inside submitWith and
-   *  refineDecision. This lets the caller keep its own refine-aware
-   *  startSend logic. */
+  /** Caller-provided dispatch — the hook uses this inside submitWith.
+   *  This lets the caller keep its own refine-aware startSend logic. */
   startSend: (content: string, images?: { data: string; mime: string }[]) => void;
+  /** Direct dispatch that bypasses the refine round-trip. Used by
+   *  refineDecision so a panel decision sends immediately instead of
+   *  re-entering the refine pipeline (which would loop back into
+   *  'refining'). */
+  dispatchUserMessage: (content: string, images?: { data: string; mime: string }[]) => void;
   setQueue: React.Dispatch<React.SetStateAction<QueuedItem[]>>;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
   setFileRefs: React.Dispatch<React.SetStateAction<string[]>>;
@@ -77,6 +81,7 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
     fileRefs,
     running,
     startSend,
+    dispatchUserMessage,
     setQueue,
     setDraft,
     setFileRefs,
@@ -171,11 +176,14 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
       if (!refineState) return;
       const text = resolveRefineText(refineState, decision);
       setRefineState(null);
+      // Use dispatchUserMessage (not startSend) so a panel decision sends
+      // the resolved text immediately. startSend would re-enter the refine
+      // pipeline and loop back into 'refining'.
       if (text && decision !== 'edit') {
-        startSend(text);
+        dispatchUserMessage(text);
       }
     },
-    [refineStateRef, setRefineState, startSend],
+    [refineStateRef, setRefineState, dispatchUserMessage],
   );
 
   const refineRetry = useCallback(() => {
