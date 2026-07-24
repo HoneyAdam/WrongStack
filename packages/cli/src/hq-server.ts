@@ -281,8 +281,8 @@ function startHqServerWithAuth(
       },
       onPersist: (alert) => persistence.alertLog.append(alert),
     });
-    void persistence.eventLog.hydrate();
-    void persistence.timeseries.load();
+    void persistence.eventLog.hydrate().catch(() => undefined);
+    void persistence.timeseries.load().catch(() => undefined);
     persistence.eventLog
       .recent(MAX_EVENT_LOG)
       .then((prior) => {

@@ -212,7 +212,7 @@ export function handleClient(
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'hq.kanban_snapshot', payload }));
           }
-        });
+        }).catch(() => undefined);
       }
 
       const event: HqEventEnvelope = {
@@ -348,7 +348,25 @@ export function handleClient(
         void persistence.kanban
           .merge(payload)
           .then((merged) => {
-            const message = JSON.stringify({ type: 'hq.kanban_snapshot', payload: merged });
+            // Broadcast only the post-merge authoritative records for the
+            // boards this delta touched — NEVER the full merged project set.
+            // A project accumulates thousands of boards (run mirrors), so the
+            // full set grows into multi-MB JSON; re-broadcasting it to every
+            // same-project client on every delta was a broadcast storm that
+            // drove connected TUIs into V8 heap exhaustion. Clients apply
+            // snapshots per-record by revision, so a touched-only payload is
+            // semantically identical; the full set still goes out once per
+            // connection at hello time.
+            const touched = new Set<string>();
+            for (const record of payload.boards) touched.add(record.boardId);
+            for (const record of payload.tombstones) touched.add(record.boardId);
+            const delta: HqKanbanSnapshotPayload = {
+              projectId: merged.projectId,
+              generatedAt: merged.generatedAt,
+              boards: merged.boards.filter((record) => touched.has(record.boardId)),
+              tombstones: merged.tombstones.filter((record) => touched.has(record.boardId)),
+            };
+            const message = JSON.stringify({ type: 'hq.kanban_snapshot', payload: delta });
             for (const peer of clients.values()) {
               if (peer.projectId === client.projectId && peer.ws.readyState === WebSocket.OPEN) {
                 peer.ws.send(message);
