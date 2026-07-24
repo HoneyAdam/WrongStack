@@ -1,12 +1,12 @@
 import {
   Activity, Bot, BrainCircuit, ChevronRight, Clock3, Database, FileCode2, Filter,
-  GitBranch, RefreshCw, RotateCcw, Search, ShieldCheck, TerminalSquare, TriangleAlert, X,
+  GitBranch, ListChecks, RefreshCw, RotateCcw, Search, ShieldCheck, TerminalSquare, TriangleAlert, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePagination } from '@/hooks/usePagination';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
-import type { ChronicleEventView, ChronicleFacetValue, ChronicleGraphResult, ChronicleProviderDailyRow, ChronicleQuery, ChronicleSummary, WSServerMessage } from '@/types';
+import type { ChronicleEventView, ChronicleFacetValue, ChronicleGraphResult, ChronicleProviderDailyRow, ChronicleQuery, ChronicleSummary, ChronicleTaskOutcomeRow, WSServerMessage } from '@/types';
 import { Pagination } from './ui/pagination';
 
 const facetFields = ['eventType', 'providerId', 'modelId', 'outcome', 'resourceKind'] as const;
@@ -31,6 +31,7 @@ export function ChronicleDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [graph, setGraph] = useState<ChronicleGraphResult | null>(null);
   const [providerDaily, setProviderDaily] = useState<ChronicleProviderDailyRow[]>([]);
+  const [taskOutcomes, setTaskOutcomes] = useState<ChronicleTaskOutcomeRow[]>([]);
 
   const run = useCallback((next: ChronicleQuery) => {
     if (!client.supportsCapability('chronicle.query')) {
@@ -46,21 +47,42 @@ export function ChronicleDashboard() {
     }
   }, [client]);
 
+  const requestMetrics = useCallback(() => {
+    if (!client.supportsCapability('chronicle.metrics')) return;
+    client.send({ type: 'chronicle.metrics', payload: { view: 'providers' } });
+    client.send({ type: 'chronicle.metrics', payload: { view: 'tasks', limit: 200 } });
+  }, [client]);
+
   useEffect(() => {
     const offQuery = client.on('chronicle.query_result', (message: WSServerMessage) => { if (message.type === 'chronicle.query_result') { setEvents(message.payload.events); setMeta(message.payload); setSummary(message.payload.summary ?? emptySummary); setLoading(false); } });
     const offFacet = client.on('chronicle.facet_result', (message: WSServerMessage) => { if (message.type === 'chronicle.facet_result') setFacets((value) => ({ ...value, [message.payload.field]: message.payload.values })); });
     const offFacets = client.on('chronicle.facets_result', (message: WSServerMessage) => { if (message.type === 'chronicle.facets_result') setFacets(message.payload.values); });
     const offError = client.on('chronicle.error', (message: WSServerMessage) => { if (message.type === 'chronicle.error') { setError(message.payload.message); setLoading(false); } });
     const offGraph = client.on('chronicle.graph_result', (message: WSServerMessage) => { if (message.type === 'chronicle.graph_result') setGraph(message.payload); });
-    const offMetrics = client.on('chronicle.metrics_result', (message: WSServerMessage) => { if (message.type === 'chronicle.metrics_result' && message.payload.view === 'providers') setProviderDaily(message.payload.data); });
+    const offMetrics = client.on('chronicle.metrics_result', (message: WSServerMessage) => {
+      if (message.type !== 'chronicle.metrics_result') return;
+      if (message.payload.view === 'providers') setProviderDaily(message.payload.data);
+      else if (message.payload.view === 'tasks') setTaskOutcomes(message.payload.data);
+    });
     run({ limit: 300, order: 'desc' });
-    if (client.supportsCapability('chronicle.metrics')) client.send({ type: 'chronicle.metrics', payload: { view: 'providers' } });
+    requestMetrics();
     return () => { offQuery(); offFacet(); offFacets(); offError(); offGraph(); offMetrics(); };
-  }, [client, run]);
+  }, [client, run, requestMetrics]);
 
   const visible = useMemo(() => events.filter((event) => matchesSignal(event, signal)), [events, signal]);
   const eventPage = usePagination(visible, 25, signal);
   const health = useMemo(() => events.find((event) => event.eventType === 'runtime.health.sampled')?.attributes as Health | undefined, [events]);
+  const taskStats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of taskOutcomes) counts[task.status] = (counts[task.status] ?? 0) + 1;
+    const terminal = (counts.completed ?? 0) + (counts.merged ?? 0) + (counts.failed ?? 0) + (counts.conflict ?? 0);
+    const ok = (counts.completed ?? 0) + (counts.merged ?? 0);
+    // Recent finished tasks first (those with an end), most recent by ended/started.
+    const recent = [...taskOutcomes]
+      .sort((a, b) => (b.endedAt ?? b.startedAt ?? '').localeCompare(a.endedAt ?? a.startedAt ?? ''))
+      .slice(0, 8);
+    return { counts, total: taskOutcomes.length, terminal, successRate: terminal > 0 ? (ok / terminal) * 100 : 100, recent };
+  }, [taskOutcomes]);
   const apply = () => run({ limit: 300, order: 'desc', ...(draft.text ? { text: draft.text } : {}), ...(draft.path ? { path: draft.path } : {}), ...(draft.providerId ? { providerId: draft.providerId } : {}), ...(draft.modelId ? { modelId: draft.modelId } : {}), ...(draft.sessionId ? { sessionId: draft.sessionId } : {}) });
   const clear = () => { setDraft({ text: '', path: '', providerId: '', modelId: '', sessionId: '' }); setSignal('all'); run({ limit: 300, order: 'desc' }); };
   const open = (event: ChronicleEventView) => { setSelected(event); setGraph(null); if (client.supportsCapability('chronicle.graph')) client.send({ type: 'chronicle.graph', payload: { seed: { eventId: event.eventId }, hops: 2, maxNodes: 250 } }); };
@@ -71,7 +93,7 @@ export function ChronicleDashboard() {
         <div className="flex items-start justify-between gap-4">
           <div><div className="flex items-center gap-2"><BrainCircuit className="h-5 w-5 text-primary"/><h1 className="text-lg font-semibold tracking-tight">Coding Intelligence</h1><span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold tracking-wider text-primary">CHRONICLE</span></div>
           <p className="mt-1 text-xs text-muted-foreground">LLM, agent, tool and file evidence — connected from decision to code change.</p></div>
-          <div className="flex items-center gap-2"><span className={cn('h-2 w-2 rounded-full', error ? 'bg-destructive' : loading ? 'animate-pulse bg-warning' : 'bg-success')}/><span className="text-[10px] text-muted-foreground">{loading ? 'Reading journal' : error ? 'Unavailable' : 'Live evidence'}</span><button onClick={() => run(query)} className="ml-2 rounded-md border border-border bg-card p-2 hover:bg-muted" title="Refresh evidence"><RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')}/></button></div>
+          <div className="flex items-center gap-2"><span className={cn('h-2 w-2 rounded-full', error ? 'bg-destructive' : loading ? 'animate-pulse bg-warning' : 'bg-success')}/><span className="text-[10px] text-muted-foreground">{loading ? 'Reading journal' : error ? 'Unavailable' : 'Live evidence'}</span><button type="button" onClick={() => { run(query); requestMetrics(); }} className="ml-2 rounded-md border border-border bg-card p-2 hover:bg-muted" title="Refresh evidence"><RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')}/></button></div>
         </div>
       </header>
 
@@ -98,6 +120,23 @@ export function ChronicleDashboard() {
             <span className="text-muted-foreground">{row.day.slice(5)}</span>
           </span>;
         })}
+      </section>}
+
+      {taskStats.total > 0 && <section className="flex items-center gap-3 overflow-x-auto border-b border-border/60 bg-muted/[0.10] px-4 py-1.5">
+        <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"><ListChecks className="h-3 w-3"/>Task outcomes</span>
+        <span className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-2.5 py-0.5 font-mono text-[9px]" title={`${taskStats.total} tasks tracked · ${taskStats.terminal} finished`}>
+          <span className={cn('h-1.5 w-1.5 rounded-full', taskStats.successRate >= 90 ? 'bg-success' : taskStats.successRate >= 60 ? 'bg-warning' : 'bg-destructive')}/>
+          <b className="text-foreground">{taskStats.successRate.toFixed(0)}%</b>
+          <span className="text-muted-foreground">success · {taskStats.total} tasks</span>
+        </span>
+        {(['completed', 'merged', 'failed', 'conflict', 'started'] as const).filter((status) => taskStats.counts[status]).map((status) => <span key={status} className="shrink-0 font-mono text-[9px] text-muted-foreground">{status} <b className={cn(status === 'failed' || status === 'conflict' ? 'text-destructive' : 'text-foreground')}>{taskStats.counts[status]}</b></span>)}
+        <span className="mx-1 h-3 w-px shrink-0 bg-border"/>
+        {taskStats.recent.map((task) => <button key={task.taskId} type="button" onClick={() => run({ limit: 300, order: 'desc', taskId: task.taskId })} className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 font-mono text-[9px] hover:border-primary/50" title={`${task.taskId}${task.boardId ? ` · board ${task.boardId}` : ''}${task.sessionId ? ` · ${task.sessionId}` : ''} · ${task.filesTouched} files${task.retries ? ` · ${task.retries} retries` : ''}${task.verificationFailures ? ` · ${task.verificationFailures} verify-fails` : ''}`}>
+          <span className={cn('h-1.5 w-1.5 rounded-full', task.status === 'completed' || task.status === 'merged' ? 'bg-success' : task.status === 'failed' || task.status === 'conflict' ? 'bg-destructive' : 'bg-primary')}/>
+          <span className="max-w-[84px] truncate">{task.taskId}</span>
+          {task.durationMs !== null && <span className="text-muted-foreground">{formatMilliseconds(task.durationMs)}</span>}
+          {task.filesTouched > 0 && <span className="flex items-center gap-0.5 text-muted-foreground"><FileCode2 className="h-2.5 w-2.5"/>{task.filesTouched}</span>}
+        </button>)}
       </section>}
 
       <section className="border-b border-border/70 px-4 py-3">
