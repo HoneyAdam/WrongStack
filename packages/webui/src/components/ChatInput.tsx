@@ -525,7 +525,7 @@ export function ChatInput({
         if (client?.isConnected) {
           // Refine only rewrites text — with images attached, send directly
           // so the attachments can't be dropped by the refine round-trip.
-          if (enhanceEnabled && refineModel && images.length === 0) {
+          if (enhanceEnabled && images.length === 0) {
             const profileRef = refinerFallbackProfile
               ? fallbackProfiles[refinerFallbackProfile]?.[0]
               : undefined;
@@ -540,14 +540,15 @@ export function ChatInput({
               original: combined,
               refined: combined, // Will be replaced when backend responds
               english: combined,
-              status: 'refining',
+              status: 'countdown',
               resolve: (_decision) => {
                 // This is called when the refine panel is decided
               },
               provider: displayedProvider,
               model: displayedModel,
             });
-            refineModel(combined);
+            // refineModel is deferred until the countdown elapses —
+            // onStartRefine (passed to RefinePanel) fires it.
           } else {
             addMessage({
               role: 'user',
@@ -944,6 +945,15 @@ export function ChatInput({
           fallbackRef={refinePanel.fallbackRef}
           provider={refinePanel.provider}
           model={refinePanel.model}
+          onStartRefine={() => {
+            // Countdown elapsed (or user clicked "start now") — kick off
+            // the actual refine request. Reads provider/model from the panel
+            // state so it stays in sync with retry/fallback overrides.
+            const current = useUIStore.getState().refinePanel;
+            if (!current) return;
+            setRefinePanel({ ...current, status: 'refining' });
+            refineModel?.(current.original);
+          }}
           onRetry={() => {
             // Failed panel: retry on the same model with more time. Ready
             // panel: ask for a better second pass and send the previous output

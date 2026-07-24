@@ -160,20 +160,27 @@ export function SearchOverlay() {
     return clear;
   }, [query, hits, activeHit, open, repaintNonce]);
 
+  // Resolve the active hit id here (primitive string, not the hits array) so
+  // the scroll effect below only re-fires when the *target message* actually
+  // changes. Depending on `hits` (the array) caused re-scrolls on every
+  // message update (streaming deltas, tool progress, …) because useMemo gives
+  // the array a new identity each time even though the active hit's id is
+  // identical.
+  const activeHitId = hits[activeHit];
+
   useEffect(() => {
-    const id = hits[activeHit];
-    if (!id) return;
+    if (!activeHitId) return;
     // The chat list is virtualized, so the hit may have no DOM node yet — ask
     // ChatView to scroll its VList to that row, then repaint highlights over
     // the next few frames once the element has mounted.
-    requestScrollToMessage(id);
+    requestScrollToMessage(activeHitId);
     let n = 0;
     let raf = requestAnimationFrame(function tick() {
       setRepaintNonce((v) => v + 1);
       if (++n < 3) raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
-  }, [hits, activeHit, requestScrollToMessage]);
+  }, [activeHitId, requestScrollToMessage]);
 
   if (!open) return null;
 

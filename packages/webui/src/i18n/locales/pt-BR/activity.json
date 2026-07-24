@@ -493,7 +493,13 @@
     "retryFallback": "Retry with {{model}}",
     "pickModel": "Another model…",
     "pickModelTitle": "Retry refinement with another model",
-    "pickModelHint": "Pick a provider/model to re-run this refinement on. Your session model stays unchanged."
+    "pickModelHint": "Pick a provider/model to re-run this refinement on. Your session model stays unchanged.",
+    "countdownHeader": "✨ Refinamento começa em…",
+    "countdownYourMessage": "Sua mensagem",
+    "countdownHint": "O refinamento começa em {{seconds}}s. Clique em \"Enviar como está\" para pular.",
+    "countdownStartNow": "Refinar agora",
+    "countdownSendAsIs": "Enviar como está",
+    "cancelRefineSendOriginal": "Cancelar e enviar original"
   },
   "specs": {
     "heading": "Especificações",

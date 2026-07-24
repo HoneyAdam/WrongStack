@@ -5,7 +5,7 @@ import { useLocalPrefs } from '@/stores/local-prefs';
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { Button } from './ui/button';
-import { AlertTriangle, Check, Edit3, Globe, Loader2, RotateCw, Sparkles, X, Zap } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Edit3, Globe, Loader2, RotateCw, Send, Sparkles, X, Zap } from 'lucide-react';
 
 export type RefineDecision = 'refined' | 'english' | 'original' | 'edit';
 
@@ -17,11 +17,18 @@ interface RefinePanelProps {
   /** Auto-send countdown in ms. Default 0 (no auto-send). */
   autoSendDelayMs?: number;
   /**
+   * Fired when the pre-refine countdown elapses and the refine request
+   * should actually start. The parent owns the refineModel call so it can
+   * resolve provider/model preferences.
+   */
+  onStartRefine?: (() => void) | undefined;
+  /**
    * Lifecycle of the refine round-trip. 'ready' (or undefined) shows the
    * comparison; 'refining' shows an in-flight indicator; 'failed' shows the
-   * recovery options.
+   * recovery options; 'countdown' shows a 3-2-1 grace period before
+   * refining starts (with a "send as-is" skip option).
    */
-  status?: 'refining' | 'ready' | 'failed' | undefined;
+  status?: 'countdown' | 'refining' | 'ready' | 'failed' | undefined;
   /** Failure reason shown in the recovery state. */
   error?: string | undefined;
   /** One-key "retry with another model" offer (provider/model), if any. */
@@ -56,6 +63,7 @@ export function RefinePanel({
   english,
   onDecision,
   autoSendDelayMs = 0,
+  onStartRefine,
   status = 'ready',
   error,
   fallbackRef,
@@ -88,7 +96,32 @@ export function RefinePanel({
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Auto-send countdown
+  // ── Pre-refine countdown (3-2-1 grace period) ─────────────────────────
+  // When the panel opens with status 'countdown', we run a 3-2-1 timer.
+  // On expiry we fire onStartRefine so the parent kicks off refineModel.
+  // The user can click "send as-is" to skip refinement entirely.
+  const [preRefineCountdown, setPreRefineCountdown] = useState(3);
+  const preRefineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (status !== 'countdown') return;
+    setPreRefineCountdown(3);
+    preRefineTimerRef.current = setInterval(() => {
+      setPreRefineCountdown((prev) => {
+        if (prev <= 1) {
+          if (preRefineTimerRef.current) clearInterval(preRefineTimerRef.current);
+          onStartRefine?.();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => {
+      if (preRefineTimerRef.current) clearInterval(preRefineTimerRef.current);
+    };
+  }, [status, onStartRefine]);
+
+  // Auto-send countdown (post-refine, in the 'ready' comparison state)
   useEffect(() => {
     if (autoSendDelayMs <= 0 || isEditing || status !== 'ready') return;
 
@@ -189,6 +222,68 @@ export function RefinePanel({
     }
   };
 
+  // ── Pre-refine countdown state ────────────────────────────────────────
+  // Shown when the panel first opens. Displays the user's message, runs a
+  // 3-2-1 countdown, and offers a "send as-is" button to skip refinement.
+  // When the countdown reaches 0, onStartRefine fires and the parent flips
+  // status to 'refining'.
+  if (status === 'countdown') {
+    return (
+      <div className="rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden animate-message">
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">
+              {t('activity:refine.countdownHeader')}
+            </span>
+            {preRefineCountdown > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-primary/15 text-primary text-xs font-bold tabular-nums">
+                {preRefineCountdown}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => handleDecision('original')}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title={t('activity:refine.cancelTitle')}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4">
+          <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">
+            {t('activity:refine.countdownYourMessage')}
+          </div>
+          <div className="text-sm text-foreground/90 bg-muted/30 rounded-md px-3 py-2">
+            {original.length > 300 ? original.slice(0, 300) + '…' : original}
+          </div>
+          <div className="mt-3 text-xs text-muted-foreground">
+            {t('activity:refine.countdownHint', { seconds: preRefineCountdown > 0 ? preRefineCountdown : 0 })}
+          </div>
+        </div>
+        <div className="flex justify-end px-4 py-3 border-t bg-muted/20">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => {
+              if (preRefineTimerRef.current) clearInterval(preRefineTimerRef.current);
+              onStartRefine?.();
+            }}
+            className="text-xs mr-2"
+          >
+            <Sparkles className="h-3 w-3 mr-1" />
+            {t('activity:refine.countdownStartNow')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => handleDecision('original')} className="text-xs">
+            <Send className="h-3 w-3 mr-1" />
+            {t('activity:refine.countdownSendAsIs')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // ── In-flight state ────────────────────────────────────────────────────
   // Shown while a first attempt or an extended retry is running. Keeps the
   // user's message visible (it lives only in the panel) and lets them bail out.
@@ -222,9 +317,10 @@ export function RefinePanel({
             {original.length > 200 ? original.slice(0, 200) + '…' : original}
           </div>
         </div>
-        <div className="flex justify-end px-4 py-2 border-t bg-muted/20">
+        <div className="flex justify-end gap-2 px-4 py-2 border-t bg-muted/20">
           <Button variant="ghost" size="sm" onClick={() => handleDecision('original')} className="text-xs">
-            {t('activity:refine.sendAsIs')}
+            <Send className="h-3 w-3 mr-1" />
+            {t('activity:refine.cancelRefineSendOriginal')}
           </Button>
         </div>
       </div>

@@ -493,7 +493,13 @@
     "retryFallback": "{{model}} ile yeniden dene",
     "pickModel": "Başka model…",
     "pickModelTitle": "İyileştirmeyi başka bir modelle yeniden dene",
-    "pickModelHint": "Bu iyileştirmenin yeniden çalıştırılacağı sağlayıcı/modeli seçin. Oturum modeliniz değişmez."
+    "pickModelHint": "Bu iyileştirmenin yeniden çalıştırılacağı sağlayıcı/modeli seçin. Oturum modeliniz değişmez.",
+    "countdownHeader": "✨ İyileştirme başlıyor…",
+    "countdownYourMessage": "Mesajınız",
+    "countdownHint": "İyileştirme {{seconds}}sn içinde başlıyor. Atlamak için \"Olduğu gibi gönder\"e tıklayın.",
+    "countdownStartNow": "Şimdi iyileştir",
+    "countdownSendAsIs": "Olduğu gibi gönder",
+    "cancelRefineSendOriginal": "İptal et ve orijinali gönder"
   },
   "specs": {
     "heading": "Spesifikasyonlar",

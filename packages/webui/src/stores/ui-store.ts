@@ -230,12 +230,14 @@ interface UIState {
     resolve: (decision: 'refined' | 'english' | 'original' | 'edit') => void;
     /**
      * Lifecycle of the refine round-trip:
+     *  - 'countdown': 3-2-1 grace period before refining starts; user can
+     *    send the original as-is to skip refinement entirely.
      *  - 'refining': request in flight (first attempt or an extended retry);
      *  - 'ready': a usable refinement arrived (comparison UI shown);
      *  - 'failed': the attempt failed and the recovery UI is shown.
      * Absent → treated as 'refining' (back-compat with the placeholder check).
      */
-    status?: 'refining' | 'ready' | 'failed' | undefined;
+    status?: 'countdown' | 'refining' | 'ready' | 'failed' | undefined;
     /** Human-readable failure reason (status === 'failed'). */
     error?: string | undefined;
     /** Machine-readable failure class driving the recovery options. */
