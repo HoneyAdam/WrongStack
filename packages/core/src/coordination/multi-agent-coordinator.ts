@@ -389,7 +389,11 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
    * If a task is already done when called, returns immediately.
    * Resolves to an array in the same order as `taskIds`.
    */
-  async awaitTasks(taskIds: string[]): Promise<TaskResult[]> {
+  async awaitTasks(taskIds: string[], opts?: { timeoutMs?: number }): Promise<TaskResult[]> {
+    // Per-call override lets a caller with a longer budget (e.g. the eternal
+    // engine's multi-hour subagent window) wait past the default without
+    // being cut at config.timeoutMs. Defaults to config.timeoutMs, then 300s.
+    const timeoutMs = opts?.timeoutMs ?? this.config.timeoutMs ?? 300_000;
     return Promise.all(
       taskIds.map((id) => {
         const cached = this.completedResults.find((r) => r.taskId === id);
@@ -401,7 +405,7 @@ export class DefaultMultiAgentCoordinator extends EventEmitter implements MultiA
           const timeout = setTimeout(() => {
             this.off('task.completed', handler);
             reject(new Error(`awaitTasks timed out waiting for task "${id}"`));
-          }, this.config.timeoutMs ?? 300_000);
+          }, timeoutMs);
           const handler = ({ result }: { task: TaskSpec; result: TaskResult }) => {
             if (result.taskId === id) {
               clearTimeout(timeout);

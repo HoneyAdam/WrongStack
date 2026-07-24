@@ -193,5 +193,12 @@ describe('DefaultMultiAgentCoordinator', () => {
       const coord = new DefaultMultiAgentCoordinator(makeConfig({ timeoutMs: 20 }));
       await expect(coord.awaitTasks(['never'])).rejects.toThrow(/timed out/);
     });
+
+    it('awaitTasks honors a per-call timeoutMs over config.timeoutMs', async () => {
+      // A long config default must not cut a caller's explicit budget short,
+      // and an explicit short budget must apply despite a long config.
+      const coord = new DefaultMultiAgentCoordinator(makeConfig({ timeoutMs: 60_000 }));
+      await expect(coord.awaitTasks(['never'], { timeoutMs: 20 })).rejects.toThrow(/timed out/);
+    });
   });
 });

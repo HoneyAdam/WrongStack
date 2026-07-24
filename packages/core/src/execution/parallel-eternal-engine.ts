@@ -466,13 +466,14 @@ export class ParallelEternalEngine {
       // Wait up to 2 hours for subagents to complete. This should cover
       // most subagent tasks since the roster budgets go up to 10 hours.
       // The outer eternal loop manages actual iteration limits.
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), Math.max(this.timeoutMs * 2, 7200_000));
-      try {
-        results = await coordinator.awaitTasks(taskIds);
-      } finally {
-        clearTimeout(timer);
-      }
+      //
+      // Passed as an explicit per-call timeout: awaitTasks otherwise caps at
+      // coordinator.config.timeoutMs (300s default), which would cut a
+      // legitimately long subagent short of this window. (The previous
+      // AbortController here was dead — awaitTasks takes no signal.)
+      results = await coordinator.awaitTasks(taskIds, {
+        timeoutMs: Math.max(this.timeoutMs * 2, 7200_000),
+      });
     } catch (err) {
       this.logError(
         'Brainstorm results failed',
