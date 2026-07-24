@@ -979,12 +979,14 @@ export class EternalAutonomyEngine {
       // best-effort — file may already be gone
     }
     this.opts.onEternalStop?.();
+    // Best-effort journal write — a Windows EPERM/ENOENT on the goal file
+    // during /goal clear must not surface as an unhandled rejection.
     void this.appendIterationEntry({
       source: 'manual',
       task: 'goal cleared',
       status: 'success',
       note: note.slice(0, 240),
-    });
+    }).catch(() => {});
   }
 
   private async appendFailure(task: string, note: string): Promise<void> {

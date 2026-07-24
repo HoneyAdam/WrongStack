@@ -195,7 +195,10 @@ export class FleetSupervisor {
       }),
     );
     this.timer = setInterval(() => {
-      void this.evaluate();
+      // evaluate() only wraps its engage* calls in try/catch; a throw from the
+      // scan phase (status providers, task listing) would otherwise reject
+      // unhandled every tick. Absorb it so supervision degrades quietly.
+      void this.evaluate().catch(() => {});
     }, this.cfg.intervalMs);
     this.timer.unref?.();
   }
@@ -228,7 +231,7 @@ export class FleetSupervisor {
     if (this.nudgeTimer || this.stopped || !this.cfg.enabled) return;
     this.nudgeTimer = setTimeout(() => {
       this.nudgeTimer = null;
-      void this.evaluate();
+      void this.evaluate().catch(() => {});
     }, 5_000);
     this.nudgeTimer.unref?.();
   }

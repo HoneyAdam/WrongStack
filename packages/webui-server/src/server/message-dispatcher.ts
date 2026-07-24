@@ -168,7 +168,18 @@ export function createMessageDispatcher(
       deps.collabHandler.handleMessage(ws, msg as { type: string; payload?: unknown | undefined });
     },
     terminal: (ws, msg) => {
-      void deps.terminalHandler.handleMessage(ws, msg);
+      // Detached from the connection-lifecycle try/catch, so a rejection here
+      // (e.g. authorizeWebUIAction denies) would otherwise be an unhandled
+      // rejection and the client would never see terminal.exit — log it.
+      void deps.terminalHandler.handleMessage(ws, msg).catch((err) => {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'webui.terminal_handler_failed',
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      });
     },
   };
   const conversationRoutes = createConversationOperations({

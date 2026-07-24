@@ -107,8 +107,17 @@ export class SddBoardWebSocketHandler {
     ws.on('close', remove);
     ws.on('error', remove);
     this.startPolling();
-    // Send the current board immediately (from memory or disk).
-    void this.sendCurrent(client);
+    // Send the current board immediately (from memory or disk). Best-effort:
+    // a corrupt/locked snapshot must not become an unhandled rejection.
+    void this.sendCurrent(client).catch((err) => {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'sdd_board.initial_send_failed',
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    });
   }
 
   async handleMessage(msg: SddBoardWSMessage): Promise<void> {
