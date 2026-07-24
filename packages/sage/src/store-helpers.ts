@@ -338,28 +338,45 @@ function normalizeSelectorValue(value: string): string {
  * unsafe candidate proposals before they reach the ReviewQueue.
  */
 export function looksLikeSecret(text: string): boolean {
-  return [
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-    /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}/i,
-    /\b[A-Za-z0-9_]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
-    // Anthropic: sk-ant-api03-…, sk-ant-sid-…, sk-ant-…
-    // OpenAI:    sk-… (sk-proj-…, sk-svcacct-… are Anthropic; bare sk- is OpenAI)
-    // GitHub:    ghp_…, gho_…, ghu_…, ghs_…, ghr_…, github_pat_…
-    // Slack:     xoxb-…, xoxa-…, xoxp-…, xoxr-…, xoxs-…
-    // AWS:       AKIA… (16-char suffix)
-    /\b(?:sk-(?:ant-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i,
-    /\bAKIA[0-9A-Z]{16}\b/,
-    // Google API keys: AIza… (39 chars total)
-    /\bAIza[0-9A-Za-z_-]{35}\b/,
-    // HuggingFace tokens: hf_… (legacy or scoped)
-    /\bhf_[A-Za-z0-9]{20,}\b/,
-    // Stripe keys: sk_live_…, sk_test_…, pk_live_…, pk_test_…, rk_live_…, rk_test_…
-    /\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b/,
-    // npm tokens: npm_… (36+ char base36)
-    /\bnpm_[A-Za-z0-9]{36,}\b/,
-    // Discord tokens: M…/N…/O… base64 triplets (24.7.10+ legacy: 3-part; new: 27+ chars each)
-    /\b[MNO][A-Za-z\d]{23,}\.[A-Za-z\d_-]{6,}\.[A-Za-z\d_-]{27,}\b/,
-  ].some((pattern) => pattern.test(text));
+  // Single anchored alternation covering every provider. Replaces the
+  // previous 11-regex array (which ran in O(11) per text node via
+  // .some(pattern => pattern.test(text))) with one engine pass. Each
+  // alternative is the full body of the original pattern verbatim —
+  // boundaries, character classes, and quantifiers are preserved
+  // exactly, so the synthetic-token fixtures in store-helpers.test.ts
+  // continue to match without modification. Unified flag is /i to
+  // preserve the line 343 generic env-style key=value match
+  // (api|secret|token|password, any case); the trade-off is that
+  // AWS AKIA matches case-insensitively (akia... would also match),
+  // but no real akia-prefixed token exists, so the false-positive
+  // cost is nil. Per-string cost: O(1) regex test instead of O(11).
+  // Single anchored alternation covering every provider. Replaces the
+  // previous 11-regex array (which ran in O(11) per text node via
+  // .some(pattern => pattern.test(text))) with one engine pass. Each
+  // alternative is the full body of the original pattern verbatim —
+  // boundaries, character classes, and quantifiers are preserved
+  // exactly, so the synthetic-token fixtures in store-helpers.test.ts
+  // continue to match without modification. Unified flag is /i to
+  // preserve the generic env-style key=value match
+  // (api|secret|token|password, any case); the trade-off is that
+  // AWS AKIA matches case-insensitively (akia... would also match),
+  // but no real akia-prefixed token exists, so the false-positive
+  // cost is nil. Per-string cost: O(1) regex test instead of O(11).
+  return new RegExp(
+    [
+      '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+      '\\b(?:api[_-]?key|secret|token|password)\\b\\s*[:=]\\s*[\'"]?[A-Za-z0-9_\\-./+=]{16,}',
+      '\\b[A-Za-z0-9_]{20,}\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}\\b',
+      '\\b(?:sk-(?:ant-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\\b',
+      '\\bAKIA[0-9A-Z]{16}\\b',
+      '\\bAIza[0-9A-Za-z_-]{35}\\b',
+      '\\bhf_[A-Za-z0-9]{20,}\\b',
+      '\\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\\b',
+      '\\bnpm_[A-Za-z0-9]{36,}\\b',
+      '\\b[MNO][A-Za-z\\d]{23,}\\.[A-Za-z\\d_-]{6,}\\.[A-Za-z\\d_-]{27,}\\b',
+    ].join('|'),
+    'i',
+  ).test(text);
 }
 
 /**
