@@ -939,6 +939,7 @@ function SelfLearningTab({
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [consolidatedContent, setConsolidatedContent] = useState<string | null>(null);
   const [optimizing, setOptimizing] = useState(false);
+  const [bulkOptimizing, setBulkOptimizing] = useState(false);
 
   const populated = useMemo(
     () => [...customStats].sort((a, b) => a.role.localeCompare(b.role)),
@@ -1084,6 +1085,65 @@ function SelfLearningTab({
     [],
   );
 
+  // Bulk optimize — collects all agents needing optimization and sends a
+  // single combined consolidation prompt to the leader agent.
+  const runBulkOptimize = useCallback(
+    async (roles: string[]) => {
+      if (roles.length === 0) return;
+      setBulkOptimizing(true);
+      setTeachFeedback(null);
+      try {
+        const results = await Promise.all(
+          roles.map(async (r) => {
+            const data = (await sendRosterMessage('agent-roster.consolidate', { role: r })) as {
+              instruction?: string;
+              rawEntryCount?: number;
+              error?: string;
+            };
+            if (data.error || !data.instruction || data.rawEntryCount === 0) return null;
+            return { role: r, instruction: data.instruction };
+          }),
+        );
+        const valid = results.filter(
+          (r): r is { role: string; instruction: string } => r !== null,
+        );
+        if (valid.length === 0) {
+          setTeachFeedback({ ok: false, msg: 'No agents had optimizable entries.' });
+          return;
+        }
+        const prompt =
+          `Optimize the learned data for ${valid.length} agent${valid.length > 1 ? 's' : ''} that exceed the soft limit. ` +
+          `For each agent below, read its raw learned entries, synthesize them into a single narrowly-scoped ` +
+          `document preserving every fact, and save the result to its consolidated.md file.\n\n` +
+          valid
+            .map(
+              (r) =>
+                `## Agent: ${r.role}\n\n${r.instruction}`,
+            )
+            .join('\n\n---\n\n');
+        const chat = useChatStore.getState();
+        chat.addMessage({ role: 'user', content: prompt });
+        chat.setLoading(true);
+        getWSClient().sendMessage(prompt);
+        const ui = useUIStore.getState();
+        ui.setSidebarOpen(false);
+        ui.setCurrentView('chat');
+        setTeachFeedback({
+          ok: true,
+          msg: `Bulk optimization sent for ${valid.length} agent${valid.length > 1 ? 's' : ''}. Check chat for progress.`,
+        });
+      } catch (err) {
+        setTeachFeedback({
+          ok: false,
+          msg: err instanceof Error ? err.message : 'Bulk optimization failed',
+        });
+      } finally {
+        setBulkOptimizing(false);
+      }
+    },
+    [],
+  );
+
   if (populated.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -1112,6 +1172,47 @@ function SelfLearningTab({
             <Database className="h-3.5 w-3.5 text-brand-2" />
             All Roster Agents
           </h3>
+          {(() => {
+            const needsOpt = populated.filter((s) => s.needsSummarization);
+            if (needsOpt.length === 0) return null;
+            return (
+              <div className="mt-2 flex flex-col gap-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-3 w-3 text-warning shrink-0" />
+                  <span className="text-[10px] text-warning leading-tight">
+                    {needsOpt.length} agent{needsOpt.length > 1 ? 's' : ''} need{needsOpt.length === 1 ? 's' : ''} optimization
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const first = needsOpt[0];
+                      if (first) {
+                        setSelectedRole(first.role);
+                        setReviewEntries(null);
+                        setConsolidatedContent(null);
+                      }
+                    }}
+                    className="ml-auto text-[9px] text-warning underline hover:text-warning/80 shrink-0"
+                  >
+                    review →
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => runBulkOptimize(needsOpt.map((s) => s.role))}
+                  disabled={bulkOptimizing}
+                  className="flex items-center justify-center gap-1 rounded bg-warning/20 border border-warning/40 px-2 py-1 text-[10px] font-medium text-warning hover:bg-warning/30 transition-colors disabled:opacity-50"
+                >
+                  {bulkOptimizing ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Zap className="h-3 w-3" />
+                  )}
+                  {bulkOptimizing ? 'Optimizing…' : `Optimize All (${needsOpt.length})`}
+                </button>
+              </div>
+            );
+          })()}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-1">
           {populated.map((stat) => (
@@ -1121,12 +1222,14 @@ function SelfLearningTab({
               onClick={() => {
                 setSelectedRole(stat.role);
                 setReviewEntries(null);
+                setConsolidatedContent(null);
               }}
               className={cn(
                 'w-full text-left rounded-lg border px-3 py-2 transition-colors',
                 selectedRole === stat.role
                   ? 'border-primary/50 bg-primary/[0.06]'
                   : 'border-border/60 hover:border-primary/30',
+                stat.needsSummarization && selectedRole !== stat.role && 'border-warning/40',
               )}
             >
               <div className="flex items-center justify-between">
@@ -1154,7 +1257,12 @@ function SelfLearningTab({
                     <span>{new Date(stat.lastCapture).toLocaleDateString()}</span>
                   </>
                 )}
-                {stat.needsSummarization && <AlertTriangle className="h-2.5 w-2.5 text-warning" />}
+                {stat.needsSummarization && (
+                  <span className="inline-flex items-center gap-0.5 text-warning font-medium">
+                    <Zap className="h-2.5 w-2.5" />
+                    optimize
+                  </span>
+                )}
               </div>
             </button>
           ))}
@@ -1229,12 +1337,27 @@ function SelfLearningTab({
               </div>
             </div>
 
-            {/* Warning */}
+            {/* Proactive optimization warning */}
             {selectedStats.needsSummarization && (
-              <div className="flex items-center gap-2 text-xs text-warning bg-warning/10 rounded-lg px-3 py-2">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                learned.md exceeds soft limit ({selectedStats.totalBytes}B / 8192B). Run
-                /agent-improve {selectedRole} refresh.
+              <div className="flex items-center gap-3 text-xs text-warning bg-warning/10 rounded-lg px-3 py-2.5">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span className="flex-1">
+                  Learned data exceeds soft limit ({selectedStats.totalBytes.toLocaleString()}B / 8,192B).
+                  Optimize to synthesize raw entries into a consolidated document and reduce context volume.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => runOptimize(selectedRole)}
+                  disabled={optimizing}
+                  className="inline-flex items-center gap-1 rounded bg-warning/20 text-warning border border-warning/40 px-2.5 py-1 text-[10px] font-medium hover:bg-warning/30 transition-colors disabled:opacity-50 shrink-0"
+                >
+                  {optimizing ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Zap className="h-3 w-3" />
+                  )}
+                  {optimizing ? 'Optimizing…' : 'Optimize Now'}
+                </button>
               </div>
             )}
 
