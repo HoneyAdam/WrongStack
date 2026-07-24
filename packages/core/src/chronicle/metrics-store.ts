@@ -534,8 +534,15 @@ export class ChronicleMetricsStore {
 
   private ingestProvider(event: ChronicleEvent): void {
     const day = eventDay(event);
-    const providerId = event.runtime?.providerId ?? '';
-    const modelId = event.runtime?.modelId ?? '';
+    // provider.fallback carries no top-level runtime identity — it belongs to
+    // the provider being fallen back FROM, held in attributes.from. Attribute
+    // it there rather than letting it manufacture a phantom ('', '') row.
+    const providerId =
+      event.runtime?.providerId ?? asString(readPath(event.attributes ?? {}, 'from.providerId')) ?? '';
+    const modelId =
+      event.runtime?.modelId ?? asString(readPath(event.attributes ?? {}, 'from.model')) ?? '';
+    // No identity at all → not attributable to any provider row; skip.
+    if (!providerId && !modelId) return;
     this.db
       .prepare('INSERT OR IGNORE INTO provider_daily (day, provider_id, model_id) VALUES (?, ?, ?)')
       .run(day, providerId, modelId);
@@ -718,6 +725,10 @@ function readPath(value: Record<string, unknown>, key: string): unknown {
 
 function stringAt(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 

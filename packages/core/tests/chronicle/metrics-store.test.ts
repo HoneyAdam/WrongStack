@@ -180,6 +180,45 @@ describe.skipIf(!isChronicleMetricsAvailable())('ChronicleMetricsStore', () => {
     }
   });
 
+  it('attributes fallbacks to the from-provider and never manufactures a blank provider row', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-metrics-fb-'));
+    dirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, '2026-07-24.events.jsonl') });
+    await Promise.all([
+      journal.append(
+        input({
+          eventType: 'provider.attempt.started',
+          runtime: { providerId: 'openai', modelId: 'gpt' },
+          outcome: 'started',
+        }),
+      ),
+      // provider.fallback carries identity only under attributes.from — the
+      // domain adapter leaves runtime empty for it.
+      journal.append(
+        input({
+          eventType: 'provider.fallback',
+          outcome: 'success',
+          attributes: { from: { providerId: 'openai', model: 'gpt' }, to: { providerId: 'anthropic', model: 'claude' }, status: 529 },
+        }),
+      ),
+      // An identity-less provider event must not create a ('', '') row.
+      journal.append(input({ eventType: 'provider.fallback', outcome: 'success', attributes: { status: 500 } })),
+    ]);
+    await journal.flush();
+
+    const store = ChronicleMetricsStore.open(dir);
+    try {
+      await store.refresh();
+      const rows = store.providerDaily();
+      // Only the openai/gpt row exists — no blank-identity phantom.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ providerId: 'openai', modelId: 'gpt', attempts: 1, fallbacks: 1 });
+      expect(rows.some((row) => row.providerId === '' && row.modelId === '')).toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+
   it('survives reopening and rotated partitions', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-metrics-rot-'));
     dirs.push(dir);
