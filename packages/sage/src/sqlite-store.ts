@@ -641,14 +641,32 @@ export class SqliteSageStore implements MemoryStore {
       }
       const result: T[] = [];
       const lines = raw.split('\n');
+      let corruptCount = 0;
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const trimmed = lines[lineIndex]!.trim();
         if (!trimmed) continue;
         try {
           result.push(JSON.parse(trimmed) as T);
         } catch {
-          throw new Error(`Corrupt legacy JSONL in ${filePath} at line ${lineIndex + 1}`);
+          // A torn line — the classic crash-mid-append artifact this
+          // migration exists to absorb — must NOT brick Sage forever.
+          // Skip it and keep the recoverable records rather than throwing,
+          // which would leave `initialized` unset and fail every future
+          // operation (and leak a DB handle per retry).
+          corruptCount++;
         }
+      }
+      if (corruptCount > 0) {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'sage.legacy_jsonl_corrupt_lines_skipped',
+            filePath,
+            corruptCount,
+            recovered: result.length,
+            timestamp: this.nowIso(),
+          }),
+        );
       }
       return result;
     };
