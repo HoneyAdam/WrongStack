@@ -502,18 +502,54 @@ export class ReplayLogStore {
   ): Promise<ReplayEntry> {
     if (location.entry) return location.entry;
 
+    const direct = await this.readEntryAt(sessionId, hash, location);
+    if (direct) {
+      location.entry = direct;
+      return direct;
+    }
+
+    // The cached byte offset is stale: the file was compacted, or a second
+    // process recording the same session appended and shifted every offset.
+    // Reading there returns a wrong range (or a DIFFERENT valid line, which the
+    // identity check below rejects). Rebuild the cache from disk once and read
+    // at the fresh location rather than throwing on an intact file.
+    this.cache.delete(sessionId);
+    const fresh = await this.ensureCache(sessionId);
+    const freshLoc = fresh.get(hash);
+    if (freshLoc) {
+      const entry = freshLoc.entry ?? (await this.readEntryAt(sessionId, hash, freshLoc));
+      if (entry) {
+        freshLoc.entry = entry;
+        return entry;
+      }
+    }
+    throw new Error(`Replay entry ${hash} is unreadable`);
+  }
+
+  /**
+   * Read and parse the entry at `location`, returning it ONLY when its hash
+   * matches `hash`. A stale offset can land on a different valid line; without
+   * this identity check that line would be returned as if it were the
+   * requested entry (silent wrong data). Returns null on any mismatch/failure.
+   */
+  private async readEntryAt(
+    sessionId: string,
+    hash: string,
+    location: ReplayEntryLocation,
+  ): Promise<ReplayEntry | null> {
     const fp = this.filePath(sessionId);
-    const handle = await fs.open(fp, 'r');
+    let handle: fs.FileHandle;
+    try {
+      handle = await fs.open(fp, 'r');
+    } catch {
+      return null;
+    }
     try {
       const buffer = Buffer.alloc(location.length);
       const { bytesRead } = await handle.read(buffer, 0, location.length, location.offset);
       const line = buffer.subarray(0, bytesRead).toString('utf8').trimEnd();
       const entry = this.parseReplayLine(line);
-      if (!entry) {
-        throw new Error(`Replay entry ${hash} is unreadable`);
-      }
-      location.entry = entry;
-      return entry;
+      return entry && entry.hash === hash ? entry : null;
     } finally {
       await handle.close();
     }

@@ -124,6 +124,34 @@ describe('ReplayLogStore — readAll envelope + error emits', () => {
     expect(events.emit.mock.calls.some((c) => c[0] === 'storage.error')).toBe(true);
   });
 
+  it('self-heals a stale byte offset after the file is compacted by another writer', async () => {
+    const mk = (text: string) => ({
+      sessionId: 'stale',
+      request: { model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text }] }], maxTokens: 1 } as never,
+      response: { content: [{ type: 'text', text: `r-${text}` }], stopReason: 'end_turn', usage: { input: 0, output: 0 }, model: 'm' } as never,
+    });
+    const s1 = new ReplayLogStore({ dir });
+    const hashA = await s1.record(mk('AAA'));
+    const hashB = await s1.record(mk('BBB'));
+
+    // A second reader caches offsets for A and B, then hydrates only A —
+    // leaving B's offset cached but its entry not yet loaded.
+    const s2 = new ReplayLogStore({ dir });
+    expect((await s2.lookup('stale', hashA))?.hash).toBe(hashA);
+
+    // Another writer compacts the file, dropping A, so B moves to offset 0
+    // while s2 still holds B's old (post-A) offset.
+    const listed = await s2.list();
+    const fp = listed.find((r) => r.sessionId === 'stale')?.path ?? '';
+    const lines = (await fs.readFile(fp, 'utf8')).split('\n').filter((l) => l.trim());
+    await fs.writeFile(fp, `${lines.slice(1).join('\n')}\n`, 'utf8');
+
+    // With the stale offset a naive read returns wrong bytes (or a different
+    // valid line); self-heal must rebuild the cache and return the real B.
+    const got = await s2.lookup('stale', hashB);
+    expect(got?.hash).toBe(hashB);
+  });
+
   it('evicts the oldest entries once maxEntries is exceeded (compact path)', async () => {
     const s = new ReplayLogStore({ dir, maxEntries: 2 });
     for (let i = 0; i < 4; i++) {
