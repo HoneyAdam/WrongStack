@@ -10,6 +10,7 @@
  */
 import { expectDefined, writeErr } from '@wrongstack/core/utils';
 import type { ACPMessage } from '../types/acp-messages.js';
+import { treeKill } from '../tree-kill.js';
 import { buildWin32CmdShimInvocation } from '../win32-cmd.js';
 
 const DEFAULT_MAX_FRAME_CHARS = 20 * 1024 * 1024;
@@ -368,11 +369,9 @@ export class ClientTransport implements ACPClientTransport {
     this.handlers.clear();
     const child = this.child;
     if (!child) return;
-    try {
-      child.kill();
-    } catch {
-      // already dead
-    }
+    // On Windows `child` is the cmd.exe shim wrapper; a bare kill() orphans the
+    // real agent grandchild. treeKill tears down the whole process tree.
+    treeKill(child);
     this.child = null;
   }
 
