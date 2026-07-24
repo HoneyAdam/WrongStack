@@ -29,7 +29,11 @@ afterEach(async () => {
       await fs.rm(tempDir, { recursive: true, force: true });
       return;
     } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw err;
+      // ENOTEMPTY: un-drained writer still flushing into the dir.
+      // EPERM/EBUSY: Windows refuses to unlink a file (e.g. the knowledge-graph
+      // .lock) while its holder hasn't released the handle yet.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EPERM' && code !== 'EBUSY') throw err;
       await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
     }
   }

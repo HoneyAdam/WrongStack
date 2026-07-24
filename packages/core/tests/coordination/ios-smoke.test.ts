@@ -189,7 +189,12 @@ describe('iOS assistant smoke-test', () => {
       expect(rosterEntry?.prompt).toContain('Xcode');
       expect(rosterEntry?.tools).toContain('fetch');
       expect(rosterEntry?.prompt?.length).toBeGreaterThan(500);
-      expect(rosterEntry?.prompt?.length).toBeLessThan(8000);
+      // Upper bound = bloat guard, not an exact size. The roster prompt is
+      // resolved at module import (before beforeAll pins the instructions
+      // dir), so it carries the project-contextualization overlay — including
+      // the structured what/why/how knowledge-capture boilerplate — on top of
+      // the ~6.7 KB ios.md brief.
+      expect(rosterEntry?.prompt?.length).toBeLessThan(12_000);
     });
 
     it('catalog size is 75 (post-addition sanity check)', () => {
