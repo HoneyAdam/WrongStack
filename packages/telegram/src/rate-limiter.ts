@@ -33,6 +33,13 @@ export interface TokenBucket {
   waitForToken(timeoutMs?: number | undefined): Promise<void>;
   /** Current fill level (for diagnostics). */
   fill(): number;
+  /**
+   * True once the bucket has refilled to full capacity. A full, idle bucket
+   * holds no pacing state — recreating it yields an identical full bucket — so
+   * callers can safely evict it to bound a per-chat bucket map without losing
+   * any rate-limit state. A depleted (in-use) bucket is never full.
+   */
+  isFull(): boolean;
 }
 
 /**
@@ -58,7 +65,7 @@ export function createTokenBucket(opts?: RateLimiterOptions): TokenBucket {
   let tokens = burst;
   let lastRefill = Date.now();
 
-  return { waitForToken, fill };
+  return { waitForToken, fill, isFull };
 
   async function waitForToken(timeoutMs?: number | undefined): Promise<void> {
     const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : Infinity;
@@ -101,6 +108,11 @@ export function createTokenBucket(opts?: RateLimiterOptions): TokenBucket {
   function fill(): number {
     refill();
     return tokens;
+  }
+
+  function isFull(): boolean {
+    refill();
+    return tokens >= burst;
   }
 }
 

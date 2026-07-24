@@ -48,6 +48,9 @@ export interface BotOutboundOptions {
   readonly getRateLimitBurst?: (() => number) | undefined;
 }
 
+/** How often idle, fully-refilled per-chat buckets are swept from the map. */
+const BUCKET_SWEEP_INTERVAL_MS = 60_000;
+
 export class TelegramBotOutbound {
   readonly #queue: OutboundQueue;
   readonly #bot: TelegramBot;
@@ -55,6 +58,7 @@ export class TelegramBotOutbound {
   readonly #buckets = new Map<string, TokenBucket>();
   readonly #getRateTokensPerSecond: () => number;
   readonly #getRateBurst: () => number;
+  readonly #bucketSweepTimer: ReturnType<typeof setInterval>;
   #stopped = false;
 
   constructor(opts: BotOutboundOptions) {
@@ -68,6 +72,20 @@ export class TelegramBotOutbound {
       send: (chatId, text) => this.#rateLimitedSend(chatId, text),
       log: opts.log,
     });
+    // Without this the bucket map grows one entry per distinct chatId for the
+    // whole process lifetime (a bot reachable by many chats leaks memory).
+    // Only fully-refilled buckets are evicted: they carry no pacing state, so
+    // the next send to that chat lazily recreates an identical full bucket.
+    // A depleted (actively rate-limited) bucket is never full, so its pacing
+    // state always survives the sweep.
+    this.#bucketSweepTimer = setInterval(() => this.#sweepIdleBuckets(), BUCKET_SWEEP_INTERVAL_MS);
+    this.#bucketSweepTimer.unref?.();
+  }
+
+  #sweepIdleBuckets(): void {
+    for (const [key, bucket] of this.#buckets) {
+      if (bucket.isFull()) this.#buckets.delete(key);
+    }
   }
 
   /** Per-chat rate-limited send: waits for a token, then delegates to the bot.
@@ -139,6 +157,7 @@ export class TelegramBotOutbound {
 
   async stop(): Promise<void> {
     this.#stopped = true;
+    clearInterval(this.#bucketSweepTimer);
     await this.#queue.stop();
   }
 }
