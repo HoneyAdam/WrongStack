@@ -3,7 +3,7 @@
  * to the WebUI for monitoring and editing custom roster agents.
  *
  * Message types (client → server):
- *   agent-roster.list        → { roles: string[] }
+ *   agent-roster.list        → { roles, stats, catalog }
  *   agent-roster.stats       → { role stats }
  *   agent-roster.llm-improve { role, prompt } → LLM-suggested changes
  *   agent-roster.update-identity  { role, content } → saved path
@@ -12,22 +12,32 @@
  *   agent-roster.create { name, role?, baseRole?, purpose, taskTypes } → cloned project role
  *   agent-roster.reset            { role } → removed paths
  *   agent-roster.capture          { role, output? } → captured count
+ *   agent-roster.consolidate      { role } → consolidation instruction + metadata
+ *   agent-roster.save-consolidated { role, content, trigger?, model? } → saved path + stats
+ *   agent-roster.read-consolidated { role } → consolidated content + metadata
+ *   agent-roster.clear-consolidated { role } → cleared
  */
 
 import {
   applyProjectAgentConfig,
+  buildConsolidationInstruction,
   captureLearnedFromAgentOutputDetailed,
+  clearProjectAgentConsolidated,
   createProjectAgent,
   detectLearnedConflicts,
   FLEET_ROSTER,
   getProjectAgentLearnStats,
+  isConsolidated,
   listProjectAgentLearnedEntries,
   listProjectAgentRoles,
+  loadConsolidationMetadata,
   loadProjectAgentConfig,
+  loadProjectAgentConsolidated,
   loadProjectAgentIdentity,
   loadProjectAgentLearned,
   loadProjectAgentProfile,
   resetProjectAgentIdentity,
+  saveProjectAgentConsolidated,
   slugifyProjectAgentRole,
   updateProjectAgentConfig,
   updateProjectAgentIdentity,
@@ -288,6 +298,67 @@ export class AgentRosterWSHandler {
       case 'agent-roster.conflicts': {
         const conflicts = detectLearnedConflicts(projectRoot);
         return { type, payload: { conflicts } };
+      }
+
+      // ── Build consolidation instruction (LLM prompt) ──────────────────
+      case 'agent-roster.consolidate': {
+        if (!role) return { type, payload: { error: 'role required' } };
+        const { instruction, rawEntries, hasExistingConsolidation } =
+          buildConsolidationInstruction(role, projectRoot);
+        const currentStats = getProjectAgentLearnStats(role, projectRoot);
+        return {
+          type: 'agent-roster.consolidate',
+          payload: {
+            role,
+            instruction,
+            rawEntryCount: rawEntries.length,
+            hasExistingConsolidation,
+            currentStats,
+            // Instruction for the leader agent to execute the consolidation
+            leaderInstruction:
+              `Optimize what the "${role}" agent has learned. Read its raw learned entries, ` +
+              `synthesize them into a single narrowly-scoped document preserving every fact, and ` +
+              `save the result. The instruction text contains the full details and raw entries.`,
+          },
+        };
+      }
+
+      // ── Save consolidated document ────────────────────────────────────
+      case 'agent-roster.save-consolidated': {
+        if (!role || typeof p.content !== 'string') {
+          return { type, payload: { error: 'role and content required' } };
+        }
+        const trigger =
+          typeof p.trigger === 'string' && p.trigger === 'automatic' ? 'automatic' : 'manual';
+        const model = typeof p.model === 'string' ? p.model : undefined;
+        const fp = saveProjectAgentConsolidated(role, p.content, projectRoot, {
+          trigger,
+          ...(model ? { model } : {}),
+        });
+        const stats = getProjectAgentLearnStats(role, projectRoot);
+        return {
+          type: 'agent-roster.save-consolidated',
+          payload: { role, path: fp, success: true, stats },
+        };
+      }
+
+      // ── Read consolidated document ────────────────────────────────────
+      case 'agent-roster.read-consolidated': {
+        if (!role) return { type, payload: { error: 'role required' } };
+        const content = loadProjectAgentConsolidated(role, projectRoot);
+        const metadata = loadConsolidationMetadata(role, projectRoot);
+        const consolidated = isConsolidated(role, projectRoot);
+        return {
+          type: 'agent-roster.read-consolidated',
+          payload: { role, content, metadata, isConsolidated: consolidated },
+        };
+      }
+
+      // ── Clear consolidated document ───────────────────────────────────
+      case 'agent-roster.clear-consolidated': {
+        if (!role) return { type, payload: { error: 'role required' } };
+        clearProjectAgentConsolidated(role, projectRoot);
+        return { type, payload: { role, success: true } };
       }
 
       default:

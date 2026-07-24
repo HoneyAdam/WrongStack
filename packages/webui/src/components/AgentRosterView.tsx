@@ -89,6 +89,15 @@ interface CustomRosterStats {
   learningEnabled: boolean;
   lifetimeCaptureCount: number;
   lastCaptureSource: 'automatic' | 'manual' | 'taught' | null;
+  isConsolidated?: boolean;
+  consolidation?: {
+    consolidatedAt: string;
+    sourceEntryCount: number;
+    sourceBytes: number;
+    consolidatedBytes: number;
+    trigger: 'manual' | 'automatic';
+    model?: string;
+  } | null;
 }
 
 // ── Tab definitions ────────────────────────────────────────────────────
@@ -928,6 +937,8 @@ function SelfLearningTab({
   const [teachFeedback, setTeachFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingEntries, setLoadingEntries] = useState(false);
+  const [consolidatedContent, setConsolidatedContent] = useState<string | null>(null);
+  const [optimizing, setOptimizing] = useState(false);
 
   const populated = useMemo(
     () => [...customStats].sort((a, b) => a.role.localeCompare(b.role)),
@@ -1019,6 +1030,58 @@ function SelfLearningTab({
       }
     },
     [onRefresh],
+  );
+
+  // Load consolidated content
+  const loadConsolidated = useCallback(async (role: string) => {
+    try {
+      const data = (await sendRosterMessage('agent-roster.read-consolidated', { role })) as {
+        content: string;
+        isConsolidated: boolean;
+      };
+      setConsolidatedContent(data.isConsolidated ? data.content : null);
+    } catch {
+      setConsolidatedContent(null);
+    }
+  }, []);
+
+  // Optimize learnings — triggers LLM consolidation via the leader agent
+  const runOptimize = useCallback(
+    async (role: string) => {
+      setOptimizing(true);
+      setTeachFeedback(null);
+      try {
+        const data = (await sendRosterMessage('agent-roster.consolidate', { role })) as {
+          instruction?: string;
+          leaderInstruction?: string;
+          rawEntryCount?: number;
+          error?: string;
+        };
+        if (data.error) throw new Error(data.error);
+        if (data.rawEntryCount === 0) {
+          setTeachFeedback({ ok: false, msg: 'No raw entries to optimize yet.' });
+          return;
+        }
+        const prompt = data.leaderInstruction ?? data.instruction;
+        if (!prompt) throw new Error('No consolidation instruction generated');
+        const chat = useChatStore.getState();
+        chat.addMessage({ role: 'user', content: prompt });
+        chat.setLoading(true);
+        getWSClient().sendMessage(prompt);
+        const ui = useUIStore.getState();
+        ui.setSidebarOpen(false);
+        ui.setCurrentView('chat');
+        setTeachFeedback({ ok: true, msg: 'Optimization sent to agent. Check chat for progress.' });
+      } catch (err) {
+        setTeachFeedback({
+          ok: false,
+          msg: err instanceof Error ? err.message : 'Optimization failed',
+        });
+      } finally {
+        setOptimizing(false);
+      }
+    },
+    [],
   );
 
   if (populated.length === 0) {
@@ -1174,6 +1237,78 @@ function SelfLearningTab({
                 /agent-improve {selectedRole} refresh.
               </div>
             )}
+
+            {/* Optimization / Consolidation section */}
+            <div className="space-y-2 border border-border rounded-lg p-3 bg-card">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-semibold">Optimize Learnings</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => runOptimize(selectedRole)}
+                  disabled={optimizing || selectedStats.entryCount === 0}
+                  className="inline-flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  title={
+                    selectedStats.entryCount === 0
+                      ? 'No raw entries to optimize'
+                      : 'Synthesize raw entries into a consolidated, narrowly-scoped document'
+                  }
+                >
+                  {optimizing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )}
+                  {optimizing ? 'Optimizing…' : 'Optimize'}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Synthesizes all {selectedStats.entryCount} raw entries into a single reviewed
+                document — narrowly scoped to this agent's skills, preserving every fact but
+                reducing context volume. The result replaces raw entries in the agent's prompt.
+              </p>
+              {/* Consolidation status */}
+              {selectedStats.isConsolidated && selectedStats.consolidation && (
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground pt-1 border-t border-border/50">
+                  <CheckCircle2 className="h-3 w-3 text-success" />
+                  <span>
+                    Consolidated {new Date(selectedStats.consolidation.consolidatedAt).toLocaleDateString()} ·{' '}
+                    {selectedStats.consolidation.sourceBytes}B → {selectedStats.consolidation.consolidatedBytes}B
+                    {selectedStats.consolidation.sourceEntryCount < selectedStats.entryCount && (
+                      <span className="text-warning ml-1">
+                        · {selectedStats.entryCount - selectedStats.consolidation.sourceEntryCount} new pending
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (consolidatedContent === null) {
+                        loadConsolidated(selectedRole);
+                      } else {
+                        setConsolidatedContent(null);
+                      }
+                    }}
+                    className="ml-auto underline text-primary hover:text-primary/80"
+                  >
+                    {consolidatedContent === null ? 'View' : 'Hide'}
+                  </button>
+                </div>
+              )}
+              {/* Consolidated content display */}
+              {consolidatedContent !== null && (
+                <div className="mt-2 max-h-72 overflow-y-auto rounded border border-border/50 bg-background/50 p-2">
+                  <div className="text-[10px] text-muted-foreground mb-1 font-medium">
+                    Consolidated knowledge for {selectedRole}
+                  </div>
+                  <pre className="text-[10px] whitespace-pre-wrap font-sans leading-relaxed">
+                    {consolidatedContent || '(empty)'}
+                  </pre>
+                </div>
+              )}
+            </div>
 
             {/* Review entries */}
             {selectedStats.entryCount > 0 && (

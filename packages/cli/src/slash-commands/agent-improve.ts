@@ -1,17 +1,31 @@
 import type { SlashCommand } from '@wrongstack/core/types';
 import { color } from '@wrongstack/core/utils';
-import { captureLearnedFromAgentOutput, loadProjectAgentConfig, loadProjectAgentIdentity, loadProjectAgentLearned, loadRoleKnowledgeManifest, resetProjectAgentIdentity, refreshProjectAgentIdentity, updateProjectAgentIdentity } from '@wrongstack/core/agent-catalog';
+import {
+  buildConsolidationInstruction,
+  captureLearnedFromAgentOutput,
+  getProjectAgentLearnStats,
+  isConsolidated,
+  loadConsolidationMetadata,
+  loadProjectAgentConfig,
+  loadProjectAgentIdentity,
+  loadProjectAgentLearned,
+  loadRoleKnowledgeManifest,
+  resetProjectAgentIdentity,
+  refreshProjectAgentIdentity,
+  updateProjectAgentIdentity,
+} from '@wrongstack/core/agent-catalog';
 import type { SlashCommandContext } from './command-context.js';
 
 /**
  * `/agent-improve [role] [action]` — manage the project-custom agent identity.
  *
  * Actions:
- *   show       — display current customization for one or all roles
- *   update     — write new identity/learned content (prompts for content)
- *   refresh   — reset identity.md + learned.md to empty templates (keep config/knowledge)
- *   reset      — delete ALL project customizations for a role (rm -rf the dir)
- *   reset-all  — delete customizations for EVERY role
+ *   show         — display current customization for one or all roles
+ *   update       — write new identity/learned content (prompts for content)
+ *   refresh     — reset identity.md + learned.md to empty templates (keep config/knowledge)
+ *   consolidate  — optimize raw learned entries into a reviewed, consolidated document
+ *   reset        — delete ALL project customizations for a role (rm -rf the dir)
+ *   reset-all    — delete customizations for EVERY role
  */
 export function buildAgentImproveCommand(opts: SlashCommandContext): SlashCommand {
   const projectRoot = opts.projectRoot;
@@ -39,6 +53,7 @@ export function buildAgentImproveCommand(opts: SlashCommandContext): SlashComman
       '  /agent-improve [role] update         Update identity + learned content',
       '  /agent-improve [role] refresh        Reset identity + learned to empty templates',
       '  /agent-improve [role] capture        Scan last output for ## LEARNED blocks and persist them',
+      '  /agent-improve [role] consolidate    Optimize raw learned entries into a consolidated document',
       '  /agent-improve [role] reset          Delete ALL custom files for this role',
       '  /agent-improve * reset               Delete ALL custom files for every role',
       '',
@@ -48,6 +63,8 @@ export function buildAgentImproveCommand(opts: SlashCommandContext): SlashComman
       '  Agents output a ## LEARNED section in their response to persist',
       '  project-specific patterns. The runtime captures these automatically.',
       '  Use "capture" to manually re-scan any text for LEARNED blocks.',
+      '  Use "consolidate" to synthesize all raw entries into a single',
+      '  narrowly-scoped document that replaces raw entries in the agent prompt.',
       '',
       'Files live under: .wrongstack/agents/<role>/',
     ].join('\n'),
@@ -138,6 +155,30 @@ export function buildAgentImproveCommand(opts: SlashCommandContext): SlashComman
           };
         }
 
+        case 'consolidate': {
+          const stats = getProjectAgentLearnStats(role, projectRoot);
+          if (stats.entryCount === 0) {
+            const msg = `No raw learned entries for role "${role}" to consolidate.`;
+            opts.renderer.write(msg);
+            return { message: msg };
+          }
+          const { instruction } = buildConsolidationInstruction(role, projectRoot);
+          const prompt = `Optimize what the "${role}" agent has learned for its skills. ${instruction}`;
+          const consolidatedAlready = isConsolidated(role, projectRoot);
+          const meta = loadConsolidationMetadata(role, projectRoot);
+          const summary =
+            `${color.cyan(role)}: ${stats.entryCount} raw entries (${stats.totalBytes}B)` +
+            (consolidatedAlready && meta
+              ? ` · last consolidated ${meta.consolidatedAt.slice(0, 10)} (${meta.sourceBytes}B → ${meta.consolidatedBytes}B)`
+              : ' · no prior consolidation') +
+            '\n\nSending consolidation instruction to the agent...';
+          opts.renderer.write(summary);
+          return {
+            message: summary,
+            runText: prompt,
+          };
+        }
+
         case 'reset': {
           const removed = resetProjectAgentIdentity(
             role === '*' ? undefined : role,
@@ -163,7 +204,7 @@ export function buildAgentImproveCommand(opts: SlashCommandContext): SlashComman
 
         default:
           return {
-            message: `Unknown action "${action}". Use: show, update, refresh, capture, reset, or reset-all.`,
+            message: `Unknown action "${action}". Use: show, update, refresh, capture, consolidate, reset, or reset-all.`,
           };
       }
     },

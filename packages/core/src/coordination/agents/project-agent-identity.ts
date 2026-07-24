@@ -899,7 +899,14 @@ export function refreshProjectAgentIdentity(role: string, projectRoot?: string):
   mkdirSync(dir, { recursive: true });
 
   // Remove learned wisdom and identity, keep config.json and knowledge.json
-  for (const file of ['learned.md', 'identity.md']) {
+  // Also clear any consolidated document since it was derived from entries
+  // that are about to be wiped.
+  for (const file of [
+    'learned.md',
+    'identity.md',
+    'consolidated.md',
+    'consolidation.json',
+  ]) {
     const fp = path.join(dir, file);
     try {
       rmSync(fp, { force: true });
@@ -950,12 +957,61 @@ export function buildProjectContextualizedPrompt(
   }
 
   const learningPolicy = loadProjectAgentLearningPolicy(role, projectRoot);
-  const learned = learningPolicy.enabled ? loadProjectAgentLearned(role, projectRoot) : '';
-  if (learned) {
-    // Only include learned wisdom that has meaningful content (strip HTML comments)
-    const meaningful = learned.replace(/<!--[\s\S]*?-->/g, '').trim();
+  // Prefer the reviewed, consolidated document over the raw learned.md buffer.
+  // The consolidated version is a synthesized, narrowly-scoped representation
+  // of everything the agent has learned — same information, less context volume.
+  //
+  // STALENESS GATE: When new raw entries have been captured since the last
+  // consolidation (entry count > sourceEntryCount), the consolidation is stale.
+  // In that case we append the delta entries so the agent still sees new
+  // learnings — preserving the capture→inject feedback loop without losing
+  // the optimization benefit of the consolidated document.
+  let learnedContent = '';
+  let learnedLabel = '';
+  if (learningPolicy.enabled) {
+    const consolidated = loadProjectAgentConsolidated(role, projectRoot);
+    if (consolidated) {
+      const meta = loadConsolidationMetadata(role, projectRoot);
+      // Read the raw buffer once; split it for entry counting.
+      const rawLearned = loadProjectAgentLearned(role, projectRoot);
+      const rawEntries = splitLearnedEntries(rawLearned);
+      const rawBytes = Buffer.byteLength(rawLearned, 'utf8');
+      // Freshness gate: consolidated.md is preferred, but only while the
+      // raw buffer hasn't grown past the snapshot at consolidation time.
+      // We check both entry count and byte size — either exceeding the
+      // recorded snapshot means the consolidated document is stale. When
+      // metadata is missing entirely we cannot verify freshness, so treat
+      // it as stale to avoid orphaning new captures.
+      const stale =
+        meta === undefined ||
+        rawEntries.length > meta.sourceEntryCount ||
+        rawBytes > meta.sourceBytes;
+      if (stale) {
+        if (meta !== undefined && meta.sourceEntryCount < rawEntries.length) {
+          // New countable entries arrived since consolidation — append just
+          // the delta to preserve the context optimization while surfacing
+          // freshly captured knowledge (capture→inject loop).
+          const deltaEntries = rawEntries.slice(meta.sourceEntryCount);
+          learnedContent = `${consolidated}\n\n---\n\n## Recently captured (pending next optimization)\n\n${deltaEntries.join('\n\n---\n\n')}`;
+        } else {
+          // Metadata missing, or raw grew without new countable entries —
+          // cannot compute a precise delta, so serve the full raw buffer.
+          learnedContent = rawLearned;
+        }
+      } else {
+        learnedContent = consolidated;
+      }
+      learnedLabel = 'Consolidated knowledge for this project';
+    } else {
+      learnedContent = loadProjectAgentLearned(role, projectRoot);
+      learnedLabel = 'Learned wisdom for this project';
+    }
+  }
+  if (learnedContent) {
+    // Only include content that has meaningful text (strip HTML comments)
+    const meaningful = learnedContent.replace(/<!--[\s\S]*?-->/g, '').trim();
     if (meaningful.length > 0) {
-      parts.push(`\n\n# Learned wisdom for this project\n\n${learned}`);
+      parts.push(`\n\n# ${learnedLabel}\n\n${learnedContent}`);
     }
   }
 
@@ -1110,6 +1166,10 @@ export interface ProjectAgentLearnStats {
   learningEnabled: boolean;
   lifetimeCaptureCount: number;
   lastCaptureSource: ProjectAgentLearningPolicy['lastCaptureSource'] | null;
+  /** Whether a consolidated document exists for this role. */
+  isConsolidated: boolean;
+  /** Consolidation metadata, if a consolidation has been performed. */
+  consolidation?: ConsolidationMetadata | undefined;
 }
 
 export function getProjectAgentLearnStats(
@@ -1157,6 +1217,8 @@ export function getProjectAgentLearnStats(
     learningEnabled: policy.enabled,
     lifetimeCaptureCount: policy.lifetimeCaptureCount,
     lastCaptureSource: policy.lastCaptureSource ?? null,
+    isConsolidated: isConsolidated(role, projectRoot),
+    consolidation: loadConsolidationMetadata(role, projectRoot),
   };
 }
 
@@ -1177,6 +1239,8 @@ export function listProjectAgentRoles(projectRoot?: string): string[] {
           'knowledge.json',
           'learning.json',
           'profile.json',
+          'consolidated.md',
+          'consolidation.json',
         ].some((file) => existsSync(path.join(sub, file)));
       } catch {
         return false;
@@ -1475,6 +1539,213 @@ export function hintLearnedNeedsSummarization(role: string, projectRoot?: string
   const bytes = Buffer.byteLength(learned, 'utf8');
   if (bytes < LEARNED_SOFT_LIMIT) return '';
   return `Learned wisdom for role "${role}" is ${bytes} B (soft limit ${LEARNED_SOFT_LIMIT}). Schedule a low-priority consolidation pass.`;
+}
+
+// ---------------------------------------------------------------------------
+// Consolidation: review raw learned.md → produce consolidated.md
+// ---------------------------------------------------------------------------
+//
+// The learned.md file is an append-only capture buffer. Over time it grows
+// with verbose, overlapping entries. The consolidation pass reads every raw
+// entry, asks an LLM to synthesize them into a single narrowly-scoped
+// document that represents what the agent has learned for its role, and
+// writes the result to consolidated.md.
+//
+// Once consolidated.md exists, buildProjectContextualizedPrompt prefers it
+// over the raw learned.md — the raw buffer is retained on disk for audit
+// but no longer injected into prompts (reducing context volume without
+// omitting information, because every fact was carried into the summary).
+//
+// Files (under .wrongstack/agents/<role>/):
+//   consolidated.md   — the synthesized, reviewed document
+//   consolidation.json — metadata tracking the last review
+
+export interface ConsolidationMetadata {
+  /** ISO timestamp of the last consolidation. */
+  consolidatedAt: string;
+  /** Number of raw learned.md entries that were synthesized. */
+  sourceEntryCount: number;
+  /** Byte size of the raw learned.md at consolidation time. */
+  sourceBytes: number;
+  /** Byte size of the resulting consolidated.md. */
+  consolidatedBytes: number;
+  /** Whether the consolidation was user-triggered or automatic. */
+  trigger: 'manual' | 'automatic';
+  /** Optional model that produced the consolidation. */
+  model?: string | undefined;
+}
+
+function consolidationPath(role: string, projectRoot?: string): string {
+  return path.join(roleDir(role, projectRoot), 'consolidated.md');
+}
+
+function consolidationMetaPath(role: string, projectRoot?: string): string {
+  return path.join(roleDir(role, projectRoot), 'consolidation.json');
+}
+
+/**
+ * Load the consolidated learning document for a role.
+ * Returns '' when no consolidation has been performed.
+ */
+export function loadProjectAgentConsolidated(role: string, projectRoot?: string): string {
+  try {
+    return readFileSync(consolidationPath(role, projectRoot), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Load consolidation metadata for a role.
+ * Returns undefined when no consolidation has been performed.
+ */
+export function loadConsolidationMetadata(
+  role: string,
+  projectRoot?: string,
+): ConsolidationMetadata | undefined {
+  try {
+    const raw = readFileSync(consolidationMetaPath(role, projectRoot), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as ConsolidationMetadata).consolidatedAt === 'string' &&
+      typeof (parsed as ConsolidationMetadata).sourceEntryCount === 'number'
+    ) {
+      return parsed as ConsolidationMetadata;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a role has a valid consolidated document.
+ */
+export function isConsolidated(role: string, projectRoot?: string): boolean {
+  // Check the metadata file existence rather than reading + trimming the
+  // entire consolidated.md — this runs in the per-role stats hot path.
+  return existsSync(consolidationMetaPath(role, projectRoot));
+}
+
+/**
+ * Save the consolidated document and its metadata atomically.
+ * Returns the path to consolidated.md.
+ */
+export function saveProjectAgentConsolidated(
+  role: string,
+  content: string,
+  projectRoot?: string,
+  metadata?: Partial<ConsolidationMetadata>,
+): string {
+  // Refuse to persist a meaningless (empty/whitespace) consolidation — doing
+  // so would write metadata that contradicts runtime behavior (empty
+  // consolidated.md yet isConsolidated: true). See High finding.
+  if (!content.trim()) {
+    const fp = consolidationPath(assertProjectAgentRole(role), projectRoot);
+    return fp;
+  }
+  const normalizedRole = assertProjectAgentRole(role);
+  const dir = roleDir(normalizedRole, projectRoot);
+  mkdirSync(dir, { recursive: true });
+  const fp = consolidationPath(normalizedRole, projectRoot);
+  writeTextAtomically(fp, content);
+
+  const rawEntries = listProjectAgentLearnedEntries(normalizedRole, projectRoot);
+  const rawBytes = Buffer.byteLength(
+    loadProjectAgentLearned(normalizedRole, projectRoot),
+    'utf8',
+  );
+  const meta: ConsolidationMetadata = {
+    consolidatedAt: new Date().toISOString(),
+    sourceEntryCount: rawEntries.length,
+    sourceBytes: rawBytes,
+    consolidatedBytes: Buffer.byteLength(content, 'utf8'),
+    trigger: metadata?.trigger ?? 'manual',
+    ...(metadata?.model ? { model: metadata.model } : {}),
+  };
+  writeTextAtomically(consolidationMetaPath(normalizedRole, projectRoot), `${JSON.stringify(meta, null, 2)}\n`);
+  return fp;
+}
+
+/**
+ * Clear the consolidated document and its metadata (e.g. when raw entries
+ * are deleted or reset). Idempotent — safe to call when no consolidation
+ * exists.
+ */
+export function clearProjectAgentConsolidated(role: string, projectRoot?: string): void {
+  const normalizedRole = assertProjectAgentRole(role);
+  for (const file of [consolidationPath(normalizedRole, projectRoot), consolidationMetaPath(normalizedRole, projectRoot)]) {
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      // already absent
+    }
+  }
+}
+
+/**
+ * Build the LLM instruction for consolidating a role's learned entries.
+ *
+ * The instruction tells the reviewing LLM to:
+ *   1. Read every raw learned.md entry
+ *   2. Synthesize them into a single narrowly-scoped document
+ *   3. Preserve every fact, convention, and decision — no omissions
+ *   4. Rewrite verbose entries into concise, directive statements
+ *
+ * The caller (WS handler / CLI / WebUI) is responsible for executing the
+ * LLM call and passing the result to saveProjectAgentConsolidated().
+ */
+export function buildConsolidationInstruction(role: string, projectRoot?: string): {
+  instruction: string;
+  rawEntries: string[];
+  hasExistingConsolidation: boolean;
+} {
+  const normalizedRole = assertProjectAgentRole(role);
+  const rawEntries = listProjectAgentLearnedEntries(normalizedRole, projectRoot);
+  const existingConsolidation = loadProjectAgentConsolidated(normalizedRole, projectRoot);
+
+  const rawBody = rawEntries
+    .map((entry, i) => `### Entry ${i + 1}\n\n${entry}`)
+    .join('\n\n');
+
+  const sections: string[] = [
+    `You are reviewing and consolidating the captured learning entries for the "${normalizedRole}" agent role in this project.`,
+    '',
+    'Your task is to synthesize ALL of the raw entries below into a single, narrowly-scoped document that represents what this agent has learned — specifically for its skills and role responsibilities.',
+    '',
+    '## Requirements',
+    '',
+    '1. **No omissions.** Every fact, convention, decision, command, file reference, and pattern from the raw entries MUST appear in the consolidated document. If two entries say the same thing, merge them into one statement — but never drop information.',
+    '2. **Narrow scope.** Rewrite verbose, narrative entries into concise, directive statements. The output is not a journal — it is an instruction manual for future invocations of this agent.',
+    '3. **Structured format.** Organize the content under clear markdown headings (##) by topic. Use bullet points for individual facts. Each bullet should be a self-contained, actionable directive.',
+    '4. **Preserve specifics.** Keep exact file paths, command names, version numbers, package names, and configuration values exactly as they appear in the raw entries.',
+    '5. **No filler.** Do not include meta-commentary about the consolidation process itself. The document should read as if it were always a single authoritative reference.',
+    '',
+    rawEntries.length > 0
+      ? `## Raw learned entries (${rawEntries.length} total)\n\n${rawBody}`
+      : '## Raw learned entries\n\n(No raw entries yet — return an empty document.)',
+  ];
+
+  if (existingConsolidation) {
+    sections.push('', `## Existing consolidated document (for reference — improve upon it)\n\n${existingConsolidation}`);
+  }
+
+  sections.push(
+    '',
+    '## Output',
+    '',
+    'Return ONLY the consolidated markdown document. Do not wrap it in code fences or add commentary.',
+  );
+
+  const instruction = sections.join('\n');
+
+  return {
+    instruction,
+    rawEntries,
+    hasExistingConsolidation: Boolean(existingConsolidation),
+  };
 }
 
 // ---------------------------------------------------------------------------

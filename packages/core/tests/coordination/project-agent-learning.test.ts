@@ -3,13 +3,19 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildConsolidationInstruction,
   buildProjectContextualizedPrompt,
   captureLearnedFromAgentOutputDetailed,
+  clearProjectAgentConsolidated,
   createProjectAgent,
   createProjectAgentRoster,
   getProjectAgentLearnStats,
+  isConsolidated,
   listProjectAgentLearnedEntries,
   listProjectAgentRoles,
+  loadConsolidationMetadata,
+  loadProjectAgentConsolidated,
+  saveProjectAgentConsolidated,
   updateProjectAgentConfig,
   updateProjectAgentLearned,
   updateProjectAgentLearningPolicy,
@@ -293,5 +299,154 @@ describe('project agent self-learning lifecycle', () => {
         },
       }),
     ).toThrow(/fallback must also appear in allowed/);
+  });
+
+  // ── Consolidation lifecycle ──────────────────────────────────────────
+
+  it('saves, loads, and clears consolidated documents with metadata', () => {
+    expect(isConsolidated('executor', projectRoot)).toBe(false);
+    expect(loadProjectAgentConsolidated('executor', projectRoot)).toBe('');
+    expect(loadConsolidationMetadata('executor', projectRoot)).toBeUndefined();
+
+    // Seed some raw entries so metadata can record them
+    updateProjectAgentLearned(
+      'executor',
+      'Always run pnpm typecheck before declaring work complete.',
+      projectRoot,
+      'replace',
+    );
+
+    const content = '# Consolidated knowledge for executor\n\n- Run pnpm typecheck before completion.';
+    saveProjectAgentConsolidated('executor', content, projectRoot);
+
+    expect(isConsolidated('executor', projectRoot)).toBe(true);
+    expect(loadProjectAgentConsolidated('executor', projectRoot)).toBe(content);
+
+    const meta = loadConsolidationMetadata('executor', projectRoot);
+    expect(meta).toBeDefined();
+    expect(meta!.sourceEntryCount).toBe(1);
+    expect(meta!.consolidatedBytes).toBeGreaterThan(0);
+    expect(meta!.trigger).toBe('manual');
+
+    clearProjectAgentConsolidated('executor', projectRoot);
+    expect(isConsolidated('executor', projectRoot)).toBe(false);
+    expect(loadConsolidationMetadata('executor', projectRoot)).toBeUndefined();
+  });
+
+  it('prefers consolidated content over raw learned.md in the contextualized prompt', () => {
+    const rawEntry =
+      'Raw verbose entry about checking migrations together with their recovery strategy before merging.';
+    updateProjectAgentLearned('reviewer', rawEntry, projectRoot, 'replace');
+    const consolidated = '## Migrations\n\n- Verify rollback paths for all schema changes.';
+    saveProjectAgentConsolidated('reviewer', consolidated, projectRoot);
+
+    const prompt = buildProjectContextualizedPrompt('BASE', 'reviewer', projectRoot);
+    expect(prompt).toContain(consolidated);
+    expect(prompt).toContain('Consolidated knowledge');
+    // The raw verbose entry should NOT be in the prompt (only the consolidated version)
+    expect(prompt).not.toContain('recovery strategy');
+  });
+
+  it('appends stale raw entries after consolidated content when new captures arrive', () => {
+    // Seed and consolidate one entry
+    updateProjectAgentLearned(
+      'tester',
+      'Run focused tests before broad suites.',
+      projectRoot,
+      'replace',
+    );
+    saveProjectAgentConsolidated('tester', '# Consolidated\n\n- Run focused tests first.', projectRoot);
+
+    const meta = loadConsolidationMetadata('tester', projectRoot);
+    expect(meta!.sourceEntryCount).toBe(1);
+
+    // Capture a new raw entry after consolidation
+    updateProjectAgentLearned(
+      'tester',
+      'Always inspect the git diff before applying edits.',
+      projectRoot,
+      'append',
+    );
+
+    const prompt = buildProjectContextualizedPrompt('BASE', 'tester', projectRoot);
+    // Consolidated content is present
+    expect(prompt).toContain('Run focused tests first');
+    // The new stale entry is appended under the "Recently captured" heading
+    expect(prompt).toContain('inspect the git diff');
+    expect(prompt).toContain('pending next optimization');
+  });
+
+  it('falls back to raw learned.md when no consolidation exists', () => {
+    updateProjectAgentLearned(
+      'architect',
+      'Keep transport contracts in the protocol package.',
+      projectRoot,
+      'replace',
+    );
+    const prompt = buildProjectContextualizedPrompt('BASE', 'architect', projectRoot);
+    expect(prompt).toContain('transport contracts');
+    expect(prompt).toContain('Learned wisdom for this project');
+  });
+
+  it('builds a consolidation instruction containing all raw entries', () => {
+    updateProjectAgentLearned(
+      'bug-hunter',
+      'Check for null guards before property access.',
+      projectRoot,
+      'replace',
+    );
+    updateProjectAgentLearned(
+      'bug-hunter',
+      'Verify async error handling in all catch blocks.',
+      projectRoot,
+      'append',
+    );
+
+    const { instruction, rawEntries, hasExistingConsolidation } = buildConsolidationInstruction(
+      'bug-hunter',
+      projectRoot,
+    );
+
+    expect(rawEntries).toHaveLength(2);
+    expect(hasExistingConsolidation).toBe(false);
+    expect(instruction).toContain('null guards');
+    expect(instruction).toContain('async error handling');
+    expect(instruction).toContain('No omissions');
+  });
+
+  it('tracks consolidation state in getProjectAgentLearnStats', () => {
+    updateProjectAgentLearned(
+      'executor',
+      'Some learned content for testing.',
+      projectRoot,
+      'replace',
+    );
+    const statsBefore = getProjectAgentLearnStats('executor', projectRoot);
+    expect(statsBefore.isConsolidated).toBe(false);
+    expect(statsBefore.consolidation).toBeUndefined();
+
+    saveProjectAgentConsolidated('executor', '# Consolidated content', projectRoot);
+
+    const statsAfter = getProjectAgentLearnStats('executor', projectRoot);
+    expect(statsAfter.isConsolidated).toBe(true);
+    expect(statsAfter.consolidation).toBeDefined();
+    expect(statsAfter.consolidation!.sourceEntryCount).toBe(1);
+    expect(statsAfter.consolidation!.consolidatedAt).toBeTruthy();
+  });
+
+  it('lists roles that only have consolidated files', () => {
+    // Clear any pre-existing executor data from other tests
+    saveProjectAgentConsolidated('unique-role', '# Just consolidated', projectRoot);
+    const roles = listProjectAgentRoles(projectRoot);
+    expect(roles).toContain('unique-role');
+  });
+
+  it('rejects invalid consolidation metadata gracefully', () => {
+    // Manually write invalid JSON to consolidation.json
+    const dir = path.join(projectRoot, '.wrongstack', 'agents', 'executor');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'consolidation.json'), '{"broken": true}');
+
+    expect(loadConsolidationMetadata('executor', projectRoot)).toBeUndefined();
   });
 });

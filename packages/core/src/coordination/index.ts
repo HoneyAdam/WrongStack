@@ -48,6 +48,12 @@ export {
   hintLearnedNeedsSummarization,
   LEARNED_SOFT_LIMIT,
   LEARNED_HARD_LIMIT,
+  loadProjectAgentConsolidated,
+  loadConsolidationMetadata,
+  isConsolidated,
+  saveProjectAgentConsolidated,
+  clearProjectAgentConsolidated,
+  buildConsolidationInstruction,
   listProjectAgentRoles,
   listProjectAgentLearnedEntries,
   loadProjectAgentConfig,
@@ -71,6 +77,7 @@ export {
   type ProjectAgentProfile,
   type CreateProjectAgentInput,
   type ProjectAgentLearningPolicy,
+  type ConsolidationMetadata,
   type RoleKnowledgeManifest,
 } from './agents/index.js';
 export {
