@@ -1506,13 +1506,13 @@ export class SqliteSageStore implements MemoryStore {
           anchors: normalizeAnchors(this.projectRoot, input.anchors),
         }),
         ...(input.importance !== undefined && {
-          importance: Math.max(0, Math.min(1, input.importance)),
+          importance: clamp01(input.importance),
         }),
         ...(input.confidence !== undefined && {
-          confidence: Math.max(0, Math.min(1, input.confidence)),
+          confidence: clamp01(input.confidence),
         }),
         ...(input.freshness !== undefined && {
-          freshness: Math.max(0, Math.min(1, input.freshness)),
+          freshness: clamp01(input.freshness),
         }),
         ...(input.audience !== undefined && { audience: normalizeAudience(input.audience) }),
         ...(input.supersedes !== undefined && { supersedes: input.supersedes }),
