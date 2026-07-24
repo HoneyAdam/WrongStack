@@ -13,7 +13,7 @@
  * All operations are best-effort: a read miss or IO error simply means "no
  * cache", which falls back to a normal connect.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { MCPTool } from './client.js';
@@ -144,9 +144,18 @@ export async function writeCapabilityManifest(
     const file = manifestFile(cacheDir, name);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const body: ManifestFile = { version: 2, configHash, ...manifest };
-    const tmp = `${file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(body, null, 2), 'utf8');
-    await fs.rename(tmp, file);
+    // Process-unique temp name so two WrongStack processes (e.g. CLI + TUI, or
+    // parallel sessions) writing the same server's manifest can't share one
+    // `${file}.tmp` and rename each other's half-written file into place.
+    const tmp = `${file}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    try {
+      await fs.writeFile(tmp, JSON.stringify(body, null, 2), 'utf8');
+      await fs.rename(tmp, file);
+    } catch (err) {
+      // Clean up our own temp file on failure; a unique name is never reused.
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
   } catch {
     // best-effort cache — a write failure just means a cold discovery next boot
   }
