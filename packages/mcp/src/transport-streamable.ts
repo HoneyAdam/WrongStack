@@ -15,6 +15,7 @@ import {
   type JsonRpcResult,
 } from './transport-jsonrpc.js';
 import { normalizeMCPTools } from './tool-schema.js';
+import { readBodyCapped } from './read-body.js';
 
 // ---------------------------------------------------------------------------
 // Streamable HTTP Transport
@@ -202,7 +203,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         return { jsonrpc: '2.0' };
       }
 
-      const match = this.consumeResponseText(await res.text(), id);
+      const match = this.consumeResponseText(await readBodyCapped(res), id);
       if (match) {
         return assertMatchingJsonRpcResult(match, id, method);
       }
@@ -262,7 +263,7 @@ export class StreamableHTTPTransport extends BaseHTTPTransport {
         return { jsonrpc: '2.0', id };
       }
 
-      const parsed = this.consumeResponseText(await res.text(), id);
+      const parsed = this.consumeResponseText(await readBodyCapped(res), id);
       if (parsed) {
         // Convert JsonRpcResult to JsonRpcResponse
         return {

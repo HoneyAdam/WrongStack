@@ -12,6 +12,7 @@ import {
 } from './transport-base.js';
 import { assertMatchingJsonRpcResult, type JsonRpcResult } from './transport-jsonrpc.js';
 import { normalizeMCPTools } from './tool-schema.js';
+import { readBodyCapped } from './read-body.js';
 
 // ---------------------------------------------------------------------------
 // SSE Transport
@@ -241,7 +242,7 @@ export class SSETransport extends BaseHTTPTransport {
 
       let data: unknown;
       try {
-        data = await res.json();
+        data = JSON.parse(await readBodyCapped(res));
       } catch (err) {
         throw new ToolError({
           message: `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
@@ -344,7 +345,7 @@ export class SSETransport extends BaseHTTPTransport {
 
       let data: unknown;
       try {
-        data = await res.json();
+        data = JSON.parse(await readBodyCapped(res));
       } catch (err) {
         throw new ToolError({
           message: `Invalid JSON-RPC response: ${err instanceof Error ? err.message : 'parse failed'}`,
