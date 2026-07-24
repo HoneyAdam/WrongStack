@@ -3335,11 +3335,15 @@ export class SqliteSageStore implements MemoryStore {
    * `drain → close`, guaranteeing the database handle is not closed under an
    * in-flight `BEGIN IMMEDIATE` / lock acquisition / statement.run sequence.
    *
-   * The chain includes every remember / inject / use / migrate call since the
-   * store was initialized, and `runMutation` already rejects on individual
-   * errors. We swallow here only so a failing tail does not prevent the next
-   * supervisor iteration from completing cleanup — the individual call's
-   * caller already saw the rejection via its awaited promise.
+   * The chain is the tail of `runMutation`, so it covers every remember /
+   * inject / use / candidate / hygiene call that goes through the locked
+   * write path. Schema migrations use raw `db.exec('BEGIN IMMEDIATE')` and
+   * bypass this chain — they always run inside `initialize()`, which is
+   * awaited before any caller can reach `dispose()`, so the race window
+   * doesn't apply to them. `runMutation` already rejects on individual
+   * errors; we swallow here only so a failing tail does not prevent the
+   * next supervisor iteration from completing cleanup — the individual
+   * call's caller already saw the rejection via its awaited promise.
    */
   async drainMutations(): Promise<void> {
     await this.mutationChain.catch(() => undefined);
