@@ -28,6 +28,7 @@ import {
   scrollAnchorToTop,
 } from '../scroll-anchor.js';
 import { theme } from '../theme.js';
+import { EntryErrorBoundary } from './entry-error-boundary.js';
 import {
   estimateRenderGroupRows,
   groupEntries,
@@ -250,10 +251,14 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   const entryNodeRefs = useRef(new Map<number, DOMElement>());
   const preparedGroupIdsRef = useRef<string | null>(null);
   const preparedEstimateWidthRef = useRef<number | null>(null);
-  // Key that incorporates the layout store's version so persisted data from a
-  // different term width doesn't poison the current render.
+  // Key that changes when either the group set or the terminal width changes,
+  // triggering a re-seed of the height cache. We deliberately do NOT include
+  // `layoutStore.termWidth` here: it is updated INSIDE the guarded block below
+  // (via setTermWidth), so including it would make the key change one render
+  // later — causing a second seeding pass that discards freshly-measured
+  // heights and replaces them with estimates, corrupting the viewport.
   const cacheKey = layoutStore
-    ? `${groupIdsKey}|w${termWidth}|s${layoutStore.termWidth}`
+    ? `${groupIdsKey}|w${termWidth}`
     : groupIdsKey;
   if (
     preparedGroupIdsRef.current !== cacheKey ||
@@ -305,6 +310,15 @@ export const ScrollableHistory = memo(function ScrollableHistory({
   // Underfill-correction steps for the current anchor position: each step
   // mounts UNDERFILL_BUMP_ROWS more estimated rows. Reset on scroll.
   const [mountBump, setMountBump] = useState(0);
+  // Reset mountBump when terminal width changes so the underfill-correction
+  // loop re-converges from scratch at the new width instead of retaining a
+  // stale counter (possibly already at MAX_UNDERFILL_BUMPS) that prevents
+  // the viewport from filling correctly after a resize.
+  const prevTermWidthRef = useRef(termWidth);
+  if (prevTermWidthRef.current !== termWidth) {
+    prevTermWidthRef.current = termWidth;
+    setMountBump(0);
+  }
   // Re-render nudge when a measurement changed a cached height but no other
   // state transition will re-render this memoized component (thumb geometry
   // and mount planning read the cache during render). Value is never read.
@@ -440,7 +454,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
       if (actual <= 0) continue;
       if (heightCache.getHeight(gid) !== actual) {
         heightCache.record(gid, actual);
-        layoutStore?.markMeasured(gid, actual);
+        layoutStore?.markMeasured(gid, actual, termWidth);
         changed = true;
       }
     }
@@ -546,7 +560,9 @@ export const ScrollableHistory = memo(function ScrollableHistory({
             if (group.type === 'tool-group') {
               return (
                 <Box key={`tool-group-${gid}`} ref={setNode} flexShrink={0}>
-                  <ToolGroup data={group.data} termWidth={termWidth} />
+                  <EntryErrorBoundary label="tool group">
+                    <ToolGroup data={group.data} termWidth={termWidth} />
+                  </EntryErrorBoundary>
                 </Box>
               );
             }
@@ -558,16 +574,18 @@ export const ScrollableHistory = memo(function ScrollableHistory({
                 marginBottom={entry.kind === 'turn-summary' ? 1 : 0}
                 flexShrink={0}
               >
-                <Entry
-                  entry={entry}
-                  termWidth={termWidth}
-                  termHeight={vp}
-                  setSuggestions={setSuggestions}
-                  autonomyMode={autonomyMode}
-                  multiDiffSummaryThreshold={multiDiffSummaryThreshold}
-                  todos={todos}
-                  showModelReasoning={showModelReasoning}
-                />
+                <EntryErrorBoundary label={entry.kind}>
+                  <Entry
+                    entry={entry}
+                    termWidth={termWidth}
+                    termHeight={vp}
+                    setSuggestions={setSuggestions}
+                    autonomyMode={autonomyMode}
+                    multiDiffSummaryThreshold={multiDiffSummaryThreshold}
+                    todos={todos}
+                    showModelReasoning={showModelReasoning}
+                  />
+                </EntryErrorBoundary>
               </Box>
             );
           })}
