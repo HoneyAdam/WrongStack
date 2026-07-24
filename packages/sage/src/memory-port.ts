@@ -58,6 +58,17 @@ export class SqliteMemoryPort extends SqliteSageStore implements MemoryPort {
     recordInjection: (memoryIds, trigger, sessionId) =>
       super.recordInjection(memoryIds, trigger, sessionId),
     recordUse: (memoryIds, source, sessionId) => super.recordUse(memoryIds, source, sessionId),
+    // SqliteSageStore writes injection/use counters to the memories row
+    // synchronously inside recordInjection/recordUse. There is no
+    // in-memory pending accumulator, so flushPendingCounters is a no-op:
+    // the data is already on disk. The capability stays wired (instead of
+    // being removed) so the optional chain in CLI hygiene teardown
+    // (packages/cli/src/wiring/sage.ts) does not silently skip the call
+    // when this port is the backing store. A future optimization may
+    // batch counter writes behind a configurable interval; until then,
+    // flushPendingCounters is the no-op signal that "everything is already
+    // durable".
+    flushPendingCounters: async () => {},
     retrieveForAudience: (context, limit) =>
       super.retrieveForAudience(context, limit === undefined ? undefined : { limit }),
   };

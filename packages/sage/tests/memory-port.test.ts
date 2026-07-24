@@ -55,9 +55,7 @@ describe('MemoryPort conformance', () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-memory-port-'));
-    ports = [
-      new LegacyMemoryPortAdapter(legacyStore()),
-    ];
+    ports = [new LegacyMemoryPortAdapter(legacyStore())];
     if (isSqliteAvailable()) {
       ports.push(new SqliteMemoryPort({ projectRoot: path.join(tempDir, 'sqlite') }));
     }
@@ -117,6 +115,50 @@ describe('MemoryPort conformance', () => {
         includeAncestors: true,
       });
       expect(matches.map((memory) => memory.id)).toContain(created.id);
+    }
+  });
+});
+
+describe('SqliteMemoryPort flushPendingCounters is wired', () => {
+  // M1: flushPendingCounters was declared on the capability surface but
+  // never bound on the SqliteMemoryPort — the optional chain in CLI
+  // hygiene teardown (packages/cli/src/wiring/sage.ts:99) was silently
+  // no-oping. Pin the binding so a future refactor can't accidentally
+  // remove the wiring again.
+
+  it('returns a callable no-op that resolves without error', async () => {
+    if (!isSqliteAvailable()) return;
+    const port = new SqliteMemoryPort({
+      projectRoot: path.join(os.tmpdir(), 'wstack-flush-' + Date.now()),
+    });
+    await port.initialize();
+    try {
+      const retrieval = getSageRetrieval(port);
+      expect(retrieval).toBeDefined();
+      expect(typeof retrieval!.flushPendingCounters).toBe('function');
+      // The no-op contract: resolves to undefined, doesn't throw.
+      await expect(retrieval!.flushPendingCounters!()).resolves.toBeUndefined();
+    } finally {
+      await port.dispose();
+    }
+  });
+
+  it('flushPendingCounters can be called repeatedly without leaking resources', async () => {
+    if (!isSqliteAvailable()) return;
+    const port = new SqliteMemoryPort({
+      projectRoot: path.join(os.tmpdir(), 'wstack-flush-iter-' + Date.now()),
+    });
+    await port.initialize();
+    try {
+      const retrieval = getSageRetrieval(port)!;
+      // Multiple back-to-back calls must remain stable — the no-op
+      // implementation must not acquire a lock, mutate state, or
+      // depend on any per-call setup.
+      for (let i = 0; i < 50; i++) {
+        await retrieval.flushPendingCounters!();
+      }
+    } finally {
+      await port.dispose();
     }
   });
 });
