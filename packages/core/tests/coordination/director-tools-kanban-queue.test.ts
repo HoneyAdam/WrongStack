@@ -26,12 +26,14 @@ const claimReadyTaskMock = vi.fn();
 const updateTaskAssignmentMock = vi.fn();
 const heartbeatTaskAssignmentMock = vi.fn();
 const listReadyTasksMock = vi.fn();
+const getBoardMock = vi.fn();
 
 vi.mock('@wrongstack/kanban', () => ({
   claimReadyTask: (...a: unknown[]) => claimReadyTaskMock(...a),
   updateTaskAssignment: (...a: unknown[]) => updateTaskAssignmentMock(...a),
   heartbeatTaskAssignment: (...a: unknown[]) => heartbeatTaskAssignmentMock(...a),
   listReadyTasks: (...a: unknown[]) => listReadyTasksMock(...a),
+  getBoard: (...a: unknown[]) => getBoardMock(...a),
   describeKanbanBoundary: () => 'unrestricted',
 }));
 
@@ -82,6 +84,17 @@ beforeEach(() => {
   updateTaskAssignmentMock.mockReset();
   heartbeatTaskAssignmentMock.mockReset();
   listReadyTasksMock.mockReset();
+  // getBoard is called unconditionally by the awaitCompletion heartbeat
+  // revoke check (introduced when the runHeartbeat loop started calling
+  // renewAndRevokeLease → getBoard per tick). A stale mock return from a
+  // prior test would silently redirect the revocation branch and cause
+  // unrelated awaitCompletion/fire-and-forget tests to flake.
+  getBoardMock.mockReset();
+  // Default: empty board. The revocation guard sees `liveLeaseId ===
+  // undefined` and skips the revocation — heartbeat proceeds normally.
+  // Tests that need a specific assignment state set their own
+  // `mockResolvedValueOnce` after this baseline.
+  getBoardMock.mockResolvedValue({ id: 'board-1', tasks: [] });
   fleetHandlers = new Map();
   director = {
     spawn: vi.fn(async () => 'sub-1'),
@@ -364,5 +377,102 @@ describe('kanban_queue lease fencing', () => {
     const heartbeatsAtTerminal = heartbeatTaskAssignmentMock.mock.calls.length;
     await vi.advanceTimersByTimeAsync(heartbeatIntervalMs * 3);
     expect(heartbeatTaskAssignmentMock.mock.calls.length).toBe(heartbeatsAtTerminal);
+  });
+
+  it('fire-and-forget: detects lease revocation and terminates stale subagent', async () => {
+    vi.useFakeTimers();
+    claimReadyTaskMock.mockResolvedValueOnce(makeClaim());
+    updateTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });
+    heartbeatTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });
+    // Simulate recover_stale reclaiming the task: the board shows a
+    // different leaseId (or a new assignment with a new leaseId).
+    const newLeaseId = '00000000-0000-4000-8000-000000000999';
+    getBoardMock.mockResolvedValue({
+      id: 'board-1',
+      tasks: [{ id: 'task-1', assignment: { leaseId: newLeaseId } }],
+    });
+
+    const tool = makeKanbanQueueTool(asDir());
+    const heartbeatIntervalMs = 10_000;
+    const res = (await tool.execute(
+      { taskId: 'task-1', leaseTtlMs: 60_000, heartbeatIntervalMs },
+      ctx,
+      {} as never,
+    )) as { dispatched: Array<{ subagentId: string }> };
+    expect(res.dispatched).toHaveLength(1);
+
+    // First heartbeat tick: the watchdog reads the board, detects the
+    // lease mismatch, and terminates the stale subagent.
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs + 50);
+    expect(director.terminate).toHaveBeenCalledWith('sub-1');
+    // The revocation check fires BEFORE the heartbeat renewal, so no
+    // heartbeat was sent for this stale subagent.
+    expect(heartbeatTaskAssignmentMock).not.toHaveBeenCalled();
+
+    // After termination the disposers are cleaned up. Subsequent timer
+    // ticks skip the stale subagent entirely — no wasted getBoard calls
+    // and no heartbeats.
+    const heartbeatsAfterRevoke = heartbeatTaskAssignmentMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs * 3);
+    expect(heartbeatTaskAssignmentMock.mock.calls.length).toBe(heartbeatsAfterRevoke);
+  });
+
+  it('awaitCompletion: detects lease revocation and terminates stale subagent mid-flight', async () => {
+    vi.useFakeTimers();
+    claimReadyTaskMock.mockResolvedValueOnce(makeClaim());
+    updateTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });
+    heartbeatTaskAssignmentMock.mockResolvedValue({ id: 'board-1' });
+    // recover_stale reclaimed the task and assigned a new leaseId.
+    const newLeaseId = '00000000-0000-4000-8000-000000000999';
+    getBoardMock.mockResolvedValue({
+      id: 'board-1',
+      tasks: [{ id: 'task-1', assignment: { leaseId: newLeaseId } }],
+    });
+
+    let settleAwait: (value: unknown[]) => void = () => {};
+    director.awaitTasks = vi.fn(() => new Promise<unknown[]>((resolve) => (settleAwait = resolve)));
+
+    const heartbeatIntervalMs = 10_000;
+    const tool = makeKanbanQueueTool(asDir());
+    const execPromise = tool.execute(
+      { taskId: 'task-1', awaitCompletion: true, leaseTtlMs: 60_000, heartbeatIntervalMs },
+      ctx,
+      {} as never,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The heartbeat detects the lease revocation and terminates the
+    // stale subagent. The awaitTasks below will pick up the stopped result.
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs + 50);
+    expect(director.terminate).toHaveBeenCalledWith('sub-1');
+
+    // After termination the taskId is removed from runTaskIds, so no
+    // further heartbeats are sent for this stale subagent.
+    const heartbeatsAfterRevoke = heartbeatTaskAssignmentMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(heartbeatIntervalMs * 3);
+    expect(heartbeatTaskAssignmentMock.mock.calls.length).toBe(heartbeatsAfterRevoke);
+
+    // Settle the awaited run: the stopped result lands in awaitTasks.
+    const assignedTaskId = (director.assign.mock.calls[0]?.[0] as { id?: string })?.id ?? '';
+    settleAwait([
+      { taskId: assignedTaskId, subagentId: 'sub-1', status: 'stopped', error: 'terminated' },
+    ]);
+    await vi.advanceTimersByTimeAsync(0);
+    const result = (await execPromise) as {
+      results?: Array<{ taskId: string; status: string }>;
+      resultFailures?: Array<{ taskId: string; error: string }>;
+    };
+
+    // The terminal write is fenced with expectedLeaseId so it becomes a
+    // no-op against the successor's state. The result is surfaced to the
+    // caller as a failure so they know the task was not completed.
+    const terminalWrite = updateTaskAssignmentMock.mock.calls.find(
+      (call) => (call[3] as { status?: string })?.status === 'failed',
+    );
+    expect(terminalWrite).toBeDefined();
+    expect((terminalWrite?.[4] as { expectedLeaseId?: string })?.expectedLeaseId).toEqual(
+      expect.any(String),
+    );
+    expect(result.resultFailures ?? []).toHaveLength(1);
   });
 });
