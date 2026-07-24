@@ -412,6 +412,8 @@ const plugin: Plugin = {
             source: 'session.end',
           }).then(r => {
             if (!r.ok) log.warn(`session.ended notification delivery failed: ${r.error ?? 'unknown'}`);
+          }).catch((err: unknown) => {
+            log.debug(`session.ended notification delivery threw: ${(err as Error).message}`);
           });
         }),
       );
@@ -434,6 +436,8 @@ const plugin: Plugin = {
             source: 'tool.exec',
           }).then(r => {
             if (!r.ok) log.warn(`tool.executed notification delivery failed: ${r.error ?? 'unknown'}`);
+          }).catch((err: unknown) => {
+            log.debug(`tool.executed notification delivery threw: ${(err as Error).message}`);
           });
         }),
       );
@@ -456,6 +460,8 @@ const plugin: Plugin = {
             source: 'delegate.completed',
           }).then(r => {
             if (!r.ok) log.warn(`delegate.completed notification delivery failed: ${r.error ?? 'unknown'}`);
+          }).catch((err: unknown) => {
+            log.debug(`delegate.completed notification delivery threw: ${(err as Error).message}`);
           });
         }),
       );
