@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Chronicle: derived metrics store.** A disposable SQLite projection (`<chronicle>/metrics.db`, node:sqlite/WAL) turns the raw journal into queryable aggregates — `provider_daily` (per provider×model×day attempt/success/failure/retry/fallback counts, tokens, duration stats), `task_outcomes` (status, timing, retries, board/run/session lineage, files touched), `file_lineage` (each mutation with full session/agent/task/board/tool/model attribution), and `token_cost` (latest cumulative cost per scope). Ingest is incremental via per-partition byte offsets, so raw partitions can be purged by retention without losing metrics. `wstack chronicle metrics [providers|tasks|files|summary]` and the `chronicle.metrics` WebUI message expose it; the Coding Intelligence dashboard gains Model-reliability and Task-outcomes strips fed from the store instead of re-scanning the journal.
+- **Chronicle: task/kanban file lineage.** `file.event` mutations are now persisted with `scope.kanbanBoardId` and task attribution, and `kanban.*` events join the durable coding-signal set, so "which session, board, and task caused this file change" is answerable directly from scope filters.
+- **Chronicle: journal retention.** `chronicle.retentionDays` (default 30, floored at 7, `0` disables) arms the existing checkpoint-safe auto-purge, which previously had no configuration surface.
+
+### Fixed
+
+- **Chronicle: fleet snapshots dominated journal volume.** `session.agents_updated` (a full-fleet state snapshot fired on every flush, ~76% of journal bytes) and `network.request.started/completed` are now reduced to windowed rollup aggregates instead of persisted raw; `provider.attempt.started`'s prompt manifest records its tool-name roster once per `manifestHash` rather than re-embedding it every attempt. Combined with retention, steady-state journal growth drops ~75%.
+- **Chronicle: partitions over ~512 MB could not be purged or verified.** Entry verification read each partition into a single string, exceeding V8's maximum string length on large legacy partitions and leaving `purge`/`verify` permanently unable to process them; verification now streams line by line.
+- **Chronicle: `provider.fallback` produced a blank-identity metrics row.** The event carries its provider identity under `attributes.from`, not top-level runtime, so the metrics store recorded fallbacks under an empty `('', '')` key; they are now attributed to the provider fallen back from.
+
 ## [0.295.0] — 2026-07-23
 
 > The **repository identity, shared HQ Kanban, Brain control plane, and indexed
