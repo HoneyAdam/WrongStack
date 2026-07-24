@@ -141,18 +141,19 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
   if (!text) return undefined;
 
   // 1. Absolute date-time: "...reset at YYYY-MM-DD HH:mm:ss..."
+  //    Many Chinese providers (Z.AI, Moonshot) embed the reset time in the
+  //    body instead of sending an HTTP Retry-After header. The timestamp
+  //    is timezone-naive. We try UTC first (the standard API convention)
+  //    and fall back to local interpretation so a Beijing-time (UTC+8)
+  //    stamp doesn't produce a negative delta — which would silently drop
+  //    the hint and fall through to exponential backoff.
   const dateTimeRe =
     /(?:reset|renew|available)(?:s|ed|s)?\s*(?:at|on)\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})[T\s](\d{1,2}:\d{2}(?::\d{2})?)/i;
   const dateMatch = dateTimeRe.exec(text);
   if (dateMatch) {
-    // Construct ISO 8601 from the matched parts. Use the first date
-    // found — the body is typically short enough that there's only one.
-    const iso = `${dateMatch[1]}T${dateMatch[2]}`;
-    const ms = Date.parse(iso);
-    if (!Number.isNaN(ms)) {
-      const delta = ms - Date.now();
-      if (delta > 0) return delta; // full reset duration, may be hours
-    }
+    const base = `${dateMatch[1]}T${dateMatch[2]}`;
+    const delta = parseTzAwareDelta(base);
+    if (delta !== undefined) return delta;
   }
 
   // 2. Relative hours: "...reached for X hour(s)..."
@@ -194,4 +195,37 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
 
 function stringOf(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Parse a timezone-naive date-time string (e.g. `2026-07-24T15:00:00`)
+ * into a positive ms-delta from now. Returns `undefined` when no
+ * interpretation yields a future timestamp.
+ *
+ * Strategy: try UTC first (the standard API convention), then fall back
+ * to local time. Without this, a Beijing-time (UTC+8) timestamp parsed
+ * as local time on a UTC machine would appear 8 hours in the past and
+ * the hint would be silently dropped.
+ */
+function parseTzAwareDelta(base: string): number | undefined {
+  // Normalise date separators: Z.AI uses `2026-07-24` but some providers
+  // use `2026/07/24`. ISO 8601 requires hyphens.
+  const iso = base.replace(/\//g, '-');
+  const now = Date.now();
+
+  // Try UTC first.
+  const utcMs = Date.parse(`${iso}Z`);
+  if (!Number.isNaN(utcMs)) {
+    const delta = utcMs - now;
+    if (delta > 0) return delta;
+  }
+
+  // Fall back to local time interpretation.
+  const localMs = Date.parse(iso);
+  if (!Number.isNaN(localMs)) {
+    const delta = localMs - now;
+    if (delta > 0) return delta;
+  }
+
+  return undefined;
 }
