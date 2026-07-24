@@ -1,5 +1,5 @@
 import { writeOut } from '@wrongstack/core/utils';
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useInsertionEffect, useRef } from 'react';
 import type { State } from '../app-state.js';
 
 /** Owns terminal live-region cleanup around overlay/entry/stream transitions. */
@@ -27,6 +27,14 @@ export function useTerminalRenderLifecycle(state: State): void {
   // live tool-output box grows — prevents the ◆ bash ⏱ Xms header line
   // from duplicating into scrollback on every 500ms tick.
   const prevToolStreamLen = useRef(0);
+  // Tracks whether we've already rendered once. On the very first render
+  // the prev-refs above hold their initial false/0 defaults, which makes
+  // `newEntryCommitted` true whenever the app mounts with any history
+  // entries already on screen — that fires eraseLiveRegion() before Ink
+  // has even painted, wiping the just-committed scrollback. Skip the
+  // first commit entirely; from render 2 onwards the refs reflect real
+  // prior state and the diff is meaningful.
+  const hasMounted = useRef(false);
   // Stable erase function — only calls process.stdout.write which is a stable global.
   const eraseLiveRegion = useCallback(() => {
     try {
@@ -48,6 +56,34 @@ export function useTerminalRenderLifecycle(state: State): void {
   // useEffect (async microtask) was too late: the terminal had already
   // scrolled the old content into scrollback by the time it fired.
   React.useLayoutEffect(() => {
+    if (!hasMounted.current) {
+      // Seed the refs from current state so the NEXT render has a real
+      // baseline to diff against, then bail without writing.
+      hasMounted.current = true;
+      prevAnyOverlayOpen.current =
+        state.picker.open ||
+        state.slashPicker.open ||
+        state.modelPicker.open ||
+        state.autonomyPicker.open ||
+        state.designPicker.open ||
+        state.resumePicker.open ||
+        state.settingsPicker.open ||
+        state.enhanceBusy ||
+        state.enhance != null ||
+        state.refineFailure != null ||
+        state.continueConfirm != null ||
+        state.clearConfirm != null ||
+        state.slashConfirm != null ||
+        state.coordinator.monitorOpen ||
+        state.escConfirm != null ||
+        state.sendModePicker != null ||
+        state.confirmQueue.length > 0 ||
+        state.shellCommandWarning != null ||
+        state.brainPrompt != null;
+      prevEntriesCount.current = state.entries.length;
+      prevToolStreamLen.current = state.toolStream?.text.length ?? 0;
+      return;
+    }
     const anyOpenNow =
       state.picker.open ||
       state.slashPicker.open ||
@@ -126,9 +162,19 @@ export function useTerminalRenderLifecycle(state: State): void {
   // While the prompt-refinement flow is active, the EnhancePanel's countdown
   // re-renders the live region every second. In inline mode each redraw can
   // bleed the region's top rows into native scrollback, so the preview
-  // "clones" itself. Erase the stale region before every paint — no dep
-  // array so this runs pre-flush on *every* render, not just state transitions.
-  React.useLayoutEffect(() => {
+  // "clones" itself. We need to erase the stale region BEFORE Ink flushes
+  // the new tree to the terminal — that means useInsertionEffect (runs in
+  // the render commit phase, strictly before useLayoutEffect and before any
+  // DOM/IO write). useLayoutEffect is too late: by the time it fires Ink
+  // has already begun its paint and the first few rows of the new region
+  // are co-mingled with the stale ones.
+  //
+  // The hasMounted ref is shared with the overlay-closed/entry-committed
+  // effect above: skip the first render so we never erase on initial paint
+  // (the previous terminal state is whatever the user saw before the app
+  // started — there's no live region to clean yet, only committed scrollback).
+  useInsertionEffect(() => {
+    if (!hasMounted.current) return;
     if (
       state.enhanceBusy ||
       state.enhance != null ||
@@ -137,5 +183,4 @@ export function useTerminalRenderLifecycle(state: State): void {
     )
       eraseLiveRegion();
   });
-
 }
