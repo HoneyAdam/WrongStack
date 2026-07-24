@@ -1,13 +1,14 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
+import { EventBus } from '@wrongstack/core/kernel';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  containsMemoryText,
   createSageToolCallMiddleware,
   type SageRetrieverLike,
 } from '../src/middleware/tool-call-memory.js';
-import type { ToolCallPipelinePayload } from '@wrongstack/core/agent';
-import { EventBus } from '@wrongstack/core/kernel';
 import { SqliteSageStore } from '../src/sqlite-store.js';
 
 let tmpDir: string;
@@ -679,7 +680,17 @@ describe('SageToolCallMiddleware — injector observability', () => {
   });
 
   it('also emits empty runs with the reason memories left the candidate set', async () => {
-    const store = await storeWithFileMemory('src/file.ts');
+    // Note: the memory text must be ≥ 24 chars to pass the
+    // containsMemoryText short-memory self-suppression guard (see M3
+    // fix in middleware/tool-call-memory.ts). The helper default
+    // ("Memory for src/file.ts") is exactly 22 chars, so this test
+    // uses a custom inline memory that crosses the threshold.
+    const store = await makeStore();
+    await store.rememberSage({
+      text: 'memory for the file src/file.ts already loaded earlier',
+      importance: 0.95,
+      anchors: [{ type: 'file', path: 'src/file.ts' }],
+    });
     const events = new EventBus();
     const traces: Array<Record<string, unknown>> = [];
     events.onPattern('memory.injector_run', (_event, payload) => {
@@ -691,7 +702,7 @@ describe('SageToolCallMiddleware — injector observability', () => {
         type: 'tool_result',
         tool_use_id: 'tu1',
         name: 'read',
-        content: 'file content already says Memory for src/file.ts',
+        content: 'file content already says memory for the file src/file.ts already loaded earlier',
       },
     });
 
@@ -818,5 +829,57 @@ describe('SageToolCallMiddleware — parallel retrieval', () => {
     expect(started).toContain('query');
     expect(memory.retrieveForPath).toHaveBeenCalledTimes(2);
     expect(memory.searchSage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('containsMemoryText short-memory self-suppression', () => {
+  // The threshold (MIN_CONTAINS_LENGTH = 24) is internal but the contract
+  // matters: short memory text like "true" or "rm -rf /" appears in
+  // virtually every system prompt as boilerplate; without a guard, the
+  // substring match blanket-suppresses the memory and the LLM never
+  // sees it again. These tests pin the contract end-to-end so a
+  // future threshold tweak is forced through this test suite.
+
+  it('returns false for very short memory text (single word)', () => {
+    expect(containsMemoryText('anything you write will appear in the system prompt', 'true')).toBe(
+      false,
+    );
+    expect(containsMemoryText('use pnpm. run pnpm test. ok.', 'ok')).toBe(false);
+  });
+
+  it('returns false for short phrases under 24 chars', () => {
+    expect(containsMemoryText('use pnpm test; rm -rf /tmp', 'rm -rf /')).toBe(false);
+    expect(containsMemoryText('use pnpm test; ok done', 'use pnpm')).toBe(false);
+    expect(containsMemoryText('run pnpm test now', 'pnpm test')).toBe(false);
+  });
+
+  it('returns true for short phrases that ARE present AND are 24+ chars', () => {
+    // 24-char threshold — exactly at the boundary, must match.
+    const phrase = 'a'.repeat(24);
+    expect(containsMemoryText(`prefix ${phrase} suffix`, phrase)).toBe(true);
+    // Longer phrases always match when present.
+    expect(
+      containsMemoryText(
+        'the file was edited yesterday by the assistant',
+        'file was edited yesterday',
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores surrounding whitespace and is case-insensitive', () => {
+    // Trailing/leading whitespace from `remember(text)` must not push
+    // a sub-threshold string over the 24-char threshold.
+    expect(containsMemoryText('anything here for the test', '   true   ')).toBe(false);
+    // Mixed-case substring match — must still match when present and
+    // 24+ chars after trim+lowercase.
+    expect(
+      containsMemoryText('ANYTHING GOES HERE FOR THE TEST', 'ANYTHING GOES HERE FOR THE TEST'),
+    ).toBe(true);
+  });
+
+  it('does not blank-match when the substring is genuinely absent', () => {
+    expect(
+      containsMemoryText('the file was edited yesterday by the assistant', 'never written before'),
+    ).toBe(false);
   });
 });

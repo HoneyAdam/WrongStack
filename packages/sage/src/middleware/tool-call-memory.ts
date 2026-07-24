@@ -4,8 +4,8 @@ import type { EventBus, Middleware } from '@wrongstack/core/kernel';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { memoryQueryRelevance, memoryStructuralRelevance } from '../retrieval/relevance.js';
 import { normalizeTextKey } from '../store-helpers.js';
-import { DEFAULT_PERSISTENCE } from '../types.js';
 import type { Sage } from '../types.js';
+import { DEFAULT_PERSISTENCE } from '../types.js';
 import type { InjectionTracker } from './injection-tracker.js';
 import { MemoryInjectorAgent } from './memory-injector-agent.js';
 
@@ -818,8 +818,34 @@ function visibleContextText(payload: ToolCallPipelinePayload): string {
     .toLowerCase();
 }
 
-function containsMemoryText(haystack: string, memoryText: string): boolean {
-  return haystack.includes(memoryText.toLowerCase());
+/**
+ * Minimum haystack-substring length required to count a memory as "already
+ * visible" in the current prompt. Shorter strings blanket-match the
+ * system prompt and cause self-suppression: a memory whose text is "true"
+ * or "the file was edited" will appear in virtually every conversation's
+ * system prompt and silently be filtered out, so the LLM never sees it
+ * again. 24 chars is the threshold where substring match becomes
+ * specific enough that false positives are rare in practice — short
+ * phrases like "rm -rf /" (8 chars), "pnpm test" (9 chars), or "use pnpm"
+ * (8 chars) all fall BELOW it and are preserved (not filtered), while
+ * single-word matches like "true" / "false" / "ok" / "yes" / "no" also
+ * fall below and are preserved. Length-24+ phrases are specific enough
+ * that an exact substring match in the system prompt is unlikely to be
+ * a false positive.
+ */
+const MIN_CONTAINS_LENGTH = 24;
+
+export function containsMemoryText(haystack: string, memoryText: string): boolean {
+  // Skip the cheap length check first so short-memory self-suppression
+  // doesn't silently consume every injection budget. Trim before
+  // measuring so trailing whitespace from `remember(text)` doesn't
+  // edge a memory just over the threshold. Lowercase both sides so
+  // the substring match is case-insensitive without relying on the
+  // caller to pre-lowercase (visibleContextText does so today, but
+  // the unit test contract must not).
+  const needle = memoryText.trim().toLowerCase();
+  if (needle.length < MIN_CONTAINS_LENGTH) return false;
+  return haystack.toLowerCase().includes(needle);
 }
 
 function dedupeRetrievedByText(memories: RetrievedMemory[]): RetrievedMemory[] {
