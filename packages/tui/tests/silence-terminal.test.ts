@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, afterAll, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceTerminal, unsilenceTerminal } from '../src/run-tui.js';
 
 // silenceTerminal / unsilenceTerminal mutate process-global state
@@ -13,6 +13,12 @@ const origInfo = console.info;
 const origTable = console.table;
 const origTrace = console.trace;
 const origStderrWrite = process.stderr.write.bind(process.stderr);
+// Capture stdout.write too: silenceTerminal() does not patch stdout today,
+// but other suites in the same worker process might, and a missed restore
+// would silently corrupt every subsequent test that calls console output.
+// restoreAll() captures this once at module load so any such patches are
+// rolled back even if silenceTerminal never touched stdout itself.
+const origStdoutWrite = process.stdout.write.bind(process.stdout);
 const origMaxListeners = process.getMaxListeners();
 
 // Silence the MaxListenersExceededWarning that fires because multiple
@@ -28,6 +34,7 @@ function restoreAll(): void {
   console.table = origTable;
   console.trace = origTrace;
   process.stderr.write = origStderrWrite;
+  process.stdout.write = origStdoutWrite;
 }
 
 beforeEach(() => {
@@ -143,6 +150,33 @@ describe('silenceTerminal', () => {
     process.stderr.write('hello', cb as never as BufferEncoding);
     // second arg is a function → treated as the callback
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('restoreAll is a cross-suite safety net', () => {
+  it('rolls back a stdout.write patch made by another suite', () => {
+    // Simulate the cross-suite contamination vector: another suite patches
+    // process.stdout.write and forgets to restore it. If silenceTerminal's
+    // restoreAll() captured the module-load original, the next test sees a
+    // clean stdout.write. If it did NOT, the patched spy persists and the
+    // console.log call below is silently dropped — exactly the regression
+    // we want to detect.
+    const straySpy = vi.fn().mockReturnValue(true);
+    process.stdout.write = straySpy as typeof process.stdout.write;
+    expect(process.stdout.write('before')).toBe(true); // patched → straySpy ran
+    expect(straySpy).toHaveBeenCalledTimes(1);
+
+    restoreAll();
+
+    // After restoreAll, stdout.write is the original module-load binding,
+    // not the stray spy. We can't intercept the real TTY write here, but
+    // we can prove the patched reference was replaced by checking that
+    // the live function reference is no longer the stray spy.
+    expect(process.stdout.write).not.toBe(straySpy);
+    // The original returns a boolean (Node WriteStream contract); the
+    // patched spy was also boolean but distinct by identity.
+    const result = process.stdout.write('');
+    expect(typeof result).toBe('boolean');
   });
 });
 
