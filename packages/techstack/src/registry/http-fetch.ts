@@ -41,11 +41,19 @@ export function retryAfterMs(headers: IncomingHttpHeaders, now = Date.now()): nu
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(new DOMException('Request aborted', 'AbortError'));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException('Request aborted', 'AbortError'));
-    }, { once: true });
+    };
+    // Remove the abort listener on normal completion, not only via { once }
+    // on the abort path. requestWithRetry calls delay() repeatedly with the
+    // SAME signal, so without this a retrying request leaks one abort listener
+    // per retry on a reused/long-lived signal (MaxListenersExceededWarning).
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 

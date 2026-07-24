@@ -321,7 +321,10 @@ export function runRunnerCommand(
     // the callback fires because event-loop ordering guarantees the
     // 'abort' event listener runs before the execFile error callback
     // on the same scheduled microtask/macrotask boundary.
-    options.signal?.addEventListener('abort', () => { timedOut = true; }, { once: true });
+    const onAbort = () => {
+      timedOut = true;
+    };
+    options.signal?.addEventListener('abort', onAbort, { once: true });
     const child = execFile(
       argv[0]!,
       argv.slice(1) as string[],
@@ -334,6 +337,10 @@ export function runRunnerCommand(
         shell: false,
       },
       (err) => {
+        // Drop the abort listener on every completion path. Without this, a
+        // caller reusing one signal across many exec() calls leaks a listener
+        // per call (the { once } only fires on abort, not normal completion).
+        options.signal?.removeEventListener('abort', onAbort);
         if (timedOut) {
           resolvePromise({
             code: null,
