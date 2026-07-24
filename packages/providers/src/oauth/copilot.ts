@@ -89,37 +89,67 @@ async function startDeviceFlow(signal?: AbortSignal): Promise<DeviceCode> {
   };
 }
 
+/**
+ * GitHub device-flow errors that are terminal — polling cannot recover, so we
+ * fail fast. Everything else (a network blip, a timeout, an HTTP 5xx that
+ * yields no JSON `error`) is transient: the device code stays valid for
+ * `expires_in`, so we keep polling rather than abandoning the whole login.
+ */
+const TERMINAL_DEVICE_FLOW_ERRORS = new Set([
+  'access_denied',
+  'expired_token',
+  'unsupported_grant_type',
+  'incorrect_client_credentials',
+  'incorrect_device_code',
+  'device_flow_disabled',
+]);
+
 async function pollForGitHubToken(device: DeviceCode, signal: AbortSignal): Promise<string> {
   let intervalMs = device.interval * 1000;
   const expiresAt = Date.now() + device.expires_in * 1000;
 
   while (Date.now() < expiresAt) {
     await sleep(intervalMs, signal);
-    const res = await fetch(ACCESS_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/x-www-form-urlencoded',
-        'user-agent': COPILOT_HEADERS['User-Agent']!,
-      },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        device_code: device.device_code,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }).toString(),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-    });
-    const json = (await res.json().catch(() => ({}))) as {
-      access_token?: string;
-      error?: string;
-    };
+
+    let json: { access_token?: string; error?: string };
+    try {
+      const res = await fetch(ACCESS_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/x-www-form-urlencoded',
+          'user-agent': COPILOT_HEADERS['User-Agent']!,
+        },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          device_code: device.device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }).toString(),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      });
+      json = (await res.json().catch(() => ({}))) as {
+        access_token?: string;
+        error?: string;
+      };
+    } catch (err) {
+      // The caller cancelled the login — propagate. Any other failure (network
+      // blip, DNS hiccup, the 15s request timeout) is transient: the device
+      // code is still valid, so retry on the next interval instead of killing
+      // the whole login.
+      if (signal.aborted) throw err;
+      continue;
+    }
+
     if (json.access_token) return json.access_token;
-    if (json.error === 'authorization_pending') continue;
     if (json.error === 'slow_down') {
       intervalMs += 5_000;
       continue;
     }
-    throw new Error(`Device flow failed: ${json.error ?? 'unknown error'}`);
+    if (json.error !== undefined && TERMINAL_DEVICE_FLOW_ERRORS.has(json.error)) {
+      throw new Error(`Device flow failed: ${json.error}`);
+    }
+    // `authorization_pending`, an empty/5xx body (no JSON `error`), or an
+    // unknown non-terminal error: keep polling until the code expires.
   }
   throw new FetchError({
     message: 'Device code expired — please restart the login.',
